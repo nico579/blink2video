@@ -475,6 +475,7 @@ def parse_args() -> argparse.Namespace:
         description="Surveille l'installation Blink et alerte par courriel."
     )
     parser.add_argument("--timezone", default="Europe/Paris")
+    runtime.ajouter_boucle(parser)
     parser.add_argument(
         "--dry-run", action="store_true",
         help="afficher les alertes sans envoyer de courriel ni enregistrer l'état",
@@ -526,11 +527,12 @@ def main() -> int:
                  "Ceci est un test. La surveillance sait vous joindre.")
         return 0
 
-    # Un seul contrôle : la répétition appartient au verbe « loop », qui dit
-    # aussi ce qu'il répète. Le contrôle d'état est ce que ce programme fait,
-    # rien de plus, conformément à son nom.
-    un_tour(args, config, timezone, a_faire=("watch",))
-    return 0
+    # Ce programme contrôle l'état, rien de plus, conformément à son nom. La
+    # répétition est une option commune à tous les verbes, pas un verbe.
+    return runtime.repeter(
+        lambda: un_tour(args, config, timezone, a_faire=("watch",)),
+        args.loop, journal,
+    )
 
 
 if __name__ == "__main__":

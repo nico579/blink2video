@@ -38,11 +38,10 @@ VERBES = {
     "list": ("blink", "ce que contient le module de synchronisation en ce moment"),
     "download": ("blink", "récupérer les nouveaux clips avant que la rotation ne les efface"),
     "merge": ("merge_daily", "normaliser, horodater et assembler jour, semaine et mois"),
-    "all": ("daily", "download puis merge"),
+    "all": ("daily", "tout : contrôler l'état, télécharger, assembler"),
     "serve": ("serve", "servir seulement l'interface web : visionnage, tri, direct, armement"),
     "watch": ("watch", "contrôler l'état de l'installation et alerter s'il se dégrade"),
-    "loop": ("loop", "répéter des verbes à intervalle régulier, avec --serve pour lever l'interface"),
-    "autostart": ("autostart", "lancer un verbe à l'ouverture de session, loop par défaut"),
+    "autostart": ("autostart", "lancer un verbe à l'ouverture de session, « all --serve --loop 10 » par défaut"),
     "smoketest": ("smoketest", "vérifier que l'installation fonctionne sur cette machine"),
 }
 
@@ -148,6 +147,38 @@ def resource_dir() -> Path:
     if frozen():
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)).resolve()
     return Path(__file__).resolve().parent
+
+
+def ajouter_boucle(parser) -> None:
+    """Ajoute --loop à un analyseur d'arguments.
+
+    La répétition est une manière de travailler, pas un travail : elle
+    s'applique donc à n'importe quel verbe plutôt que d'en constituer un. Écrite
+    une seule fois ici, elle se comporte pareil partout."""
+    parser.add_argument(
+        "--loop", type=int, nargs="?", const=10, default=None, metavar="MINUTES",
+        help="répéter toutes les N minutes au lieu d'agir une fois (défaut 10)",
+    )
+
+
+def repeter(travail, minutes, journal=None) -> int:
+    """Exécute `travail` une fois, ou indéfiniment si `minutes` est donné."""
+    import time
+
+    if not minutes:
+        return int(travail() or 0)
+    print(f"Répétition toutes les {minutes} min. Ctrl+C pour arrêter.")
+    if journal:
+        journal(f"repetition toutes les {minutes} min")
+    try:
+        while True:
+            travail()
+            time.sleep(minutes * 60)
+    except KeyboardInterrupt:
+        if journal:
+            journal("arret de la repetition")
+        print("\nArrêt.")
+    return 0
 
 
 def self_command(verb: str, *arguments: str) -> list:

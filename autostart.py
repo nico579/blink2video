@@ -36,10 +36,11 @@ def etiquette(quoi: tuple) -> str:
     return f"{NOM}-{(quoi or DEFAUT)[0]}"
 
 
-# Ce qu'on automatise par défaut : une seule entrée qui lève l'interface puis
-# boucle sur le contrôle, le rapatriement et l'assemblage. Rien n'oblige à
-# automatiser cela : « autostart on loop watch » n'alerterait que.
-DEFAUT = ("loop", "--serve")
+# Ce qu'on automatise par défaut : une seule entrée qui lève l'interface, puis
+# reprend toutes les dix minutes le contrôle d'état, le rapatriement et
+# l'assemblage. Rien n'oblige à automatiser cela : « autostart on watch --loop »
+# n'alerterait que, sans rien rapatrier.
+DEFAUT = ("all", "--serve", "--loop", "10")
 
 
 def commande(verbe_et_options: tuple = DEFAUT) -> list:

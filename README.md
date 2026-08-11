@@ -83,11 +83,10 @@ blink login       # se connecter au compte Blink, vérification en deux étapes 
 blink list        # ce que contient le module de synchronisation en ce moment
 blink download    # récupérer les nouveaux clips avant que la rotation ne les efface
 blink merge       # normaliser, horodater et assembler jour, semaine et mois
-blink all         # download puis merge
+blink all         # tout : contrôler l'état, télécharger, assembler
 blink serve       # servir seulement l'interface web : visionnage, tri, direct, armement
 blink watch       # contrôler l'état de l'installation et alerter s'il se dégrade
-blink loop        # répéter des verbes à intervalle régulier, avec --serve pour lever l'interface
-blink autostart   # lancer un verbe à l'ouverture de session, loop par défaut
+blink autostart   # lancer un verbe à l'ouverture de session, « all --serve --loop 10 » par défaut
 blink smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
 <!-- verbes:fin -->

@@ -1062,6 +1062,7 @@ def parse_args() -> argparse.Namespace:
         help="annuler une exclusion : le brut revient de Blink_Excluded et le clip est re-normalisé",
     )
     parser.add_argument("--timezone", default="Europe/Paris")
+    runtime.ajouter_boucle(parser)
     parser.add_argument("--date", help="limiter à une date locale YYYY-MM-DD")
     parser.add_argument("--camera", help="limiter à une caméra")
     parser.add_argument(
@@ -1084,6 +1085,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    return runtime.repeter(lambda: _executer(args), args.loop)
+
+
+def _executer(args) -> int:
     input_dir = args.input.resolve()
     output_dir = args.output.resolve()
     normalized_dir = args.normalized_output.resolve()
