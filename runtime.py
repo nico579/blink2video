@@ -24,6 +24,32 @@ import sys
 from pathlib import Path
 
 
+# Source unique des verbes : leur ordre d'apparition dans l'aide, le programme
+# qui les traite, et ce qu'ils font. Trois usages en découlent, l'aide affichée,
+# la délégation d'un verbe au bon programme, et la relance de l'outil sur un
+# autre verbe. Les tenir à trois endroits garantissait qu'ils divergent, ce qui
+# s'est produit : « autostart » manquait dans une description, « list » et
+# « login » n'apparaissaient nulle part dans la liste des verbes.
+#
+# Le programme « blink » désigne blink.py lui-même, qui traite ces verbes sans
+# déléguer : le verbe lui est alors passé en argument.
+VERBES = {
+    "login": ("blink", "se connecter au compte Blink, vérification en deux étapes gérée"),
+    "list": ("blink", "ce que contient le module de synchronisation en ce moment"),
+    "download": ("blink", "récupérer les nouveaux clips avant que la rotation ne les efface"),
+    "merge": ("merge_daily", "normaliser, horodater et assembler jour, semaine et mois"),
+    "all": ("daily", "download puis merge"),
+    "review": ("review", "interface web locale : visionnage, tri, direct, armement"),
+    "watch": ("watch", "surveillance continue, notifications, assemblage automatique"),
+    "autostart": ("autostart", "démarrer la surveillance avec la session"),
+    "smoketest": ("smoketest", "vérifier que l'installation fonctionne sur cette machine"),
+}
+
+# Verbes confiés à un autre programme, déduits de la table ci-dessus.
+DELEGUES = {verbe: module for verbe, (module, _) in VERBES.items()
+            if module != "blink"}
+
+
 DEPENDANCES = {
     "aiohttp": "aiohttp",
     "blinkpy": "blinkpy",
@@ -131,13 +157,11 @@ def self_command(verb: str, *arguments: str) -> list:
     depuis des sources ou depuis un exécutable."""
     if frozen():
         return [sys.executable, verb, *arguments]
-    script = {"download": "blink.py", "merge": "merge_daily.py",
-              "review": "review.py", "watch": "watch.py",
-              "all": "daily.py", "smoketest": "smoketest.py",
-              "autostart": "autostart.py"}.get(verb)
-    if script is None:
+    if verb not in VERBES:
         raise ValueError(f"verbe inconnu : {verb}")
-    base = [sys.executable, "-u", str(Path(__file__).resolve().parent / script)]
-    # blink.py attend le verbe « download » comme premier argument positionnel ;
-    # les autres programmes sont appelés directement, sans verbe.
-    return base + ([verb] if script == "blink.py" else []) + list(arguments)
+    module = VERBES[verb][0]
+    base = [sys.executable, "-u",
+            str(Path(__file__).resolve().parent / f"{module}.py")]
+    # blink.py attend son verbe comme premier argument positionnel ; les autres
+    # programmes sont appelés directement, sans verbe.
+    return base + ([verb] if module == "blink" else []) + list(arguments)

@@ -76,19 +76,23 @@ votre charge.
 
 ## Utilisation
 
-Une commande, un verbe par action.
+
+
+<!-- verbes:début -->
+Une commande, un verbe par action. `blink <verbe> --help` donne les options de chacun.
 
 ```bash
-blink login          # connexion au compte Blink, vérification en deux étapes gérée
-blink list           # ce que contient le module en ce moment
-blink download       # récupérer les nouveaux clips dans Blink_Clips/
-blink merge          # normaliser et assembler les vidéos
-blink all            # télécharger puis assembler
-blink review         # ouvrir l'interface web
-blink watch --loop   # surveillance continue, notifications, assemblage automatique
-blink smoketest      # vérifier que l'installation fonctionne, sur cette machine
+blink login       # se connecter au compte Blink, vérification en deux étapes gérée
+blink list        # ce que contient le module de synchronisation en ce moment
+blink download    # récupérer les nouveaux clips avant que la rotation ne les efface
+blink merge       # normaliser, horodater et assembler jour, semaine et mois
+blink all         # download puis merge
+blink review      # interface web locale : visionnage, tri, direct, armement
+blink watch       # surveillance continue, notifications, assemblage automatique
+blink autostart   # démarrer la surveillance avec la session
+blink smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
-
+<!-- verbes:fin -->
 Les arguments qui suivent le verbe sont transmis au programme correspondant :
 `blink review --port 8899` fonctionne, et `blink review --help` affiche les
 options de ce programme.

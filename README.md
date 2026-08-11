@@ -73,19 +73,23 @@ dependencies yourself.
 
 ## Use
 
-One command, one verb per action.
+
+
+<!-- verbes:début -->
+One command, one verb per action. `blink <verb> --help` gives each one's options.
 
 ```bash
-blink login          # sign in to your Blink account, two-factor supported
-blink list           # what the Sync Module holds right now
-blink download       # fetch new clips into Blink_Clips/
-blink merge          # normalize and assemble the videos
-blink all            # download then assemble
-blink review         # open the web interface
-blink watch --loop   # continuous monitoring, notifications, auto-assembly
-blink smoketest      # check that the installation works, on this machine
+blink login       # se connecter au compte Blink, vérification en deux étapes gérée
+blink list        # ce que contient le module de synchronisation en ce moment
+blink download    # récupérer les nouveaux clips avant que la rotation ne les efface
+blink merge       # normaliser, horodater et assembler jour, semaine et mois
+blink all         # download puis merge
+blink review      # interface web locale : visionnage, tri, direct, armement
+blink watch       # surveillance continue, notifications, assemblage automatique
+blink autostart   # démarrer la surveillance avec la session
+blink smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
-
+<!-- verbes:fin -->
 Arguments after the verb go to the matching program, so `blink review --port 8899`
 works as expected, and `blink review --help` shows that program's own options.
 

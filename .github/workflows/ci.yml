@@ -56,6 +56,13 @@ jobs:
           python blink.py --bootstrap=none review --help
           python blink.py --bootstrap=none watch --help
 
+      # Les verbes n'existent qu'à un seul endroit, runtime.VERBES. Ce contrôle
+      # échoue si les README ne reflètent plus cette table : une dérive doit
+      # être signalée, pas tolérée jusqu'à ce que quelqu'un s'en aperçoive.
+      - name: Vérifier que les README sont à jour
+        if: runner.os == 'Linux'
+        run: python docs.py --check
+
       - name: Éprouver la chaîne vidéo et l'interface
         run: python tests.py
 

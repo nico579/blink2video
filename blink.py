@@ -435,25 +435,48 @@ def print_clip_summary(clips: list) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    programme = Path(sys.argv[0]).stem or "blink"
     parser = argparse.ArgumentParser(
-        description="Connexion Blink et récupération des clips du stockage local. "
-                    "Verbes délégués : merge (assemblage des vidéos), review "
-                    "(interface web), watch (surveillance), all (téléchargement "
-                    "puis assemblage).",
-        epilog="Exemples : blink.py download --hub Maison | blink.py review "
-               "--port 8899 | blink.py watch --loop",
+        prog=programme,
+        # Les verbes vont dans la description, pas dans un groupe d'arguments :
+        # les déclarer à argparse en ferait de faux positionnels, qui
+        # pollueraient la ligne d'usage et fausseraient l'analyse.
+        description=(
+            "Gestion des caméras Blink depuis un ordinateur : direct, "
+            "armement, archive horodatée.\n\nVerbes :\n"
+            + "".join(f"  {verbe:11} {texte}\n"
+                      for verbe, (_, texte) in runtime.VERBES.items())
+            + "\n  <verbe> --help donne les options de chacun."
+        ),
+        # Les exemples suivent l'ordre dans lequel on rencontre les verbes :
+        # se connecter, regarder ce qu'il y a, récupérer, assembler, visionner,
+        # puis automatiser. C'est un parcours, pas un catalogue.
+        epilog="Premiers pas :\n" + "\n".join(
+            f"  {programme} {commande:<20} {intention}"
+            for commande, intention in (
+                ("login", "se connecter une fois"),
+                ("list", "voir ce que contient le module"),
+                ("download", "récupérer les clips"),
+                ("merge", "assembler les vidéos"),
+                ("review", "ouvrir l'interface"),
+                ("autostart on", "surveiller à chaque session"),
+            )
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("login", "list", "download"),
+        choices=tuple(runtime.VERBES),
         # Pas de commande par défaut : sans argument, on affiche l'aide plutôt
         # que d'ouvrir une connexion au compte Blink. Une commande lancée sans
         # rien ne doit pas partir sur le réseau à l'insu de celui qui la tape.
         default=None,
-        help="login, list (défaut) ou download. Les verbes merge, review, watch, "
-             "all, smoketest et autostart passent la main aux programmes "
-             "correspondants",
+        # L'aide détaillée de chaque verbe est imprimée sous l'aide standard,
+        # en une seule liste : séparer les verbes traités ici de ceux qui sont
+        # délégués n'apprend rien à l'utilisateur et laisse croire que les
+        # premiers n'existent pas.
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--hub", help="nom du Sync Module à utiliser")
     parser.add_argument("--camera", help="ne garder que cette caméra")
@@ -476,14 +499,9 @@ def parse_args() -> argparse.Namespace:
     )
     args = parser.parse_args()
     if args.command is None:
+        # Sans commande, l'aide plutôt qu'une connexion au compte : une
+        # commande tapée sans argument ne doit pas partir sur le réseau.
         parser.print_help()
-        print("\nVerbes délégués :")
-        for verbe, module in DELEGUES.items():
-            # Pas de flèche typographique : la console Windows est en cp1252
-            # et ne sait pas l'encoder, ce qui ferait planter l'affichage de
-            # l'aide, c'est-à-dire la première chose que voit un utilisateur.
-            print(f"  blink {verbe:10} -> {module}.py"
-                  f"   (blink {verbe} --help pour ses options)")
         raise SystemExit(0)
     if args.since is not None and args.since < 0:
         parser.error("--since doit être positif ou nul")
@@ -596,14 +614,10 @@ async def main(args: argparse.Namespace) -> int:
 # retenir, un verbe pour l'action. Chaque verbe reçoit tels quels les arguments
 # qui le suivent, donc « blink.py review --port 8899 » revient exactement à
 # « python review.py --port 8899 ».
-DELEGUES = {
-    "merge": "merge_daily",
-    "review": "review",
-    "watch": "watch",
-    "all": "daily",
-    "smoketest": "smoketest",
-    "autostart": "autostart",
-}
+# Les verbes, leur programme et leur description vivent dans runtime.VERBES :
+# une seule table, lue ici pour l'aide et la délégation, par self_command pour
+# la relance, et par docs.py pour les README.
+DELEGUES = runtime.DELEGUES
 
 
 def deleguer(verbe: str, arguments: list) -> int:
