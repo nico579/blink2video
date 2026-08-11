@@ -30,7 +30,14 @@ Everything runs on your machine. Nothing is sent anywhere.
 
 ## Screenshots
 
-![The Clips tab](Screenshots/serve1.PNG)
+![The Live tab](Screenshots/serve_direct.PNG)
+
+Live view: one tile per camera, its latest thumbnail, arming for the system and
+for each camera, battery, temperature, signal and the time of the reading. An
+offline camera keeps reporting its last known values, and the interface says how
+old they are.
+
+![The Clips tab](Screenshots/serve0.PNG)
 
 Clips newest first, filtered by camera and by day. Each card gives the camera,
 the duration, the date and the model, and the "Écarter" button removes the clip

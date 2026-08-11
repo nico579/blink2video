@@ -33,7 +33,14 @@ Tout tourne sur votre machine. Rien n'est envoyé ailleurs.
 
 ## Captures d'écran
 
-![L'onglet Clips](Screenshots/serve1.PNG)
+![L'onglet Direct](Screenshots/serve_direct.PNG)
+
+Le Direct : une tuile par caméra, sa dernière vignette, l'armement du système et
+de chaque caméra, la batterie, la température, le signal et la date du relevé.
+Une caméra hors ligne continue d'annoncer ses dernières valeurs connues, et
+l'interface dit de quand elles datent.
+
+![L'onglet Clips](Screenshots/serve0.PNG)
 
 Les clips du plus récent au plus ancien, filtrables par caméra et par jour.
 Chaque carte donne la caméra, la durée, la date et le modèle, et le bouton
