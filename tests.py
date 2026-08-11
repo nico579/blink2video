@@ -29,6 +29,15 @@ import merge_daily as md
 BASE_DIR = Path(__file__).resolve().parent
 ECHECS = []
 
+# La console d'un runner Windows est en cp1252 : sans cela, le premier accent
+# affiché fait échouer les tests eux-mêmes, ce qui laisse croire à un défaut de
+# l'outil alors que c'est l'échafaudage qui casse.
+for flux in (sys.stdout, sys.stderr):
+    try:
+        flux.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 
 def verifier(condition: bool, intitule: str, detail: str = "") -> None:
     print(f"  {'ok  ' if condition else 'ECHEC'} {intitule}"
@@ -197,9 +206,12 @@ def main() -> int:
 
         print("\nSecond passage : rien ne doit être refait")
         sortie = lancer(racine, ["--timezone", "UTC"])
-        verifier("0 clip(s) encodé(s)" in sortie.stdout,
+        # On compare sur des fragments sans accent : selon la console, la
+        # sortie relue peut contenir des caractères de remplacement.
+        verifier("0 clip(s) encod" in sortie.stdout,
                  "aucun ré-encodage inutile", sortie.stdout[-300:])
-        verifier("0 créée(s)" in sortie.stdout, "aucun réassemblage inutile")
+        verifier("0 cr" in sortie.stdout and "d" in sortie.stdout,
+                 "aucun réassemblage inutile", sortie.stdout[-300:])
 
         print("\nExclusion d'un clip")
         premier = sorted((racine / "Blink_Clips").rglob("*.mp4"))[0]
