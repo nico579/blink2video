@@ -86,10 +86,10 @@ blink login       # se connecter au compte Blink, vérification en deux étapes 
 blink list        # ce que contient le module de synchronisation en ce moment
 blink download    # récupérer les nouveaux clips avant que la rotation ne les efface
 blink merge       # normaliser, horodater et assembler jour, semaine et mois
-blink all         # tout : contrôler l'état, télécharger, assembler
-blink serve       # servir seulement l'interface web : visionnage, tri, direct, armement
 blink watch       # contrôler l'état de l'installation et alerter s'il se dégrade
-blink autostart   # lancer un verbe à l'ouverture de session, « all --serve --loop 10 » par défaut
+blink all         # tout, c'est-à-dire watch puis download puis merge
+blink serve       # servir l'interface web, et lancer les verbes qui suivent
+blink autostart   # lancer un verbe à l'ouverture de session, « serve all --loop » par défaut
 blink smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
 <!-- verbes:fin -->
@@ -162,13 +162,19 @@ compte les pixels allumés, seule preuve qu'une heure est bien écrite.
 Une commande suffit, elle emploie le mécanisme propre à votre système :
 
 ```bash
-blink autostart on        # installer
-blink autostart           # savoir où l'on en est
-blink autostart off       # retirer
+blink autostart on                    # installer le défaut : serve all --loop 10
+blink autostart status                # ce qui est installé, et ce que ça lance
+blink autostart off                   # retirer
+
+blink autostart on watch --loop 30    # n'automatiser que les alertes
+blink autostart on serve --port 8899  # n'automatiser que l'interface
+blink autostart off watch             # retirer cette entrée-là
 ```
 
-Ajoutez `--dry-run` pour voir ce qui serait fait sans rien modifier. Aucun droit
-d'administrateur n'est nécessaire.
+Sans verbe, `serve --no-browser all --loop 10` : l'interface, qui accueille la
+boucle des trois activités. Une entrée par verbe, ce qui permet d'en retirer une
+sans toucher aux autres. Ajoutez `--dry-run` pour voir ce qui serait fait sans
+rien modifier. Aucun droit d'administrateur n'est nécessaire.
 
 Si vous préférez le faire vous-même, voici ce que la commande met en place.
 
@@ -298,26 +304,36 @@ au lieu de surveiller, est un verbe.
 | Option | Effet |
 |---|---|
 | `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
-| `--ignore CAMERA…` | mettre une caméra en sourdine, plus aucune alerte |
+| `--ignore CAMERA…` | mettre une caméra en sourdine, puis poursuivre le contrôle |
 | `--unignore CAMERA…` | lever la sourdine |
 | `--test` | déclencher une notification de vérification |
-| `--notify popup\|mail\|both` | canal d'alerte (défaut : boîte de dialogue) |
-| `--dry-run` | montrer sans agir |
+| `--dry-run` | montrer sans notifier ni enregistrer l'état |
 
-**`blink all`** : contrôler, télécharger, assembler. Le verbe de l'usage courant.
+**`blink all`** : watch, puis download, puis merge. Le verbe de l'usage courant.
+Pour n'en faire qu'une partie, on ne retire pas d'étape : on nomme les verbes
+voulus.
 
 | Option | Effet |
 |---|---|
 | `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
-| `--serve` | lever l'interface web avant de commencer, et la laisser |
-| `--port N` | port de l'interface (défaut 8765) |
-| `--no-watch`, `--no-download`, `--no-merge` | retirer une étape |
 | `--hub`, `--camera`, `--since` | comme pour `download` |
-| `--notify`, `--dry-run`, `--timezone` | comme pour `watch` |
+| `--dry-run`, `--timezone` | comme pour `watch` |
+
+**`blink serve [verbe…]`** : servir l'interface web, et lancer à côté le verbe
+qui suit. `blink serve all --loop` lève l'interface puis boucle ; les deux
+s'arrêtent ensemble.
+
+| Option | Effet |
+|---|---|
+| `--port N` | port d'écoute (défaut 8765) |
+| `--no-browser` | ne pas ouvrir le navigateur |
+| `--hub`, `--thumbs`, `--timezone` | module, cache des vignettes, fuseau |
+| les mêmes options de dossiers que `merge` | |
 
 **`blink autostart on\|off\|status [verbe…]`** : lancer un verbe à l'ouverture
-de session, par le mécanisme du système. Sans verbe, `all --serve --loop 10`.
-Une entrée par verbe, `--dry-run` montre sans agir.
+de session, par le mécanisme du système. Sans verbe,
+`serve --no-browser all --loop 10`. Une entrée par verbe, `--dry-run` montre
+sans agir.
 
 **`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
 de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.

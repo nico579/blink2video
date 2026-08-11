@@ -38,10 +38,10 @@ VERBES = {
     "list": ("blink", "ce que contient le module de synchronisation en ce moment"),
     "download": ("blink", "récupérer les nouveaux clips avant que la rotation ne les efface"),
     "merge": ("merge_daily", "normaliser, horodater et assembler jour, semaine et mois"),
-    "all": ("daily", "tout : contrôler l'état, télécharger, assembler"),
-    "serve": ("serve", "servir seulement l'interface web : visionnage, tri, direct, armement"),
     "watch": ("watch", "contrôler l'état de l'installation et alerter s'il se dégrade"),
-    "autostart": ("autostart", "lancer un verbe à l'ouverture de session, « all --serve --loop 10 » par défaut"),
+    "all": ("daily", "tout, c'est-à-dire watch puis download puis merge"),
+    "serve": ("serve", "servir l'interface web, et lancer les verbes qui suivent"),
+    "autostart": ("autostart", "lancer un verbe à l'ouverture de session, « serve all --loop » par défaut"),
     "smoketest": ("smoketest", "vérifier que l'installation fonctionne sur cette machine"),
 }
 
@@ -166,6 +166,26 @@ def demarrer(commande, **options):
     """subprocess.Popen, même précaution."""
     options.setdefault("creationflags", SANS_FENETRE)
     return subprocess.Popen(commande, **options)
+
+
+def decouper_verbes(arguments) -> list:
+    """Découpe « watch --loop download --loop merge » en groupes.
+
+    Chaque nom de verbe connu ouvre un groupe, qui court jusqu'au verbe
+    suivant : les options appartiennent donc au verbe qui les précède. C'est ce
+    qui permet d'en citer autant qu'on veut, chacun réglé à sa façon.
+
+    Lève ValueError si le premier élément n'est pas un verbe, faute de quoi on
+    ne saurait pas à qui rattacher les premières options."""
+    groupes = []
+    for element in arguments:
+        if element in VERBES:
+            groupes.append([element])
+        elif groupes:
+            groupes[-1].append(element)
+        else:
+            raise ValueError(f"« {element} » n'est pas un verbe")
+    return groupes
 
 
 def ajouter_boucle(parser) -> None:

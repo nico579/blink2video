@@ -27,12 +27,9 @@ import json
 import os
 import re
 import shutil
-import smtplib
 import subprocess
-import ssl
 import time
 import sys
-from email.message import EmailMessage
 from pathlib import Path
 
 # Avant tout import de dépendance : c'est ici qu'un environnement isolé
@@ -51,7 +48,6 @@ import runtime
 
 BASE_DIR = runtime.app_dir()
 WATCH_STATE = BASE_DIR / ".blink_watch_state.json"
-WATCH_CONFIG = BASE_DIR / "watch_config.json"
 
 # Au-delà de ce silence, une caméra qui enregistrait est considérée en panne.
 # Deux jours plutôt qu'un : un jardin peut rester calme vingt-quatre heures.
@@ -61,21 +57,6 @@ SILENCE_DAYS = 2
 POWERSHELL_APP_ID = (r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}"
                      r"\WindowsPowerShell\v1.0\powershell.exe")
 
-
-def load_config() -> dict:
-    """Lit la configuration d'envoi, sans jamais réclamer de mot de passe.
-
-    Le mot de passe est lu dans la variable d'environnement BLINK_WATCH_PASSWORD
-    si elle existe, sinon dans le fichier de configuration. Pour Gmail il faut
-    un mot de passe d'application, le mot de passe du compte étant refusé par
-    Google depuis 2022."""
-    config = md.load_json(WATCH_CONFIG, {})
-    config.setdefault("smtp_host", "smtp.gmail.com")
-    config.setdefault("smtp_port", 465)
-    config.setdefault("from", "")
-    config.setdefault("to", "")
-    config["password"] = os.environ.get("BLINK_WATCH_PASSWORD") or config.get("password", "")
-    return config
 
 
 async def read_state(timezone) -> dict:
@@ -364,59 +345,28 @@ def journal(ligne: str) -> None:
         pass
 
 
-def send_mail(config: dict, subject: str, body: str) -> None:
-    if not (config["from"] and config["to"] and config["password"]):
-        raise RuntimeError(
-            f"envoi impossible : renseignez « from », « to » et le mot de passe "
-            f"d'application dans {WATCH_CONFIG.name}, ou la variable "
-            f"d'environnement BLINK_WATCH_PASSWORD"
-        )
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = config["from"]
-    message["To"] = config["to"]
-    message.set_content(body)
-
-    context = ssl.create_default_context()
-    with smtplib.SMTP_SSL(config["smtp_host"], int(config["smtp_port"]),
-                          context=context, timeout=30) as server:
-        server.login(config["from"], config["password"])
-        server.send_message(message)
 
 
-def notifier(moyen: str, config: dict, titre: str, corps: str) -> None:
-    """Signale une anomalie par le canal demandé, sans jamais échouer en silence."""
-    if moyen in ("popup", "both"):
-        popup(titre, corps)
-    if moyen in ("mail", "both"):
-        try:
-            send_mail(config, titre, corps)
-        except Exception as error:
-            message = f"envoi du courriel impossible : {error}"
-            journal(message)
-            print(message)
-
-
-def un_tour(args, config, timezone, a_faire) -> None:
+def un_tour(args, timezone, a_faire) -> None:
     """Un tour : l'état d'abord, puis les clips, puis l'assemblage.
 
     L'ordre n'est pas celui de la ligne de commande mais celui des dépendances.
     L'état passe en premier pour qu'une panne soit signalée même si le
     téléchargement échoue ensuite."""
     if "watch" in a_faire:
-        _controler(args, config, timezone)
+        _controler(args, timezone)
     if "download" not in a_faire:
         return
     _rapatrier(args, "merge" in a_faire)
 
 
-def _controler(args, config, timezone) -> None:
+def _controler(args, timezone) -> None:
     try:
         current = asyncio.run(read_state(timezone))
     except Exception as error:
         message = f"Impossible d'interroger Blink : {error}"
         journal(message)
-        notifier(args.notify, config, "Blink : surveillance en échec", message)
+        popup("Blink : surveillance en échec", message)
         return
 
     previous = md.load_json(WATCH_STATE, {})
@@ -440,9 +390,8 @@ def _controler(args, config, timezone) -> None:
     if alerts and not args.dry_run:
         corps = [f"- {ligne}" for ligne in alerts]
         corps += ["", "Pour ne plus être averti d'une caméra :",
-                  '  python watch.py --ignore "nom de la caméra"']
-        notifier(args.notify, config,
-                 f"Blink : {len(alerts)} anomalie(s)", "\n".join(corps))
+                  '  blink watch --ignore "nom de la caméra"']
+        popup(f"Blink : {len(alerts)} anomalie(s)", "\n".join(corps))
     for ligne in recoveries:
         toast("Blink : retour à la normale", ligne)
 
@@ -481,10 +430,6 @@ def parse_args() -> argparse.Namespace:
         help="afficher les alertes sans envoyer de courriel ni enregistrer l'état",
     )
     parser.add_argument(
-        "--notify", choices=("popup", "mail", "both"), default="popup",
-        help="comment signaler une anomalie (défaut : une boîte de dialogue)",
-    )
-    parser.add_argument(
         "--test", action="store_true",
         help="déclencher une notification de vérification et s'arrêter",
     )
@@ -506,7 +451,6 @@ def main() -> int:
     from zoneinfo import ZoneInfo
 
     args = parse_args()
-    config = load_config()
     timezone = ZoneInfo(args.timezone)
 
     # Les sourdines modifient la configuration puis le contrôle se poursuit :
@@ -523,14 +467,14 @@ def main() -> int:
         print("Caméras en sourdine :", ", ".join(state["ignored"]) or "aucune")
 
     if args.test:
-        notifier(args.notify, config, "Blink : test d'alerte",
+        popup("Blink : test d'alerte",
                  "Ceci est un test. La surveillance sait vous joindre.")
         return 0
 
     # Ce programme contrôle l'état, rien de plus, conformément à son nom. La
     # répétition est une option commune à tous les verbes, pas un verbe.
     return runtime.repeter(
-        lambda: un_tour(args, config, timezone, ("watch",)),
+        lambda: un_tour(args, timezone, ("watch",)),
         args.loop, journal,
     )
 

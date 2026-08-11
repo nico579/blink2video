@@ -83,10 +83,10 @@ blink login       # se connecter au compte Blink, vérification en deux étapes 
 blink list        # ce que contient le module de synchronisation en ce moment
 blink download    # récupérer les nouveaux clips avant que la rotation ne les efface
 blink merge       # normaliser, horodater et assembler jour, semaine et mois
-blink all         # tout : contrôler l'état, télécharger, assembler
-blink serve       # servir seulement l'interface web : visionnage, tri, direct, armement
 blink watch       # contrôler l'état de l'installation et alerter s'il se dégrade
-blink autostart   # lancer un verbe à l'ouverture de session, « all --serve --loop 10 » par défaut
+blink all         # tout, c'est-à-dire watch puis download puis merge
+blink serve       # servir l'interface web, et lancer les verbes qui suivent
+blink autostart   # lancer un verbe à l'ouverture de session, « serve all --loop » par défaut
 blink smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
 <!-- verbes:fin -->
@@ -154,13 +154,19 @@ clip and counts lit pixels, the only proof that a time was actually drawn.
 One command, using whichever mechanism your system provides:
 
 ```bash
-blink autostart on        # install
-blink autostart           # where things stand
-blink autostart off       # remove
+blink autostart on                    # install the default: serve all --loop 10
+blink autostart status                # what is installed, and what it runs
+blink autostart off                   # remove
+
+blink autostart on watch --loop 30    # automate the alerts only
+blink autostart on serve --port 8899  # automate the interface only
+blink autostart off watch             # remove that one entry
 ```
 
-Add `--dry-run` to see what would happen without changing anything. No
-administrator rights are needed.
+Without a verb, `serve --no-browser all --loop 10`: the interface, hosting the
+loop over the three activities. One entry per verb, so one can be removed
+without touching the others. Add `--dry-run` to see what would happen without
+changing anything. No administrator rights are needed.
 
 If you would rather do it yourself, here is what the command sets up.
 
@@ -289,26 +295,35 @@ purpose, such as installing an autostart entry instead of watching, is a verb.
 | Option | Effect |
 |---|---|
 | `--loop [MINUTES]` | repeat instead of acting once (default 10) |
-| `--ignore CAMERA…` | mute a camera, no alerts at all |
+| `--ignore CAMERA…` | mute a camera, then carry on with the check |
 | `--unignore CAMERA…` | unmute |
 | `--test` | raise a test notification |
-| `--notify popup\|mail\|both` | alert channel (default: dialog) |
-| `--dry-run` | show without acting |
+| `--dry-run` | show without notifying or recording state |
 
-**`blink all`**: check, download, assemble. The everyday verb.
+**`blink all`**: watch, then download, then merge. The everyday verb. To do only
+part of it, no step is removed: name the verbs you want.
 
 | Option | Effect |
 |---|---|
 | `--loop [MINUTES]` | repeat instead of acting once (default 10) |
-| `--serve` | raise the web interface first, and leave it running |
-| `--port N` | interface port (default 8765) |
-| `--no-watch`, `--no-download`, `--no-merge` | drop a step |
 | `--hub`, `--camera`, `--since` | as for `download` |
-| `--notify`, `--dry-run`, `--timezone` | as for `watch` |
+| `--dry-run`, `--timezone` | as for `watch` |
+
+**`blink serve [verb…]`**: serve the web interface, and run the following verb
+alongside it. `blink serve all --loop` raises the interface then loops; both
+stop together.
+
+| Option | Effect |
+|---|---|
+| `--port N` | listening port (default 8765) |
+| `--no-browser` | do not open the browser |
+| `--hub`, `--thumbs`, `--timezone` | module, thumbnail cache, time zone |
+| the same folder options as `merge` | |
 
 **`blink autostart on\|off\|status [verb…]`**: start a verb with your session,
-using the system's own mechanism. Without a verb, `all --serve --loop 10`.
-One entry per verb, `--dry-run` shows without acting.
+using the system's own mechanism. Without a verb,
+`serve --no-browser all --loop 10`. One entry per verb, `--dry-run` shows
+without acting.
 
 **`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
 de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.

@@ -1780,7 +1780,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-browser", action="store_true", help="ne pas ouvrir le navigateur"
     )
-    return parser.parse_args()
+    # Tout ce qui suit un verbe lui appartient : « serve all --loop » lève
+    # l'interface puis lance « all --loop » à côté. L'interface étant un
+    # service et non une tâche, elle accueille le travail plutôt que d'être
+    # une option de celui-ci.
+    parser.add_argument(
+        "suite", nargs="*", metavar="VERBE",
+        help="verbes à lancer une fois l'interface levée, chacun avec ses "
+             "options : « serve watch --loop 5 merge --loop 60 »",
+    )
+    args, restant = parser.parse_known_args()
+    args.suite = list(args.suite) + list(restant)
+    return args
 
 
 def main() -> int:
@@ -1802,6 +1813,17 @@ def main() -> int:
     except (RuntimeError, ZoneInfoNotFoundError) as error:
         print(f"Erreur : {error}")
         return 1
+
+    compagnons = []
+    try:
+        groupes = runtime.decouper_verbes(args.suite)
+    except ValueError as erreur:
+        print(f"{erreur}. Attendus : {', '.join(runtime.VERBES)}")
+        return 1
+    for verbe, *options in groupes:
+        compagnons.append(runtime.demarrer(runtime.self_command(verbe, *options),
+                                           cwd=str(BASE_DIR)))
+        print(f"Lancé à côté : {verbe} {' '.join(options)}".rstrip())
 
     # 127.0.0.1 et pas 0.0.0.0 : cet outil déplace des fichiers, il n'a rien à
     # faire sur le réseau local.

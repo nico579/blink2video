@@ -36,11 +36,13 @@ def etiquette(quoi: tuple) -> str:
     return f"{NOM}-{(quoi or DEFAUT)[0]}"
 
 
-# Ce qu'on automatise par défaut : une seule entrée qui lève l'interface, puis
-# reprend toutes les dix minutes le contrôle d'état, le rapatriement et
-# l'assemblage. Rien n'oblige à automatiser cela : « autostart on watch --loop »
-# n'alerterait que, sans rien rapatrier.
-DEFAUT = ("all", "--serve", "--loop", "10")
+# Ce qu'on automatise par défaut : l'interface, qui accueille la boucle des
+# trois activités. Une seule entrée suffit donc. Rien n'oblige à automatiser
+# cela : « autostart on watch --loop » n'alerterait que, sans rien rapatrier.
+# --no-browser parce qu'à l'ouverture de session, ouvrir un navigateur de force
+# serait déplacé : l'interface attend qu'on vienne, ou qu'on clique sur une
+# notification.
+DEFAUT = ("serve", "--no-browser", "all", "--loop", "10")
 
 
 def commande(verbe_et_options: tuple = DEFAUT) -> list:
@@ -63,6 +65,23 @@ def commande(verbe_et_options: tuple = DEFAUT) -> list:
         if sans_fenetre.is_file():
             ligne[0] = str(sans_fenetre)
     return ligne
+
+
+def appliquer_tous(etat: str, simulation: bool, quoi: tuple) -> int:
+    """Installe, retire ou consulte, pour chacun des verbes cités.
+
+    Chaque verbe cité donne son entrée : « autostart on watch --loop merge
+    --loop 60 » en pose deux, réglées séparément, qu'on peut retirer une à une.
+
+    « serve » fait exception, et c'est son contrat : il accueille les verbes qui
+    le suivent. « autostart on serve all --loop » pose donc une seule entrée,
+    celle de l'interface qui héberge la boucle."""
+    if etat == "status" or not quoi:
+        return appliquer(etat, simulation, quoi or DEFAUT)
+    groupes = ([list(quoi)] if quoi[0] == "serve"
+               else runtime.decouper_verbes(list(quoi)))
+    codes = [appliquer(etat, simulation, tuple(groupe)) for groupe in groupes]
+    return max(codes) if codes else 0
 
 
 def appliquer(etat: str, simulation: bool = False, quoi: tuple = DEFAUT) -> int:
@@ -305,7 +324,7 @@ def main() -> int:
     args, restant = parser.parse_known_args()
     quoi = tuple(args.quoi) + tuple(restant)
     try:
-        return appliquer(args.etat, args.dry_run, quoi or DEFAUT)
+        return appliquer_tous(args.etat, args.dry_run, quoi)
     except ValueError as erreur:
         # Un verbe inconnu mérite un message, pas une trace d'exécution.
         parser.error(str(erreur))
