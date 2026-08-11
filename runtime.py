@@ -156,6 +156,29 @@ def resource_dir() -> Path:
 SANS_FENETRE = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
+def console_disponible() -> bool:
+    """Vrai si ce processus a une console où écrire.
+
+    Faux sous pythonw.exe, c'est-à-dire quand blink est lancé par l'entrée de
+    démarrage automatique."""
+    if os.name != "nt":
+        return True
+    import ctypes
+
+    return bool(ctypes.windll.kernel32.GetConsoleWindow())
+
+
+def flags_enfant() -> int:
+    """Drapeaux pour un verbe lancé côte à côte avec d'autres.
+
+    Il doit parler dans la console de son parent quand il y en a une, sans quoi
+    ses erreurs se perdent : « serve » refusant un port déjà pris ne disait
+    rien, et l'échec restait incompréhensible. Quand il n'y en a pas, on garde
+    CREATE_NO_WINDOW, faute de quoi Windows en ouvre une par verbe, ces
+    fenêtres noires qui clignotent."""
+    return 0 if console_disponible() else SANS_FENETRE
+
+
 def lancer(commande, **options):
     """subprocess.run, sans jamais faire clignoter de fenêtre sous Windows."""
     options.setdefault("creationflags", SANS_FENETRE)

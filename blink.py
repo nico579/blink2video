@@ -139,7 +139,7 @@ async def finish_login(blink: Blink, ask_code=None) -> bool:
     """Démarre Blink et termine éventuellement la vérification en deux étapes.
 
     `ask_code` permet de poser la question ailleurs que dans le terminal :
-    review.py y branche un formulaire de navigateur. C'est une coroutine pour
+    serve.py y branche un formulaire de navigateur. C'est une coroutine pour
     que l'attente du code n'immobilise pas la boucle d'événements pendant que
     la session Blink reste ouverte."""
     try:
@@ -183,7 +183,7 @@ async def _no_code(attempt: int) -> str:
 async def login(session: ClientSession, username: str, password: str, ask_code=None):
     """Ouvre une session Blink à partir d'identifiants déjà recueillis.
 
-    Voie d'entrée de review.py, qui les collecte dans le navigateur. Le mot de
+    Voie d'entrée de serve.py, qui les collecte dans le navigateur. Le mot de
     passe ne sert qu'ici : `save_session` ne l'écrit jamais sur disque."""
     blink = make_blink(session, {"username": username, "password": password})
     if not await finish_login(blink, ask_code):
@@ -613,7 +613,7 @@ async def main(args: argparse.Namespace) -> int:
 # C'est la forme des commandes à verbe, celle de git ou de docker : un nom à
 # retenir, un verbe pour l'action. Chaque verbe reçoit tels quels les arguments
 # qui le suivent, donc « blink.py review --port 8899 » revient exactement à
-# « python review.py --port 8899 ».
+# « blink serve --port 8899 ».
 # Les verbes, leur programme et leur description vivent dans runtime.VERBES :
 # une seule table, lue ici pour l'aide et la délégation, par self_command pour
 # la relance, et par docs.py pour les README.
@@ -650,7 +650,8 @@ def executer(groupes: list) -> int:
     lances = []
     for verbe, *arguments in groupes:
         lances.append((verbe, runtime.demarrer(
-            runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()))))
+            runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()),
+            creationflags=runtime.flags_enfant())))
         print(f"Lancé : {verbe} {' '.join(arguments)}".rstrip())
 
     # Surveillés ensemble plutôt qu'attendus l'un après l'autre : un verbe qui

@@ -723,7 +723,7 @@ def progress_printer(label: str):
     """Fabrique un rapporteur d'avancement pour un encodage.
 
     Sur un terminal la ligne est réécrite en place, comme n'importe quel outil
-    en ligne de commande. Dans un tube (review.py qui relit la sortie), un
+    en ligne de commande. Dans un tube (serve.py qui relit la sortie), un
     simple retour chariot n'émettrait aucune ligne et rien n'arriverait avant
     la fin : on écrit alors des lignes complètes, que le lecteur reconnaît à
     leur forme et n'ajoute pas au journal."""
@@ -1179,7 +1179,7 @@ def _executer(args) -> int:
     # Étape 2 : plan de normalisation. On établit la liste complète avant
     # d'encoder quoi que ce soit, pour pouvoir annoncer « [3/24] » : un
     # compteur sans total connu n'apprend rien sur le temps restant, et c'est
-    # ce total qui alimente la barre de progression de review.py.
+    # ce total qui alimente la barre de progression de serve.py.
     plan: dict = {}
     used_segments: set = set()
     pending: set = set()

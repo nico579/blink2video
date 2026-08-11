@@ -959,7 +959,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             # La page est intégrée au script : elle change dès qu'on modifie
-            # review.py. Sans cette consigne, le navigateur ressert sa copie et
+            # serve.py. Sans cette consigne, le navigateur ressert sa copie et
             # l'on croit une modification perdue alors qu'elle est bien là.
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
@@ -1813,7 +1813,7 @@ def main() -> int:
         server = Server(("127.0.0.1", args.port), Handler)
     except OSError as error:
         print(f"Impossible d'écouter sur le port {args.port} : {error}")
-        print("Un autre review.py tourne sans doute déjà. Arrêtez-le, ou "
+        print("Un autre « blink serve » tourne sans doute déjà. Arrêtez-le, "
               "choisissez un autre port avec --port.")
         return 1
     url = f"http://127.0.0.1:{args.port}/"
