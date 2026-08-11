@@ -1,0 +1,109 @@
+name: Release (build 3 OS)
+
+# Construction des bundles autonomes sur les trois systèmes, puis publication
+# sur la release. PyInstaller n'est pas un compilateur croisé : chaque binaire
+# doit être produit sur son système natif, avec sa propre copie de ffmpeg. Les
+# runners GitHub le font gratuitement, ce qui évite d'avoir un Mac et une
+# machine Linux sous la main.
+#
+# Déclenchement :
+#   - poussée d'une étiquette v*   (git tag v1.0.0 && git push origin v1.0.0)
+#   - manuel, en indiquant l'étiquette
+#
+# Fichiers produits :
+#   blink-windows-x86_64.zip
+#   blink-linux-x86_64.tar.gz
+#   blink-macos-arm64.zip
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Étiquette de la release (ex : v1.0.0)"
+        required: true
+
+jobs:
+  build:
+    name: build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: blink-windows-x86_64
+            archive: zip
+          - os: ubuntu-latest
+            asset: blink-linux-x86_64
+            archive: tar
+          - os: macos-latest
+            asset: blink-macos-arm64
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # Le même build.py qu'en local : il crée son environnement isolé et
+      # appelle PyInstaller. Une seule recette à maintenir, et ce qui est
+      # publié est exactement ce qu'on peut reproduire chez soi.
+      - name: Construire le bundle
+        run: python build.py
+
+      - name: Vérifier que l'exécutable répond
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ./dist/blink/blink.exe --help
+          else
+            ./dist/blink/blink --help
+          fi
+
+      # ffmpeg est la pièce qui rend le bundle autonome : on refuse de publier
+      # une archive qui ne l'embarquerait pas.
+      - name: Vérifier la présence de ffmpeg
+        shell: bash
+        run: |
+          if ! find dist/blink -iname 'ffmpeg*' | grep -q .; then
+            echo "ffmpeg absent du bundle"; exit 1
+          fi
+          find dist/blink -iname 'ffmpeg*'
+
+      - name: Empaqueter (zip)
+        if: matrix.archive == 'zip'
+        shell: bash
+        run: cd dist && 7z a -tzip "${{ matrix.asset }}.zip" blink || zip -r "${{ matrix.asset }}.zip" blink
+
+      - name: Empaqueter (tar.gz)
+        if: matrix.archive == 'tar'
+        run: cd dist && tar czf "${{ matrix.asset }}.tar.gz" blink
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}.*
+
+  publish:
+    name: publier la release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+
+      - name: Publier
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: artefacts/**/*
+          generate_release_notes: true

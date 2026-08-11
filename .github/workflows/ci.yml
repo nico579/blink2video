@@ -1,0 +1,49 @@
+name: CI
+
+# Contrôle rapide à chaque poussée : le code compile-t-il, et le bundle
+# se construit-il encore ? Volontairement limité à Windows, seule plateforme
+# où l'outil est réellement utilisé aujourd'hui ; la matrice complète ne tourne
+# qu'au moment d'une release, où elle est justifiée.
+#
+# Aucun test ne peut interroger Blink : il faudrait un compte, et les
+# identifiants n'ont rien à faire dans un service d'intégration. Ce que la CI
+# vérifie, c'est ce qui ne dépend pas du réseau.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verifier:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Compiler tous les modules
+        run: python -m compileall -q blink.py merge_daily.py review.py watch.py daily.py runtime.py build.py
+
+      - name: Vérifier l'aide de chaque verbe
+        run: |
+          python -m pip install --quiet aiohttp blinkpy tzdata
+          python blink.py --bootstrap=none --help
+          python blink.py --bootstrap=none merge --help
+          python blink.py --bootstrap=none review --help
+          python blink.py --bootstrap=none watch --help
+
+      - name: Construire le bundle
+        run: python build.py
+
+      - name: Vérifier que le bundle est autonome
+        shell: bash
+        run: |
+          ./dist/blink/blink.exe --help
+          find dist/blink -iname 'ffmpeg*' | grep -q . || { echo "ffmpeg absent"; exit 1; }

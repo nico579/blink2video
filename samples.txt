@@ -1,0 +1,11 @@
+https://www.reddit.com/r/blinkcameras/comments/1swtso4/windows_11_python_app_for_blink_cameras/
+https://github.com/MattTW/BlinkMonitorProtocol
+https://github.com/fronzbot/blinkpy
+https://github.com/rekram1-node/blinkgo
+https://github.com/keredson/blink
+https://github.com/roger-/blinkbridge
+https://pypi.org/project/blinkpy/0.6.0/
+https://github.com/byronbytes/blinkpy-camera-tools
+https://www.reddit.com/r/blinkcameras/comments/120r7sm/warning_hackability_of_blink_camera_system/
+https://github.com/Deepanshu0211/BlinkCount/
+https://github.com/OVR92/BlinkPi

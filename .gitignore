@@ -1,0 +1,30 @@
+# Secrets et session Blink : jetons d'accès au compte Amazon.
+blink_auth.json
+blink_auth.json.*
+watch_config.json
+
+# Registres d'état : contiennent identifiants de compte, numéros de série,
+# noms de caméras et horaires de présence.
+.blink_*.json
+.blink_*.json.*
+.blink_hub.lock
+watch.log
+
+# Images de surveillance du domicile. Rien de tout cela n'a vocation à
+# quitter la machine.
+Blink_Clips/
+Blink_Normalized/
+Blink_Excluded/
+Blink_Daily/
+Blink_Weekly/
+Blink_Monthly/
+.blink_thumbs/
+
+# ffmpeg embarqué (84 Mo) et produits de construction : refabriqués par
+# build.py, ils n'ont pas leur place dans l'historique.
+_vendor/
+build/
+dist/
+build_venv/
+__pycache__/
+*.pyc
