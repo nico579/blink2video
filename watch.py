@@ -11,9 +11,13 @@ plus « ok », une détection coupée, un silence anormalement long. Les retours
 la normale sont signalés aussi, mais sans insistance, pour qu'on sache qu'un
 incident est clos.
 
-Prévu pour une tâche planifiée à l'ouverture de session, répétée dans la
-journée. Il ne télécharge rien et n'encode rien : quelques secondes, aucune
-charge, on peut le lancer souvent.
+En mode continu (--loop), c'est le verbe qui fait tout : il démarre l'interface
+web, puis à chaque tour il contrôle l'état, alerte s'il se dégrade, rapatrie les
+nouveaux clips, les assemble, et le signale par une notification cliquable. Trois
+interrupteurs permettent de restreindre : --no-serve, --no-download, --no-build.
+
+Sans --loop, il ne fait qu'un contrôle et s'arrête, ce qui convient à un
+lancement périodique par un planificateur.
 """
 
 import argparse
@@ -341,7 +345,7 @@ def ensure_server(port: int) -> bool:
             return False
 
     subprocess.Popen(
-        runtime.self_command("review", "--no-browser", "--port", str(port)),
+        runtime.self_command("serve", "--no-browser", "--port", str(port)),
         cwd=str(BASE_DIR), stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),

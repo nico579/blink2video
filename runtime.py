@@ -39,9 +39,9 @@ VERBES = {
     "download": ("blink", "récupérer les nouveaux clips avant que la rotation ne les efface"),
     "merge": ("merge_daily", "normaliser, horodater et assembler jour, semaine et mois"),
     "all": ("daily", "download puis merge"),
-    "review": ("review", "interface web locale : visionnage, tri, direct, armement"),
-    "watch": ("watch", "surveillance continue, notifications, assemblage automatique"),
-    "autostart": ("autostart", "démarrer la surveillance avec la session"),
+    "serve": ("serve", "servir seulement l'interface web : visionnage, tri, direct, armement"),
+    "watch": ("watch", "tout en continu : surveille, alerte, télécharge, assemble, et sert l'interface"),
+    "autostart": ("autostart", "lancer un verbe à l'ouverture de session, watch par défaut"),
     "smoketest": ("smoketest", "vérifier que l'installation fonctionne sur cette machine"),
 }
 

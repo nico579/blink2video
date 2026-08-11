@@ -27,8 +27,14 @@ import runtime
 NOM = "blink2video"
 
 
-def commande() -> list:
-    """Ligne à faire exécuter au démarrage.
+# Ce qu'on automatise par défaut. « watch --loop » couvre le besoin courant :
+# il surveille, alerte, rapatrie les nouveaux clips, les assemble, et démarre
+# l'interface. Mais rien n'oblige à automatiser cela : d'où un verbe explicite.
+DEFAUT = ("watch", "--loop")
+
+
+def commande(verbe_et_options: tuple = DEFAUT) -> list:
+    """Ligne à faire exécuter au démarrage, pour le verbe demandé.
 
     runtime.self_command sait déjà se relancer correctement selon qu'on tourne
     depuis les sources ou depuis un bundle : c'est exactement ce qu'il faut
@@ -36,9 +42,12 @@ def commande() -> list:
 
     Une substitution s'impose toutefois sous Windows quand on tourne depuis les
     sources : python.exe ouvrirait une console noire à chaque ouverture de
-    session. pythonw.exe exécute la même chose sans fenêtre, ce que la
-    surveillance peut se permettre puisqu'elle écrit dans watch.log."""
-    ligne = runtime.self_command("watch", "--loop")
+    session. pythonw.exe exécute la même chose sans fenêtre, ce que ces
+    programmes peuvent se permettre puisqu'ils rendent compte dans watch.log."""
+    verbe, *options = verbe_et_options or DEFAUT
+    if verbe not in runtime.VERBES:
+        raise ValueError(f"verbe inconnu : {verbe}")
+    ligne = runtime.self_command(verbe, *options)
     if sys.platform == "win32" and not runtime.frozen():
         sans_fenetre = Path(ligne[0]).with_name("pythonw.exe")
         if sans_fenetre.is_file():
@@ -46,14 +55,14 @@ def commande() -> list:
     return ligne
 
 
-def appliquer(etat: str, simulation: bool = False) -> int:
+def appliquer(etat: str, simulation: bool = False, quoi: tuple = DEFAUT) -> int:
     """`on` installe, `off` retire, `status` renseigne."""
     if sys.platform == "win32":
-        return _windows(etat, simulation)
+        return _windows(etat, simulation, quoi)
     if sys.platform == "darwin":
-        return _macos(etat, simulation)
+        return _macos(etat, simulation, quoi)
     if sys.platform.startswith("linux"):
-        return _linux(etat, simulation)
+        return _linux(etat, simulation, quoi)
     print(f"Démarrage automatique non pris en charge sur {sys.platform}.")
     return 1
 
@@ -69,14 +78,14 @@ def _raccourci() -> Path:
     return Path(tampon.value) / f"{NOM}.lnk"
 
 
-def _windows(etat: str, simulation: bool) -> int:
+def _windows(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     cible = _raccourci()
     if etat == "status":
         return _dire(cible, "Raccourci de démarrage")
     if etat == "off":
         return _retirer(cible, simulation)
 
-    ligne = commande()
+    ligne = commande(quoi)
     executable = ligne[0]
     arguments = subprocess.list2cmdline(ligne[1:])
     if simulation:
@@ -106,7 +115,7 @@ def _windows(etat: str, simulation: bool) -> int:
     if resultat.returncode != 0 or not cible.exists():
         print(f"Échec : {resultat.stderr.strip() or 'raccourci non créé'}")
         return 1
-    return _installe(cible)
+    return _installe(cible, quoi)
 
 
 def _chaine_ps(valeur: str) -> str:
@@ -116,7 +125,7 @@ def _chaine_ps(valeur: str) -> str:
 
 # --------------------------------------------------------------------- macOS
 
-def _macos(etat: str, simulation: bool) -> int:
+def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     cible = Path.home() / "Library/LaunchAgents" / f"com.nico579.{NOM}.plist"
     if etat == "status":
         return _dire(cible, "Agent de lancement")
@@ -147,12 +156,12 @@ def _macos(etat: str, simulation: bool) -> int:
     cible.parent.mkdir(parents=True, exist_ok=True)
     cible.write_text(contenu, encoding="utf-8")
     subprocess.run(["launchctl", "load", str(cible)], check=False)
-    return _installe(cible)
+    return _installe(cible, quoi)
 
 
 # --------------------------------------------------------------------- Linux
 
-def _linux(etat: str, simulation: bool) -> int:
+def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     cible = Path.home() / ".config/systemd/user" / f"{NOM}.service"
     if etat == "status":
         return _dire(cible, "Service utilisateur")
@@ -183,16 +192,46 @@ def _linux(etat: str, simulation: bool) -> int:
     cible.write_text(contenu, encoding="utf-8")
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
     subprocess.run(["systemctl", "--user", "enable", "--now", NOM], check=False)
-    return _installe(cible)
+    return _installe(cible, quoi)
 
 
 # ------------------------------------------------------------------- communs
+
+def lue(cible: Path) -> list:
+    """Commande réellement inscrite dans le mécanisme installé.
+
+    On la relit plutôt que de la recalculer : ce qui compte pour l'utilisateur
+    est ce qui va s'exécuter, pas ce qu'on installerait aujourd'hui."""
+    try:
+        if cible.suffix == ".lnk":
+            import subprocess as sp
+            script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut("
+                      + _chaine_ps(str(cible)) + "); "
+                      "Write-Output $s.TargetPath; Write-Output $s.Arguments")
+            sortie = sp.run(["powershell", "-NoProfile", "-NonInteractive",
+                             "-Command", script], stdout=sp.PIPE, text=True,
+                            errors="replace", check=False).stdout
+            return [l.strip() for l in (sortie or "").splitlines() if l.strip()]
+        texte = cible.read_text(encoding="utf-8")
+        if cible.suffix == ".service":
+            for ligne in texte.splitlines():
+                if ligne.startswith("ExecStart="):
+                    return ligne.split("=", 1)[1].split()
+        if cible.suffix == ".plist":
+            import re
+            bloc = re.search(r"<array>(.*?)</array>", texte, re.S)
+            if bloc:
+                return re.findall(r"<string>(.*?)</string>", bloc.group(1))
+    except Exception:
+        pass
+    return []
+
 
 def _dire(cible: Path, intitule: str) -> int:
     print(f"{intitule} : {'présent' if cible.exists() else 'absent'}")
     print(f"  {cible}")
     if cible.exists():
-        print(f"  commande : {' '.join(commande())}")
+        print(f"  commande : {' '.join(lue(cible))}")
     return 0
 
 
@@ -206,9 +245,9 @@ def _retirer(cible: Path, simulation: bool) -> int:
     return 0
 
 
-def _installe(cible: Path) -> int:
+def _installe(cible: Path, quoi: tuple = DEFAUT) -> int:
     print(f"Démarrage automatique installé : {cible}")
-    print(f"  commande : {' '.join(commande())}")
+    print(f"  commande : {' '.join(commande(quoi))}")
     print("  Il prendra effet à la prochaine ouverture de session.")
     return 0
 
@@ -222,10 +261,24 @@ def main() -> int:
     parser.add_argument("etat", choices=("on", "off", "status"), nargs="?",
                         default="status",
                         help="on installe, off retire, status renseigne (défaut)")
+    # nargs="*" plus parse_known_args : les options inconnues d'ici, comme
+    # « --port 8899 », rejoignent le verbe, tandis que --dry-run reste compris
+    # où qu'il soit placé. REMAINDER avalait --dry-run avec le reste, et une
+    # simulation installait pour de bon.
+    parser.add_argument("quoi", nargs="*", metavar="VERBE",
+                        help="ce qu'il faut lancer à l'ouverture de session, "
+                             "avec ses options. Défaut : « watch --loop », qui "
+                             "surveille, alerte, rapatrie, assemble et sert "
+                             "l'interface")
     parser.add_argument("--dry-run", action="store_true",
                         help="montrer ce qui serait fait sans rien modifier")
-    args = parser.parse_args()
-    return appliquer(args.etat, args.dry_run)
+    args, restant = parser.parse_known_args()
+    quoi = tuple(args.quoi) + tuple(restant)
+    try:
+        return appliquer(args.etat, args.dry_run, quoi or DEFAUT)
+    except ValueError as erreur:
+        # Un verbe inconnu mérite un message, pas une trace d'exécution.
+        parser.error(str(erreur))
 
 
 if __name__ == "__main__":

@@ -84,18 +84,18 @@ blink list        # ce que contient le module de synchronisation en ce moment
 blink download    # récupérer les nouveaux clips avant que la rotation ne les efface
 blink merge       # normaliser, horodater et assembler jour, semaine et mois
 blink all         # download puis merge
-blink review      # interface web locale : visionnage, tri, direct, armement
-blink watch       # surveillance continue, notifications, assemblage automatique
-blink autostart   # démarrer la surveillance avec la session
+blink serve       # servir seulement l'interface web : visionnage, tri, direct, armement
+blink watch       # tout en continu : surveille, alerte, télécharge, assemble, et sert l'interface
+blink autostart   # lancer un verbe à l'ouverture de session, watch par défaut
 blink smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
 <!-- verbes:fin -->
-Arguments after the verb go to the matching program, so `blink review --port 8899`
-works as expected, and `blink review --help` shows that program's own options.
+Arguments after the verb go to the matching program, so `blink serve --port 8899`
+works as expected, and `blink serve --help` shows that program's own options.
 
 ### The web interface
 
-`blink review` serves a page on `127.0.0.1:8765` and opens it. Four views:
+`blink serve` serves a page on `127.0.0.1:8765` and opens it. Four views:
 
 - **Live**: one tile per camera with its latest thumbnail, arm and disarm at
   system and camera level, battery, temperature, signal, and the date each
@@ -113,7 +113,7 @@ Motion detection fires on a shadow, a bird, a passing cloud. Discarding removes
 a clip from every assembled video:
 
 ```bash
-blink review                                   # click "Écarter" on the card
+blink serve                                   # click "Écarter" on the card
 blink merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
 ```
 
@@ -273,7 +273,7 @@ purpose, such as installing an autostart entry instead of watching, is a verb.
 | `--timezone ZONE` | fuseau de l'horodatage (défaut `Europe/Paris`) |
 | `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | emplacements de chaque dossier |
 
-**`blink review`** : interface web.
+**`blink serve`** : interface web.
 
 | Option | Effet |
 |---|---|

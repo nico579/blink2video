@@ -87,19 +87,19 @@ blink list        # ce que contient le module de synchronisation en ce moment
 blink download    # récupérer les nouveaux clips avant que la rotation ne les efface
 blink merge       # normaliser, horodater et assembler jour, semaine et mois
 blink all         # download puis merge
-blink review      # interface web locale : visionnage, tri, direct, armement
-blink watch       # surveillance continue, notifications, assemblage automatique
-blink autostart   # démarrer la surveillance avec la session
+blink serve       # servir seulement l'interface web : visionnage, tri, direct, armement
+blink watch       # tout en continu : surveille, alerte, télécharge, assemble, et sert l'interface
+blink autostart   # lancer un verbe à l'ouverture de session, watch par défaut
 blink smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
 <!-- verbes:fin -->
 Les arguments qui suivent le verbe sont transmis au programme correspondant :
-`blink review --port 8899` fonctionne, et `blink review --help` affiche les
+`blink serve --port 8899` fonctionne, et `blink serve --help` affiche les
 options de ce programme.
 
 ### L'interface web
 
-`blink review` sert une page sur `127.0.0.1:8765` et l'ouvre. Quatre vues :
+`blink serve` sert une page sur `127.0.0.1:8765` et l'ouvre. Quatre vues :
 
 - **Direct** : une tuile par caméra avec sa dernière vignette, l'armement au
   niveau du système et de chaque caméra, la batterie, la température, le signal,
@@ -118,7 +118,7 @@ La détection se déclenche sur une ombre, un oiseau, un nuage qui passe. Écart
 retire le clip de toutes les vidéos assemblées :
 
 ```bash
-blink review                                   # bouton « Écarter » sur la carte
+blink serve                                   # bouton « Écarter » sur la carte
 blink merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
 ```
 
@@ -282,7 +282,7 @@ au lieu de surveiller, est un verbe.
 | `--timezone ZONE` | fuseau de l'horodatage (défaut `Europe/Paris`) |
 | `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | emplacements de chaque dossier |
 
-**`blink review`** : interface web.
+**`blink serve`** : interface web.
 
 | Option | Effet |
 |---|---|

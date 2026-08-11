@@ -237,7 +237,7 @@ def main() -> int:
 
         print("\nInterface web")
         serveur = subprocess.Popen(
-            [sys.executable, str(BASE_DIR / "review.py"), "--no-browser", "--port", "8899"],
+            [sys.executable, str(BASE_DIR / "serve.py"), "--no-browser", "--port", "8899"],
             cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=dict(os.environ, BLINK_HOME=str(racine), PYTHONIOENCODING="utf-8"),
