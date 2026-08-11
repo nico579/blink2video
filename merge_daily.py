@@ -273,13 +273,26 @@ def parse_created_at(value: str) -> dt.datetime:
     return created.astimezone(dt.timezone.utc)
 
 
+def read_registry(state_path: Path) -> dict:
+    """Clips connus du téléchargeur, vide tant que rien n'a été récupéré.
+
+    Un registre absent est l'état normal d'une installation neuve, pas une
+    panne : l'interface doit pouvoir s'ouvrir et l'assemblage se dire sans
+    matière avant le premier téléchargement. Un registre présent mais illisible
+    est autre chose, une corruption qu'il faut annoncer au lieu de la confondre
+    avec « rien à montrer »."""
+    if not state_path.exists():
+        return {}
+    state = load_json(state_path, None)
+    entries = state.get("clips") if isinstance(state, dict) else None
+    if not isinstance(entries, dict):
+        raise RuntimeError(f"Registre de téléchargement illisible : {state_path}")
+    return entries
+
+
 def load_groups(input_dir: Path, timezone: ZoneInfo) -> dict:
     """Regroupe les fichiers enregistrés par le téléchargeur incrémental."""
-    state_path = input_dir / DOWNLOAD_STATE
-    state = load_json(state_path, {})
-    entries = state.get("clips")
-    if not isinstance(entries, dict):
-        raise RuntimeError(f"Registre de téléchargement absent ou invalide : {state_path}")
+    entries = read_registry(input_dir / DOWNLOAD_STATE)
 
     root = input_dir.resolve()
     groups = defaultdict(list)
@@ -408,10 +421,7 @@ def set_excluded(
     est re-normalisé au même passage, sans dépendre de la rétention du hub.
     Vider Blink_Excluded reste un geste séparé et explicite."""
     state_path = input_dir / DOWNLOAD_STATE
-    state = load_json(state_path, {})
-    clips = state.get("clips")
-    if not isinstance(clips, dict):
-        raise RuntimeError(f"Registre de téléchargement absent ou invalide : {state_path}")
+    clips = read_registry(state_path)
 
     changed = 0
     for value in values:
@@ -441,7 +451,12 @@ def set_excluded(
                     print(f"  Réintégré : {identity} (brut absent, relancer blink.py)")
             changed += 1
 
-    save_json(state_path, state)
+    if changed:
+        # Relu pour n'écraser que la table des clips : le registre porte aussi
+        # sa version, et un jour d'autres champs.
+        state = load_json(state_path, {})
+        state["clips"] = clips
+        save_json(state_path, state)
     return changed
 
 
@@ -1031,6 +1046,7 @@ def build_periods(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        prog="blink merge",
         description="Fusion incrémentale des clips Blink par caméra : une vidéo "
                     "par jour, puis agrégats par semaine ISO et par mois."
     )

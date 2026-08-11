@@ -96,14 +96,7 @@ def safe_file(name: str) -> str:
 
 
 def read_entries(paths: dict) -> dict:
-    state = md.load_json(paths["input"] / md.DOWNLOAD_STATE, {})
-    entries = state.get("clips")
-    if not isinstance(entries, dict):
-        raise RuntimeError(
-            f"Registre de téléchargement absent ou invalide : "
-            f"{paths['input'] / md.DOWNLOAD_STATE}"
-        )
-    return entries
+    return md.read_registry(paths["input"] / md.DOWNLOAD_STATE)
 
 
 def known_identities(paths: dict) -> set:
@@ -1761,6 +1754,7 @@ load();
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        prog="blink serve",
         description="Interface locale pour visionner les clips Blink, en écarter "
                     "et en reprendre."
     )

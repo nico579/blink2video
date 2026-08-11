@@ -304,6 +304,7 @@ def _installe(cible: Path, quoi: tuple = DEFAUT) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
+        prog="blink autostart",
         description="Démarrage de la surveillance avec la session.",
         epilog="Exemples : blink autostart on | blink autostart status | "
                "blink autostart off --dry-run",

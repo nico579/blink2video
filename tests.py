@@ -208,8 +208,40 @@ def test_verbes() -> None:
     verifier(not manquants, "l'aide cite tous les verbes", ", ".join(manquants))
 
 
+def test_installation_neuve() -> None:
+    """Une installation sans le moindre clip s'ouvre au lieu de refuser.
+
+    Le registre n'existe qu'après le premier téléchargement : le confondre avec
+    un registre corrompu faisait échouer « serve » et « merge » chez quiconque
+    venait d'installer l'outil. Un registre réellement illisible, lui, doit
+    toujours se dire."""
+    print("\nInstallation neuve")
+    neuve = Path(tempfile.mkdtemp(prefix="blink_neuve_"))
+    try:
+        clips = neuve / "Blink_Clips"
+        verifier(md.read_registry(clips / md.DOWNLOAD_STATE) == {},
+                 "registre absent : catalogue vide")
+
+        sortie = lancer(neuve, ["--timezone", "UTC"])
+        verifier(sortie.returncode == 0, "l'assemblage se termine sans matière",
+                 sortie.stdout[-200:])
+
+        clips.mkdir(parents=True, exist_ok=True)
+        (clips / md.DOWNLOAD_STATE).write_text("ceci n'est pas du json",
+                                               encoding="utf-8")
+        try:
+            md.read_registry(clips / md.DOWNLOAD_STATE)
+            verifier(False, "registre corrompu : signalé")
+        except RuntimeError as erreur:
+            verifier("illisible" in str(erreur), "registre corrompu : signalé",
+                     str(erreur))
+    finally:
+        shutil.rmtree(neuve, ignore_errors=True)
+
+
 def main() -> int:
     test_verbes()
+    test_installation_neuve()
     ffmpeg = md.find_ffmpeg()
     print(f"ffmpeg : {ffmpeg}")
 

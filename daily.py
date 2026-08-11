@@ -26,7 +26,7 @@ import watch
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="all",
+        prog="blink all",
         description=__doc__.splitlines()[0],
         epilog="Équivaut à watch, puis download, puis merge.",
     )

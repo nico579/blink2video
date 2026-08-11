@@ -421,6 +421,7 @@ def _rapatrier(args, assembler: bool) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        prog="blink watch",
         description="Surveille l'installation Blink et alerte par courriel."
     )
     parser.add_argument("--timezone", default="Europe/Paris")

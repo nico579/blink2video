@@ -652,16 +652,31 @@ def executer(groupes: list) -> int:
         lances.append((verbe, runtime.demarrer(
             runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()))))
         print(f"Lancé : {verbe} {' '.join(arguments)}".rstrip())
+
+    # Surveillés ensemble plutôt qu'attendus l'un après l'autre : un verbe qui
+    # meurt à la première seconde doit se voir tout de suite, et non à la fin
+    # d'une boucle qui tournera des jours. Les autres continuent, l'interface
+    # qui tombe n'étant pas une raison d'arrêter la surveillance.
+    pire = 0
+    annonces = set()
     try:
-        for verbe, processus in lances:
-            processus.wait()
+        while any(processus.poll() is None for _, processus in lances):
+            for rang, (verbe, processus) in enumerate(lances):
+                code = processus.poll()
+                if code is None or rang in annonces:
+                    continue
+                annonces.add(rang)
+                pire = max(pire, abs(code))
+                print(f"Arrêté : {verbe}"
+                      + (f" (code {code})" if code else " (fin normale)"))
+            time.sleep(1)
     except KeyboardInterrupt:
         print("\nArrêt.")
     finally:
         for _, processus in lances:
             if processus.poll() is None:
                 processus.terminate()
-    return 0
+    return pire
 
 
 if __name__ == "__main__":
