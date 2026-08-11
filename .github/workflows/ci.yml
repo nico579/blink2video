@@ -1,13 +1,15 @@
 name: CI
 
-# Contrôle rapide à chaque poussée : le code compile-t-il, et le bundle
-# se construit-il encore ? Volontairement limité à Windows, seule plateforme
-# où l'outil est réellement utilisé aujourd'hui ; la matrice complète ne tourne
-# qu'au moment d'une release, où elle est justifiée.
+# Deux niveaux de contrôle. Sur les trois systèmes, la chaîne vidéo complète,
+# éprouvée sur des clips fabriqués par ffmpeg : c'est la partie qui casse, et
+# elle ne demande aucun compte. Sur Windows seulement, la construction du
+# bundle, plus lente et déjà couverte par le workflow de publication.
 #
-# Aucun test ne peut interroger Blink : il faudrait un compte, et les
-# identifiants n'ont rien à faire dans un service d'intégration. Ce que la CI
-# vérifie, c'est ce qui ne dépend pas du réseau.
+# Ce qui n'est pas testé ici, et ne peut pas l'être : tout ce qui touche au
+# compte Blink (connexion, téléchargement, direct, armement). Des identifiants
+# n'ont rien à faire dans un service d'intégration, et la vérification en deux
+# étapes bloquerait de toute façon. Les notifications de bureau non plus : un
+# runner n'a pas de session graphique.
 
 on:
   push:
@@ -18,9 +20,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  verifier:
-    runs-on: windows-latest
+  tester:
+    name: chaîne vidéo ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v5
 
@@ -28,20 +35,32 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Installer les dépendances
+        run: python -m pip install --quiet aiohttp blinkpy tzdata imageio-ffmpeg
+
       - name: Compiler tous les modules
-        run: python -m compileall -q blink.py merge_daily.py review.py watch.py daily.py runtime.py build.py
+        run: python -m compileall -q blink.py merge_daily.py review.py watch.py daily.py runtime.py build.py tests.py
 
       - name: Vérifier l'aide de chaque verbe
         run: |
-          python -m pip install --quiet aiohttp blinkpy tzdata
           python blink.py --bootstrap=none --help
           python blink.py --bootstrap=none merge --help
           python blink.py --bootstrap=none review --help
           python blink.py --bootstrap=none watch --help
 
-      - name: Construire le bundle
-        run: python build.py
+      - name: Éprouver la chaîne vidéo et l'interface
+        run: python tests.py
 
+  bundle:
+    name: bundle autonome
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python build.py
       - name: Vérifier que le bundle est autonome
         shell: bash
         run: |
