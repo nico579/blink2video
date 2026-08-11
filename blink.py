@@ -447,7 +447,10 @@ def parse_args() -> argparse.Namespace:
         "command",
         nargs="?",
         choices=("login", "list", "download"),
-        default="list",
+        # Pas de commande par défaut : sans argument, on affiche l'aide plutôt
+        # que d'ouvrir une connexion au compte Blink. Une commande lancée sans
+        # rien ne doit pas partir sur le réseau à l'insu de celui qui la tape.
+        default=None,
         help="login, list (défaut) ou download. Les verbes merge, review, watch, "
              "all et smoketest passent la main aux programmes correspondants",
     )
@@ -471,6 +474,16 @@ def parse_args() -> argparse.Namespace:
         help="remplacer les fichiers existants de taille différente",
     )
     args = parser.parse_args()
+    if args.command is None:
+        parser.print_help()
+        print("\nVerbes délégués :")
+        for verbe, module in DELEGUES.items():
+            # Pas de flèche typographique : la console Windows est en cp1252
+            # et ne sait pas l'encoder, ce qui ferait planter l'affichage de
+            # l'aide, c'est-à-dire la première chose que voit un utilisateur.
+            print(f"  blink {verbe:10} -> {module}.py"
+                  f"   (blink {verbe} --help pour ses options)")
+        raise SystemExit(0)
     if args.since is not None and args.since < 0:
         parser.error("--since doit être positif ou nul")
     return args

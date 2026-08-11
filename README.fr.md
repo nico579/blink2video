@@ -243,6 +243,76 @@ systemctl --user enable --now blink2video
 de bureau reposent sur `notify-send`, et la fenêtre d'acquittement sur
 `zenity` ; sans eux, la surveillance écrit dans `watch.log` et continue.
 
+## Toutes les options
+
+`blink <verbe> --help` fait toujours foi ; ce tableau récapitule.
+
+**Racine** : `login`, `list`, `download`. Sans verbe, l'aide s'affiche.
+
+| Option | Effet |
+|---|---|
+| `--hub NOM` | module de synchronisation à utiliser |
+| `--camera NOM` | ne garder que cette caméra |
+| `--since JOURS` | ne garder que les clips des N derniers jours |
+| `--output DOSSIER` | destination des clips bruts (défaut `Blink_Clips`) |
+| `--overwrite` | remplacer les fichiers existants de taille différente |
+
+**`blink merge`** : normalisation et assemblage.
+
+| Option | Effet |
+|---|---|
+| `--exclude CLIP…` | écarter des clips : le brut part dans `Blink_Excluded`, le segment est effacé, le clip n'est plus retéléchargé |
+| `--include CLIP…` | annuler une exclusion : le brut revient et le clip est re-normalisé |
+| `--date AAAA-MM-JJ` | limiter à une journée |
+| `--camera NOM` | limiter à une caméra |
+| `--force` | tout reconstruire même si rien n'a changé |
+| `--no-periods` | ne pas reconstruire les agrégats hebdomadaires et mensuels |
+| `--preset NOM` | preset libx264, d'`ultrafast` à `veryslow` (défaut `veryfast`) |
+| `--crf N` | qualité, 0 à 51, plus bas est meilleur (défaut 21) |
+| `--font FICHIER` | police .ttf pour l'horodatage |
+| `--timezone ZONE` | fuseau de l'horodatage (défaut `Europe/Paris`) |
+| `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | emplacements de chaque dossier |
+
+**`blink review`** : interface web.
+
+| Option | Effet |
+|---|---|
+| `--port N` | port d'écoute (défaut 8765) |
+| `--no-browser` | ne pas ouvrir le navigateur |
+| `--hub NOM` | module de synchronisation |
+| `--thumbs DOSSIER` | cache des vignettes, jetable |
+| `--timezone ZONE` | fuseau d'affichage |
+| les mêmes options de dossiers que `merge` | |
+
+**`blink watch`** : surveillance.
+
+| Option | Effet |
+|---|---|
+| `--loop` | rester en fonctionnement au lieu d'un contrôle unique |
+| `--interval MINUTES` | délai entre deux contrôles (défaut 10) |
+| `--autostart on\|off\|status` | démarrage avec la session, par le mécanisme du système |
+| `--ignore CAMERA…` | mettre une caméra en sourdine, plus aucune alerte |
+| `--unignore CAMERA…` | lever la sourdine |
+| `--test` | déclencher une notification de vérification |
+| `--notify popup\|mail\|both` | canal d'alerte (défaut : boîte de dialogue) |
+| `--no-download` | surveiller sans rapatrier les clips |
+| `--no-build` | ne pas assembler après un téléchargement |
+| `--no-serve` | ne pas démarrer l'interface web |
+| `--port N` | port de l'interface qu'ouvre la notification |
+| `--dry-run` | montrer sans agir, y compris pour `--autostart` |
+
+**`blink all`** : téléchargement puis assemblage. `--hub`, `--camera`, `--since`.
+
+**`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
+de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
+
+**Variables d'environnement**
+
+| Variable | Effet |
+|---|---|
+| `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
+| `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
+
 ## Où vont les fichiers
 
 ```
