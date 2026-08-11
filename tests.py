@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
@@ -239,9 +240,64 @@ def test_installation_neuve() -> None:
         shutil.rmtree(neuve, ignore_errors=True)
 
 
+def test_arret() -> None:
+    """« blink stop » arrête l'instance et tous ses verbes.
+
+    Tuer le seul processus parent laissait ses enfants derrière lui : un
+    « watch » orphelin continuait de tourner en tenant le module de
+    synchronisation, invisible et increvable sans chercher son numéro."""
+    import runtime
+
+    print("\nArrêt d'une instance")
+    maison = Path(tempfile.mkdtemp(prefix="blink_stop_"))
+    environnement = dict(os.environ, BLINK_HOME=str(maison),
+                         PYTHONIOENCODING="utf-8")
+    commande = [BUNDLE] if BUNDLE else [sys.executable, "-u", str(BASE_DIR / "blink.py")]
+    parent = subprocess.Popen(
+        [*commande, "serve", "--no-browser", "--port", "8945", "merge", "--loop", "60"],
+        cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, env=environnement,
+    )
+    try:
+        fiches = maison / runtime.INSTANCES
+        for _ in range(60):
+            trouvees = sorted(fiches.glob("*.json")) if fiches.is_dir() else []
+            if trouvees:
+                donnees = json.loads(trouvees[0].read_text(encoding="utf-8"))
+                if donnees.get("enfants"):
+                    break
+            time.sleep(0.5)
+        else:
+            verifier(False, "l'instance dépose sa fiche")
+            return
+        verifier(True, "l'instance dépose sa fiche",
+                 f"{len(donnees['enfants'])} enfant(s)")
+
+        arret = subprocess.run([*commande, "stop"], cwd=str(BASE_DIR),
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True,
+                               encoding="utf-8", errors="replace",
+                               env=environnement, check=False)
+        verifier(arret.returncode == 0, "« stop » se termine sans erreur",
+                 arret.stdout[-300:])
+
+        time.sleep(2)
+        survivants = [numero for numero in [donnees["pid"], *donnees["enfants"]]
+                      if runtime.processus_vivant(int(numero))]
+        verifier(not survivants, "aucun processus ne survit",
+                 "PID " + ", ".join(map(str, survivants)))
+        verifier(not list(fiches.glob("*.json")) if fiches.is_dir() else True,
+                 "la fiche est retirée")
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+        shutil.rmtree(maison, ignore_errors=True)
+
+
 def main() -> int:
     test_verbes()
     test_installation_neuve()
+    test_arret()
     ffmpeg = md.find_ffmpeg()
     print(f"ffmpeg : {ffmpeg}")
 

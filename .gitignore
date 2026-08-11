@@ -20,6 +20,9 @@ Blink_Weekly/
 Blink_Monthly/
 .blink_thumbs/
 
+# Fiches des instances en cours, une par processus, effacees a leur mort.
+.blink_run/
+
 # ffmpeg embarqué (84 Mo) et produits de construction : refabriqués par
 # build.py, ils n'ont pas leur place dans l'historique.
 _vendor/

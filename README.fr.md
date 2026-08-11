@@ -76,6 +76,7 @@ blink merge       # normaliser, horodater et assembler jour, semaine et mois
 blink watch       # contrôler l'état de l'installation et alerter s'il se dégrade
 blink all         # tout, c'est-à-dire watch puis download puis merge
 blink serve       # servir l'interface web, pour regarder, écarter, voir en direct
+blink stop        # arrêter l'instance qui tourne en fond
 blink autostart   # inscrire à l'ouverture de session la commande qui suit
 blink smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
@@ -184,6 +185,25 @@ notification en double.
 
 </details>
 
+## Mettre à jour
+
+L'instance lancée avec la session tient le port de l'interface et parle au
+module de synchronisation : il faut l'arrêter avant de remplacer les fichiers.
+
+```bash
+blink stop                 # arrête l'instance et tous ses verbes
+```
+
+Puis remplacez le dossier par la nouvelle archive, ou faites `git pull` depuis
+les sources, et relancez : le raccourci du dossier Démarrage sous Windows,
+`launchctl load` sous macOS, `systemctl --user start blink2video` sous Linux. La
+prochaine ouverture de session s'en charge de toute façon.
+
+`blink autostart status` dit ce qui est installé et si une instance tourne. Dans
+un terminal, Ctrl+C suffit : c'est `stop` qui existe pour les instances sans
+console, qu'un Ctrl+C ne peut pas atteindre et dont tuer le seul processus
+parent laissait les verbes orphelins.
+
 ## Où vont les fichiers
 
 ```
@@ -256,6 +276,8 @@ Blink_Monthly/     une par mois
 | `--thumbs DOSSIER` | cache des vignettes, jetable |
 | `--timezone ZONE` | fuseau d'affichage |
 | les mêmes options de dossiers que `merge` | |
+
+**`blink stop`** : arrêter l'instance en cours et tous ses verbes. Sans option.
 
 **`blink autostart on\|off\|status [verbe…]`** : inscrire au démarrage de
 session la commande qui suit. Sans verbe, `serve --no-browser all --loop 10`.

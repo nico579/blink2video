@@ -73,6 +73,7 @@ blink merge       # normalize, stamp and assemble day, week and month
 blink watch       # check the installation and alert when it degrades
 blink all         # everything, that is watch then download then merge
 blink serve       # serve the web interface, to watch, discard, see live
+blink stop        # stop the instance running in the background
 blink autostart   # register the command that follows with your session
 blink smoketest   # check that the installation works on this machine
 ```
@@ -178,6 +179,24 @@ One launcher at a time: two give two watchers, and every notification twice.
 
 </details>
 
+## Updating
+
+The instance started with your session holds the interface port and talks to the
+Sync Module: stop it before replacing any file.
+
+```bash
+blink stop                 # stops the instance and all its verbs
+```
+
+Then replace the folder with the new archive, or `git pull` from source, and
+start it again: the Startup shortcut on Windows, `launchctl load` on macOS,
+`systemctl --user start blink2video` on Linux. The next logon does it anyway.
+
+`blink autostart status` says what is installed and whether an instance is
+running. In a terminal, Ctrl+C is enough: `stop` exists for instances without a
+console, which Ctrl+C cannot reach and whose verbs were left orphaned when only
+the parent process was killed.
+
 ## Where files go
 
 ```
@@ -250,6 +269,8 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--thumbs FOLDER` | thumbnail cache, disposable |
 | `--timezone ZONE` | display time zone |
 | the same folder options as `merge` | |
+
+**`blink stop`**: stop the running instance and all its verbs. No options.
 
 **`blink autostart on\|off\|status [verb…]`**: register the command that
 follows it with your session. Without a verb, `serve --no-browser all --loop 10`.

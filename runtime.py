@@ -18,9 +18,11 @@ développement et échoue une fois figé.
 """
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -79,6 +81,9 @@ VERBES = {
     "serve": Verbe("serve",
               "servir l'interface web, pour regarder, écarter, voir en direct",
               "serve the web interface, to watch, discard, see live"),
+    "stop": Verbe("blink",
+            "arrêter l'instance qui tourne en fond",
+            "stop the instance running in the background"),
     "autostart": Verbe("autostart",
                   "inscrire à l'ouverture de session la commande qui suit",
                   "register the command that follows with your session"),
@@ -189,6 +194,108 @@ def resource_dir() -> Path:
     if frozen():
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)).resolve()
     return Path(__file__).resolve().parent
+
+
+# Une fiche par instance en cours, nommée d'après le processus qui la tient.
+# Un fichier unique aurait suffi tant qu'une seule instance tourne, mais rien ne
+# l'interdit : celle du démarrage automatique et une autre lancée à la main
+# coexistent très bien, et « stop » doit pouvoir les arrêter toutes.
+INSTANCES = Path(".blink_run")
+
+
+def processus_vivant(pid: int) -> bool:
+    """Vrai si ce numéro désigne un processus existant.
+
+    Un numéro est réattribué après un certain temps : la fiche porte donc aussi
+    l'heure de départ, et une fiche dont le processus a disparu est effacée à la
+    première lecture."""
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+    resultat = lancer(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                      stderr=subprocess.DEVNULL, text=True, errors="replace",
+                      check=False)
+    return str(pid) in (resultat.stdout or "")
+
+
+def inscrire_instance(entrees: list, enfants=None) -> Path:
+    """Dépose la fiche de l'instance courante, et la retire à sa mort.
+
+    Sans elle, arrêter une instance lancée sans console reviendrait à chercher
+    des numéros de processus à la main, puis à tuer un arbre en espérant
+    n'oublier personne."""
+    import atexit
+    import datetime as dt
+
+    dossier = app_dir() / INSTANCES
+    dossier.mkdir(parents=True, exist_ok=True)
+    fiche = dossier / f"{os.getpid()}.json"
+    fiche.write_text(json.dumps({
+        "pid": os.getpid(),
+        "depuis": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "verbes": entrees,
+        # Les enfants sont notés pour pouvoir vérifier, après l'arrêt, qu'aucun
+        # n'a survécu : c'est précisément ce qui se produisait avant.
+        "enfants": list(enfants or []),
+    }, ensure_ascii=False), encoding="utf-8")
+    atexit.register(lambda: fiche.unlink(missing_ok=True))
+    return fiche
+
+
+def lire_instances() -> list:
+    """Fiches des instances réellement en cours, les périmées étant effacées."""
+    dossier = app_dir() / INSTANCES
+    vivantes = []
+    for fiche in sorted(dossier.glob("*.json")) if dossier.is_dir() else []:
+        try:
+            donnees = json.loads(fiche.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            fiche.unlink(missing_ok=True)
+            continue
+        if processus_vivant(int(donnees.get("pid") or 0)):
+            donnees["fiche"] = fiche
+            vivantes.append(donnees)
+        else:
+            fiche.unlink(missing_ok=True)
+    return vivantes
+
+
+def arreter_processus(pid: int) -> None:
+    """Arrête un processus et sa descendance.
+
+    Les enfants ne sont pas listés dans la fiche : l'arbre est demandé au
+    système, seul à le connaître au moment où on le tue. Sous Windows c'est
+    « taskkill /T », ailleurs le groupe de processus."""
+    if os.name == "nt":
+        lancer(["taskkill", "/F", "/T", "/PID", str(pid)],
+               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+               stderr=subprocess.DEVNULL, check=False)
+        return
+    import signal
+
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+    for _ in range(20):
+        if not processus_vivant(pid):
+            return
+        time.sleep(0.25)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except (ProcessLookupError, OSError):
+        pass
 
 
 # Sous Windows, tout programme lancé depuis une application sans console en

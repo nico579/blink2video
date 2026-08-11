@@ -85,7 +85,19 @@ def appliquer_tous(etat: str, simulation: bool, quoi: tuple) -> int:
         # démarrage fautive ne se découvre qu'à l'ouverture de session
         # suivante, quand plus personne ne regarde.
         runtime.decouper_verbes(list(quoi))
-    return appliquer(etat, simulation, quoi or DEFAUT)
+    code = appliquer(etat, simulation, quoi or DEFAUT)
+    if etat == "status":
+        # Ce qui est installé et ce qui tourne sont deux choses : on peut avoir
+        # une entrée posée sans instance vivante, ou l'inverse après un
+        # lancement à la main.
+        instances = runtime.lire_instances()
+        if not instances:
+            print("En cours  : non")
+        for fiche in instances:
+            commande = " ".join(" ".join(g) for g in fiche.get("verbes") or [])
+            print(f"En cours  : {commande} "
+                  f"(PID {fiche['pid']}, depuis {fiche.get('depuis', '?')})")
+    return code
 
 
 def appliquer(etat: str, simulation: bool = False, quoi: tuple = DEFAUT) -> int:

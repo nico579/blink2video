@@ -636,6 +636,41 @@ def deleguer(verbe: str, arguments: list) -> int:
     return int(module.main() or 0)
 
 
+def arreter() -> int:
+    """Arrête les instances en cours, y compris celle du démarrage automatique.
+
+    Une instance lancée sans console ne peut pas recevoir de Ctrl+C, et la tuer
+    par son seul numéro laissait ses verbes derrière elle : « watch » continuait
+    de tourner, orphelin, en tenant le module de synchronisation. La fiche
+    déposée au démarrage donne le processus à interrompre, et le système donne
+    sa descendance."""
+    instances = runtime.lire_instances()
+    if not instances:
+        print("Rien ne tourne.")
+        return 0
+
+    for fiche in instances:
+        commande = " ".join(" ".join(groupe) for groupe in fiche.get("verbes") or [])
+        print(f"Arrêt de « {commande or 'blink'} » "
+              f"(PID {fiche['pid']}, depuis {fiche.get('depuis', '?')})")
+        runtime.arreter_processus(int(fiche["pid"]))
+        for enfant in fiche.get("enfants") or []:
+            if runtime.processus_vivant(int(enfant)):
+                runtime.arreter_processus(int(enfant))
+        # La fiche est retirée ici : le processus tué n'exécute pas ses propres
+        # adieux, et une fiche orpheline ferait croire qu'il tourne encore.
+        Path(fiche["fiche"]).unlink(missing_ok=True)
+
+    restants = [str(numero) for fiche in instances
+                for numero in [fiche["pid"], *(fiche.get("enfants") or [])]
+                if runtime.processus_vivant(int(numero))]
+    if restants:
+        print("Toujours en vie : " + ", ".join(restants))
+        return 1
+    print("Arrêté.")
+    return 0
+
+
 def executer(groupes: list) -> int:
     """Exécute les verbes cités, ensemble.
 
@@ -643,19 +678,28 @@ def executer(groupes: list) -> int:
     code de retour directs. Plusieurs sont lancés côte à côte et attendus : ils
     s'arrêtent ensemble, faute de quoi un Ctrl+C laisserait derrière lui des
     programmes sans personne pour les arrêter."""
+    if any(groupe[0] == "stop" for groupe in groupes):
+        if len(groupes) > 1:
+            print("« stop » s'emploie seul : il arrête ce qui tourne déjà.")
+            return 2
+        return arreter()
+
     if len(groupes) == 1:
         verbe, *arguments = groupes[0]
         if verbe in DELEGUES:
+            runtime.inscrire_instance(groupes)
             return deleguer(verbe, arguments)
         sys.argv = ["blink", verbe, *arguments]
         return asyncio.run(main(parse_args()))
 
+    runtime.inscrire_instance(groupes)
     lances = []
     for verbe, *arguments in groupes:
         lances.append((verbe, runtime.demarrer(
             runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()),
             creationflags=runtime.flags_enfant())))
         print(f"Lancé : {verbe} {' '.join(arguments)}".rstrip())
+    runtime.inscrire_instance(groupes, [p.pid for _, p in lances])
 
     # Surveillés ensemble plutôt qu'attendus l'un après l'autre : un verbe qui
     # meurt à la première seconde doit se voir tout de suite, et non à la fin
