@@ -40,8 +40,8 @@ VERBES = {
     "merge": ("merge_daily", "normaliser, horodater et assembler jour, semaine et mois"),
     "watch": ("watch", "contrôler l'état de l'installation et alerter s'il se dégrade"),
     "all": ("daily", "tout, c'est-à-dire watch puis download puis merge"),
-    "serve": ("serve", "servir l'interface web, et lancer les verbes qui suivent"),
-    "autostart": ("autostart", "lancer un verbe à l'ouverture de session, « serve all --loop » par défaut"),
+    "serve": ("serve", "servir l'interface web, pour regarder, écarter, voir en direct"),
+    "autostart": ("autostart", "inscrire à l'ouverture de session la commande qui suit"),
     "smoketest": ("smoketest", "vérifier que l'installation fonctionne sur cette machine"),
 }
 

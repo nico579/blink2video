@@ -85,8 +85,8 @@ blink download    # récupérer les nouveaux clips avant que la rotation ne les 
 blink merge       # normaliser, horodater et assembler jour, semaine et mois
 blink watch       # contrôler l'état de l'installation et alerter s'il se dégrade
 blink all         # tout, c'est-à-dire watch puis download puis merge
-blink serve       # servir l'interface web, et lancer les verbes qui suivent
-blink autostart   # lancer un verbe à l'ouverture de session, « serve all --loop » par défaut
+blink serve       # servir l'interface web, pour regarder, écarter, voir en direct
+blink autostart   # inscrire à l'ouverture de session la commande qui suit
 blink smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
 <!-- verbes:fin -->
