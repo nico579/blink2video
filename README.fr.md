@@ -33,7 +33,11 @@ Tout tourne sur votre machine. Rien n'est envoyé ailleurs.
 
 ## Captures d'écran
 
-*(à venir)*
+![L'onglet Clips](Screenshots/serve1.PNG)
+
+Les clips du plus récent au plus ancien, filtrables par caméra et par jour.
+Chaque carte donne la caméra, la durée, la date et le modèle, et le bouton
+« Écarter » retire le clip de toutes les vidéos assemblées.
 
 ## Installation
 

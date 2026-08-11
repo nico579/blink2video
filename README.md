@@ -30,7 +30,11 @@ Everything runs on your machine. Nothing is sent anywhere.
 
 ## Screenshots
 
-*(coming)*
+![The Clips tab](Screenshots/serve1.PNG)
+
+Clips newest first, filtered by camera and by day. Each card gives the camera,
+the duration, the date and the model, and the "Écarter" button removes the clip
+from every assembled video.
 
 ## Installation
 
