@@ -132,15 +132,25 @@ le mois sont reconstruits sans lui. `--include` défait le tout.
 blink watch --loop
 ```
 
-Contrôle toutes les dix minutes. Une caméra qui passe hors ligne, une batterie
-qui n'est plus bonne, une détection coupée, ou une caméra qui n'a rien
-enregistré depuis deux jours ouvrent une fenêtre à acquitter. Les nouveaux clips
-sont récupérés, les vidéos reconstruites, et une notification le signale, avec
-un clic qui ouvre l'interface.
+Contrôle toutes les dix minutes, et rien d'autre : `watch` constate et alerte,
+il ne télécharge pas et n'assemble pas. Une caméra qui passe hors ligne, une
+batterie qui n'est plus bonne, une détection coupée, ou une caméra qui n'a rien
+enregistré depuis deux jours ouvrent une fenêtre à acquitter. Un retour à la
+normale se signale par une simple notification.
 
 Les alertes ne se déclenchent que sur un changement : une caméra que vous
 laissez sciemment hors ligne ne prévient qu'une fois. `--ignore "Portail"` la
 met en sourdine définitivement.
+
+Pour que les nouveaux clips soient aussi rapatriés et les vidéos reconstruites,
+citez `all`, qui enchaîne les trois :
+
+```bash
+blink all --loop
+```
+
+L'arrivée d'un clip déclenche alors une notification, avec un clic qui ouvre
+l'interface.
 
 Pour qu'elle démarre avec votre session, voir
 [Lancer la surveillance avec la session](#lancer-la-surveillance-avec-la-session).
@@ -162,19 +172,21 @@ compte les pixels allumés, seule preuve qu'une heure est bien écrite.
 Une commande suffit, elle emploie le mécanisme propre à votre système :
 
 ```bash
-blink autostart on                    # installer le défaut : serve all --loop 10
+blink autostart on                    # le défaut : serve --no-browser all --loop 10
 blink autostart status                # ce qui est installé, et ce que ça lance
 blink autostart off                   # retirer
 
 blink autostart on watch --loop 30    # n'automatiser que les alertes
-blink autostart on serve --port 8899  # n'automatiser que l'interface
+blink autostart on serve --no-browser --port 8899   # que l'interface
 blink autostart off watch             # retirer cette entrée-là
 ```
 
-Sans verbe, `serve --no-browser all --loop 10` : l'interface, qui accueille la
-boucle des trois activités. Une entrée par verbe, ce qui permet d'en retirer une
-sans toucher aux autres. Ajoutez `--dry-run` pour voir ce qui serait fait sans
-rien modifier. Aucun droit d'administrateur n'est nécessaire.
+`autostart` n'exécute rien : il inscrit au démarrage la commande qui le suit,
+telle que vous l'auriez tapée sans lui. Sans verbe, c'est
+`serve --no-browser all --loop 10` : l'interface, plus la boucle des trois
+activités. L'entrée porte le nom de son premier verbe, ce qui permet d'en tenir
+plusieurs et de n'en retirer qu'une. Ajoutez `--dry-run` pour voir ce qui serait
+fait sans rien modifier. Aucun droit d'administrateur n'est nécessaire.
 
 Si vous préférez le faire vous-même, voici ce que la commande met en place.
 
@@ -185,7 +197,7 @@ conviendrait aussi, mais son dossier racine demande une élévation :
 
 ```powershell
 Register-ScheduledTask -TaskName "blink2video" -Action (New-ScheduledTaskAction `
-  -Execute "C:\path	olink.exe" -Argument "watch --loop") `
+  -Execute "C:\path\to\blink.exe" -Argument "serve --no-browser all --loop 10") `
   -Trigger (New-ScheduledTaskTrigger -AtLogOn)
 ```
 
@@ -194,9 +206,9 @@ qui ne demande aucun droit :
 
 ```powershell
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut(
-  "$([Environment]::GetFolderPath('Startup'))link2video.lnk")
-$s.TargetPath = "C:\path	olink.exe"; $s.Arguments = "watch --loop"
-$s.WorkingDirectory = "C:\path	o"; $s.Save()
+  "$([Environment]::GetFolderPath('Startup'))\blink2video.lnk")
+$s.TargetPath = "C:\path\to\blink.exe"; $s.Arguments = "serve --no-browser all --loop 10"
+$s.WorkingDirectory = "C:\path\to"; $s.Save()
 ```
 
 L'un ou l'autre, jamais les deux : deux lanceurs donnent deux surveillances,
@@ -215,7 +227,7 @@ cat > ~/Library/LaunchAgents/com.nico579.blink2video.plist <<'PLIST'
 <plist version="1.0"><dict>
   <key>Label</key><string>com.nico579.blink2video</string>
   <key>ProgramArguments</key>
-  <array><string>/path/to/blink</string><string>watch</string><string>--loop</string></array>
+  <array><string>/path/to/blink</string><string>serve</string><string>--no-browser</string><string>all</string><string>--loop</string><string>10</string></array>
   <key>WorkingDirectory</key><string>/path/to</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -238,7 +250,7 @@ cat > ~/.config/systemd/user/blink2video.service <<'UNIT'
 Description=blink2video watcher
 
 [Service]
-ExecStart=/path/to/blink watch --loop
+ExecStart=/path/to/blink serve --no-browser all --loop 10
 WorkingDirectory=/path/to
 Restart=on-failure
 
@@ -319,9 +331,9 @@ voulus.
 | `--hub`, `--camera`, `--since` | comme pour `download` |
 | `--dry-run`, `--timezone` | comme pour `watch` |
 
-**`blink serve [verbe…]`** : servir l'interface web, et lancer à côté le verbe
-qui suit. `blink serve all --loop` lève l'interface puis boucle ; les deux
-s'arrêtent ensemble.
+**`blink serve`** : servir l'interface web. Un verbe comme les autres : citez-en
+d'autres à la suite pour qu'ils tournent à côté, `blink serve all --loop` lève
+l'interface puis boucle, et tout s'arrête ensemble.
 
 | Option | Effet |
 |---|---|
@@ -330,10 +342,10 @@ s'arrêtent ensemble.
 | `--hub`, `--thumbs`, `--timezone` | module, cache des vignettes, fuseau |
 | les mêmes options de dossiers que `merge` | |
 
-**`blink autostart on\|off\|status [verbe…]`** : lancer un verbe à l'ouverture
-de session, par le mécanisme du système. Sans verbe,
-`serve --no-browser all --loop 10`. Une entrée par verbe, `--dry-run` montre
-sans agir.
+**`blink autostart on\|off\|status [verbe…]`** : inscrire au démarrage de
+session la commande qui suit, par le mécanisme du système. Sans verbe,
+`serve --no-browser all --loop 10`. L'entrée porte le nom de son premier verbe ;
+`--dry-run` montre sans agir.
 
 **`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
 de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.

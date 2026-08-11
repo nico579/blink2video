@@ -77,6 +77,9 @@ def appliquer_tous(etat: str, simulation: bool, quoi: tuple) -> int:
     verbes, « autostart on serve watch --loop merge --loop 60 » pose une seule
     entrée, qui lancera les trois. L'entrée est nommée d'après le premier
     verbe, ce qui permet d'en tenir plusieurs et d'en retirer une seule."""
+    if quoi and "serve" in quoi and "--no-browser" not in quoi:
+        print("Note : « serve » ouvrira un navigateur à chaque ouverture de "
+              "session. Ajoutez --no-browser pour l'éviter.")
     if quoi:
         # Vérifie la syntaxe avant d'écrire quoi que ce soit : une entrée de
         # démarrage fautive ne se découvre qu'à l'ouverture de session

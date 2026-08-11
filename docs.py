@@ -30,8 +30,9 @@ FIN = "<!-- verbes:fin -->"
 def bloc(langue: str) -> str:
     """Liste des verbes, en bloc de code, dans la langue demandée."""
     largeur = max(len(v) for v in runtime.VERBES)
-    lignes = [f"{verbe:<{largeur}}   # {texte}"
-              for verbe, (_, texte) in runtime.VERBES.items()]
+    rang = 0 if langue == "fr" else 1
+    lignes = [f"{verbe:<{largeur}}   # {textes[rang]}"
+              for verbe, (_, *textes) in runtime.VERBES.items()]
     entete = ("Une commande, un verbe par action. `blink <verbe> --help` donne "
               "les options de chacun."
               if langue == "fr" else
@@ -41,11 +42,27 @@ def bloc(langue: str) -> str:
     return f"{DEBUT}\n{entete}\n\n```bash\n{corps}\n```\n{FIN}"
 
 
+def caracteres_parasites(texte: str) -> list:
+    """Lignes contenant un caractère de contrôle.
+
+    Un correctif appliqué par script a un jour transformé « C:\\path\\to » en tabulation et « \\blink » en retour arrière, au
+    beau milieu d'un exemple PowerShell. Invisible à la relecture, recopié tel
+    quel par le lecteur, et évidemment inopérant."""
+    return [
+        (numero, ligne)
+        for numero, ligne in enumerate(texte.splitlines(), 1)
+        if any(ord(caractere) < 32 for caractere in ligne)
+    ]
+
+
 def appliquer(verifier: bool) -> int:
     ecarts = []
     for chemin, langue in (("README.md", "en"), ("README.fr.md", "fr")):
         fichier = BASE_DIR / chemin
         texte = fichier.read_text(encoding="utf-8")
+        for numero, ligne in caracteres_parasites(texte):
+            print(f"{chemin}:{numero} : caractère de contrôle dans « {ligne.strip()} »")
+            ecarts.append(chemin)
         if DEBUT not in texte or FIN not in texte:
             print(f"{chemin} : balises {DEBUT} … {FIN} absentes")
             ecarts.append(chemin)

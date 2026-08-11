@@ -33,20 +33,41 @@ from pathlib import Path
 #
 # Le programme « blink » désigne blink.py lui-même, qui traite ces verbes sans
 # déléguer : le verbe lui est alors passé en argument.
+# Chaque verbe porte ses deux libellés : l'aide en ligne prend le français,
+# docs.py prend l'un ou l'autre selon le README qu'il remplit. Le README anglais
+# a longtemps affiché la liste des verbes en français, faute de cette colonne.
 VERBES = {
-    "login": ("blink", "se connecter au compte Blink, vérification en deux étapes gérée"),
-    "list": ("blink", "ce que contient le module de synchronisation en ce moment"),
-    "download": ("blink", "récupérer les nouveaux clips avant que la rotation ne les efface"),
-    "merge": ("merge_daily", "normaliser, horodater et assembler jour, semaine et mois"),
-    "watch": ("watch", "contrôler l'état de l'installation et alerter s'il se dégrade"),
-    "all": ("daily", "tout, c'est-à-dire watch puis download puis merge"),
-    "serve": ("serve", "servir l'interface web, pour regarder, écarter, voir en direct"),
-    "autostart": ("autostart", "inscrire à l'ouverture de session la commande qui suit"),
-    "smoketest": ("smoketest", "vérifier que l'installation fonctionne sur cette machine"),
+    "login": ("blink",
+              "se connecter au compte Blink, vérification en deux étapes gérée",
+              "sign in to the Blink account, two-step verification handled"),
+    "list": ("blink",
+             "ce que contient le module de synchronisation en ce moment",
+             "what the Sync Module currently holds"),
+    "download": ("blink",
+                 "récupérer les nouveaux clips avant que la rotation ne les efface",
+                 "fetch new clips before rotation erases them"),
+    "merge": ("merge_daily",
+              "normaliser, horodater et assembler jour, semaine et mois",
+              "normalize, stamp and assemble day, week and month"),
+    "watch": ("watch",
+              "contrôler l'état de l'installation et alerter s'il se dégrade",
+              "check the installation and alert when it degrades"),
+    "all": ("daily",
+            "tout, c'est-à-dire watch puis download puis merge",
+            "everything, that is watch then download then merge"),
+    "serve": ("serve",
+              "servir l'interface web, pour regarder, écarter, voir en direct",
+              "serve the web interface, to watch, discard, see live"),
+    "autostart": ("autostart",
+                  "inscrire à l'ouverture de session la commande qui suit",
+                  "register the command that follows with your session"),
+    "smoketest": ("smoketest",
+                  "vérifier que l'installation fonctionne sur cette machine",
+                  "check that the installation works on this machine"),
 }
 
 # Verbes confiés à un autre programme, déduits de la table ci-dessus.
-DELEGUES = {verbe: module for verbe, (module, _) in VERBES.items()
+DELEGUES = {verbe: module for verbe, (module, *_) in VERBES.items()
             if module != "blink"}
 
 

@@ -79,15 +79,15 @@ dependencies yourself.
 One command, one verb per action. `blink <verb> --help` gives each one's options.
 
 ```bash
-blink login       # se connecter au compte Blink, vérification en deux étapes gérée
-blink list        # ce que contient le module de synchronisation en ce moment
-blink download    # récupérer les nouveaux clips avant que la rotation ne les efface
-blink merge       # normaliser, horodater et assembler jour, semaine et mois
-blink watch       # contrôler l'état de l'installation et alerter s'il se dégrade
-blink all         # tout, c'est-à-dire watch puis download puis merge
-blink serve       # servir l'interface web, pour regarder, écarter, voir en direct
-blink autostart   # inscrire à l'ouverture de session la commande qui suit
-blink smoketest   # vérifier que l'installation fonctionne sur cette machine
+blink login       # sign in to the Blink account, two-step verification handled
+blink list        # what the Sync Module currently holds
+blink download    # fetch new clips before rotation erases them
+blink merge       # normalize, stamp and assemble day, week and month
+blink watch       # check the installation and alert when it degrades
+blink all         # everything, that is watch then download then merge
+blink serve       # serve the web interface, to watch, discard, see live
+blink autostart   # register the command that follows with your session
+blink smoketest   # check that the installation works on this machine
 ```
 <!-- verbes:fin -->
 Arguments after the verb go to the matching program, so `blink serve --port 8899`
@@ -113,7 +113,7 @@ Motion detection fires on a shadow, a bird, a passing cloud. Discarding removes
 a clip from every assembled video:
 
 ```bash
-blink serve                                   # click "Écarter" on the card
+blink serve                                   # the "Écarter" (discard) button
 blink merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
 ```
 
@@ -127,13 +127,24 @@ rebuilt without it. `--include` undoes all of that.
 blink watch --loop
 ```
 
-Checks every ten minutes. A camera going offline, a battery that is no longer
-good, detection switched off, or a camera that has recorded nothing for two days
-opens a dialog you must acknowledge. New clips are downloaded, the videos
-rebuilt, and a notification tells you, with a click that opens the interface.
+Checks every ten minutes, and nothing else: `watch` observes and alerts, it
+neither downloads nor assembles. A camera going offline, a battery that is no
+longer good, detection switched off, or a camera that has recorded nothing for
+two days opens a dialog you must acknowledge. A return to normal is reported by
+a plain notification.
 
 Alerts fire on change only, so a camera you knowingly leave offline warns you
 once. `--ignore "Portail"` silences one permanently.
+
+To also fetch new clips and rebuild the videos, name `all`, which chains the
+three:
+
+```bash
+blink all --loop
+```
+
+A clip arriving then raises a notification, with a click that opens the
+interface.
 
 To have it start with your session, see
 [Start the watcher with your session](#start-the-watcher-with-your-session).
@@ -154,19 +165,21 @@ clip and counts lit pixels, the only proof that a time was actually drawn.
 One command, using whichever mechanism your system provides:
 
 ```bash
-blink autostart on                    # install the default: serve all --loop 10
+blink autostart on                    # the default: serve --no-browser all --loop 10
 blink autostart status                # what is installed, and what it runs
 blink autostart off                   # remove
 
 blink autostart on watch --loop 30    # automate the alerts only
-blink autostart on serve --port 8899  # automate the interface only
+blink autostart on serve --no-browser --port 8899   # the interface only
 blink autostart off watch             # remove that one entry
 ```
 
-Without a verb, `serve --no-browser all --loop 10`: the interface, hosting the
-loop over the three activities. One entry per verb, so one can be removed
-without touching the others. Add `--dry-run` to see what would happen without
-changing anything. No administrator rights are needed.
+`autostart` runs nothing: it registers the command that follows it, exactly as
+you would have typed it without the prefix. With no verb, that is
+`serve --no-browser all --loop 10`: the interface, plus the loop over the three
+activities. The entry is named after its first verb, so you can keep several and
+remove just one. Add `--dry-run` to see what would happen without changing
+anything. No administrator rights are needed.
 
 If you would rather do it yourself, here is what the command sets up.
 
@@ -177,7 +190,7 @@ folder requires elevation:
 
 ```powershell
 Register-ScheduledTask -TaskName "blink2video" -Action (New-ScheduledTaskAction `
-  -Execute "C:\path	olink.exe" -Argument "watch --loop") `
+  -Execute "C:\path\to\blink.exe" -Argument "serve --no-browser all --loop 10") `
   -Trigger (New-ScheduledTaskTrigger -AtLogOn)
 ```
 
@@ -186,9 +199,9 @@ rights at all:
 
 ```powershell
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut(
-  "$([Environment]::GetFolderPath('Startup'))link2video.lnk")
-$s.TargetPath = "C:\path	olink.exe"; $s.Arguments = "watch --loop"
-$s.WorkingDirectory = "C:\path	o"; $s.Save()
+  "$([Environment]::GetFolderPath('Startup'))\blink2video.lnk")
+$s.TargetPath = "C:\path\to\blink.exe"; $s.Arguments = "serve --no-browser all --loop 10"
+$s.WorkingDirectory = "C:\path\to"; $s.Save()
 ```
 
 Use one or the other, never both: two launchers means two watchers and every
@@ -207,7 +220,7 @@ cat > ~/Library/LaunchAgents/com.nico579.blink2video.plist <<'PLIST'
 <plist version="1.0"><dict>
   <key>Label</key><string>com.nico579.blink2video</string>
   <key>ProgramArguments</key>
-  <array><string>/path/to/blink</string><string>watch</string><string>--loop</string></array>
+  <array><string>/path/to/blink</string><string>serve</string><string>--no-browser</string><string>all</string><string>--loop</string><string>10</string></array>
   <key>WorkingDirectory</key><string>/path/to</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -230,7 +243,7 @@ cat > ~/.config/systemd/user/blink2video.service <<'UNIT'
 Description=blink2video watcher
 
 [Service]
-ExecStart=/path/to/blink watch --loop
+ExecStart=/path/to/blink serve --no-browser all --loop 10
 WorkingDirectory=/path/to
 Restart=on-failure
 
@@ -253,42 +266,42 @@ Verbs and options follow one rule: a **verb** is what the program does, an
 **option** is how it does it. An option that would divert a command from its
 purpose, such as installing an autostart entry instead of watching, is a verb.
 
-**Racine** : `login`, `list`, `download`. Sans verbe, l'aide s'affiche.
+**Root**: `login`, `list`, `download`. With no verb, the help is shown.
 
-| Option | Effet |
+| Option | Effect |
 |---|---|
-| `--hub NOM` | module de synchronisation à utiliser |
-| `--camera NOM` | ne garder que cette caméra |
-| `--since JOURS` | ne garder que les clips des N derniers jours |
-| `--output DOSSIER` | destination des clips bruts (défaut `Blink_Clips`) |
-| `--overwrite` | remplacer les fichiers existants de taille différente |
+| `--hub NAME` | Sync Module to use |
+| `--camera NAME` | keep only this camera |
+| `--since DAYS` | keep only clips from the last N days |
+| `--output FOLDER` | destination of raw clips (default `Blink_Clips`) |
+| `--overwrite` | replace existing files of a different size |
 
-**`blink merge`** : normalisation et assemblage.
+**`blink merge`**: normalization and assembly.
 
-| Option | Effet |
+| Option | Effect |
 |---|---|
-| `--exclude CLIP…` | écarter des clips : le brut part dans `Blink_Excluded`, le segment est effacé, le clip n'est plus retéléchargé |
-| `--include CLIP…` | annuler une exclusion : le brut revient et le clip est re-normalisé |
-| `--date AAAA-MM-JJ` | limiter à une journée |
-| `--camera NOM` | limiter à une caméra |
-| `--force` | tout reconstruire même si rien n'a changé |
-| `--no-periods` | ne pas reconstruire les agrégats hebdomadaires et mensuels |
-| `--preset NOM` | preset libx264, d'`ultrafast` à `veryslow` (défaut `veryfast`) |
-| `--crf N` | qualité, 0 à 51, plus bas est meilleur (défaut 21) |
-| `--font FICHIER` | police .ttf pour l'horodatage |
-| `--timezone ZONE` | fuseau de l'horodatage (défaut `Europe/Paris`) |
-| `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | emplacements de chaque dossier |
+| `--exclude CLIP…` | discard clips: the raw file moves to `Blink_Excluded`, the segment is deleted, the clip is never downloaded again |
+| `--include CLIP…` | undo a discard: the raw file comes back and the clip is re-normalized |
+| `--date YYYY-MM-DD` | limit to one day |
+| `--camera NAME` | limit to one camera |
+| `--force` | rebuild everything even if nothing changed |
+| `--no-periods` | do not rebuild the weekly and monthly aggregates |
+| `--preset NAME` | libx264 preset, from `ultrafast` to `veryslow` (default `veryfast`) |
+| `--crf N` | quality, 0 to 51, lower is better (default 21) |
+| `--font FILE` | .ttf font for the timestamp |
+| `--timezone ZONE` | time zone of the timestamp (default `Europe/Paris`) |
+| `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | location of each folder |
 
-**`blink serve`** : interface web.
+**`blink serve`**: web interface.
 
-| Option | Effet |
+| Option | Effect |
 |---|---|
-| `--port N` | port d'écoute (défaut 8765) |
-| `--no-browser` | ne pas ouvrir le navigateur |
-| `--hub NOM` | module de synchronisation |
-| `--thumbs DOSSIER` | cache des vignettes, jetable |
-| `--timezone ZONE` | fuseau d'affichage |
-| les mêmes options de dossiers que `merge` | |
+| `--port N` | listening port (default 8765) |
+| `--no-browser` | do not open the browser |
+| `--hub NAME` | Sync Module |
+| `--thumbs FOLDER` | thumbnail cache, disposable |
+| `--timezone ZONE` | display time zone |
+| the same folder options as `merge` | |
 
 **`blink watch`**: check the state, alert when it degrades.
 
@@ -309,9 +322,9 @@ part of it, no step is removed: name the verbs you want.
 | `--hub`, `--camera`, `--since` | as for `download` |
 | `--dry-run`, `--timezone` | as for `watch` |
 
-**`blink serve [verb…]`**: serve the web interface, and run the following verb
-alongside it. `blink serve all --loop` raises the interface then loops; both
-stop together.
+**`blink serve`**: serve the web interface. A verb like any other: name others
+after it to have them run alongside, `blink serve all --loop` raises the
+interface then loops, and everything stops together.
 
 | Option | Effect |
 |---|---|
@@ -320,19 +333,19 @@ stop together.
 | `--hub`, `--thumbs`, `--timezone` | module, thumbnail cache, time zone |
 | the same folder options as `merge` | |
 
-**`blink autostart on\|off\|status [verb…]`**: start a verb with your session,
-using the system's own mechanism. Without a verb,
-`serve --no-browser all --loop 10`. One entry per verb, `--dry-run` shows
-without acting.
+**`blink autostart on\|off\|status [verb…]`**: register the command that
+follows it with your session, using the system's own mechanism. Without a verb,
+`serve --no-browser all --loop 10`. The entry is named after its first verb;
+`--dry-run` shows without acting.
 
-**`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
-de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
+**`blink smoketest`**: installation check. `--keep` keeps the working folder,
+`--timezone` picks the time zone of the demonstration video.
 
 **Variables d'environnement**
 
 | Variable | Effet |
 |---|---|
-| `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
+| `BLINK_HOME` | data folder, defaulting to the executable's own |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
 
 ## Where files go
