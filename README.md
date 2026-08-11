@@ -130,13 +130,8 @@ rebuilt, and a notification tells you, with a click that opens the interface.
 Alerts fire on change only, so a camera you knowingly leave offline warns you
 once. `--ignore "Portail"` silences one permanently.
 
-To start it with your session on Windows:
-
-```powershell
-Register-ScheduledTask -TaskName "Blink" -Action (New-ScheduledTaskAction `
-  -Execute "C:\path\to\blink.exe" -Argument "watch --loop") `
-  -Trigger (New-ScheduledTaskTrigger -AtLogOn)
-```
+To have it start with your session, see
+[Start the watcher with your session](#start-the-watcher-with-your-session).
 
 ## Start the watcher with your session
 

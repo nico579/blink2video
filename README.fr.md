@@ -137,13 +137,8 @@ Les alertes ne se déclenchent que sur un changement : une caméra que vous
 laissez sciemment hors ligne ne prévient qu'une fois. `--ignore "Portail"` la
 met en sourdine définitivement.
 
-Pour la lancer avec la session sous Windows :
-
-```powershell
-Register-ScheduledTask -TaskName "Blink" -Action (New-ScheduledTaskAction `
-  -Execute "C:\chemin\vers\blink.exe" -Argument "watch --loop") `
-  -Trigger (New-ScheduledTaskTrigger -AtLogOn)
-```
+Pour qu'elle démarre avec votre session, voir
+[Lancer la surveillance avec la session](#lancer-la-surveillance-avec-la-session).
 
 ## Lancer la surveillance avec la session
 
