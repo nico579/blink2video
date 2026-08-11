@@ -1231,6 +1231,7 @@ PAGE = """<!doctype html>
            border-bottom:1px solid var(--line); padding:14px 20px;
            display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
   h1 { font-size:17px; margin:0 10px 0 0; font-weight:600; }
+  h1 .v { font-size:11px; font-weight:400; color:var(--dim); vertical-align:super; margin-left:3px; }
   select, button { font:inherit; color:var(--text); background:var(--card);
                    border:1px solid var(--line); border-radius:7px;
                    padding:7px 12px; cursor:pointer; }
@@ -1303,7 +1304,7 @@ PAGE = """<!doctype html>
 </head>
 <body>
 <header>
-  <h1>Blink</h1>
+  <h1>Blink<span class="v">__VERSION__</span></h1>
   <select id="view">
     <option value="live">Direct</option>
     <option value="clips">Clips</option>
@@ -1750,6 +1751,11 @@ load();
 </body>
 </html>
 """
+
+# La page est un gabarit constant, plein d'accolades CSS et JavaScript :
+# impossible d'en faire une f-string. Une substitution unique au chargement
+# suffit, et laisse le gabarit lisible.
+PAGE = PAGE.replace("__VERSION__", runtime.VERSION)
 
 
 def parse_args() -> argparse.Namespace:

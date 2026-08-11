@@ -442,6 +442,7 @@ def parse_args() -> argparse.Namespace:
         # les déclarer à argparse en ferait de faux positionnels, qui
         # pollueraient la ligne d'usage et fausseraient l'analyse.
         description=(
+            f"blink2video {runtime.VERSION}\n\n"
             "Gestion des caméras Blink depuis un ordinateur : direct, "
             "armement, archive horodatée.\n\nVerbes :\n"
             + "".join(f"  {nom:11} {verbe.fr}\n"
@@ -458,12 +459,14 @@ def parse_args() -> argparse.Namespace:
                 ("list", "voir ce que contient le module"),
                 ("download", "récupérer les clips"),
                 ("merge", "assembler les vidéos"),
-                ("review", "ouvrir l'interface"),
+                ("serve", "ouvrir l'interface"),
                 ("autostart on", "surveiller à chaque session"),
             )
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("--version", action="version",
+                        version=f"blink2video {runtime.VERSION}")
     parser.add_argument(
         "command",
         nargs="?",

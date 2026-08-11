@@ -25,6 +25,13 @@ from pathlib import Path
 from typing import NamedTuple
 
 
+# Version de l'outil, et seule source de l'étiquette de publication : le
+# workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
+# doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
+# soit exploitable.
+VERSION = "0.2.1"
+
+
 # Source unique des verbes : leur ordre d'apparition dans l'aide, le programme
 # qui les traite, et ce qu'ils font. Trois usages en découlent, l'aide affichée,
 # la délégation d'un verbe au bon programme, et la relance de l'outil sur un

@@ -26,8 +26,32 @@ on:
         required: true
 
 jobs:
+  # L'etiquette et le code doivent dire la meme version. Sans ce controle, on
+  # peut publier v9.9.9 depuis un code qui se croit en 0.2.1, et le binaire
+  # telecharge ment sur ce qu'il est.
+  version:
+    name: etiquette et code d'accord
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Comparer
+        shell: bash
+        run: |
+          etiquette="${{ github.event.inputs.tag || github.ref_name }}"
+          code="v$(python -c 'import runtime; print(runtime.VERSION)')"
+          echo "etiquette $etiquette, code $code"
+          if [ "$etiquette" != "$code" ]; then
+            echo "::error::l'etiquette $etiquette ne correspond pas a runtime.VERSION ($code)"
+            exit 1
+          fi
+
   build:
     name: build ${{ matrix.os }}
+    needs: version
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
