@@ -16,6 +16,7 @@ L'installation modifie la configuration de votre session : elle n'a lieu que
 sur demande explicite, et `--dry-run` montre ce qui serait fait sans le faire.
 """
 
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -200,3 +201,22 @@ def _installe(cible: Path) -> int:
     print(f"  commande : {' '.join(commande())}")
     print("  Il prendra effet à la prochaine ouverture de session.")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Démarrage de la surveillance avec la session.",
+        epilog="Exemples : blink autostart on | blink autostart status | "
+               "blink autostart off --dry-run",
+    )
+    parser.add_argument("etat", choices=("on", "off", "status"), nargs="?",
+                        default="status",
+                        help="on installe, off retire, status renseigne (défaut)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="montrer ce qui serait fait sans rien modifier")
+    args = parser.parse_args()
+    return appliquer(args.etat, args.dry_run)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -471,12 +471,6 @@ def parse_args() -> argparse.Namespace:
         help="déclencher une notification de vérification et s'arrêter",
     )
     parser.add_argument(
-        "--autostart", choices=("on", "off", "status"), default=None,
-        metavar="ON|OFF|STATUS",
-        help="démarrer la surveillance avec la session : on installe, off "
-             "retire, status renseigne. Mécanisme propre à chaque système",
-    )
-    parser.add_argument(
         "--loop", action="store_true",
         help="rester en fonctionnement et surveiller en continu",
     )
@@ -517,11 +511,10 @@ def main() -> int:
     config = load_config()
     timezone = ZoneInfo(args.timezone)
 
-    if args.autostart:
-        import autostart
-
-        return autostart.appliquer(args.autostart, args.dry_run)
-
+    # Les sourdines modifient la configuration puis le contrôle se poursuit :
+    # une option doit préciser la manière dont la commande travaille, pas la
+    # détourner de son objet. C'est le même parti que « merge --exclude », qui
+    # écarte un clip puis assemble.
     if args.ignore or args.unignore:
         state = md.load_json(WATCH_STATE, {})
         ignores = set(state.get("ignored") or [])
@@ -530,7 +523,6 @@ def main() -> int:
         state["ignored"] = sorted(ignores)
         md.save_json(WATCH_STATE, state)
         print("Caméras en sourdine :", ", ".join(state["ignored"]) or "aucune")
-        return 0
 
     if args.test:
         notifier(args.notify, config, "Blink : test d'alerte",

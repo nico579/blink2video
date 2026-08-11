@@ -158,9 +158,9 @@ compte les pixels allumés, seule preuve qu'une heure est bien écrite.
 Une commande suffit, elle emploie le mécanisme propre à votre système :
 
 ```bash
-blink watch --autostart on        # installer
-blink watch --autostart status    # savoir où l'on en est
-blink watch --autostart off       # retirer
+blink autostart on        # installer
+blink autostart           # savoir où l'on en est
+blink autostart off       # retirer
 ```
 
 Ajoutez `--dry-run` pour voir ce qui serait fait sans rien modifier. Aucun droit
@@ -247,6 +247,11 @@ de bureau reposent sur `notify-send`, et la fenêtre d'acquittement sur
 
 `blink <verbe> --help` fait toujours foi ; ce tableau récapitule.
 
+Le partage entre verbes et options suit une règle simple : un **verbe** est ce
+que le programme fait, une **option** la manière dont il le fait. Une option qui
+détournerait la commande de son objet, comme installer un démarrage automatique
+au lieu de surveiller, est un verbe.
+
 **Racine** : `login`, `list`, `download`. Sans verbe, l'aide s'affiche.
 
 | Option | Effet |
@@ -290,7 +295,6 @@ de bureau reposent sur `notify-send`, et la fenêtre d'acquittement sur
 |---|---|
 | `--loop` | rester en fonctionnement au lieu d'un contrôle unique |
 | `--interval MINUTES` | délai entre deux contrôles (défaut 10) |
-| `--autostart on\|off\|status` | démarrage avec la session, par le mécanisme du système |
 | `--ignore CAMERA…` | mettre une caméra en sourdine, plus aucune alerte |
 | `--unignore CAMERA…` | lever la sourdine |
 | `--test` | déclencher une notification de vérification |
@@ -302,6 +306,9 @@ de bureau reposent sur `notify-send`, et la fenêtre d'acquittement sur
 | `--dry-run` | montrer sans agir, y compris pour `--autostart` |
 
 **`blink all`** : téléchargement puis assemblage. `--hub`, `--camera`, `--since`.
+
+**`blink autostart on|off|status`** : démarrage de la surveillance avec la
+session, par le mécanisme du système. `--dry-run` montre sans agir.
 
 **`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
 de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.

@@ -150,9 +150,9 @@ clip and counts lit pixels, the only proof that a time was actually drawn.
 One command, using whichever mechanism your system provides:
 
 ```bash
-blink watch --autostart on        # install
-blink watch --autostart status    # where things stand
-blink watch --autostart off       # remove
+blink autostart on        # install
+blink autostart           # where things stand
+blink autostart off       # remove
 ```
 
 Add `--dry-run` to see what would happen without changing anything. No
@@ -239,6 +239,10 @@ watcher writes to `watch.log` and keeps working.
 
 `blink <verb> --help` is always authoritative; this table summarizes.
 
+Verbs and options follow one rule: a **verb** is what the program does, an
+**option** is how it does it. An option that would divert a command from its
+purpose, such as installing an autostart entry instead of watching, is a verb.
+
 **Racine** : `login`, `list`, `download`. Sans verbe, l'aide s'affiche.
 
 | Option | Effet |
@@ -282,7 +286,6 @@ watcher writes to `watch.log` and keeps working.
 |---|---|
 | `--loop` | rester en fonctionnement au lieu d'un contrôle unique |
 | `--interval MINUTES` | délai entre deux contrôles (défaut 10) |
-| `--autostart on\|off\|status` | démarrage avec la session, par le mécanisme du système |
 | `--ignore CAMERA…` | mettre une caméra en sourdine, plus aucune alerte |
 | `--unignore CAMERA…` | lever la sourdine |
 | `--test` | déclencher une notification de vérification |
@@ -294,6 +297,9 @@ watcher writes to `watch.log` and keeps working.
 | `--dry-run` | montrer sans agir, y compris pour `--autostart` |
 
 **`blink all`** : téléchargement puis assemblage. `--hub`, `--camera`, `--since`.
+
+**`blink autostart on|off|status`**: start the watcher with your session, using
+the system's own mechanism. `--dry-run` shows without acting.
 
 **`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
 de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.

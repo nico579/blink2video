@@ -452,7 +452,8 @@ def parse_args() -> argparse.Namespace:
         # rien ne doit pas partir sur le réseau à l'insu de celui qui la tape.
         default=None,
         help="login, list (défaut) ou download. Les verbes merge, review, watch, "
-             "all et smoketest passent la main aux programmes correspondants",
+             "all, smoketest et autostart passent la main aux programmes "
+             "correspondants",
     )
     parser.add_argument("--hub", help="nom du Sync Module à utiliser")
     parser.add_argument("--camera", help="ne garder que cette caméra")
@@ -601,6 +602,7 @@ DELEGUES = {
     "watch": "watch",
     "all": "daily",
     "smoketest": "smoketest",
+    "autostart": "autostart",
 }
 
 
