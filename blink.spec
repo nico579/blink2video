@@ -39,6 +39,16 @@ def _ffmpeg() -> str:
         return trouves[0]
 
 
+def _modules() -> list:
+    import importlib.util
+
+    charge = importlib.util.spec_from_file_location("runtime", "runtime.py")
+    runtime = importlib.util.module_from_spec(charge)
+    charge.loader.exec_module(runtime)
+    return sorted({module for module, _ in runtime.VERBES.values()}
+                  - {"blink"} | {"runtime", "tzdata"})
+
+
 FFMPEG = _ffmpeg()
 
 analysis = Analysis(
@@ -52,8 +62,11 @@ analysis = Analysis(
     datas=collect_data_files("tzdata", include_py_files=False),
     # Les verbes sont résolus par importlib au moment de l'appel : l'analyse
     # statique de PyInstaller ne peut pas les voir, il faut les nommer.
-    hiddenimports=["merge_daily", "serve", "watch", "daily", "runtime",
-                   "smoketest", "autostart", "tzdata"],
+    # Déduits de runtime.VERBES : les verbes sont résolus par importlib au
+    # moment de l'appel, donc invisibles à l'analyse statique. Les énumérer ici
+    # à la main créerait une liste parallèle de plus, et c'est exactement ce
+    # qui a fait échouer la CI après le renommage de « review » en « serve ».
+    hiddenimports=_modules(),
     hookspath=[],
     runtime_hooks=[],
     # imageio_ffmpeg est écarté : son seul intérêt est de fournir un binaire,

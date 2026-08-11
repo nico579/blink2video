@@ -284,31 +284,31 @@ purpose, such as installing an autostart entry instead of watching, is a verb.
 | `--timezone ZONE` | fuseau d'affichage |
 | les mêmes options de dossiers que `merge` | |
 
-**`blink watch`** : contrôle de l'état, une fois.
+**`blink watch`**: check the state, alert when it degrades.
 
-| Option | Effet |
+| Option | Effect |
 |---|---|
-| `--ignore CAMERA…` | mettre une caméra en sourdine, plus aucune alerte |
-| `--unignore CAMERA…` | lever la sourdine |
-| `--test` | déclencher une notification de vérification |
-| `--notify popup\|mail\|both` | canal d'alerte (défaut : boîte de dialogue) |
-| `--dry-run` | montrer sans agir |
+| `--loop [MINUTES]` | repeat instead of acting once (default 10) |
+| `--ignore CAMERA…` | mute a camera, no alerts at all |
+| `--unignore CAMERA…` | unmute |
+| `--test` | raise a test notification |
+| `--notify popup\|mail\|both` | alert channel (default: dialog) |
+| `--dry-run` | show without acting |
 
-**`blink loop [verbes…]`** : répéter, en nommant quoi. Sans argument :
-`watch download merge serve`.
+**`blink all`**: check, download, assemble. The everyday verb.
 
-| Option | Effet |
+| Option | Effect |
 |---|---|
-| `--interval MINUTES` | délai entre deux tours (défaut 10) |
-| `--once` | un seul tour puis s'arrêter |
-| `--port N` | port de l'interface, si `serve` est demandé |
-| `--notify`, `--dry-run`, `--timezone` | comme pour `watch` |
+| `--loop [MINUTES]` | repeat instead of acting once (default 10) |
+| `--serve` | raise the web interface first, and leave it running |
+| `--port N` | interface port (default 8765) |
+| `--no-watch`, `--no-download`, `--no-merge` | drop a step |
+| `--hub`, `--camera`, `--since` | as for `download` |
+| `--notify`, `--dry-run`, `--timezone` | as for `watch` |
 
-**`blink autostart on\|off\|status [verbe…]`** : lancer un verbe à l'ouverture
-de session, par le mécanisme du système. Sans verbe, `loop`. `--dry-run` montre
-sans agir.
-
-**`blink all`** : téléchargement puis assemblage. `--hub`, `--camera`, `--since`.
+**`blink autostart on\|off\|status [verb…]`**: start a verb with your session,
+using the system's own mechanism. Without a verb, `all --serve --loop 10`.
+One entry per verb, `--dry-run` shows without acting.
 
 **`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
 de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.

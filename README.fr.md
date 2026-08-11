@@ -293,31 +293,31 @@ au lieu de surveiller, est un verbe.
 | `--timezone ZONE` | fuseau d'affichage |
 | les mêmes options de dossiers que `merge` | |
 
-**`blink watch`** : contrôle de l'état, une fois.
+**`blink watch`** : contrôler l'état, alerter s'il se dégrade.
 
 | Option | Effet |
 |---|---|
+| `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
 | `--ignore CAMERA…` | mettre une caméra en sourdine, plus aucune alerte |
 | `--unignore CAMERA…` | lever la sourdine |
 | `--test` | déclencher une notification de vérification |
 | `--notify popup\|mail\|both` | canal d'alerte (défaut : boîte de dialogue) |
 | `--dry-run` | montrer sans agir |
 
-**`blink loop [verbes…]`** : répéter, en nommant quoi. Sans argument :
-`watch download merge serve`.
+**`blink all`** : contrôler, télécharger, assembler. Le verbe de l'usage courant.
 
 | Option | Effet |
 |---|---|
-| `--interval MINUTES` | délai entre deux tours (défaut 10) |
-| `--once` | un seul tour puis s'arrêter |
-| `--port N` | port de l'interface, si `serve` est demandé |
+| `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
+| `--serve` | lever l'interface web avant de commencer, et la laisser |
+| `--port N` | port de l'interface (défaut 8765) |
+| `--no-watch`, `--no-download`, `--no-merge` | retirer une étape |
+| `--hub`, `--camera`, `--since` | comme pour `download` |
 | `--notify`, `--dry-run`, `--timezone` | comme pour `watch` |
 
 **`blink autostart on\|off\|status [verbe…]`** : lancer un verbe à l'ouverture
-de session, par le mécanisme du système. Sans verbe, `loop`. `--dry-run` montre
-sans agir.
-
-**`blink all`** : téléchargement puis assemblage. `--hub`, `--camera`, `--since`.
+de session, par le mécanisme du système. Sans verbe, `all --serve --loop 10`.
+Une entrée par verbe, `--dry-run` montre sans agir.
 
 **`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
 de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.

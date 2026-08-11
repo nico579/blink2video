@@ -86,7 +86,7 @@ def _process_alive(pid: int) -> bool:
             return True
         except OSError:
             return False
-    result = subprocess.run(
+    result = runtime.lancer(
         ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         text=True, errors="replace", check=False,

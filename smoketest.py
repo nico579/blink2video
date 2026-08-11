@@ -41,7 +41,7 @@ def constat(ok: bool, intitule: str, detail: str = "") -> bool:
 
 def pixels_allumes(ffmpeg: str, video: Path) -> int:
     """Compte les pixels clairs dans le bas de l'image, où s'écrit l'heure."""
-    resultat = subprocess.run(
+    resultat = runtime.lancer(
         [ffmpeg, "-hide_banner", "-loglevel", "error", "-ss", "1",
          "-i", str(video), "-frames:v", "1",
          "-vf", "crop=iw:ih/6:0:ih*5/6,format=gray", "-f", "rawvideo", "-"],
@@ -85,7 +85,7 @@ def main() -> int:
         # Un clip noir : tout pixel allumé dans le bas de l'image ne pourra
         # venir que de l'horodatage, ce qui rend la preuve indiscutable.
         source = travail / "source.mp4"
-        subprocess.run(
+        runtime.lancer(
             [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
              "-i", "color=c=black:s=1280x720:d=4:r=30", "-c:v", "libx264",
              "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(source)],

@@ -245,7 +245,7 @@ def toast(titre: str, corps: str, url: str = "") -> None:
     évite d'ajouter une dépendance pour une dizaine de lignes, et de réécrire
     à la main un icône de zone de notification en Win32."""
     if sys.platform == "darwin":
-        subprocess.run(
+        runtime.lancer(
             ["osascript", "-e",
              f"display notification {_applescript(corps)} with title {_applescript(titre)}"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -254,7 +254,7 @@ def toast(titre: str, corps: str, url: str = "") -> None:
         return
     if sys.platform.startswith("linux"):
         if shutil.which("notify-send"):
-            subprocess.run(["notify-send", titre, corps],
+            runtime.lancer(["notify-send", titre, corps],
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL, check=False, timeout=20)
             return
@@ -286,7 +286,7 @@ def toast(titre: str, corps: str, url: str = "") -> None:
         + repr(POWERSHELL_APP_ID) +
         ").Show($n)"
     )
-    subprocess.run(
+    runtime.lancer(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL, check=False, timeout=20,
@@ -298,7 +298,7 @@ def download_new_clips() -> int:
 
     On relit le compte annoncé par blink.py plutôt que de compter les fichiers :
     c'est lui qui fait autorité, et il distingue déjà le neuf de l'acquis."""
-    result = subprocess.run(
+    result = runtime.lancer(
         runtime.self_command("download", "--hub", "Maison"),
         cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
@@ -319,7 +319,7 @@ def build_videos() -> bool:
     ouvre l'interface : le clip est normalisé, la journée réassemblée. Le
     surcoût est celui d'un seul encodage, les assemblages n'étant que des
     copies de flux."""
-    result = subprocess.run(
+    result = runtime.lancer(
         runtime.self_command("merge"),
         cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
@@ -344,7 +344,7 @@ def ensure_server(port: int) -> bool:
         if sonde.connect_ex(("127.0.0.1", port)) == 0:
             return False
 
-    subprocess.Popen(
+    runtime.demarrer(
         runtime.self_command("serve", "--no-browser", "--port", str(port)),
         cwd=str(BASE_DIR), stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -397,7 +397,7 @@ def notifier(moyen: str, config: dict, titre: str, corps: str) -> None:
             print(message)
 
 
-def un_tour(args, config, timezone, a_faire=("watch", "download", "merge")) -> None:
+def un_tour(args, config, timezone, a_faire) -> None:
     """Un tour : l'état d'abord, puis les clips, puis l'assemblage.
 
     L'ordre n'est pas celui de la ligne de commande mais celui des dépendances.
@@ -530,7 +530,7 @@ def main() -> int:
     # Ce programme contrôle l'état, rien de plus, conformément à son nom. La
     # répétition est une option commune à tous les verbes, pas un verbe.
     return runtime.repeter(
-        lambda: un_tour(args, config, timezone, a_faire=("watch",)),
+        lambda: un_tour(args, config, timezone, ("watch",)),
         args.loop, journal,
     )
 

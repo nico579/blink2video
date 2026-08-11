@@ -545,7 +545,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # les vignettes de la page d'un coup, et autant de ffmpeg simultanés
             # saturerait la machine pour rien.
             with THUMB_SLOTS:
-                subprocess.run(
+                runtime.lancer(
                     [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
                      # -ss avant -i : ffmpeg saute directement à la position
                      # demandée au lieu de décoder tout ce qui précède.
@@ -557,7 +557,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not pending.is_file() or pending.stat().st_size == 0:
                     # Clip plus court que la position demandée : on se rabat
                     # sur la toute première image.
-                    subprocess.run(
+                    runtime.lancer(
                         [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
                          "-i", str(source), "-frames:v", "1",
                          "-vf", "scale=480:-2", "-q:v", "5", str(pending)],
@@ -830,7 +830,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             url = BLINK.call(start, timeout=45)
 
             print(f"[direct] {name} : flux Blink ouvert sur {url}", flush=True)
-            process = subprocess.Popen(
+            process = runtime.demarrer(
                 [self.ffmpeg, "-hide_banner", "-loglevel", "error",
                  # Le flux arrive au fil de l'eau : on ne veut ni analyse
                  # préalable longue ni mise en tampon, sinon l'image affichée
@@ -1120,7 +1120,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         env = dict(__import__("os").environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
         self.send_event({"phase": phase, "line": f"$ {Path(script).name}"})
 
-        process = subprocess.Popen(
+        process = runtime.demarrer(
             command, cwd=str(BASE_DIR),
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True,

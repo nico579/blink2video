@@ -149,6 +149,25 @@ def resource_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+# Sous Windows, tout programme lancé depuis une application sans console en
+# ouvre une le temps de son exécution : une fenêtre noire qui apparaît et
+# disparaît à chaque vignette, à chaque analyse de vidéo, à chaque notification.
+# Ce drapeau l'en empêche. Ailleurs il n'existe pas et vaut zéro.
+SANS_FENETRE = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def lancer(commande, **options):
+    """subprocess.run, sans jamais faire clignoter de fenêtre sous Windows."""
+    options.setdefault("creationflags", SANS_FENETRE)
+    return subprocess.run(commande, **options)
+
+
+def demarrer(commande, **options):
+    """subprocess.Popen, même précaution."""
+    options.setdefault("creationflags", SANS_FENETRE)
+    return subprocess.Popen(commande, **options)
+
+
 def ajouter_boucle(parser) -> None:
     """Ajoute --loop à un analyseur d'arguments.
 

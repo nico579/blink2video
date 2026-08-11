@@ -122,7 +122,7 @@ def _windows(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
         arguments=_chaine_ps(arguments),
         dossier=_chaine_ps(str(runtime.app_dir())),
     )
-    resultat = subprocess.run(
+    resultat = runtime.lancer(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE, text=True, errors="replace", check=False,
@@ -148,7 +148,7 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     cible = dossier / f"com.nico579.{etiquette(quoi)}.plist"
     if etat == "off":
         if not simulation:
-            subprocess.run(["launchctl", "unload", str(cible)], check=False,
+            runtime.lancer(["launchctl", "unload", str(cible)], check=False,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return _retirer(cible, simulation)
 
@@ -172,7 +172,7 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
         return 0
     cible.parent.mkdir(parents=True, exist_ok=True)
     cible.write_text(contenu, encoding="utf-8")
-    subprocess.run(["launchctl", "load", str(cible)], check=False)
+    runtime.lancer(["launchctl", "load", str(cible)], check=False)
     return _installe(cible, quoi)
 
 
@@ -186,12 +186,12 @@ def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     cible = dossier / f"{etiquette(quoi)}.service"
     if etat == "off":
         if not simulation:
-            subprocess.run(["systemctl", "--user", "disable", "--now", etiquette(quoi)],
+            runtime.lancer(["systemctl", "--user", "disable", "--now", etiquette(quoi)],
                            check=False, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL)
         code = _retirer(cible, simulation)
         if not simulation:
-            subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+            runtime.lancer(["systemctl", "--user", "daemon-reload"], check=False)
         return code
 
     contenu = (
@@ -209,8 +209,8 @@ def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
         return 0
     cible.parent.mkdir(parents=True, exist_ok=True)
     cible.write_text(contenu, encoding="utf-8")
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
-    subprocess.run(["systemctl", "--user", "enable", "--now", etiquette(quoi)],
+    runtime.lancer(["systemctl", "--user", "daemon-reload"], check=False)
+    runtime.lancer(["systemctl", "--user", "enable", "--now", etiquette(quoi)],
                    check=False)
     return _installe(cible, quoi)
 
@@ -224,6 +224,10 @@ def lue(cible: Path) -> list:
     est ce qui va s'exécuter, pas ce qu'on installerait aujourd'hui."""
     try:
         if cible.suffix == ".lnk":
+            # Un raccourci n'existe que sous Windows, et powershell aussi :
+            # la garde est explicite plutôt que déduite de l'extension.
+            if sys.platform != "win32":
+                return []
             import subprocess as sp
             script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut("
                       + _chaine_ps(str(cible)) + "); "

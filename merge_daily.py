@@ -139,7 +139,7 @@ def find_ffmpeg() -> str:
 
 def has_drawtext(ffmpeg: str) -> bool:
     try:
-        result = subprocess.run(
+        result = runtime.lancer(
             [ffmpeg, "-hide_banner", "-filters"],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
@@ -154,7 +154,7 @@ def check_drawtext_available(ffmpeg: str) -> None:
     """Certains builds ffmpeg minimalistes (dont certains binaires portables)
     omettent libfreetype et donc le filtre drawtext. On le détecte tôt avec
     un message clair plutôt que de laisser échouer chaque fusion."""
-    result = subprocess.run(
+    result = runtime.lancer(
         [ffmpeg, "-hide_banner", "-filters"],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -186,7 +186,7 @@ def check_timestamp_rendering(ffmpeg: str, font_path: Path) -> None:
         + drawtext_chain(quote_filter_path(font_path), 40, 0)
         + ",format=gray"
     )
-    result = subprocess.run(
+    result = runtime.lancer(
         [ffmpeg, "-hide_banner", "-loglevel", "error", "-filter_complex", graph,
          "-frames:v", "1", "-f", "rawvideo", "-"],
         stdin=subprocess.DEVNULL,
@@ -316,7 +316,7 @@ def group_fingerprint(keys: list) -> str:
 
 def probe_clip_info(ffmpeg: str, source: Path) -> tuple[float, int, int, float, bool]:
     """Lit durée, résolution, fps et présence d'audio depuis l'en-tête du MP4."""
-    result = subprocess.run(
+    result = runtime.lancer(
         [ffmpeg, "-hide_banner", "-i", str(source)],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -622,7 +622,7 @@ def run_ffmpeg_batch(
         str(output_path),
     ]
     env = dict(__import__("os").environ, TZ="UTC0")
-    process = subprocess.Popen(
+    process = runtime.demarrer(
         command,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -685,7 +685,7 @@ def concat_copy(ffmpeg: str, parts: list, destination: Path) -> tuple[bool, str]
             "-c", "copy", "-movflags", "+faststart",
             str(destination),
         ]
-        result = subprocess.run(
+        result = runtime.lancer(
             command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
