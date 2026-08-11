@@ -17,11 +17,39 @@ assembled into one video per day, per ISO week and per month.
 
 Everything runs on your machine. Nothing is uploaded anywhere.
 
-## What you get
+## Features
 
-| Downloaded | Assembled | Reviewed |
-|---|---|---|
-| Every clip from the Sync Module's local storage, kept before rotation removes it. | One video per day, per week and per month, with the recording time burned into the image. | A local page to watch, discard, and see the cameras live. |
+**Watch and control**
+- Live view of any camera in the browser, arm or disarm the whole system or a
+  single camera, from a real screen.
+- Battery, temperature, Wi-Fi and link signal for each camera, each reading
+  dated: a camera out of range keeps reporting its last known values, and the
+  interface says when they were taken.
+- Camera model, firmware and serial number.
+
+**Keep**
+- Incremental download of the Sync Module's local storage, before rotation
+  removes the clips.
+- Recording time burned into every frame, so it survives any player, any phone,
+  any messaging application.
+- One video per day, per ISO week and per month, per camera.
+- Discarded clips moved aside rather than deleted, and never downloaded again.
+
+**Be told**
+- Continuous monitoring: camera or module offline, battery no longer good,
+  detection switched off, system disarmed, or a camera that has recorded nothing
+  for two days.
+- Alerts on change only, acknowledged with a dialog. Per-camera muting.
+- New clips downloaded and assembled automatically, then a notification that
+  opens the interface when clicked.
+
+**Run anywhere**
+- Standalone bundle for Windows, Linux and macOS, ffmpeg included.
+- From source, the first run builds its own isolated environment.
+
+## Screenshots
+
+*(to be added)*
 
 ## Install
 
@@ -109,6 +137,82 @@ Register-ScheduledTask -TaskName "Blink" -Action (New-ScheduledTaskAction `
   -Execute "C:\path\to\blink.exe" -Argument "watch --loop") `
   -Trigger (New-ScheduledTaskTrigger -AtLogOn)
 ```
+
+## Start the watcher with your session
+
+### Windows
+
+Task Scheduler, no elevation needed if you register it for your own account:
+
+```powershell
+Register-ScheduledTask -TaskName "blink2video" -Action (New-ScheduledTaskAction `
+  -Execute "C:\path	olink.exe" -Argument "watch --loop") `
+  -Trigger (New-ScheduledTaskTrigger -AtLogOn)
+```
+
+If that returns "access denied", use the Startup folder instead, which needs no
+rights at all:
+
+```powershell
+$s = (New-Object -ComObject WScript.Shell).CreateShortcut(
+  "$([Environment]::GetFolderPath('Startup'))link2video.lnk")
+$s.TargetPath = "C:\path	olink.exe"; $s.Arguments = "watch --loop"
+$s.WorkingDirectory = "C:\path	o"; $s.Save()
+```
+
+Use one or the other, never both: two launchers means two watchers and every
+notification twice.
+
+### macOS
+
+A launch agent, loaded at login:
+
+```bash
+mkdir -p ~/Library/LaunchAgents
+cat > ~/Library/LaunchAgents/com.nico579.blink2video.plist <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.nico579.blink2video</string>
+  <key>ProgramArguments</key>
+  <array><string>/path/to/blink</string><string>watch</string><string>--loop</string></array>
+  <key>WorkingDirectory</key><string>/path/to</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict></plist>
+PLIST
+launchctl load ~/Library/LaunchAgents/com.nico579.blink2video.plist
+```
+
+`launchctl unload` on the same file stops it. `KeepAlive` restarts the watcher
+if it ever exits.
+
+### Linux
+
+A systemd user service:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/blink2video.service <<'UNIT'
+[Unit]
+Description=blink2video watcher
+
+[Service]
+ExecStart=/path/to/blink watch --loop
+WorkingDirectory=/path/to
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+UNIT
+systemctl --user daemon-reload
+systemctl --user enable --now blink2video
+```
+
+`journalctl --user -u blink2video -f` follows it. Desktop notifications need
+`notify-send`, and the acknowledgement dialog needs `zenity`; without them the
+watcher writes to `watch.log` and keeps working.
 
 ## Where files go
 

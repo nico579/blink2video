@@ -18,11 +18,41 @@ et assemblés en une vidéo par jour, par semaine ISO et par mois.
 
 Tout tourne sur votre machine. Rien n'est envoyé ailleurs.
 
-## Ce que ça donne
+## Fonctionnalités
 
-| Récupéré | Assemblé | Trié |
-|---|---|---|
-| Tous les clips du stockage local du module, conservés avant que la rotation ne les efface. | Une vidéo par jour, par semaine et par mois, l'heure d'enregistrement incrustée dans l'image. | Une page locale pour visionner, écarter, et voir les caméras en direct. |
+**Regarder et commander**
+- Direct de n'importe quelle caméra dans le navigateur, armement ou désarmement
+  du système entier ou d'une seule caméra, depuis un vrai écran.
+- Batterie, température, signal Wi-Fi et liaison au module pour chaque caméra,
+  chaque relevé daté : une caméra hors de portée continue d'annoncer ses
+  dernières valeurs connues, et l'interface dit de quand elles datent.
+- Modèle, micrologiciel et numéro de série de chaque caméra.
+
+**Conserver**
+- Téléchargement incrémental du stockage local du module, avant que la rotation
+  n'efface les clips.
+- Heure d'enregistrement incrustée dans chaque image, donc conservée par
+  n'importe quel lecteur, téléphone ou messagerie.
+- Une vidéo par jour, par semaine ISO et par mois, pour chaque caméra.
+- Les clips écartés sont mis de côté plutôt que supprimés, et ne sont jamais
+  retéléchargés.
+
+**Être prévenu**
+- Surveillance continue : caméra ou module hors ligne, batterie qui faiblit,
+  détection coupée, système désarmé, ou caméra qui n'a rien enregistré depuis
+  deux jours.
+- Alertes sur changement uniquement, acquittées par une fenêtre. Mise en
+  sourdine par caméra.
+- Nouveaux clips récupérés et assemblés automatiquement, puis une notification
+  qui ouvre l'interface au clic.
+
+**Tourner partout**
+- Bundle autonome pour Windows, Linux et macOS, ffmpeg inclus.
+- Depuis les sources, le premier lancement construit son environnement isolé.
+
+## Captures d'écran
+
+*(à venir)*
 
 ## Installation
 
@@ -114,6 +144,82 @@ Register-ScheduledTask -TaskName "Blink" -Action (New-ScheduledTaskAction `
   -Execute "C:\chemin\vers\blink.exe" -Argument "watch --loop") `
   -Trigger (New-ScheduledTaskTrigger -AtLogOn)
 ```
+
+## Lancer la surveillance avec la session
+
+### Windows
+
+Planificateur de tâches, sans élévation si la tâche est déclarée pour votre propre compte :
+
+```powershell
+Register-ScheduledTask -TaskName "blink2video" -Action (New-ScheduledTaskAction `
+  -Execute "C:\path	olink.exe" -Argument "watch --loop") `
+  -Trigger (New-ScheduledTaskTrigger -AtLogOn)
+```
+
+Si la commande renvoie « Accès refusé », passez par le dossier de démarrage,
+qui ne demande aucun droit :
+
+```powershell
+$s = (New-Object -ComObject WScript.Shell).CreateShortcut(
+  "$([Environment]::GetFolderPath('Startup'))link2video.lnk")
+$s.TargetPath = "C:\path	olink.exe"; $s.Arguments = "watch --loop"
+$s.WorkingDirectory = "C:\path	o"; $s.Save()
+```
+
+L'un ou l'autre, jamais les deux : deux lanceurs donnent deux surveillances,
+et chaque notification en double.
+
+### macOS
+
+Un agent de lancement, chargé à l'ouverture de session :
+
+```bash
+mkdir -p ~/Library/LaunchAgents
+cat > ~/Library/LaunchAgents/com.nico579.blink2video.plist <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.nico579.blink2video</string>
+  <key>ProgramArguments</key>
+  <array><string>/path/to/blink</string><string>watch</string><string>--loop</string></array>
+  <key>WorkingDirectory</key><string>/path/to</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict></plist>
+PLIST
+launchctl load ~/Library/LaunchAgents/com.nico579.blink2video.plist
+```
+
+`launchctl unload` sur le même fichier l'arrête. `KeepAlive` relance la
+surveillance si elle venait à s'interrompre.
+
+### Linux
+
+Un service utilisateur systemd :
+
+```bash
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/blink2video.service <<'UNIT'
+[Unit]
+Description=blink2video watcher
+
+[Service]
+ExecStart=/path/to/blink watch --loop
+WorkingDirectory=/path/to
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+UNIT
+systemctl --user daemon-reload
+systemctl --user enable --now blink2video
+```
+
+`journalctl --user -u blink2video -f` permet de la suivre. Les notifications
+de bureau reposent sur `notify-send`, et la fenêtre d'acquittement sur
+`zenity` ; sans eux, la surveillance écrit dans `watch.log` et continue.
 
 ## Où vont les fichiers
 

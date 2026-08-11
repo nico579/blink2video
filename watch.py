@@ -22,6 +22,7 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
 import smtplib
 import subprocess
 import ssl
@@ -223,6 +224,12 @@ def popup(title: str, body: str) -> None:
     )
 
 
+def _applescript(texte: str) -> str:
+    """Encode une chaîne pour AppleScript, dont l'échappement n'est pas celui
+    d'un shell : seules les guillemets et la barre oblique inverse comptent."""
+    return '"' + texte.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def toast(titre: str, corps: str, url: str = "") -> None:
     """Notification Windows non bloquante, sans rien installer.
 
@@ -233,6 +240,20 @@ def toast(titre: str, corps: str, url: str = "") -> None:
     Passe par PowerShell, qui expose l'API de notification de Windows 10. Ça
     évite d'ajouter une dépendance pour une dizaine de lignes, et de réécrire
     à la main un icône de zone de notification en Win32."""
+    if sys.platform == "darwin":
+        subprocess.run(
+            ["osascript", "-e",
+             f"display notification {_applescript(corps)} with title {_applescript(titre)}"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, check=False, timeout=20,
+        )
+        return
+    if sys.platform.startswith("linux"):
+        if shutil.which("notify-send"):
+            subprocess.run(["notify-send", titre, corps],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, check=False, timeout=20)
+            return
     if sys.platform != "win32":
         print(f"{titre} : {corps}")
         return
