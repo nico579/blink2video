@@ -27,10 +27,19 @@ import runtime
 NOM = "blink2video"
 
 
-# Ce qu'on automatise par défaut. « watch --loop » couvre le besoin courant :
-# il surveille, alerte, rapatrie les nouveaux clips, les assemble, et démarre
-# l'interface. Mais rien n'oblige à automatiser cela : d'où un verbe explicite.
-DEFAUT = ("watch", "--loop")
+def etiquette(quoi: tuple) -> str:
+    """Nom de l'entrée, dérivé du verbe : une par verbe automatisé.
+
+    Plusieurs entrées cohabitent, c'est le besoin courant : la boucle qui
+    surveille et rapatrie, et l'interface qui reste à disposition. Les nommer
+    d'après leur verbe permet d'en retirer une sans toucher aux autres."""
+    return f"{NOM}-{(quoi or DEFAUT)[0]}"
+
+
+# Ce qu'on automatise par défaut : une seule entrée qui lève l'interface puis
+# boucle sur le contrôle, le rapatriement et l'assemblage. Rien n'oblige à
+# automatiser cela : « autostart on loop watch » n'alerterait que.
+DEFAUT = ("loop", "--serve")
 
 
 def commande(verbe_et_options: tuple = DEFAUT) -> list:
@@ -69,19 +78,24 @@ def appliquer(etat: str, simulation: bool = False, quoi: tuple = DEFAUT) -> int:
 
 # ------------------------------------------------------------------- Windows
 
-def _raccourci() -> Path:
+def _dossier_demarrage() -> Path:
     import ctypes
 
     tampon = ctypes.create_unicode_buffer(260)
     # CSIDL_STARTUP = 7 : dossier de démarrage de l'utilisateur courant.
     ctypes.windll.shell32.SHGetFolderPathW(None, 7, None, 0, tampon)
-    return Path(tampon.value) / f"{NOM}.lnk"
+    return Path(tampon.value)
+
+
+def _raccourci(quoi: tuple = ()) -> Path:
+    return _dossier_demarrage() / f"{etiquette(quoi)}.lnk"
 
 
 def _windows(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
-    cible = _raccourci()
     if etat == "status":
-        return _dire(cible, "Raccourci de démarrage")
+        return _lister(sorted(_dossier_demarrage().glob(f"{NOM}*.lnk")),
+                       "Raccourcis de démarrage")
+    cible = _raccourci(quoi)
     if etat == "off":
         return _retirer(cible, simulation)
 
@@ -126,9 +140,11 @@ def _chaine_ps(valeur: str) -> str:
 # --------------------------------------------------------------------- macOS
 
 def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
-    cible = Path.home() / "Library/LaunchAgents" / f"com.nico579.{NOM}.plist"
+    dossier = Path.home() / "Library/LaunchAgents"
     if etat == "status":
-        return _dire(cible, "Agent de lancement")
+        return _lister(sorted(dossier.glob(f"com.nico579.{NOM}*.plist")),
+                       "Agents de lancement")
+    cible = dossier / f"com.nico579.{etiquette(quoi)}.plist"
     if etat == "off":
         if not simulation:
             subprocess.run(["launchctl", "unload", str(cible)], check=False,
@@ -162,12 +178,14 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
 # --------------------------------------------------------------------- Linux
 
 def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
-    cible = Path.home() / ".config/systemd/user" / f"{NOM}.service"
+    dossier = Path.home() / ".config/systemd/user"
     if etat == "status":
-        return _dire(cible, "Service utilisateur")
+        return _lister(sorted(dossier.glob(f"{NOM}*.service")),
+                       "Services utilisateur")
+    cible = dossier / f"{etiquette(quoi)}.service"
     if etat == "off":
         if not simulation:
-            subprocess.run(["systemctl", "--user", "disable", "--now", NOM],
+            subprocess.run(["systemctl", "--user", "disable", "--now", etiquette(quoi)],
                            check=False, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL)
         code = _retirer(cible, simulation)
@@ -191,7 +209,8 @@ def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     cible.parent.mkdir(parents=True, exist_ok=True)
     cible.write_text(contenu, encoding="utf-8")
     subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
-    subprocess.run(["systemctl", "--user", "enable", "--now", NOM], check=False)
+    subprocess.run(["systemctl", "--user", "enable", "--now", etiquette(quoi)],
+                   check=False)
     return _installe(cible, quoi)
 
 
@@ -227,11 +246,17 @@ def lue(cible: Path) -> list:
     return []
 
 
-def _dire(cible: Path, intitule: str) -> int:
-    print(f"{intitule} : {'présent' if cible.exists() else 'absent'}")
-    print(f"  {cible}")
-    if cible.exists():
-        print(f"  commande : {' '.join(lue(cible))}")
+def _lister(entrees: list, intitule: str) -> int:
+    """Toutes les entrées installées, avec ce que chacune lance réellement."""
+    if not entrees:
+        print(f"{intitule} : aucune")
+        return 0
+    print(f"{intitule} : {len(entrees)}")
+    for cible in entrees:
+        print(f"  {cible.name}")
+        commande_lue = lue(cible)
+        if commande_lue:
+            print(f"    lance : {' '.join(commande_lue)}")
     return 0
 
 

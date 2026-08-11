@@ -40,8 +40,9 @@ VERBES = {
     "merge": ("merge_daily", "normaliser, horodater et assembler jour, semaine et mois"),
     "all": ("daily", "download puis merge"),
     "serve": ("serve", "servir seulement l'interface web : visionnage, tri, direct, armement"),
-    "watch": ("watch", "tout en continu : surveille, alerte, télécharge, assemble, et sert l'interface"),
-    "autostart": ("autostart", "lancer un verbe à l'ouverture de session, watch par défaut"),
+    "watch": ("watch", "contrôler l'état de l'installation et alerter s'il se dégrade"),
+    "loop": ("loop", "répéter des verbes à intervalle régulier, avec --serve pour lever l'interface"),
+    "autostart": ("autostart", "lancer un verbe à l'ouverture de session, loop par défaut"),
     "smoketest": ("smoketest", "vérifier que l'installation fonctionne sur cette machine"),
 }
 

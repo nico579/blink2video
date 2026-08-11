@@ -85,8 +85,9 @@ blink download    # récupérer les nouveaux clips avant que la rotation ne les 
 blink merge       # normaliser, horodater et assembler jour, semaine et mois
 blink all         # download puis merge
 blink serve       # servir seulement l'interface web : visionnage, tri, direct, armement
-blink watch       # tout en continu : surveille, alerte, télécharge, assemble, et sert l'interface
-blink autostart   # lancer un verbe à l'ouverture de session, watch par défaut
+blink watch       # contrôler l'état de l'installation et alerter s'il se dégrade
+blink loop        # répéter des verbes à intervalle régulier, avec --serve pour lever l'interface
+blink autostart   # lancer un verbe à l'ouverture de session, loop par défaut
 blink smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
 <!-- verbes:fin -->
@@ -284,26 +285,31 @@ purpose, such as installing an autostart entry instead of watching, is a verb.
 | `--timezone ZONE` | fuseau d'affichage |
 | les mêmes options de dossiers que `merge` | |
 
-**`blink watch`** : surveillance.
+**`blink watch`** : contrôle de l'état, une fois.
 
 | Option | Effet |
 |---|---|
-| `--loop` | rester en fonctionnement au lieu d'un contrôle unique |
-| `--interval MINUTES` | délai entre deux contrôles (défaut 10) |
 | `--ignore CAMERA…` | mettre une caméra en sourdine, plus aucune alerte |
 | `--unignore CAMERA…` | lever la sourdine |
 | `--test` | déclencher une notification de vérification |
 | `--notify popup\|mail\|both` | canal d'alerte (défaut : boîte de dialogue) |
-| `--no-download` | surveiller sans rapatrier les clips |
-| `--no-build` | ne pas assembler après un téléchargement |
-| `--no-serve` | ne pas démarrer l'interface web |
-| `--port N` | port de l'interface qu'ouvre la notification |
-| `--dry-run` | montrer sans agir, y compris pour `--autostart` |
+| `--dry-run` | montrer sans agir |
+
+**`blink loop [verbes…]`** : répéter, en nommant quoi. Sans argument :
+`watch download merge serve`.
+
+| Option | Effet |
+|---|---|
+| `--interval MINUTES` | délai entre deux tours (défaut 10) |
+| `--once` | un seul tour puis s'arrêter |
+| `--port N` | port de l'interface, si `serve` est demandé |
+| `--notify`, `--dry-run`, `--timezone` | comme pour `watch` |
+
+**`blink autostart on\|off\|status [verbe…]`** : lancer un verbe à l'ouverture
+de session, par le mécanisme du système. Sans verbe, `loop`. `--dry-run` montre
+sans agir.
 
 **`blink all`** : téléchargement puis assemblage. `--hub`, `--camera`, `--since`.
-
-**`blink autostart on|off|status`**: start the watcher with your session, using
-the system's own mechanism. `--dry-run` shows without acting.
 
 **`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
 de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.

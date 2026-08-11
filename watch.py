@@ -397,8 +397,20 @@ def notifier(moyen: str, config: dict, titre: str, corps: str) -> None:
             print(message)
 
 
-def un_tour(args, config, timezone) -> None:
-    """Un contrôle complet : état de l'installation, puis nouveaux clips."""
+def un_tour(args, config, timezone, a_faire=("watch", "download", "merge")) -> None:
+    """Un tour : l'état d'abord, puis les clips, puis l'assemblage.
+
+    L'ordre n'est pas celui de la ligne de commande mais celui des dépendances.
+    L'état passe en premier pour qu'une panne soit signalée même si le
+    téléchargement échoue ensuite."""
+    if "watch" in a_faire:
+        _controler(args, config, timezone)
+    if "download" not in a_faire:
+        return
+    _rapatrier(args, "merge" in a_faire)
+
+
+def _controler(args, config, timezone) -> None:
     try:
         current = asyncio.run(read_state(timezone))
     except Exception as error:
@@ -434,8 +446,9 @@ def un_tour(args, config, timezone) -> None:
     for ligne in recoveries:
         toast("Blink : retour à la normale", ligne)
 
-    if args.no_download or args.dry_run:
-        return
+
+def _rapatrier(args, assembler: bool) -> None:
+    """Rapatrie les nouveaux clips, les assemble, et le signale."""
     try:
         # Le module ne traite qu'une commande à la fois : si l'interface diffuse
         # un direct, on passe notre tour plutôt que d'échouer sur « System is
@@ -448,12 +461,12 @@ def un_tour(args, config, timezone) -> None:
     if not neufs:
         return
     journal(f"{neufs} nouveau(x) clip(s)")
-    if not args.no_build:
+    if assembler:
         build_videos()
     pluriel = "s" if neufs > 1 else ""
     toast("Blink",
           f"{neufs} nouveau{'x' if neufs > 1 else ''} clip{pluriel} récupéré{pluriel}"
-          f"{'' if args.no_build else ', vidéos à jour'}. Cliquez pour ouvrir.",
+          f"{'' if assembler else ''}. Cliquez pour ouvrir.",
           url=f"http://127.0.0.1:{args.port}/")
 
 
@@ -475,27 +488,7 @@ def parse_args() -> argparse.Namespace:
         help="déclencher une notification de vérification et s'arrêter",
     )
     parser.add_argument(
-        "--loop", action="store_true",
-        help="rester en fonctionnement et surveiller en continu",
-    )
-    parser.add_argument(
-        "--interval", type=int, default=10, metavar="MINUTES",
-        help="délai entre deux contrôles en mode continu (défaut : 10)",
-    )
-    parser.add_argument(
         "--port", type=int, default=8765, help="port de l'interface (défaut : 8765)",
-    )
-    parser.add_argument(
-        "--no-serve", action="store_true",
-        help="ne pas démarrer l'interface web au lancement",
-    )
-    parser.add_argument(
-        "--no-build", action="store_true",
-        help="ne pas assembler les vidéos après un téléchargement",
-    )
-    parser.add_argument(
-        "--no-download", action="store_true",
-        help="ne pas rapatrier les nouveaux clips, seulement surveiller l'état",
     )
     parser.add_argument(
         "--ignore", metavar="CAMERA", nargs="+", default=[],
@@ -533,27 +526,10 @@ def main() -> int:
                  "Ceci est un test. La surveillance sait vous joindre.")
         return 0
 
-    if not args.loop:
-        un_tour(args, config, timezone)
-        return 0
-
-    # Une seule surveillance à la fois : deux boucles doubleraient les
-    # notifications et se disputeraient le module.
-    if not args.no_serve:
-        if ensure_server(args.port):
-            print(f"Interface démarrée sur http://127.0.0.1:{args.port}/")
-        else:
-            print(f"Interface déjà en fonctionnement sur le port {args.port}.")
-    print(f"Surveillance en fonctionnement, contrôle toutes les "
-          f"{args.interval} min. Ctrl+C pour arrêter.")
-    journal(f"demarrage de la surveillance continue ({args.interval} min)")
-    try:
-        while True:
-            un_tour(args, config, timezone)
-            time.sleep(args.interval * 60)
-    except KeyboardInterrupt:
-        journal("arret de la surveillance continue")
-        print("\nArrêt.")
+    # Un seul contrôle : la répétition appartient au verbe « loop », qui dit
+    # aussi ce qu'il répète. Le contrôle d'état est ce que ce programme fait,
+    # rien de plus, conformément à son nom.
+    un_tour(args, config, timezone, a_faire=("watch",))
     return 0
 
 
