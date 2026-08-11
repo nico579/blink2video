@@ -16,6 +16,13 @@ from PyInstaller.utils.hooks import collect_data_files
 # pas produire pour un autre système que le sien, ce choix se fait à la
 # construction et vaut pour la plateforme courante uniquement.
 def _ffmpeg() -> str:
+    # build.py a déjà choisi un binaire sachant incruster du texte, et l'a
+    # désigné ici : c'est lui qui fait autorité.
+    import os
+
+    choisi = os.environ.get("BLINK_FFMPEG")
+    if choisi:
+        return choisi
     try:
         import imageio_ffmpeg
 
@@ -48,7 +55,11 @@ analysis = Analysis(
     hiddenimports=["merge_daily", "review", "watch", "daily", "runtime", "tzdata"],
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter", "PyInstaller", "pytest"],
+    # imageio_ffmpeg est écarté : son seul intérêt est de fournir un binaire,
+    # déjà copié à la racine ci-dessus. Le laisser entrer le ferait embarquer
+    # une seconde fois, 84 Mo pour rien. find_ffmpeg trouve celui de la racine
+    # avant même de tenter cet import.
+    excludes=["tkinter", "PyInstaller", "pytest", "imageio_ffmpeg"],
     noarchive=False,
 )
 

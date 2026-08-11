@@ -33,6 +33,67 @@ SORTIE = BASE_DIR / "dist" / "blink"
 PAQUETS = ["aiohttp", "blinkpy", "tzdata", "imageio-ffmpeg", "pyinstaller"]
 
 
+# Compilation complète de secours, quand celle fournie par imageio-ffmpeg ne
+# sait pas incruster de texte. C'est le cas sous Linux, où elle est produite
+# sans libfreetype. Variante « gpl » : c'est celle qui embarque libfreetype.
+FFMPEG_SECOURS = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
+                  "ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz")
+
+
+def ffmpeg_utilisable() -> str:
+    """Choisit le ffmpeg à embarquer, en exigeant qu'il sache écrire du texte.
+
+    L'outil incruste l'heure dans l'image : un ffmpeg sans le filtre drawtext
+    le rend inutile. Plutôt que de changer de méthode d'horodatage pour
+    contourner une compilation incomplète, on embarque une compilation
+    complète. Le rendu reste identique sur les trois systèmes, et il n'y a
+    qu'un seul chemin de code à entretenir."""
+    import subprocess as sp
+
+    def sait_ecrire(binaire: str) -> bool:
+        try:
+            sortie = sp.run([binaire, "-hide_banner", "-filters"],
+                            stdout=sp.PIPE, stderr=sp.DEVNULL, text=True,
+                            errors="replace", timeout=60, check=False).stdout
+        except Exception:
+            return False
+        return "drawtext" in (sortie or "")
+
+    try:
+        resultat = sp.run([str(PYTHON), "-c",
+                           "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())"],
+                          stdout=sp.PIPE, text=True, check=True).stdout.strip()
+    except Exception:
+        resultat = ""
+
+    if resultat and sait_ecrire(resultat):
+        return resultat
+
+    if sys.platform != "linux":
+        raise SystemExit(
+            "Aucun ffmpeg capable d'incruster du texte n'a été trouvé, et aucune "
+            "solution de secours n'est prévue pour cette plateforme."
+        )
+
+    print("\n=== ffmpeg fourni sans drawtext, récupération d'une compilation complète")
+    import tarfile
+    import urllib.request
+
+    archive = BASE_DIR / "build" / "ffmpeg-linux.tar.xz"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    if not archive.exists():
+        urllib.request.urlretrieve(FFMPEG_SECOURS, archive)
+    with tarfile.open(archive) as fichier:
+        membre = next(m for m in fichier.getmembers() if m.name.endswith("/bin/ffmpeg"))
+        membre.name = "ffmpeg"
+        fichier.extract(membre, archive.parent)
+    binaire = archive.parent / "ffmpeg"
+    binaire.chmod(0o755)
+    if not sait_ecrire(str(binaire)):
+        raise SystemExit("La compilation de secours ne sait pas non plus écrire du texte.")
+    return str(binaire)
+
+
 def executer(commande: list, titre: str) -> None:
     print(f"\n=== {titre}")
     resultat = subprocess.run(commande, cwd=str(BASE_DIR), check=False)
@@ -41,6 +102,8 @@ def executer(commande: list, titre: str) -> None:
 
 
 def main() -> int:
+    import os
+
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--propre", action="store_true",
                         help="supprimer l'environnement de construction et les "
@@ -60,6 +123,9 @@ def main() -> int:
              "mise à jour de pip")
     executer([str(PYTHON), "-m", "pip", "install", "--quiet", *PAQUETS],
              "installation des dépendances")
+    ffmpeg = ffmpeg_utilisable()
+    print(f"\nffmpeg embarqué : {ffmpeg}")
+    os.environ["BLINK_FFMPEG"] = ffmpeg
     executer([str(PYTHON), "-m", "PyInstaller", "--noconfirm", "--clean",
               str(BASE_DIR / "blink.spec")],
              "construction du bundle")
