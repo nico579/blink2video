@@ -176,7 +176,40 @@ def test_horodatage(racine: Path, ffmpeg: str) -> None:
                  "l'heure survit à l'assemblage de la journalière")
 
 
+def test_verbes() -> None:
+    """Chaque verbe de la table répond à --help.
+
+    Le contrôle est piloté par runtime.VERBES, jamais par une liste écrite à la
+    main : c'est précisément une liste parallèle, dans le workflow, qui a
+    continué de citer « review » après son renommage en « serve »."""
+    import runtime
+
+    print("\nLes verbes répondent")
+    for verbe in runtime.VERBES:
+        resultat = subprocess.run(
+            [sys.executable, str(BASE_DIR / "blink.py"), "--bootstrap=none",
+             verbe, "--help"],
+            cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+            env=dict(os.environ, PYTHONIOENCODING="utf-8"), check=False,
+        )
+        verifier(resultat.returncode == 0, f"blink {verbe} --help",
+                 (resultat.stderr or "").strip()[:160])
+
+    sans = subprocess.run(
+        [sys.executable, str(BASE_DIR / "blink.py"), "--bootstrap=none"],
+        cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+        env=dict(os.environ, PYTHONIOENCODING="utf-8"), check=False,
+    )
+    verifier(sans.returncode == 0 and "Verbes :" in sans.stdout,
+             "sans argument, l'aide s'affiche", sans.stdout[-200:])
+    manquants = [v for v in runtime.VERBES if v not in sans.stdout]
+    verifier(not manquants, "l'aide cite tous les verbes", ", ".join(manquants))
+
+
 def main() -> int:
+    test_verbes()
     ffmpeg = md.find_ffmpeg()
     print(f"ffmpeg : {ffmpeg}")
 

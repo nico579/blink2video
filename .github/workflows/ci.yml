@@ -49,13 +49,6 @@ jobs:
       - name: Compiler tous les modules
         run: python -m compileall -q blink.py merge_daily.py review.py watch.py daily.py runtime.py build.py tests.py
 
-      - name: Vérifier l'aide de chaque verbe
-        run: |
-          python blink.py --bootstrap=none --help
-          python blink.py --bootstrap=none merge --help
-          python blink.py --bootstrap=none review --help
-          python blink.py --bootstrap=none watch --help
-
       # Les verbes n'existent qu'à un seul endroit, runtime.VERBES. Ce contrôle
       # échoue si les README ne reflètent plus cette table : une dérive doit
       # être signalée, pas tolérée jusqu'à ce que quelqu'un s'en aperçoive.
