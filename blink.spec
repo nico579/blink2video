@@ -45,7 +45,7 @@ def _modules() -> list:
     charge = importlib.util.spec_from_file_location("runtime", "runtime.py")
     runtime = importlib.util.module_from_spec(charge)
     charge.loader.exec_module(runtime)
-    return sorted({module for module, _ in runtime.VERBES.values()}
+    return sorted({verbe.module for verbe in runtime.VERBES.values()}
                   - {"blink"} | {"runtime", "tzdata"})
 
 

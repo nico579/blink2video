@@ -22,6 +22,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 
 # Source unique des verbes : leur ordre d'apparition dans l'aide, le programme
@@ -36,39 +37,52 @@ from pathlib import Path
 # Chaque verbe porte ses deux libellés : l'aide en ligne prend le français,
 # docs.py prend l'un ou l'autre selon le README qu'il remplit. Le README anglais
 # a longtemps affiché la liste des verbes en français, faute de cette colonne.
+class Verbe(NamedTuple):
+    """Un verbe : le programme qui l'exécute, et son libellé dans chaque langue.
+
+    Un tuple nommé plutôt qu'un tuple simple parce que la table est lue depuis
+    cinq endroits, dont un fichier .spec : le jour où une troisième colonne est
+    apparue, tous ceux qui déballaient « module, texte » ont cassé d'un coup.
+    Nommer les champs supprime la classe entière de ces pannes."""
+
+    module: str
+    fr: str
+    en: str
+
+
 VERBES = {
-    "login": ("blink",
+    "login": Verbe("blink",
               "se connecter au compte Blink, vérification en deux étapes gérée",
               "sign in to the Blink account, two-step verification handled"),
-    "list": ("blink",
+    "list": Verbe("blink",
              "ce que contient le module de synchronisation en ce moment",
              "what the Sync Module currently holds"),
-    "download": ("blink",
+    "download": Verbe("blink",
                  "récupérer les nouveaux clips avant que la rotation ne les efface",
                  "fetch new clips before rotation erases them"),
-    "merge": ("merge_daily",
+    "merge": Verbe("merge_daily",
               "normaliser, horodater et assembler jour, semaine et mois",
               "normalize, stamp and assemble day, week and month"),
-    "watch": ("watch",
+    "watch": Verbe("watch",
               "contrôler l'état de l'installation et alerter s'il se dégrade",
               "check the installation and alert when it degrades"),
-    "all": ("daily",
+    "all": Verbe("daily",
             "tout, c'est-à-dire watch puis download puis merge",
             "everything, that is watch then download then merge"),
-    "serve": ("serve",
+    "serve": Verbe("serve",
               "servir l'interface web, pour regarder, écarter, voir en direct",
               "serve the web interface, to watch, discard, see live"),
-    "autostart": ("autostart",
+    "autostart": Verbe("autostart",
                   "inscrire à l'ouverture de session la commande qui suit",
                   "register the command that follows with your session"),
-    "smoketest": ("smoketest",
+    "smoketest": Verbe("smoketest",
                   "vérifier que l'installation fonctionne sur cette machine",
                   "check that the installation works on this machine"),
 }
 
 # Verbes confiés à un autre programme, déduits de la table ci-dessus.
-DELEGUES = {verbe: module for verbe, (module, *_) in VERBES.items()
-            if module != "blink"}
+DELEGUES = {nom: verbe.module for nom, verbe in VERBES.items()
+            if verbe.module != "blink"}
 
 
 DEPENDANCES = {
@@ -290,7 +304,7 @@ def self_command(verb: str, *arguments: str) -> list:
         return [sys.executable, verb, *arguments]
     if verb not in VERBES:
         raise ValueError(f"verbe inconnu : {verb}")
-    module = VERBES[verb][0]
+    module = VERBES[verb].module
     base = [sys.executable, "-u",
             str(Path(__file__).resolve().parent / f"{module}.py")]
     # blink.py attend son verbe comme premier argument positionnel ; les autres

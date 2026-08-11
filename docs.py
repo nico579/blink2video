@@ -30,9 +30,8 @@ FIN = "<!-- verbes:fin -->"
 def bloc(langue: str) -> str:
     """Liste des verbes, en bloc de code, dans la langue demandée."""
     largeur = max(len(v) for v in runtime.VERBES)
-    rang = 0 if langue == "fr" else 1
-    lignes = [f"{verbe:<{largeur}}   # {textes[rang]}"
-              for verbe, (_, *textes) in runtime.VERBES.items()]
+    lignes = [f"{nom:<{largeur}}   # {getattr(verbe, langue)}"
+              for nom, verbe in runtime.VERBES.items()]
     entete = ("Une commande, un verbe par action. `blink <verbe> --help` donne "
               "les options de chacun."
               if langue == "fr" else

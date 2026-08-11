@@ -444,8 +444,8 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Gestion des caméras Blink depuis un ordinateur : direct, "
             "armement, archive horodatée.\n\nVerbes :\n"
-            + "".join(f"  {verbe:11} {texte}\n"
-                      for verbe, (_, texte, _en) in runtime.VERBES.items())
+            + "".join(f"  {nom:11} {verbe.fr}\n"
+                      for nom, verbe in runtime.VERBES.items())
             + "\n  <verbe> --help donne les options de chacun."
         ),
         # Les exemples suivent l'ordre dans lequel on rencontre les verbes :
