@@ -90,7 +90,11 @@ def installation_fictive(racine: Path, ffmpeg: str) -> dict:
     return {"attendus": len(clips), "duree_totale": sum(c[2] for c in clips)}
 
 
+# Chemin résolu : Windows cherche un exécutable relatif dans le répertoire du
+# processus appelant, pas dans celui qu'on donne à l'enfant.
 BUNDLE = os.environ.get("BLINK_TEST_BUNDLE")
+if BUNDLE:
+    BUNDLE = str(Path(BUNDLE).resolve())
 
 
 def lancer(racine: Path, arguments: list) -> subprocess.CompletedProcess:
