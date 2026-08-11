@@ -321,12 +321,47 @@ PyInstaller n'est pas un compilateur croisé, et le binaire ffmpeg est propre à
 chaque plateforme : chaque système exige sa propre construction. Le workflow de
 publication s'en charge sur les runners GitHub, pour Windows, Linux et macOS.
 
-## S'appuie sur
+## État du projet et usage responsable
 
-[blinkpy](https://github.com/fronzbot/blinkpy) pour l'API Blink, y compris
-l'implémentation du flux `immis`, et [ffmpeg](https://ffmpeg.org/) pour tout ce
-qui touche à la vidéo. Les notes de protocole de
-[BlinkMonitorProtocol](https://github.com/MattTW/BlinkMonitorProtocol) ont été
-utiles pour comprendre ce que l'API offre, et ce qu'elle n'offre pas.
+blink2video est un projet indépendant, éprouvé au quotidien sous Windows 10 sur
+une installation réelle : un module de synchronisation, quatre caméras, le
+direct, l'armement et l'archive. Les exécutables Linux et macOS sont construits
+et leur chaîne vidéo est vérifiée automatiquement sur les runners GitHub, mais
+ils n'ont jamais tourné face à du vrai matériel Blink, et les notifications de
+bureau n'y ont pas été vues à l'écran. Les retours et rapports reproductibles
+sont les bienvenus dans les issues GitHub.
 
-Sans lien avec Blink ni Amazon.
+Filmez de manière responsable. En France, la CNIL admet qu'on surveille son
+propre domicile, mais pas la voie publique, ni l'entrée des habitations
+voisines, ni un espace partagé sans information des personnes. Cet outil ne fait
+que conserver ce que vos caméras enregistrent déjà : il ne change rien à ce que
+vous avez le droit de filmer, mais il rend cette question plus concrète en
+constituant une archive durable là où l'application mobile ne gardait que
+quelques jours.
+
+L'archive produite est une donnée personnelle : elle contient des images de
+votre domicile, les horaires de présence qui s'en déduisent, et le fichier de
+session donne accès à votre compte Amazon. Ces fichiers restent sur votre
+machine et ne sont jamais envoyés ailleurs, mais ils méritent le même soin que
+vos autres données sensibles. Le `.gitignore` du dépôt les exclut tous.
+
+## Licence, auteur et crédits
+
+Le code est distribué sous GNU General Public License v3.0 ; voir
+[LICENSE](LICENSE). Toute redistribution modifiée doit fournir le code source
+correspondant sous la même licence. Ce choix est aussi celui qu'impose la
+cohérence : le bundle Linux embarque une compilation GPL de ffmpeg, seule à
+disposer de libfreetype et donc capable d'incruster l'horodatage.
+
+Conçu et architecturé par Nicolas Martin ([@nico579](https://github.com/nico579)).
+Code développé avec l'assistance de Claude (Anthropic) comme outil de
+développement.
+
+[blinkpy](https://github.com/fronzbot/blinkpy) fournit l'accès à l'API Blink,
+y compris l'implémentation du protocole `immis` sans laquelle le direct serait
+hors de portée, et [ffmpeg](https://ffmpeg.org/) fait tout le travail vidéo. Les
+notes de rétro-ingénierie de
+[BlinkMonitorProtocol](https://github.com/MattTW/BlinkMonitorProtocol) ont servi
+à comprendre ce que l'API offre, et surtout ce qu'elle n'offre pas.
+
+Sans lien avec Blink ni Amazon. Blink est une marque d'Amazon.
