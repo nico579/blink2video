@@ -656,7 +656,7 @@ def arreter() -> int:
         runtime.arreter_processus(int(fiche["pid"]))
         for enfant in fiche.get("enfants") or []:
             if runtime.processus_vivant(int(enfant)):
-                runtime.arreter_processus(int(enfant))
+                runtime.arreter_processus(int(enfant), avec_descendance=True)
         # La fiche est retirée ici : le processus tué n'exécute pas ses propres
         # adieux, et une fiche orpheline ferait croire qu'il tourne encore.
         Path(fiche["fiche"]).unlink(missing_ok=True)
@@ -697,7 +697,11 @@ def executer(groupes: list) -> int:
     for verbe, *arguments in groupes:
         lances.append((verbe, runtime.demarrer(
             runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()),
-            creationflags=runtime.flags_enfant())))
+            creationflags=runtime.flags_enfant(),
+            # Sa propre session hors Windows : « stop » peut alors tuer son
+            # groupe, ffmpeg compris, sans emporter le terminal qui a lancé
+            # l'ensemble.
+            start_new_session=(os.name != "nt"))))
         print(f"Lancé : {verbe} {' '.join(arguments)}".rstrip())
     runtime.inscrire_instance(groupes, [p.pid for _, p in lances])
 

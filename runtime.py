@@ -268,12 +268,17 @@ def lire_instances() -> list:
     return vivantes
 
 
-def arreter_processus(pid: int) -> None:
-    """Arrête un processus et sa descendance.
+def arreter_processus(pid: int, avec_descendance: bool = False) -> None:
+    """Arrête un processus, et sa descendance si on le demande.
 
-    Les enfants ne sont pas listés dans la fiche : l'arbre est demandé au
-    système, seul à le connaître au moment où on le tue. Sous Windows c'est
-    « taskkill /T », ailleurs le groupe de processus."""
+    La distinction est vitale hors Windows : un verbe lancé côte à côte reçoit
+    sa propre session (voir flags_enfant), on peut donc tuer son groupe entier,
+    ffmpeg compris. Le parent, lui, partage le groupe du terminal qui l'a lancé
+    : lui appliquer le même traitement tuerait ce terminal. C'est arrivé, et la
+    victime a été la suite de tests elle-même, sur les runners.
+
+    Sous Windows la question ne se pose pas : « taskkill /T » descend l'arbre
+    d'un processus donné, sans toucher à ses frères ni à son parent."""
     if os.name == "nt":
         lancer(["taskkill", "/F", "/T", "/PID", str(pid)],
                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -281,21 +286,23 @@ def arreter_processus(pid: int) -> None:
         return
     import signal
 
-    try:
-        os.killpg(os.getpgid(pid), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError, OSError):
+    def envoyer(signal_) -> bool:
         try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
+            if avec_descendance:
+                os.killpg(os.getpgid(pid), signal_)
+            else:
+                os.kill(pid, signal_)
+        except (ProcessLookupError, PermissionError, OSError):
+            return False
+        return True
+
+    if not envoyer(signal.SIGTERM):
+        return
     for _ in range(20):
         if not processus_vivant(pid):
             return
         time.sleep(0.25)
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except (ProcessLookupError, OSError):
-        pass
+    envoyer(signal.SIGKILL)
 
 
 # Sous Windows, tout programme lancé depuis une application sans console en
