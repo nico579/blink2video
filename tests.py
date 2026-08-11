@@ -281,7 +281,14 @@ def test_arret() -> None:
         verifier(arret.returncode == 0, "« stop » se termine sans erreur",
                  arret.stdout[-300:])
 
-        time.sleep(2)
+        # Le parent est un enfant de cette suite : sans ce wait, il resterait
+        # zombie et compterait pour vivant. Hors tests, c'est le système qui
+        # récupère.
+        try:
+            parent.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            pass
+        time.sleep(1)
         survivants = [numero for numero in [donnees["pid"], *donnees["enfants"]]
                       if runtime.processus_vivant(int(numero))]
         verifier(not survivants, "aucun processus ne survit",

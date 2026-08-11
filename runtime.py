@@ -218,7 +218,15 @@ def processus_vivant(pid: int) -> bool:
             return False
         except PermissionError:
             return True
-        return True
+        # Un processus tué reste « zombie » jusqu'à ce que son parent le
+        # récupère, et le signal zéro lui parvient encore : sans ce second
+        # examen, « stop » annonce que sa cible a survécu alors qu'elle est
+        # morte, ce qu'un runner a montré aussitôt.
+        etat = lancer(["ps", "-o", "state=", "-p", str(pid)],
+                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                      stderr=subprocess.DEVNULL, text=True, errors="replace",
+                      check=False)
+        return not (etat.stdout or "").strip().startswith("Z")
     resultat = lancer(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                       stderr=subprocess.DEVNULL, text=True, errors="replace",
