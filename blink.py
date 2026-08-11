@@ -621,7 +621,7 @@ DELEGUES = runtime.DELEGUES
 
 
 def deleguer(verbe: str, arguments: list) -> int:
-    """Passe la main au programme correspondant, dans le même processus.
+    """Passe la main au programme d'un verbe, dans le même processus.
 
     L'import est fait ici et pas en tête de fichier : ces modules importent
     eux-mêmes blink.py, et surtout ils tirent ffmpeg ou aiohttp derrière eux.
@@ -633,11 +633,50 @@ def deleguer(verbe: str, arguments: list) -> int:
     return int(module.main() or 0)
 
 
+def executer(groupes: list) -> int:
+    """Exécute les verbes cités, ensemble.
+
+    Un seul verbe est traité dans ce processus, ce qui garde la sortie et le
+    code de retour directs. Plusieurs sont lancés côte à côte et attendus : ils
+    s'arrêtent ensemble, faute de quoi un Ctrl+C laisserait derrière lui des
+    programmes sans personne pour les arrêter."""
+    if len(groupes) == 1:
+        verbe, *arguments = groupes[0]
+        if verbe in DELEGUES:
+            return deleguer(verbe, arguments)
+        sys.argv = ["blink", verbe, *arguments]
+        return asyncio.run(main(parse_args()))
+
+    lances = []
+    for verbe, *arguments in groupes:
+        lances.append((verbe, runtime.demarrer(
+            runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()))))
+        print(f"Lancé : {verbe} {' '.join(arguments)}".rstrip())
+    try:
+        for verbe, processus in lances:
+            processus.wait()
+    except KeyboardInterrupt:
+        print("\nArrêt.")
+    finally:
+        for _, processus in lances:
+            if processus.poll() is None:
+                processus.terminate()
+    return 0
+
+
 if __name__ == "__main__":
     try:
-        if len(sys.argv) > 1 and sys.argv[1] in DELEGUES:
-            raise SystemExit(deleguer(sys.argv[1], sys.argv[2:]))
+        # « autostart » vient nécessairement en tête : il n'exécute rien, il
+        # ordonnance ce qui suit. Les autres verbes se citent dans n'importe
+        # quel ordre, chacun suivi de ses options.
+        if len(sys.argv) > 1 and sys.argv[1] == "autostart":
+            raise SystemExit(deleguer("autostart", sys.argv[2:]))
+        if len(sys.argv) > 1 and sys.argv[1] in runtime.VERBES:
+            raise SystemExit(executer(runtime.decouper_verbes(sys.argv[1:])))
         raise SystemExit(asyncio.run(main(parse_args())))
+    except ValueError as erreur:
+        print(f"{erreur}. Verbes : {', '.join(runtime.VERBES)}")
+        raise SystemExit(2)
     except (KeyboardInterrupt, EOFError):
         print("\nConnexion annulée.")
         raise SystemExit(130)

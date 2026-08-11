@@ -176,10 +176,14 @@ def decouper_verbes(arguments) -> list:
     qui permet d'en citer autant qu'on veut, chacun réglé à sa façon.
 
     Lève ValueError si le premier élément n'est pas un verbe, faute de quoi on
-    ne saurait pas à qui rattacher les premières options."""
+    ne saurait pas à qui rattacher les premières options, et si un verbe est
+    cité deux fois : deux réglages contradictoires pour la même chose seraient
+    ambigus, et rien ne justifie de lancer deux fois le même travail."""
     groupes = []
     for element in arguments:
         if element in VERBES:
+            if any(groupe[0] == element for groupe in groupes):
+                raise ValueError(f"« {element} » est cité deux fois")
             groupes.append([element])
         elif groupes:
             groupes[-1].append(element)
@@ -218,6 +222,18 @@ def repeter(travail, minutes, journal=None) -> int:
             journal("arret de la repetition")
         print("\nArrêt.")
     return 0
+
+
+def commande_composee(arguments) -> list:
+    """Ligne complète passant par le point d'entrée, verbes compris.
+
+    Distincte de self_command, qui vise le programme d'un seul verbe : ici on
+    veut que blink lui-même reçoive la suite, puisque c'est lui qui sait lancer
+    plusieurs verbes côte à côte."""
+    if frozen():
+        return [sys.executable, *arguments]
+    return [sys.executable, "-u",
+            str(Path(__file__).resolve().parent / "blink.py"), *arguments]
 
 
 def self_command(verb: str, *arguments: str) -> list:

@@ -56,10 +56,12 @@ def commande(verbe_et_options: tuple = DEFAUT) -> list:
     sources : python.exe ouvrirait une console noire à chaque ouverture de
     session. pythonw.exe exécute la même chose sans fenêtre, ce que ces
     programmes peuvent se permettre puisqu'ils rendent compte dans watch.log."""
-    verbe, *options = verbe_et_options or DEFAUT
-    if verbe not in runtime.VERBES:
-        raise ValueError(f"verbe inconnu : {verbe}")
-    ligne = runtime.self_command(verbe, *options)
+    arguments = list(verbe_et_options or DEFAUT)
+    if arguments[0] not in runtime.VERBES:
+        raise ValueError(f"verbe inconnu : {arguments[0]}")
+    # Par le point d'entrée, et non par le programme d'un verbe : lui seul sait
+    # lancer plusieurs verbes côte à côte.
+    ligne = runtime.commande_composee(arguments)
     if sys.platform == "win32" and not runtime.frozen():
         sans_fenetre = Path(ligne[0]).with_name("pythonw.exe")
         if sans_fenetre.is_file():
@@ -68,20 +70,19 @@ def commande(verbe_et_options: tuple = DEFAUT) -> list:
 
 
 def appliquer_tous(etat: str, simulation: bool, quoi: tuple) -> int:
-    """Installe, retire ou consulte, pour chacun des verbes cités.
+    """Ordonnance la commande citée, telle quelle.
 
-    Chaque verbe cité donne son entrée : « autostart on watch --loop merge
-    --loop 60 » en pose deux, réglées séparément, qu'on peut retirer une à une.
-
-    « serve » fait exception, et c'est son contrat : il accueille les verbes qui
-    le suivent. « autostart on serve all --loop » pose donc une seule entrée,
-    celle de l'interface qui héberge la boucle."""
-    if etat == "status" or not quoi:
-        return appliquer(etat, simulation, quoi or DEFAUT)
-    groupes = ([list(quoi)] if quoi[0] == "serve"
-               else runtime.decouper_verbes(list(quoi)))
-    codes = [appliquer(etat, simulation, tuple(groupe)) for groupe in groupes]
-    return max(codes) if codes else 0
+    « autostart » est un préfixe : il ne fait qu'inscrire au démarrage ce qu'on
+    aurait tapé sans lui. Le point d'entrée sachant déjà lancer plusieurs
+    verbes, « autostart on serve watch --loop merge --loop 60 » pose une seule
+    entrée, qui lancera les trois. L'entrée est nommée d'après le premier
+    verbe, ce qui permet d'en tenir plusieurs et d'en retirer une seule."""
+    if quoi:
+        # Vérifie la syntaxe avant d'écrire quoi que ce soit : une entrée de
+        # démarrage fautive ne se découvre qu'à l'ouverture de session
+        # suivante, quand plus personne ne regarde.
+        runtime.decouper_verbes(list(quoi))
+    return appliquer(etat, simulation, quoi or DEFAUT)
 
 
 def appliquer(etat: str, simulation: bool = False, quoi: tuple = DEFAUT) -> int:
