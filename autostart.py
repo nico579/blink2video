@@ -32,8 +32,18 @@ def commande() -> list:
 
     runtime.self_command sait déjà se relancer correctement selon qu'on tourne
     depuis les sources ou depuis un bundle : c'est exactement ce qu'il faut
-    inscrire dans le mécanisme de démarrage."""
-    return runtime.self_command("watch", "--loop")
+    inscrire dans le mécanisme de démarrage.
+
+    Une substitution s'impose toutefois sous Windows quand on tourne depuis les
+    sources : python.exe ouvrirait une console noire à chaque ouverture de
+    session. pythonw.exe exécute la même chose sans fenêtre, ce que la
+    surveillance peut se permettre puisqu'elle écrit dans watch.log."""
+    ligne = runtime.self_command("watch", "--loop")
+    if sys.platform == "win32" and not runtime.frozen():
+        sans_fenetre = Path(ligne[0]).with_name("pythonw.exe")
+        if sans_fenetre.is_file():
+            ligne[0] = str(sans_fenetre)
+    return ligne
 
 
 def appliquer(etat: str, simulation: bool = False) -> int:
