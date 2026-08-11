@@ -28,3 +28,6 @@ dist/
 build_venv/
 __pycache__/
 *.pyc
+
+# Vidéo de démonstration produite par « blink smoketest ».
+smoketest.mp4

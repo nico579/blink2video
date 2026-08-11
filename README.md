@@ -83,6 +83,7 @@ blink merge          # normalize and assemble the videos
 blink all            # download then assemble
 blink review         # open the web interface
 blink watch --loop   # continuous monitoring, notifications, auto-assembly
+blink smoketest      # check that the installation works, on this machine
 ```
 
 Arguments after the verb go to the matching program, so `blink review --port 8899`
@@ -133,11 +134,36 @@ once. `--ignore "Portail"` silences one permanently.
 To have it start with your session, see
 [Start the watcher with your session](#start-the-watcher-with-your-session).
 
+## Check your installation
+
+```bash
+blink smoketest
+```
+
+Produces a real timestamped video you can open, raises a real notification, and
+reports on ffmpeg, the font, the Blink session and the autostart state. The
+timestamp check does not merely confirm the filter exists: it normalizes a black
+clip and counts lit pixels, the only proof that a time was actually drawn.
+
 ## Start the watcher with your session
+
+One command, using whichever mechanism your system provides:
+
+```bash
+blink watch --autostart on        # install
+blink watch --autostart status    # where things stand
+blink watch --autostart off       # remove
+```
+
+Add `--dry-run` to see what would happen without changing anything. No
+administrator rights are needed.
+
+If you would rather do it yourself, here is what the command sets up.
 
 ### Windows
 
-Task Scheduler, no elevation needed if you register it for your own account:
+A shortcut in the Startup folder. Task Scheduler would also do, but its root
+folder requires elevation:
 
 ```powershell
 Register-ScheduledTask -TaskName "blink2video" -Action (New-ScheduledTaskAction `

@@ -448,8 +448,8 @@ def parse_args() -> argparse.Namespace:
         nargs="?",
         choices=("login", "list", "download"),
         default="list",
-        help="login, list (défaut) ou download. Les verbes merge, review, watch "
-             "et all passent la main aux programmes correspondants",
+        help="login, list (défaut) ou download. Les verbes merge, review, watch, "
+             "all et smoketest passent la main aux programmes correspondants",
     )
     parser.add_argument("--hub", help="nom du Sync Module à utiliser")
     parser.add_argument("--camera", help="ne garder que cette caméra")
@@ -587,6 +587,7 @@ DELEGUES = {
     "review": "review",
     "watch": "watch",
     "all": "daily",
+    "smoketest": "smoketest",
 }
 
 

@@ -86,6 +86,7 @@ blink merge          # normaliser et assembler les vidéos
 blink all            # télécharger puis assembler
 blink review         # ouvrir l'interface web
 blink watch --loop   # surveillance continue, notifications, assemblage automatique
+blink smoketest      # vérifier que l'installation fonctionne, sur cette machine
 ```
 
 Les arguments qui suivent le verbe sont transmis au programme correspondant :
@@ -140,11 +141,37 @@ met en sourdine définitivement.
 Pour qu'elle démarre avec votre session, voir
 [Lancer la surveillance avec la session](#lancer-la-surveillance-avec-la-session).
 
+## Vérifier son installation
+
+```bash
+blink smoketest
+```
+
+Produit une vraie vidéo horodatée que vous pouvez ouvrir, fait apparaître une
+vraie notification, et dit ce qu'il en est de ffmpeg, de la police, de la
+session Blink et du démarrage automatique. Le contrôle de l'horodatage ne se
+contente pas de vérifier que le filtre existe : il normalise un clip noir et
+compte les pixels allumés, seule preuve qu'une heure est bien écrite.
+
 ## Lancer la surveillance avec la session
+
+Une commande suffit, elle emploie le mécanisme propre à votre système :
+
+```bash
+blink watch --autostart on        # installer
+blink watch --autostart status    # savoir où l'on en est
+blink watch --autostart off       # retirer
+```
+
+Ajoutez `--dry-run` pour voir ce qui serait fait sans rien modifier. Aucun droit
+d'administrateur n'est nécessaire.
+
+Si vous préférez le faire vous-même, voici ce que la commande met en place.
 
 ### Windows
 
-Planificateur de tâches, sans élévation si la tâche est déclarée pour votre propre compte :
+Un raccourci dans le dossier de démarrage. Le planificateur de tâches
+conviendrait aussi, mais son dossier racine demande une élévation :
 
 ```powershell
 Register-ScheduledTask -TaskName "blink2video" -Action (New-ScheduledTaskAction `

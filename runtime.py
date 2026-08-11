@@ -133,7 +133,7 @@ def self_command(verb: str, *arguments: str) -> list:
         return [sys.executable, verb, *arguments]
     script = {"download": "blink.py", "merge": "merge_daily.py",
               "review": "review.py", "watch": "watch.py",
-              "all": "daily.py"}.get(verb)
+              "all": "daily.py", "smoketest": "smoketest.py"}.get(verb)
     if script is None:
         raise ValueError(f"verbe inconnu : {verb}")
     base = [sys.executable, "-u", str(Path(__file__).resolve().parent / script)]

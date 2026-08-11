@@ -52,7 +52,8 @@ analysis = Analysis(
     datas=collect_data_files("tzdata", include_py_files=False),
     # Les verbes sont résolus par importlib au moment de l'appel : l'analyse
     # statique de PyInstaller ne peut pas les voir, il faut les nommer.
-    hiddenimports=["merge_daily", "review", "watch", "daily", "runtime", "tzdata"],
+    hiddenimports=["merge_daily", "review", "watch", "daily", "runtime",
+                   "smoketest", "autostart", "tzdata"],
     hookspath=[],
     runtime_hooks=[],
     # imageio_ffmpeg est écarté : son seul intérêt est de fournir un binaire,

@@ -471,6 +471,12 @@ def parse_args() -> argparse.Namespace:
         help="déclencher une notification de vérification et s'arrêter",
     )
     parser.add_argument(
+        "--autostart", choices=("on", "off", "status"), default=None,
+        metavar="ON|OFF|STATUS",
+        help="démarrer la surveillance avec la session : on installe, off "
+             "retire, status renseigne. Mécanisme propre à chaque système",
+    )
+    parser.add_argument(
         "--loop", action="store_true",
         help="rester en fonctionnement et surveiller en continu",
     )
@@ -510,6 +516,11 @@ def main() -> int:
     args = parse_args()
     config = load_config()
     timezone = ZoneInfo(args.timezone)
+
+    if args.autostart:
+        import autostart
+
+        return autostart.appliquer(args.autostart, args.dry_run)
 
     if args.ignore or args.unignore:
         state = md.load_json(WATCH_STATE, {})
