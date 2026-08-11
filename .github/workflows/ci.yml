@@ -60,17 +60,55 @@ jobs:
         run: python tests.py
 
   bundle:
-    name: bundle autonome
-    runs-on: windows-latest
-    timeout-minutes: 25
+    name: bundle ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: blink-windows-x86_64
+            exe: dist/blink/blink.exe
+          - os: ubuntu-latest
+            asset: blink-linux-x86_64
+            exe: dist/blink/blink
+          - os: macos-latest
+            asset: blink-macos-arm64
+            exe: dist/blink/blink
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: python build.py
-      - name: Vérifier que le bundle est autonome
+
+      - name: Construire le bundle
+        run: python build.py
+
+      # Le bundle doit être autonome : aucun ffmpeg du système ne doit être
+      # nécessaire, et celui qu'il embarque doit savoir incruster du texte,
+      # sans quoi les vidéos sortiraient sans horodatage.
+      - name: Vérifier que le bundle est autonome et sait horodater
         shell: bash
         run: |
-          ./dist/blink/blink.exe --help
-          find dist/blink -iname 'ffmpeg*' | grep -q . || { echo "ffmpeg absent"; exit 1; }
+          ${{ matrix.exe }} --help
+          embarque=$(find dist/blink -iname 'ffmpeg*' -type f | head -1)
+          test -n "$embarque" || { echo "ffmpeg absent du bundle"; exit 1; }
+          echo "ffmpeg embarqué : $embarque"
+          "$embarque" -hide_banner -filters | grep -q drawtext             || { echo "le ffmpeg embarqué ne sait pas incruster de texte"; exit 1; }
+
+      # Épreuve complète sur l'exécutable figé, pas sur les sources : c'est
+      # bien ce qui sera distribué que l'on éprouve, horodatage compris, et
+      # sans qu'aucun ffmpeg du système ne puisse voler la vedette.
+      - name: Éprouver la chaîne vidéo depuis le bundle
+        shell: bash
+        env:
+          BLINK_TEST_BUNDLE: ${{ matrix.exe }}
+        run: |
+          python -m pip install --quiet aiohttp blinkpy tzdata imageio-ffmpeg
+          python tests.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/blink

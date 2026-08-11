@@ -81,9 +81,16 @@ def installation_fictive(racine: Path, ffmpeg: str) -> dict:
     return {"attendus": len(clips), "duree_totale": sum(c[2] for c in clips)}
 
 
+BUNDLE = os.environ.get("BLINK_TEST_BUNDLE")
+
+
 def lancer(racine: Path, arguments: list) -> subprocess.CompletedProcess:
+    # Avec BLINK_TEST_BUNDLE, on éprouve l'exécutable figé plutôt que les
+    # sources : mêmes vérifications, mais sur ce qui sera réellement distribué.
+    commande = ([BUNDLE, "merge", *arguments] if BUNDLE
+                else [sys.executable, "-u", str(BASE_DIR / "merge_daily.py"), *arguments])
     return subprocess.run(
-        [sys.executable, "-u", str(BASE_DIR / "merge_daily.py"), *arguments],
+        commande,
         cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
         env=dict(os.environ, BLINK_HOME=str(racine), PYTHONIOENCODING="utf-8"),
@@ -93,6 +100,67 @@ def lancer(racine: Path, arguments: list) -> subprocess.CompletedProcess:
 
 def duree(ffmpeg: str, fichier: Path) -> float:
     return md.probe_clip_info(ffmpeg, fichier)[0]
+
+
+def pixels_allumes(ffmpeg: str, video: Path, seconde: float) -> int:
+    """Compte les pixels non noirs dans le bas de l'image, là où s'écrit l'heure.
+
+    Vérifier que le filtre drawtext existe ne prouve rien : une police
+    introuvable ou un format de date que la libc ignore produisent une image
+    vide, sans la moindre erreur. Les deux pannes se sont réellement produites.
+    Seuls des pixels le prouvent."""
+    resultat = subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-ss", str(seconde),
+         "-i", str(video), "-frames:v", "1",
+         # Bande basse de l'image, là où le cartouche est posé, en niveaux de gris.
+         "-vf", "crop=iw:ih/6:0:ih*5/6,format=gray",
+         "-f", "rawvideo", "-"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, check=False,
+    )
+    return sum(1 for octet in resultat.stdout if octet > 60)
+
+
+def test_horodatage(racine: Path, ffmpeg: str) -> None:
+    """Éprouve l'incrustation sur un clip volontairement noir.
+
+    Sur une image noire, tout pixel allumé dans la zone du cartouche ne peut
+    venir que de l'horodatage."""
+    print("\nHorodatage réellement incrusté")
+    noir = racine / "Blink_Clips" / "jardin" / "2026-03" / "2026-03-03_12-00-00Z_jardin_2000.mp4"
+    noir.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+         "-i", "color=c=black:s=640x360:d=3:r=30",
+         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(noir)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        check=True)
+
+    registre = md.load_json(racine / "Blink_Clips" / md.DOWNLOAD_STATE, {})
+    registre["clips"]["1:jardin:2026-03-03T12:00:00+00:00"] = {
+        "hub": "Test", "camera": "jardin", "created_at": "2026-03-03T12:00:00+00:00",
+        "path": "jardin/2026-03/2026-03-03_12-00-00Z_jardin_2000.mp4", "bytes": 1000,
+    }
+    md.save_json(racine / "Blink_Clips" / md.DOWNLOAD_STATE, registre)
+
+    avant = pixels_allumes(ffmpeg, noir, 1.0)
+    verifier(avant == 0, "le clip source est bien entièrement noir", str(avant))
+
+    sortie = lancer(racine, ["--timezone", "UTC"])
+    verifier(sortie.returncode == 0, "assemblage du clip noir", sortie.stdout[-300:])
+
+    normalise = racine / "Blink_Normalized" / "jardin" / "2026-03" / noir.name
+    verifier(normalise.is_file(), "le segment normalisé existe")
+    if normalise.is_file():
+        apres = pixels_allumes(ffmpeg, normalise, 1.0)
+        verifier(apres > 200,
+                 "l'heure est réellement dessinée dans l'image",
+                 f"{apres} pixels allumés, attendu plus de 200")
+
+    journaliere = racine / "Blink_Daily" / "jardin" / "2026-03-03_jardin.mp4"
+    if journaliere.is_file():
+        verifier(pixels_allumes(ffmpeg, journaliere, 1.0) > 200,
+                 "l'heure survit à l'assemblage de la journalière")
 
 
 def main() -> int:
@@ -149,6 +217,8 @@ def main() -> int:
                  "la durée totale diminue du clip écarté",
                  f"{nouvelle:.2f} contre {total:.2f}")
 
+        test_horodatage(racine, ffmpeg)
+
         print("\nInterface web")
         serveur = subprocess.Popen(
             [sys.executable, str(BASE_DIR / "review.py"), "--no-browser", "--port", "8899"],
@@ -160,9 +230,12 @@ def main() -> int:
             page = attendre("http://127.0.0.1:8899/")
             verifier(page is not None and b"blink" in page.lower(), "la page répond")
             clips = json.loads(attendre("http://127.0.0.1:8899/api/clips") or b"{}")
-            verifier(len(clips.get("clips", [])) == attendu["attendus"],
+            # Le registre fait foi : le test d'horodatage y a ajouté un clip.
+            registre = md.load_json(racine / "Blink_Clips" / md.DOWNLOAD_STATE, {})
+            attendus = len(registre.get("clips") or {})
+            verifier(len(clips.get("clips", [])) == attendus,
                      "l'inventaire liste tous les clips, écartés compris",
-                     str(len(clips.get("clips", []))))
+                     f"{len(clips.get('clips', []))} au lieu de {attendus}")
             verifier(sum(1 for c in clips.get("clips", []) if c["excluded"]) == 1,
                      "un seul clip est marqué écarté")
             videos = json.loads(attendre("http://127.0.0.1:8899/api/videos") or b"{}")
