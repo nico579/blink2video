@@ -262,10 +262,6 @@ watcher writes to `watch.log` and keeps working.
 
 `blink <verb> --help` is always authoritative; this table summarizes.
 
-Verbs and options follow one rule: a **verb** is what the program does, an
-**option** is how it does it. An option that would divert a command from its
-purpose, such as installing an autostart entry instead of watching, is a verb.
-
 **Root**: `login`, `list`, `download`. With no verb, the help is shown.
 
 | Option | Effect |
@@ -292,17 +288,6 @@ purpose, such as installing an autostart entry instead of watching, is a verb.
 | `--timezone ZONE` | time zone of the timestamp (default `Europe/Paris`) |
 | `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | location of each folder |
 
-**`blink serve`**: web interface.
-
-| Option | Effect |
-|---|---|
-| `--port N` | listening port (default 8765) |
-| `--no-browser` | do not open the browser |
-| `--hub NAME` | Sync Module |
-| `--thumbs FOLDER` | thumbnail cache, disposable |
-| `--timezone ZONE` | display time zone |
-| the same folder options as `merge` | |
-
 **`blink watch`**: check the state, alert when it degrades.
 
 | Option | Effect |
@@ -313,8 +298,7 @@ purpose, such as installing an autostart entry instead of watching, is a verb.
 | `--test` | raise a test notification |
 | `--dry-run` | show without notifying or recording state |
 
-**`blink all`**: watch, then download, then merge. The everyday verb. To do only
-part of it, no step is removed: name the verbs you want.
+**`blink all`**: watch, then download, then merge.
 
 | Option | Effect |
 |---|---|
@@ -322,20 +306,19 @@ part of it, no step is removed: name the verbs you want.
 | `--hub`, `--camera`, `--since` | as for `download` |
 | `--dry-run`, `--timezone` | as for `watch` |
 
-**`blink serve`**: serve the web interface. A verb like any other: name others
-after it to have them run alongside, `blink serve all --loop` raises the
-interface then loops, and everything stops together.
+**`blink serve`**: serve the web interface.
 
 | Option | Effect |
 |---|---|
 | `--port N` | listening port (default 8765) |
 | `--no-browser` | do not open the browser |
-| `--hub`, `--thumbs`, `--timezone` | module, thumbnail cache, time zone |
+| `--hub NAME` | Sync Module |
+| `--thumbs FOLDER` | thumbnail cache, disposable |
+| `--timezone ZONE` | display time zone |
 | the same folder options as `merge` | |
 
 **`blink autostart on\|off\|status [verb…]`**: register the command that
-follows it with your session, using the system's own mechanism. Without a verb,
-`serve --no-browser all --loop 10`. The entry is named after its first verb;
+follows it with your session. Without a verb, `serve --no-browser all --loop 10`.
 `--dry-run` shows without acting.
 
 **`blink smoketest`**: installation check. `--keep` keeps the working folder,

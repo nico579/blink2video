@@ -269,11 +269,6 @@ de bureau reposent sur `notify-send`, et la fenêtre d'acquittement sur
 
 `blink <verbe> --help` fait toujours foi ; ce tableau récapitule.
 
-Le partage entre verbes et options suit une règle simple : un **verbe** est ce
-que le programme fait, une **option** la manière dont il le fait. Une option qui
-détournerait la commande de son objet, comme installer un démarrage automatique
-au lieu de surveiller, est un verbe.
-
 **Racine** : `login`, `list`, `download`. Sans verbe, l'aide s'affiche.
 
 | Option | Effet |
@@ -300,17 +295,6 @@ au lieu de surveiller, est un verbe.
 | `--timezone ZONE` | fuseau de l'horodatage (défaut `Europe/Paris`) |
 | `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | emplacements de chaque dossier |
 
-**`blink serve`** : interface web.
-
-| Option | Effet |
-|---|---|
-| `--port N` | port d'écoute (défaut 8765) |
-| `--no-browser` | ne pas ouvrir le navigateur |
-| `--hub NOM` | module de synchronisation |
-| `--thumbs DOSSIER` | cache des vignettes, jetable |
-| `--timezone ZONE` | fuseau d'affichage |
-| les mêmes options de dossiers que `merge` | |
-
 **`blink watch`** : contrôler l'état, alerter s'il se dégrade.
 
 | Option | Effet |
@@ -321,9 +305,7 @@ au lieu de surveiller, est un verbe.
 | `--test` | déclencher une notification de vérification |
 | `--dry-run` | montrer sans notifier ni enregistrer l'état |
 
-**`blink all`** : watch, puis download, puis merge. Le verbe de l'usage courant.
-Pour n'en faire qu'une partie, on ne retire pas d'étape : on nomme les verbes
-voulus.
+**`blink all`** : watch, puis download, puis merge.
 
 | Option | Effet |
 |---|---|
@@ -331,20 +313,19 @@ voulus.
 | `--hub`, `--camera`, `--since` | comme pour `download` |
 | `--dry-run`, `--timezone` | comme pour `watch` |
 
-**`blink serve`** : servir l'interface web. Un verbe comme les autres : citez-en
-d'autres à la suite pour qu'ils tournent à côté, `blink serve all --loop` lève
-l'interface puis boucle, et tout s'arrête ensemble.
+**`blink serve`** : servir l'interface web.
 
 | Option | Effet |
 |---|---|
 | `--port N` | port d'écoute (défaut 8765) |
 | `--no-browser` | ne pas ouvrir le navigateur |
-| `--hub`, `--thumbs`, `--timezone` | module, cache des vignettes, fuseau |
+| `--hub NOM` | module de synchronisation |
+| `--thumbs DOSSIER` | cache des vignettes, jetable |
+| `--timezone ZONE` | fuseau d'affichage |
 | les mêmes options de dossiers que `merge` | |
 
 **`blink autostart on\|off\|status [verbe…]`** : inscrire au démarrage de
-session la commande qui suit, par le mécanisme du système. Sans verbe,
-`serve --no-browser all --loop 10`. L'entrée porte le nom de son premier verbe ;
+session la commande qui suit. Sans verbe, `serve --no-browser all --loop 10`.
 `--dry-run` montre sans agir.
 
 **`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
