@@ -260,8 +260,14 @@ Live view works on cameras that Blink serves over its `immis` protocol. A camera
 out of range of the Sync Module accepts the request but never sends an image,
 and the interface says so.
 
-Desktop notifications are Windows only. Elsewhere the watcher prints to its log
-and to the terminal.
+On Linux, the ffmpeg binary shipped by imageio-ffmpeg is built without
+libfreetype, so it cannot draw the timestamp. Install your distribution's own
+build, which can: `sudo apt install ffmpeg`. The tool tries each ffmpeg it can
+find and keeps the first one able to draw text. Windows and macOS need nothing.
+
+Desktop notifications use the tools of each system: the native dialog on
+Windows, osascript on macOS, notify-send and zenity on Linux. Where they are
+missing, the watcher writes to `watch.log` and keeps working.
 
 Nothing runs while the computer is off. A camera failing overnight is reported
 when the session next opens.

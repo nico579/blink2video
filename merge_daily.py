@@ -95,13 +95,27 @@ def save_json(path: Path, value: dict) -> None:
 
 
 def find_ffmpeg() -> str:
-    # En bundle, ffmpeg voyage avec l'exécutable : on le prend là avant tout,
-    # pour ne pas dépendre de ce qui traîne dans le PATH de la machine cible.
-    for candidat in runtime.resource_dir().glob("ffmpeg*.exe"):
-        return str(candidat)
-    executable = shutil.which("ffmpeg")
-    if executable:
-        return executable
+    """Choisit un ffmpeg capable d'incruster du texte.
+
+    Le premier trouvé ne convient pas forcément : les binaires livrés par
+    imageio-ffmpeg pour Linux sont compilés sans libfreetype, donc sans le
+    filtre drawtext, alors que ceux de Windows et de macOS l'ont. Un outil dont
+    la raison d'être est d'inscrire l'heure dans l'image ne peut pas se
+    contenter du premier venu : on essaie les candidats dans l'ordre et on
+    retient le premier qui sait le faire.
+
+    À défaut, on renvoie quand même le premier candidat : check_drawtext_available
+    produira ensuite un message clair, plutôt qu'un « ffmpeg introuvable »
+    trompeur alors qu'il y en a un."""
+    candidats = []
+    # En bundle, ffmpeg voyage avec l'exécutable : on le prend là en premier,
+    # pour ne pas dépendre de ce qui traîne sur la machine cible.
+    for motif in ("ffmpeg*.exe", "ffmpeg-*", "ffmpeg"):
+        candidats += [str(c) for c in sorted(runtime.resource_dir().glob(motif))
+                      if c.is_file()]
+    systeme = shutil.which("ffmpeg")
+    if systeme:
+        candidats.append(systeme)
 
     vendor = runtime.resource_dir() / "_vendor"
     if vendor.is_dir():
@@ -109,11 +123,31 @@ def find_ffmpeg() -> str:
     try:
         import imageio_ffmpeg
 
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except (ImportError, RuntimeError) as error:
+        candidats.append(imageio_ffmpeg.get_ffmpeg_exe())
+    except (ImportError, RuntimeError):
+        pass
+
+    if not candidats:
         raise RuntimeError(
             "FFmpeg est introuvable. Installez imageio-ffmpeg ou ajoutez ffmpeg au PATH."
-        ) from error
+        )
+    for candidat in candidats:
+        if has_drawtext(candidat):
+            return candidat
+    return candidats[0]
+
+
+def has_drawtext(ffmpeg: str) -> bool:
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-hide_banner", "-filters"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
+            errors="replace", check=False, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "drawtext" in (result.stdout or "")
 
 
 def check_drawtext_available(ffmpeg: str) -> None:

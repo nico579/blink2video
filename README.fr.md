@@ -269,8 +269,15 @@ Le direct fonctionne sur les caméras que Blink diffuse par son protocole
 `immis`. Une caméra hors de portée du module accepte la demande mais n'envoie
 jamais d'image, et l'interface le dit.
 
-Les notifications de bureau sont propres à Windows. Ailleurs, la surveillance
-écrit dans son journal et sur la sortie standard.
+Sous Linux, le binaire ffmpeg livré par imageio-ffmpeg est compilé sans
+libfreetype : il ne sait pas incruster l'horodatage. Installez celui de votre
+distribution, qui en est capable : `sudo apt install ffmpeg`. L'outil essaie
+chaque ffmpeg qu'il trouve et retient le premier qui sait écrire du texte.
+Windows et macOS n'ont besoin de rien.
+
+Les notifications de bureau empruntent les outils de chaque système : la
+fenêtre native sous Windows, osascript sous macOS, notify-send et zenity sous
+Linux. À défaut, la surveillance écrit dans `watch.log` et continue.
 
 Rien ne tourne pendant que l'ordinateur est éteint. Une caméra qui tombe la nuit
 est signalée à l'ouverture de session suivante.

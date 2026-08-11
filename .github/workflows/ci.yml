@@ -35,6 +35,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Le ffmpeg livré par imageio-ffmpeg pour Linux est compilé sans
+      # libfreetype, donc sans le filtre drawtext qui incruste l'heure. Sur ce
+      # système on installe celui de la distribution, complet. Windows et macOS
+      # se contentent du binaire embarqué, qui, lui, sait le faire.
+      - name: Installer ffmpeg complet (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
       - name: Installer les dépendances
         run: python -m pip install --quiet aiohttp blinkpy tzdata imageio-ffmpeg
 
