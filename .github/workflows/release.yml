@@ -37,12 +37,15 @@ jobs:
           - os: windows-latest
             asset: blink-windows-x86_64
             archive: zip
+            exe: dist/blink/blink.exe
           - os: ubuntu-latest
             asset: blink-linux-x86_64
             archive: tar
+            exe: dist/blink/blink
           - os: macos-latest
             asset: blink-macos-arm64
             archive: zip
+            exe: dist/blink/blink
 
     steps:
       - uses: actions/checkout@v5
@@ -59,22 +62,27 @@ jobs:
 
       - name: Vérifier que l'exécutable répond
         shell: bash
-        run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            ./dist/blink/blink.exe --help
-          else
-            ./dist/blink/blink --help
-          fi
+        run: ${{ matrix.exe }} --help
 
-      # ffmpeg est la pièce qui rend le bundle autonome : on refuse de publier
-      # une archive qui ne l'embarquerait pas.
-      - name: Vérifier la présence de ffmpeg
+      # ffmpeg rend le bundle autonome, mais sa seule présence ne suffit pas :
+      # les compilations sans libfreetype produisent des vidéos sans horodatage,
+      # sans la moindre erreur. On refuse de publier une archive muette.
+      - name: Vérifier que ffmpeg sait incruster du texte
         shell: bash
         run: |
-          if ! find dist/blink -iname 'ffmpeg*' | grep -q .; then
-            echo "ffmpeg absent du bundle"; exit 1
-          fi
-          find dist/blink -iname 'ffmpeg*'
+          embarque=$(find dist/blink -iname 'ffmpeg*' -type f | head -1)
+          test -n "$embarque" || { echo "ffmpeg absent du bundle"; exit 1; }
+          echo "ffmpeg embarqué : $embarque"
+          "$embarque" -hide_banner -filters | grep -q drawtext             || { echo "le ffmpeg embarqué ne sait pas incruster de texte"; exit 1; }
+
+      # Épreuve complète sur l'exécutable qui sera publié, horodatage compris.
+      - name: Éprouver la chaîne vidéo depuis le bundle
+        shell: bash
+        env:
+          BLINK_TEST_BUNDLE: ${{ matrix.exe }}
+        run: |
+          python -m pip install --quiet aiohttp blinkpy tzdata imageio-ffmpeg
+          python tests.py
 
       - name: Empaqueter (zip)
         if: matrix.archive == 'zip'
