@@ -5,8 +5,8 @@
 **Manage your Blink cameras from a computer, and keep what they record.**
 
 Blink is built for the phone: one clip at a time, no archive, no desktop
-counterpart. Clips live on a USB stick plugged into the Sync Module, erased as it
-fills up.
+counterpart. Recordings live on a USB stick plugged into the Sync Module, erased
+as it fills up, or in the subscription cloud, which keeps them for a few weeks.
 
 blink2video is the missing side. A local interface to watch cameras live, arm
 detection and follow the state of the installation. And what the phone cannot do
@@ -98,7 +98,9 @@ assembles, while `serve`, or any verb given `--loop`, holds its own process unti
 
 ### The web interface
 
-`blink2video serve` serves a page on `127.0.0.1:8765` and opens it. Four views:
+`blink2video serve` serves a page on `127.0.0.1:8765`. It does not open by
+itself: `blink2video open` does that, and `--open-browser` opens it on startup.
+Four views:
 
 - **Live**: one tile per camera, with its state and arming.
 - **Clips**: newest first, with a preview and an "Écarter" (discard) button.
@@ -108,8 +110,11 @@ The Refresh button downloads new clips and rebuilds the videos, showing progress
 
 ### Discarding a clip
 
-Detection fires on a shadow, a bird, a cloud. Discarding removes the clip from
-every assembled video:
+Detection fires on a shadow, a bird, a cloud. One click on "Écarter", under the
+clip in the interface, removes it from every assembled video, which are rebuilt
+straight away.
+
+From the command line:
 
 ```bash
 blink2video merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
@@ -121,8 +126,8 @@ the day, week and month are rebuilt without it. `--include` undoes all of it.
 ### Monitoring
 
 ```bash
-blink2video watch --loop     # check and alert, every ten minutes
 blink2video start            # everything: checks, downloads, assembly, interface
+blink2video watch --loop     # the alerts alone, every ten minutes
 ```
 
 A camera going offline, a fading battery, detection switched off or a camera
@@ -130,10 +135,10 @@ silent for two days opens a dialog you must acknowledge. Alerts fire on change
 only, so a camera you knowingly leave offline warns you once, and
 `--ignore "Portail"` silences it.
 
-## Start the watcher with your session
+## Start the watcher automatically when you log in
 
 ```bash
-blink2video autostart on                    # the default, see below
+blink2video autostart on                    # registers « blink2video start »
 blink2video autostart status                # what is installed
 blink2video autostart off                   # remove
 ```
@@ -143,24 +148,8 @@ you would have typed it without the prefix. So `blink2video autostart on watch -
 automates the alerts only. No administrator rights are needed, and `--dry-run`
 shows what would happen.
 
-With no verb, the entry is the interface plus two loops running at different
-rates:
-
-```
-blink2video start
-```
-
-The two sources do not cost the same: the cloud inventory is a 0.13 s call to
-the account, whereas the USB manifest wakes the Sync Module. A named pace sets
-both in one word, and announces itself on startup:
-
-| Preset | Cloud | USB stick |
-|---|---|---|
-| `reactif` | 1 min | 10 min |
-| `equilibre` | 5 min | 15 min |
-| `econome` | 15 min | 60 min |
-
-`--loop N` still works and applies the same rhythm to both.
+With no verb, `blink2video start` is registered, that is the recommended
+setup.
 
 <details>
 <summary>Doing it yourself, without <code>autostart</code></summary>
@@ -286,10 +275,14 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--test` | fire a verification notification |
 | `--dry-run` | show without notifying or saving state |
 
-**`blink2video start`**: the recommended setup in one command: the interface,
-the state check every ten minutes, the USB stick every ten, the cloud every
-minute, assembly every five. Options given after it go to the interface,
-`--port` for instance.
+**`blink2video start`**: the recommended setup in one command. It is exactly
+equivalent to:
+
+```bash
+blink2video serve  watch --loop 10  download --from usb --loop 10  download --from cloud --loop 1  merge --loop 5
+```
+
+Options given after `start` go to the interface, `--port` for instance.
 
 **`blink2video serve`**: serve the web interface.
 
@@ -307,9 +300,16 @@ nobody is listening. `--port` if you moved it.
 
 **`blink2video stop`**: stop the running instance and all its verbs. No options.
 
-**`blink2video autostart on\|off\|status [verb…]`**: register the command that
-follows it with your session. Without a verb, `blink2video start`.
-`--dry-run` shows without acting.
+**`blink2video autostart`**: what will start when you log in.
+
+| Command | Effect |
+|---|---|
+| `autostart on` | register `blink2video start` |
+| `autostart on <verbs…>` | register that command instead of the default |
+| `autostart status` | what is registered, and what is running |
+| `autostart off` | remove the entry |
+
+`--dry-run` shows without changing anything.
 
 **`blink2video smoketest`**: installation check. `--keep` keeps the working folder,
 `--timezone` picks the time zone of the demonstration video.

@@ -5,8 +5,9 @@
 **Gérez vos caméras Blink depuis un ordinateur, et gardez ce qu'elles filment.**
 
 Blink est pensé pour le téléphone : un clip à la fois, aucune archive, pas
-d'équivalent sur ordinateur. Les clips vivent sur une clé USB branchée au module
-de synchronisation, effacés à mesure qu'elle se remplit.
+d'équivalent sur ordinateur. Les enregistrements vivent sur une clé USB branchée
+au module de synchronisation, effacés à mesure qu'elle se remplit, ou dans le
+cloud de l'abonnement, qui les garde quelques semaines.
 
 blink2video est le versant manquant. Une interface locale pour voir les caméras
 en direct, armer la détection et suivre l'état de l'installation. Et ce que le
@@ -102,7 +103,9 @@ occupe son propre processus jusqu'à `blink2video stop`.
 
 ### L'interface web
 
-`blink2video serve` sert une page sur `127.0.0.1:8765` et l'ouvre. Quatre vues :
+`blink2video serve` sert une page sur `127.0.0.1:8765`. Elle ne s'ouvre pas
+d'elle-même : `blink2video open` s'en charge, `--open-browser` le fait au
+démarrage. Quatre vues :
 
 - **Direct** : une tuile par caméra, avec son état et l'armement.
 - **Clips** : du plus récent au plus ancien, avec aperçu et bouton « Écarter ».
@@ -113,8 +116,11 @@ affichant l'avancement.
 
 ### Écarter un clip
 
-La détection se déclenche sur une ombre, un oiseau, un nuage. Écarter retire le
-clip de toutes les vidéos assemblées :
+La détection se déclenche sur une ombre, un oiseau, un nuage. Un clic sur
+« Écarter », sous la vignette du clip dans l'interface, le retire de toutes les
+vidéos assemblées, qui sont reconstruites aussitôt.
+
+En ligne de commande :
 
 ```bash
 blink2video merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
@@ -126,8 +132,8 @@ semaine et le mois sont reconstruits sans lui. `--include` défait le tout.
 ### Surveillance
 
 ```bash
-blink2video watch --loop     # contrôler et alerter, toutes les dix minutes
 blink2video start            # tout : contrôle, rapatriement, assemblage, interface
+blink2video watch --loop     # les alertes seules, toutes les dix minutes
 ```
 
 Une caméra hors ligne, une batterie qui faiblit, une détection coupée ou une
@@ -135,10 +141,10 @@ caméra muette depuis deux jours ouvrent une fenêtre à acquitter. Les alertes 
 se déclenchent que sur un changement : une caméra que vous laissez sciemment
 hors ligne ne prévient qu'une fois, et `--ignore "Portail"` la met en sourdine.
 
-## Lancer la surveillance avec la session
+## Lancer la surveillance automatiquement à l'ouverture de la session
 
 ```bash
-blink2video autostart on                    # le défaut, voir plus bas
+blink2video autostart on                    # inscrit « blink2video start »
 blink2video autostart status                # ce qui est installé
 blink2video autostart off                   # retirer
 ```
@@ -148,25 +154,8 @@ telle que vous l'auriez tapée sans lui. `blink2video autostart on watch --loop 
 n'automatise donc que les alertes. Aucun droit d'administrateur n'est nécessaire,
 et `--dry-run` montre ce qui serait fait.
 
-Sans verbe, l'entrée posée est l'interface plus deux boucles de cadences
-différentes :
-
-```
-blink2video start
-```
-
-Les deux sources ne coûtent pas la même chose : l'inventaire cloud est un
-appel au compte de 0,13 s, quand le manifeste USB réveille le module de
-synchronisation. Une cadence nommée règle les deux d'un mot, et l'annonce au
-démarrage :
-
-| Préréglage | Cloud | Clé USB |
-|---|---|---|
-| `reactif` | 1 min | 10 min |
-| `equilibre` | 5 min | 15 min |
-| `econome` | 15 min | 60 min |
-
-`--loop N` reste possible et applique le même rythme aux deux.
+Sans verbe, c'est `blink2video start` qui est inscrit, c'est-à-dire la
+configuration recommandée.
 
 <details>
 <summary>Le faire soi-même, sans passer par <code>autostart</code></summary>
@@ -295,10 +284,14 @@ Blink_Monthly/     une par mois
 | `--test` | déclencher une notification de vérification |
 | `--dry-run` | montrer sans notifier ni enregistrer l'état |
 
-**`blink2video start`** : la configuration recommandée, en une commande :
-l'interface, le contrôle toutes les dix minutes, la clé USB toutes les dix, le
-cloud toutes les minutes, l'assemblage toutes les cinq. Les options données
-après lui vont à l'interface, `--port` par exemple.
+**`blink2video start`** : la configuration recommandée, en une commande. Elle
+équivaut exactement à :
+
+```bash
+blink2video serve  watch --loop 10  download --from usb --loop 10  download --from cloud --loop 1  merge --loop 5
+```
+
+Les options données après `start` vont à l'interface, `--port` par exemple.
 
 **`blink2video serve`** : servir l'interface web.
 
@@ -316,9 +309,16 @@ personne n'écoute. `--port` si vous l'avez déplacée.
 
 **`blink2video stop`** : arrêter l'instance en cours et tous ses verbes. Sans option.
 
-**`blink2video autostart on\|off\|status [verbe…]`** : inscrire au démarrage de
-session la commande qui suit. Sans verbe, `blink2video start`.
-`--dry-run` montre sans agir.
+**`blink2video autostart`** : ce qui se lancera à l'ouverture de session.
+
+| Commande | Effet |
+|---|---|
+| `autostart on` | inscrire `blink2video start` |
+| `autostart on <verbes…>` | inscrire cette commande-là plutôt que le défaut |
+| `autostart status` | ce qui est inscrit, et ce qui tourne |
+| `autostart off` | retirer l'entrée |
+
+`--dry-run` montre sans rien modifier.
 
 **`blink2video smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
 de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
