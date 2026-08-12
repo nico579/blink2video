@@ -204,6 +204,10 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "") -> dict:
     return {
         "clips": clips,
         "cameras": sorted({clip["camera"] for clip in clips}),
+        # Le modèle est propre à la caméra, pas au clip : envoyé une fois ici,
+        # et retiré de chaque clip pour qu'aucun affichage ne le répète.
+        "models": {nom: modele for nom, modele in (
+            (clip["camera"], clip.pop("model", None)) for clip in clips) if modele},
         "days": sorted({clip["day"] for clip in clips}, reverse=True),
     }
 
@@ -1345,10 +1349,10 @@ let data = { clips: [], cameras: [], days: [] };
 let videos = { daily: [], weekly: [], monthly: [] };
 const $ = (id) => document.getElementById(id);
 
-function fill(select, values, all) {
+function fill(select, values, all, label) {
   const kept = select.value;
   select.innerHTML = `<option value="">${all}</option>` +
-    values.map((v) => `<option>${v}</option>`).join("");
+    values.map((v) => `<option value="${v}">${label ? label(v) : v}</option>`).join("");
   if (values.includes(kept)) select.value = kept;
 }
 
