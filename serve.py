@@ -1546,7 +1546,16 @@ function renderClips() {
     `${clips.length} affiché(s) · ${data.clips.length - out} retenu(s) · ${out} écarté(s)`;
 
   if (!clips.length) {
-    $("list").innerHTML = `<p class="empty">Aucun clip à afficher.</p>`;
+    // Distinguer « rien ne correspond au filtre » de « rien n'a jamais été
+    // récupéré » : dans le second cas, la cause la plus fréquente est l'absence
+    // de clé USB sur le module, les enregistrements partant alors dans le cloud
+    // de l'abonnement Blink, que cet outil ne lit pas.
+    $("list").innerHTML = data.clips.length
+      ? `<p class="empty">Aucun clip ne correspond à ce filtre.</p>`
+      : `<p class="empty">Aucun clip récupéré pour l'instant.<br>
+           Lancez « blink2video download », ou vérifiez qu'une clé USB est
+           branchée sur le module : sans elle, les enregistrements ne vont que
+           dans le cloud de l'abonnement Blink, que cet outil ne lit pas.</p>`;
     return;
   }
   const days = [...new Set(clips.map((c) => c.day))];
