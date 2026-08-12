@@ -56,8 +56,8 @@ système.
 | Système | Archive | Premier lancement |
 |---|---|---|
 | Windows 10/11, x86-64 | `blink2video-windows-x86_64.zip` | `blink2video.exe` depuis un terminal |
-| Linux, x86-64 | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, puis `./blink2video` |
-| macOS 14+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, puis `./blink2video` |
+| Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, puis `./blink2video` |
+| macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, puis `./blink2video` |
 
 Le binaire n'est ni signé ni notarisé : sous macOS, Gatekeeper refuse le premier
 lancement d'une archive téléchargée par un navigateur, d'où la commande

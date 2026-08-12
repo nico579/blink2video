@@ -52,8 +52,8 @@ unpack it. ffmpeg travels inside the bundle; nothing is installed system-wide.
 | System | Archive | First run |
 |---|---|---|
 | Windows 10/11, x86-64 | `blink2video-windows-x86_64.zip` | `blink2video.exe` from a terminal |
-| Linux, x86-64 | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, then `./blink2video` |
-| macOS 14+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, then `./blink2video` |
+| Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, then `./blink2video` |
+| macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, then `./blink2video` |
 
 The binary is neither signed nor notarized: on macOS, Gatekeeper refuses the
 first run of an archive downloaded through a browser, hence the command above.
