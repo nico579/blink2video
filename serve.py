@@ -1056,7 +1056,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/passages":
-            self.send_json(runtime.passages())
+            # Le nombre de clips au registre accompagne les heures : la page le
+            # compare à ce qu'elle affiche et signale l'écart, sans rien
+            # redessiner de lui-même.
+            self.send_json({"passages": runtime.passages(),
+                            "clips": len(read_entries(self.paths))})
             return
 
         if route == "/api/refresh":
@@ -1479,10 +1483,16 @@ async function heuresDePassage() {
   // Une seule heure, la plus ancienne des trois : c'est elle qui dit si
   // l'ensemble suit. Le détail n'apparaît que si une activité traîne, sans
   // quoi trois horodatages identiques n'apprennent rien.
-  let vus = {};
+  let etat = {};
   try {
-    vus = await (await fetch("/api/passages")).json();
+    etat = await (await fetch("/api/passages")).json();
   } catch (erreur) { return; }
+  const vus = etat.passages || {};
+  // Des clips sont arrivés depuis que la page a été chargée : on le dit, et
+  // c'est à vous de cliquer sur Actualiser. La liste ne se réorganise pas sous
+  // les yeux de qui est en train de la lire.
+  const arrives = (data && data.clips)
+    ? Math.max(0, (etat.clips || 0) - data.clips.length) : 0;
   const noms = { watch: "contrôle", download: "clips", merge: "vidéos" };
   const dates = Object.keys(noms).filter((cle) => vus[cle]);
   if (!dates.length) return;
@@ -1492,9 +1502,12 @@ async function heuresDePassage() {
   const plusAncien = dates.reduce((a, b) => (instant(a) < instant(b) ? a : b));
   const plusRecent = dates.reduce((a, b) => (instant(a) > instant(b) ? a : b));
   const ecart = (instant(plusRecent) - instant(plusAncien)) / 60000;
-  $("passages").textContent = ecart > 20
+  const nouveaux = arrives
+    ? ` · ${arrives} nouveau${arrives > 1 ? "x" : ""} clip${arrives > 1 ? "s" : ""}, cliquez sur Actualiser`
+    : "";
+  $("passages").textContent = (ecart > 20
     ? `actualisé ${heure(plusRecent)} · ${noms[plusAncien]} ${heure(plusAncien)}`
-    : `actualisé ${heure(plusAncien)}`;
+    : `actualisé ${heure(plusAncien)}`) + nouveaux;
 }
 
 function renderLive() {
