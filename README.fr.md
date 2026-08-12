@@ -347,8 +347,33 @@ récupérés reviendraient comme neufs.
   surveillance écrit dans `watch.log` et continue.
 - Rien ne tourne pendant que l'ordinateur est éteint : une caméra qui tombe la
   nuit est signalée à l'ouverture de session suivante.
+- Blink refuse certains points d'entrée de son API selon la version de client
+  annoncée, avec un « An app update is required ». Le direct et le
+  téléchargement fonctionnent aujourd'hui ; rien ne garantit que Blink
+  n'étende pas ce refus.
 - Blink n'expose aucun moyen de redémarrer un module bloqué : il faut le
   débrancher.
+
+## Voisins
+
+D'autres projets touchent au même matériel, et se complètent plus qu'ils ne se
+concurrencent :
+
+- [blinkpy](https://github.com/fronzbot/blinkpy) est la bibliothèque d'accès à
+  l'API sur laquelle repose tout le reste, celui-ci compris.
+- [BlinkCamWindowsDashboard](https://github.com/mikeoverbay/BlinkCamWindowsDashboard)
+  offre un tableau de bord web et le téléchargement des clips, depuis le cloud
+  uniquement, donc avec un abonnement obligatoire, et sans direct.
+- [blinkbridge](https://github.com/roger-/blinkbridge) expose une caméra en RTSP,
+  pour l'intégrer à un système de vidéosurveillance existant.
+- [blink-live-view](https://github.com/andreiele/blink-live-view) se consacre au
+  direct sur le bureau.
+
+blink2video se distingue sur trois points : il lit **les deux** sources, la clé
+USB du module et le cloud de l'abonnement, sans jamais rapatrier deux fois le
+même enregistrement ; il incruste l'heure dans l'image et assemble une vidéo par
+jour, par semaine et par mois ; et il tourne sur les trois systèmes en bundle
+autonome, ffmpeg compris.
 
 ## Construction
 

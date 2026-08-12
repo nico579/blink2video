@@ -337,7 +337,31 @@ downloaded would come back as new.
   writes to `watch.log` and carries on.
 - Nothing runs while the computer is off: a camera failing at night is reported
   at the next logon.
+- Blink refuses some API endpoints depending on the client version announced,
+  with an "An app update is required" message. Live view and downloading work
+  today; nothing guarantees Blink will not widen that refusal.
 - Blink exposes no way to restart a stuck Sync Module: you have to unplug it.
+
+## Neighbours
+
+Other projects touch the same hardware, and complement each other more than they
+compete:
+
+- [blinkpy](https://github.com/fronzbot/blinkpy) is the API library everything
+  else builds on, including this.
+- [BlinkCamWindowsDashboard](https://github.com/mikeoverbay/BlinkCamWindowsDashboard)
+  offers a web dashboard and clip downloading, from the cloud only, so a
+  subscription is required, and without live view.
+- [blinkbridge](https://github.com/roger-/blinkbridge) exposes a camera over
+  RTSP, to plug into an existing surveillance system.
+- [blink-live-view](https://github.com/andreiele/blink-live-view) focuses on
+  desktop live view.
+
+blink2video differs on three points: it reads **both** sources, the module's USB
+stick and the subscription cloud, never fetching the same recording twice; it
+burns the time into the picture and assembles one video per day, per week and
+per month; and it runs on all three systems as a standalone bundle, ffmpeg
+included.
 
 ## Building
 
