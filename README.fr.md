@@ -48,10 +48,10 @@ Les clips du plus récent au plus ancien, filtrables par caméra et par jour.
 Chaque carte donne la caméra, la durée, la date et le modèle, et le bouton
 « Écarter » retire le clip de toutes les vidéos assemblées.
 
-## Installation
+## Démarrer
 
-Téléchargez l'archive de votre système depuis la
-[dernière version publiée](https://github.com/nico579/blink2video/releases/latest),
+**1. Installer.** Téléchargez l'archive de votre système depuis la
+[dernière version publiée](https://github.com/nico579/blink2video/releases/latest)
 et décompressez-la. ffmpeg voyage dans le bundle, rien n'est installé dans le
 système.
 
@@ -61,11 +61,44 @@ système.
 | Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, puis `./blink2video` |
 | macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, puis `./blink2video` |
 
-Le binaire n'est ni signé ni notarisé : sous macOS, Gatekeeper refuse le premier
-lancement d'une archive téléchargée par un navigateur, d'où la commande
-ci-dessus. Un clic droit puis « Ouvrir » fait la même chose.
+**2. Se connecter, une fois pour toutes.**
 
-Depuis les sources, avec Python 3.11 ou plus récent :
+```bash
+blink2video login
+```
+
+Votre adresse, votre mot de passe, puis le code que Blink envoie. Seul un jeton
+de session est conservé, jamais le mot de passe.
+
+**3. Vérifier que ça répond.**
+
+```bash
+blink2video list
+```
+
+La liste des clips présents sur le module s'affiche. Si elle apparaît, tout le
+reste fonctionnera.
+
+**4. Tout lancer.**
+
+```bash
+blink2video start
+```
+
+L'interface, la surveillance, le rapatriement des clips et l'assemblage des
+vidéos, chacun à son rythme. Puis `blink2video open` pour ouvrir la page, et
+`blink2video stop` pour tout arrêter.
+
+**5. Le faire au démarrage de la session.**
+
+```bash
+blink2video autostart on
+```
+
+Une seule fois : à chaque ouverture de session, tout redémarre seul.
+
+<details>
+<summary>Depuis les sources, avec Python 3.11 ou plus récent</summary>
 
 ```bash
 git clone https://github.com/nico579/blink2video
@@ -73,68 +106,29 @@ cd blink2video
 python blink2video.py login
 ```
 
-Le premier lancement crée un environnement isolé dans `~/.blink2video/venv` et s'y
-relance. `blink2video smoketest` vérifie ensuite que tout fonctionne sur votre machine.
+Le premier lancement crée un environnement isolé dans `~/.blink2video/venv` et
+s'y relance. `blink2video smoketest` vérifie ensuite que tout fonctionne sur
+votre machine.
 
-## Utilisation
+Le binaire publié n'est ni signé ni notarisé : sous macOS, Gatekeeper refuse le
+premier lancement d'une archive téléchargée par un navigateur, d'où le `xattr`
+du tableau. Un clic droit puis « Ouvrir » fait la même chose.
 
-<!-- verbes:début -->
-Une commande, un verbe par action. `blink2video <verbe> --help` donne les options de chacun.
+</details>
 
-```bash
-blink2video login       # se connecter au compte Blink, vérification en deux étapes gérée
-blink2video list        # ce que contient le module de synchronisation en ce moment
-blink2video download    # récupérer les nouveaux clips avant que la rotation ne les efface
-blink2video merge       # normaliser, horodater et assembler jour, semaine et mois
-blink2video watch       # contrôler l'état de l'installation et alerter s'il se dégrade
-blink2video serve       # servir l'interface web, pour regarder, écarter, voir en direct
-blink2video start       # tout lancer avec les réglages recommandés
-blink2video open        # ouvrir l'interface web dans le navigateur
-blink2video stop        # arrêter l'instance qui tourne en fond
-blink2video autostart   # inscrire à l'ouverture de session la commande qui suit
-blink2video smoketest   # vérifier que l'installation fonctionne sur cette machine
-```
-<!-- verbes:fin -->
-Les options suivent le verbe : `blink2video serve --port 8899`. Plusieurs verbes
-se citent d'affilée, chacun avec les siennes. Ce qui se termine s'enchaîne dans
-l'ordre cité, ce qui ne se termine pas tourne à côté : `blink2video download merge`
-télécharge **puis** assemble, tandis que `serve`, ou tout verbe muni de `--loop`,
-occupe son propre processus jusqu'à `blink2video stop`.
+## L'interface
 
-### L'interface web
+`blink2video open` ouvre la page servie sur `127.0.0.1:8765`. Quatre vues :
 
-`blink2video serve` sert une page sur `127.0.0.1:8765`. Elle ne s'ouvre pas
-d'elle-même : `blink2video open` s'en charge, `--open-browser` le fait au
-démarrage. Quatre vues :
-
-- **Direct** : une tuile par caméra, avec son état et l'armement.
-- **Clips** : du plus récent au plus ancien, avec aperçu et bouton « Écarter ».
+- **Direct** : une tuile par caméra, son état, et l'armement de la détection.
+- **Clips** : du plus récent au plus ancien, avec un aperçu et un bouton
+  « Écarter » qui retire un clip de toutes les vidéos assemblées.
 - **Journalières, Hebdomadaires, Mensuelles** : les vidéos assemblées.
 
-Le bouton Actualiser télécharge les nouveaux clips et reconstruit les vidéos, en
+Le bouton Actualiser rapatrie les nouveaux clips et reconstruit les vidéos, en
 affichant l'avancement.
 
-### Écarter un clip
-
-La détection se déclenche sur une ombre, un oiseau, un nuage. Un clic sur
-« Écarter », sous la vignette du clip dans l'interface, le retire de toutes les
-vidéos assemblées, qui sont reconstruites aussitôt.
-
-En ligne de commande :
-
-```bash
-blink2video merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
-```
-
-Le brut part dans `Blink_Excluded/`, il ne sera plus retéléchargé, et le jour, la
-semaine et le mois sont reconstruits sans lui. `--include` défait le tout.
-
-### Surveillance
-
-```bash
-blink2video start            # tout : contrôle, rapatriement, assemblage, interface
-blink2video watch --loop     # les alertes seules, toutes les dix minutes
-```
+## Être prévenu
 
 Une caméra hors ligne, une batterie qui faiblit, une détection coupée ou une
 caméra muette depuis deux jours ouvrent une fenêtre à acquitter. Les alertes ne
@@ -243,6 +237,30 @@ Blink_Monthly/     une par mois
 
 <details>
 <summary>Toutes les options</summary>
+
+<!-- verbes:début -->
+Une commande, un verbe par action. `blink2video <verbe> --help` donne les options de chacun.
+
+```bash
+blink2video login       # se connecter au compte Blink, vérification en deux étapes gérée
+blink2video list        # ce que contient le module de synchronisation en ce moment
+blink2video download    # récupérer les nouveaux clips avant que la rotation ne les efface
+blink2video merge       # normaliser, horodater et assembler jour, semaine et mois
+blink2video watch       # contrôler l'état de l'installation et alerter s'il se dégrade
+blink2video serve       # servir l'interface web, pour regarder, écarter, voir en direct
+blink2video start       # tout lancer avec les réglages recommandés
+blink2video open        # ouvrir l'interface web dans le navigateur
+blink2video stop        # arrêter l'instance qui tourne en fond
+blink2video autostart   # inscrire à l'ouverture de session la commande qui suit
+blink2video smoketest   # vérifier que l'installation fonctionne sur cette machine
+```
+<!-- verbes:fin -->
+
+Les options suivent le verbe : `blink2video serve --port 8899`. Plusieurs verbes
+se citent d'affilée, chacun avec les siennes. Ce qui se termine s'enchaîne dans
+l'ordre cité, ce qui ne se termine pas tourne à côté : `blink2video download merge`
+télécharge **puis** assemble, tandis que `serve`, ou tout verbe muni de `--loop`,
+occupe son propre processus jusqu'à `blink2video stop`.
 
 `blink2video <verbe> --help` fait toujours foi ; ce tableau récapitule.
 

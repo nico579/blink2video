@@ -44,9 +44,9 @@ Clips newest first, filtered by camera and by day. Each card gives the camera,
 the duration, the date and the model, and the "Écarter" button removes the clip
 from every assembled video.
 
-## Installation
+## Getting started
 
-Download the archive for your system from the
+**1. Install.** Download the archive for your system from the
 [latest release](https://github.com/nico579/blink2video/releases/latest) and
 unpack it. ffmpeg travels inside the bundle; nothing is installed system-wide.
 
@@ -56,11 +56,44 @@ unpack it. ffmpeg travels inside the bundle; nothing is installed system-wide.
 | Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, then `./blink2video` |
 | macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, then `./blink2video` |
 
-The binary is neither signed nor notarized: on macOS, Gatekeeper refuses the
-first run of an archive downloaded through a browser, hence the command above.
-Right-click then "Open" does the same.
+**2. Sign in, once and for all.**
 
-From source, with Python 3.11 or newer:
+```bash
+blink2video login
+```
+
+Your address, your password, then the code Blink sends. Only a session token is
+kept, never the password.
+
+**3. Check that it answers.**
+
+```bash
+blink2video list
+```
+
+The clips held by the module are listed. If that shows up, everything else will
+work.
+
+**4. Start everything.**
+
+```bash
+blink2video start
+```
+
+The interface, monitoring, clip downloading and video assembly, each at its own
+pace. Then `blink2video open` to open the page, and `blink2video stop` to stop it
+all.
+
+**5. Have it start when you log in.**
+
+```bash
+blink2video autostart on
+```
+
+Once only: from then on, everything restarts by itself at each logon.
+
+<details>
+<summary>From source, with Python 3.11 or newer</summary>
 
 ```bash
 git clone https://github.com/nico579/blink2video
@@ -68,67 +101,28 @@ cd blink2video
 python blink2video.py login
 ```
 
-The first run creates an isolated environment in `~/.blink2video/venv` and restarts
-there. `blink2video smoketest` then checks that everything works on your machine.
+The first run creates an isolated environment in `~/.blink2video/venv` and
+restarts there. `blink2video smoketest` then checks that everything works on your
+machine.
 
-## Usage
+The published binary is neither signed nor notarized: on macOS, Gatekeeper
+refuses the first run of an archive downloaded through a browser, hence the
+`xattr` in the table. Right-click then "Open" does the same.
 
-<!-- verbes:début -->
-One command, one verb per action. `blink2video <verb> --help` gives each one's options.
+</details>
 
-```bash
-blink2video login       # sign in to the Blink account, two-step verification handled
-blink2video list        # what the Sync Module currently holds
-blink2video download    # fetch new clips before rotation erases them
-blink2video merge       # normalize, stamp and assemble day, week and month
-blink2video watch       # check the installation and alert when it degrades
-blink2video serve       # serve the web interface, to watch, discard, see live
-blink2video start       # start everything with the recommended settings
-blink2video open        # open the web interface in the browser
-blink2video stop        # stop the instance running in the background
-blink2video autostart   # register the command that follows with your session
-blink2video smoketest   # check that the installation works on this machine
-```
-<!-- verbes:fin -->
-Options follow the verb: `blink2video serve --port 8899`. Several verbs can be
-named in a row, each with its own options. What finishes runs in sequence, what
-does not finish runs alongside: `blink2video download merge` downloads **then**
-assembles, while `serve`, or any verb given `--loop`, holds its own process until
-`blink2video stop`.
+## The interface
 
-### The web interface
+`blink2video open` opens the page served on `127.0.0.1:8765`. Four views:
 
-`blink2video serve` serves a page on `127.0.0.1:8765`. It does not open by
-itself: `blink2video open` does that, and `--open-browser` opens it on startup.
-Four views:
-
-- **Live**: one tile per camera, with its state and arming.
-- **Clips**: newest first, with a preview and an "Écarter" (discard) button.
+- **Live**: one tile per camera, its state, and detection arming.
+- **Clips**: newest first, with a preview and an "Écarter" button that removes a
+  clip from every assembled video.
 - **Daily, Weekly, Monthly**: the assembled videos.
 
-The Refresh button downloads new clips and rebuilds the videos, showing progress.
+The Refresh button fetches new clips and rebuilds the videos, showing progress.
 
-### Discarding a clip
-
-Detection fires on a shadow, a bird, a cloud. One click on "Écarter", under the
-clip in the interface, removes it from every assembled video, which are rebuilt
-straight away.
-
-From the command line:
-
-```bash
-blink2video merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
-```
-
-The raw file moves to `Blink_Excluded/`, it will never be downloaded again, and
-the day, week and month are rebuilt without it. `--include` undoes all of it.
-
-### Monitoring
-
-```bash
-blink2video start            # everything: checks, downloads, assembly, interface
-blink2video watch --loop     # the alerts alone, every ten minutes
-```
+## Being warned
 
 A camera going offline, a fading battery, detection switched off or a camera
 silent for two days opens a dialog you must acknowledge. Alerts fire on change
@@ -234,6 +228,30 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 
 <details>
 <summary>All options</summary>
+
+<!-- verbes:début -->
+One command, one verb per action. `blink2video <verb> --help` gives each one's options.
+
+```bash
+blink2video login       # sign in to the Blink account, two-step verification handled
+blink2video list        # what the Sync Module currently holds
+blink2video download    # fetch new clips before rotation erases them
+blink2video merge       # normalize, stamp and assemble day, week and month
+blink2video watch       # check the installation and alert when it degrades
+blink2video serve       # serve the web interface, to watch, discard, see live
+blink2video start       # start everything with the recommended settings
+blink2video open        # open the web interface in the browser
+blink2video stop        # stop the instance running in the background
+blink2video autostart   # register the command that follows with your session
+blink2video smoketest   # check that the installation works on this machine
+```
+<!-- verbes:fin -->
+
+Options follow the verb: `blink2video serve --port 8899`. Several verbs can be
+named in a row, each with its own options. What finishes runs in sequence, what
+does not finish runs alongside: `blink2video download merge` downloads **then**
+assembles, while `serve`, or any verb given `--loop`, holds its own process until
+`blink2video stop`.
 
 `blink2video <verb> --help` is always authoritative; this table summarizes.
 
