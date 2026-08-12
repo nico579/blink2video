@@ -1617,7 +1617,9 @@ async function load() {
   data = await answer.json();
   videos = await videoAnswer.json();
   if (data.error) { $("log").style.display = "block"; $("log").textContent = data.error; return; }
-  fill($("camera"), data.cameras, "toutes caméras");
+  // Le modèle accompagne le nom ici, une fois, plutôt que sur chaque vignette.
+  fill($("camera"), data.cameras, "toutes caméras",
+       (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
   fill($("day"), data.days, "tous les jours");
   render();
 }
