@@ -413,7 +413,7 @@ def set_excluded(
     Exclure ne détruit rien : le brut est déplacé dans Blink_Excluded, sa
     version normalisée est effacée (elle se refabrique à partir du brut), et
     une pierre tombale est posée dans le registre de téléchargement pour que
-    blink.py ne le rapatrie plus. La journalière concernée voit alors sa liste
+    blink2video.py ne le rapatrie plus. La journalière concernée voit alors sa liste
     de segments changer, donc son empreinte, donc elle est réassemblée au
     passage suivant, et les agrégats avec elle.
 
@@ -448,7 +448,7 @@ def set_excluded(
                 if (input_dir / identity).exists():
                     print(f"  Réintégré : {identity}")
                 else:
-                    print(f"  Réintégré : {identity} (brut absent, relancer blink.py)")
+                    print(f"  Réintégré : {identity} (brut absent, relancer blink2video.py)")
             changed += 1
 
     if changed:
@@ -1046,7 +1046,7 @@ def build_periods(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="blink merge",
+        prog="blink2video merge",
         description="Fusion incrémentale des clips Blink par caméra : une vidéo "
                     "par jour, puis agrégats par semaine ISO et par mois."
     )

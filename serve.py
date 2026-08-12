@@ -42,7 +42,7 @@ runtime.bootstrap()
 
 from aiohttp import ClientSession
 
-import blink as bk
+import blink2video as bk
 import merge_daily as md
 
 
@@ -55,7 +55,7 @@ BASE_DIR = runtime.app_dir()
 # quoi que ce soit : aucun chemin fabriqué à la main n'est servi.
 IDENTITY = re.compile(r"^[\w.\- ]+(/[\w.\- ]+)*\.mp4$")
 
-# Avancement annoncé par blink.py et merge_daily.py, et titres de phase émis
+# Avancement annoncé par blink2video.py et merge_daily.py, et titres de phase émis
 # par daily.py (« === TÉLÉCHARGEMENT INCRÉMENTAL === »).
 PROGRESS = re.compile(r"\[(\d+)/(\d+)\]")
 # Ligne d'avancement à l'intérieur d'un clip : « [3/24] 45% », rien d'autre.
@@ -75,7 +75,7 @@ THUMB_SLOTS = threading.Semaphore(2)
 #
 # Il ne couvre évidemment pas un autre client, l'application mobile par
 # exemple : là seul le refus renseigne, d'où la reprise avec attente croissante
-# côté blink.py.
+# côté blink2video.py.
 MODULE_SLOT = threading.Semaphore(1)
 LIVE_MAX_SECONDS = 300
 # Délai accordé à la première image. Une caméra sur batterie doit se réveiller,
@@ -379,7 +379,7 @@ class LoginFlow:
     fil, et la tâche de connexion s'y suspend en attendant le code au lieu de
     le lire au clavier.
 
-    Le mot de passe ne quitte jamais la mémoire de ce processus : blink.py
+    Le mot de passe ne quitte jamais la mémoire de ce processus : blink2video.py
     n'écrit que les jetons de session, jamais le mot de passe."""
 
     def __init__(self):
@@ -1049,7 +1049,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         rien à installer côté page. Le sens du flux est unique, du serveur vers
         la page, ce qui suffit ici : la page n'a rien à répondre.
 
-        On lance daily.py, pas blink.py puis merge_daily.py : daily.py *est*
+        On lance daily.py, pas blink2video.py puis merge_daily.py : daily.py *est*
         cet enchaînement, le dupliquer ici téléchargerait et fusionnerait deux
         fois."""
         self.send_response(200)
@@ -1092,11 +1092,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         auth = BASE_DIR / "blink_auth.json"
         script, phase = BASE_DIR / "daily.py", "Téléchargement"
         if not auth.is_file():
-            # blink.py demanderait l'e-mail, le mot de passe et le code 2FA sur
+            # blink2video.py demanderait l'e-mail, le mot de passe et le code 2FA sur
             # l'entrée standard, qui n'existe pas ici : le processus resterait
             # bloqué. On le dit et on se contente de reconstruire.
             self.send_event({"line": (
-                f"Session Blink absente ({auth.name}). Lancez « python blink.py "
+                f"Session Blink absente ({auth.name}). Lancez « python blink2video.py "
                 "login » dans un terminal pour vous connecter. Reconstruction "
                 "des vidéos seule."
             )})
@@ -1107,7 +1107,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                    else runtime.self_command("merge"))
 
         # PYTHONUNBUFFERED se transmet aux petits-enfants (daily.py lance
-        # blink.py et merge_daily.py) : sans lui, leur sortie arriverait par
+        # blink2video.py et merge_daily.py) : sans lui, leur sortie arriverait par
         # blocs de plusieurs kilo-octets et la barre avancerait par à-coups.
         # PYTHONIOENCODING évite les accents mutilés par la console Windows.
         env = dict(__import__("os").environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
@@ -1123,7 +1123,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for raw in process.stdout:
             line = raw.rstrip("\n")
             event = {"line": line}
-            # blink.py et merge_daily.py annoncent tous deux leur avancement
+            # blink2video.py et merge_daily.py annoncent tous deux leur avancement
             # sous la forme « [3/24] ». Une seule règle de lecture suffit donc,
             # et chaque phase repart naturellement de 1.
             counter = PROGRESS.search(line)
@@ -1760,7 +1760,7 @@ PAGE = PAGE.replace("__VERSION__", runtime.VERSION)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="blink serve",
+        prog="blink2video serve",
         description="Interface locale pour visionner les clips Blink, en écarter "
                     "et en reprendre."
     )
@@ -1819,7 +1819,7 @@ def main() -> int:
         server = Server(("127.0.0.1", args.port), Handler)
     except OSError as error:
         print(f"Impossible d'écouter sur le port {args.port} : {error}")
-        print("Un autre « blink serve » tourne sans doute déjà. Arrêtez-le, "
+        print("Un autre « blink2video serve » tourne sans doute déjà. Arrêtez-le, "
               "choisissez un autre port avec --port.")
         return 1
     url = f"http://127.0.0.1:{args.port}/"

@@ -11,9 +11,9 @@ name: Release (build 3 OS)
 #   - manuel, en indiquant l'étiquette
 #
 # Fichiers produits :
-#   blink-windows-x86_64.zip
-#   blink-linux-x86_64.tar.gz
-#   blink-macos-arm64.zip
+#   blink2video-windows-x86_64.zip
+#   blink2video-linux-x86_64.tar.gz
+#   blink2video-macos-arm64.zip
 
 on:
   push:
@@ -59,17 +59,17 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            asset: blink-windows-x86_64
+            asset: blink2video-windows-x86_64
             archive: zip
-            exe: dist/blink/blink.exe
+            exe: dist/blink2video/blink2video.exe
           - os: ubuntu-latest
-            asset: blink-linux-x86_64
+            asset: blink2video-linux-x86_64
             archive: tar
-            exe: dist/blink/blink
+            exe: dist/blink2video/blink2video
           - os: macos-latest
-            asset: blink-macos-arm64
+            asset: blink2video-macos-arm64
             archive: zip
-            exe: dist/blink/blink
+            exe: dist/blink2video/blink2video
 
     steps:
       - uses: actions/checkout@v5
@@ -94,7 +94,7 @@ jobs:
       - name: Vérifier que ffmpeg sait incruster du texte
         shell: bash
         run: |
-          embarque=$(find dist/blink -iname 'ffmpeg*' -type f | head -1)
+          embarque=$(find dist/blink2video -iname 'ffmpeg*' -type f | head -1)
           test -n "$embarque" || { echo "ffmpeg absent du bundle"; exit 1; }
           echo "ffmpeg embarqué : $embarque"
           "$embarque" -hide_banner -filters | grep -q drawtext             || { echo "le ffmpeg embarqué ne sait pas incruster de texte"; exit 1; }
@@ -111,11 +111,11 @@ jobs:
       - name: Empaqueter (zip)
         if: matrix.archive == 'zip'
         shell: bash
-        run: cd dist && 7z a -tzip "${{ matrix.asset }}.zip" blink || zip -r "${{ matrix.asset }}.zip" blink
+        run: cd dist && 7z a -tzip "${{ matrix.asset }}.zip" blink2video || zip -r "${{ matrix.asset }}.zip" blink2video
 
       - name: Empaqueter (tar.gz)
         if: matrix.archive == 'tar'
-        run: cd dist && tar czf "${{ matrix.asset }}.tar.gz" blink
+        run: cd dist && tar czf "${{ matrix.asset }}.tar.gz" blink2video
 
       - uses: actions/upload-artifact@v4
         with:

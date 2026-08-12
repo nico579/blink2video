@@ -40,7 +40,7 @@ runtime.bootstrap()
 
 from aiohttp import ClientSession
 
-import blink as bk
+import blink2video as bk
 import merge_daily as md
 
 
@@ -65,7 +65,7 @@ async def read_state(timezone) -> dict:
         blink = await bk.connect_saved(session)
         if blink is None:
             raise RuntimeError(
-                "session Blink absente ou expirée ; relancer « python blink.py login »"
+                "session Blink absente ou expirée ; relancer « python blink2video.py login »"
             )
         await blink.refresh(force=True)
 
@@ -277,7 +277,7 @@ def toast(titre: str, corps: str, url: str = "") -> None:
 def download_new_clips() -> int:
     """Lance un téléchargement incrémental et renvoie le nombre de clips acquis.
 
-    On relit le compte annoncé par blink.py plutôt que de compter les fichiers :
+    On relit le compte annoncé par blink2video.py plutôt que de compter les fichiers :
     c'est lui qui fait autorité, et il distingue déjà le neuf de l'acquis."""
     result = runtime.lancer(
         runtime.self_command("download", "--hub", "Maison"),
@@ -390,7 +390,7 @@ def _controler(args, timezone) -> None:
     if alerts and not args.dry_run:
         corps = [f"- {ligne}" for ligne in alerts]
         corps += ["", "Pour ne plus être averti d'une caméra :",
-                  '  blink watch --ignore "nom de la caméra"']
+                  '  blink2video watch --ignore "nom de la caméra"']
         popup(f"Blink : {len(alerts)} anomalie(s)", "\n".join(corps))
     for ligne in recoveries:
         toast("Blink : retour à la normale", ligne)
@@ -421,7 +421,7 @@ def _rapatrier(args, assembler: bool) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="blink watch",
+        prog="blink2video watch",
         description="Surveille l'installation Blink et alerte par courriel."
     )
     parser.add_argument("--timezone", default="Europe/Paris")

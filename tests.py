@@ -3,7 +3,7 @@
 L'astuce qui rend ces tests possibles partout : ffmpeg sait fabriquer des clips.
 On génère donc une installation fictive, avec des clips de durées, de
 définitions et de bandes-son différentes, on écrit le registre de
-téléchargement que blink.py aurait écrit, et on déroule tout le reste. Ce qui
+téléchargement que blink2video.py aurait écrit, et on déroule tout le reste. Ce qui
 dépend du compte Amazon (connexion, téléchargement, direct, armement) n'est pas
 testable ici et ne doit pas l'être : des identifiants n'ont rien à faire dans un
 service d'intégration.
@@ -188,17 +188,17 @@ def test_verbes() -> None:
     print("\nLes verbes répondent")
     for verbe in runtime.VERBES:
         resultat = subprocess.run(
-            [sys.executable, str(BASE_DIR / "blink.py"), "--bootstrap=none",
+            [sys.executable, str(BASE_DIR / "blink2video.py"), "--bootstrap=none",
              verbe, "--help"],
             cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
             env=dict(os.environ, PYTHONIOENCODING="utf-8"), check=False,
         )
-        verifier(resultat.returncode == 0, f"blink {verbe} --help",
+        verifier(resultat.returncode == 0, f"blink2video {verbe} --help",
                  (resultat.stderr or "").strip()[:160])
 
     sans = subprocess.run(
-        [sys.executable, str(BASE_DIR / "blink.py"), "--bootstrap=none"],
+        [sys.executable, str(BASE_DIR / "blink2video.py"), "--bootstrap=none"],
         cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
         env=dict(os.environ, PYTHONIOENCODING="utf-8"), check=False,
@@ -241,7 +241,7 @@ def test_installation_neuve() -> None:
 
 
 def test_arret() -> None:
-    """« blink stop » arrête l'instance et tous ses verbes.
+    """« blink2video stop » arrête l'instance et tous ses verbes.
 
     Tuer le seul processus parent laissait ses enfants derrière lui : un
     « watch » orphelin continuait de tourner en tenant le module de
@@ -252,7 +252,7 @@ def test_arret() -> None:
     maison = Path(tempfile.mkdtemp(prefix="blink_stop_"))
     environnement = dict(os.environ, BLINK_HOME=str(maison),
                          PYTHONIOENCODING="utf-8")
-    commande = [BUNDLE] if BUNDLE else [sys.executable, "-u", str(BASE_DIR / "blink.py")]
+    commande = [BUNDLE] if BUNDLE else [sys.executable, "-u", str(BASE_DIR / "blink2video.py")]
     parent = subprocess.Popen(
         [*commande, "serve", "--no-browser", "--port", "8945", "merge", "--loop", "60"],
         cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -385,7 +385,7 @@ def main() -> int:
             videos = json.loads(attendre("http://127.0.0.1:8899/api/videos") or b"{}")
             verifier(len(videos.get("monthly", [])) == 1,
                      "la mensuelle apparaît dans l'inventaire")
-            verifier(statut("http://127.0.0.1:8899/media/monthly/../../blink.py") == 404,
+            verifier(statut("http://127.0.0.1:8899/media/monthly/../../blink2video.py") == 404,
                      "une traversée de chemin est refusée")
         finally:
             serveur.terminate()

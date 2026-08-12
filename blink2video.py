@@ -435,7 +435,7 @@ def print_clip_summary(clips: list) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    programme = Path(sys.argv[0]).stem or "blink"
+    programme = Path(sys.argv[0]).stem or "blink2video"
     parser = argparse.ArgumentParser(
         prog=programme,
         # Les verbes vont dans la description, pas dans un groupe d'arguments :
@@ -615,8 +615,8 @@ async def main(args: argparse.Namespace) -> int:
 #
 # C'est la forme des commandes à verbe, celle de git ou de docker : un nom à
 # retenir, un verbe pour l'action. Chaque verbe reçoit tels quels les arguments
-# qui le suivent, donc « blink.py review --port 8899 » revient exactement à
-# « blink serve --port 8899 ».
+# qui le suivent, donc « blink2video.py review --port 8899 » revient exactement à
+# « blink2video serve --port 8899 ».
 # Les verbes, leur programme et leur description vivent dans runtime.VERBES :
 # une seule table, lue ici pour l'aide et la délégation, par self_command pour
 # la relance, et par docs.py pour les README.
@@ -627,7 +627,7 @@ def deleguer(verbe: str, arguments: list) -> int:
     """Passe la main au programme d'un verbe, dans le même processus.
 
     L'import est fait ici et pas en tête de fichier : ces modules importent
-    eux-mêmes blink.py, et surtout ils tirent ffmpeg ou aiohttp derrière eux.
+    eux-mêmes blink2video.py, et surtout ils tirent ffmpeg ou aiohttp derrière eux.
     Une simple demande de manifeste n'a pas à payer ce chargement."""
     import importlib
 
@@ -651,7 +651,7 @@ def arreter() -> int:
 
     for fiche in instances:
         commande = " ".join(" ".join(groupe) for groupe in fiche.get("verbes") or [])
-        print(f"Arrêt de « {commande or 'blink'} » "
+        print(f"Arrêt de « {commande or 'blink2video'} » "
               f"(PID {fiche['pid']}, depuis {fiche.get('depuis', '?')})")
         runtime.arreter_processus(int(fiche["pid"]))
         for enfant in fiche.get("enfants") or []:
@@ -689,7 +689,7 @@ def executer(groupes: list) -> int:
         if verbe in DELEGUES:
             runtime.inscrire_instance(groupes)
             return deleguer(verbe, arguments)
-        sys.argv = ["blink", verbe, *arguments]
+        sys.argv = ["blink2video", verbe, *arguments]
         return asyncio.run(main(parse_args()))
 
     runtime.inscrire_instance(groupes)

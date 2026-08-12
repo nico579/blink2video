@@ -5,12 +5,12 @@ autres dans l'ordre de leurs dépendances : l'état d'abord, pour qu'une panne
 soit signalée même si la suite échoue, puis le téléchargement, puis
 l'assemblage de ce qui vient d'arriver.
 
-    blink all               une fois
-    blink all --loop 10     toutes les dix minutes
-    blink serve all --loop  la même chose, avec l'interface web
+    blink2video all               une fois
+    blink2video all --loop 10     toutes les dix minutes
+    blink2video serve all --loop  la même chose, avec l'interface web
 
 Pour ne pas tout faire, on ne retire pas d'étape : on nomme les verbes voulus,
-« blink download » puis « blink merge ».
+« blink2video download » puis « blink2video merge ».
 """
 
 import argparse
@@ -26,7 +26,7 @@ import watch
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="blink all",
+        prog="blink2video all",
         description=__doc__.splitlines()[0],
         epilog="Équivaut à watch, puis download, puis merge.",
     )
@@ -49,7 +49,7 @@ def main() -> int:
     timezone = ZoneInfo(args.timezone)
 
     # Pas de --no-quelque-chose : pour ne pas tout faire, on nomme les verbes
-    # qu'on veut, « blink download » puis « blink merge ». Un verbe qui se
+    # qu'on veut, « blink2video download » puis « blink2video merge ». Un verbe qui se
     # décrit par ce qu'il ne fait pas en fait trop.
     a_faire = ["watch", "download", "merge"]
     print("Étapes : " + ", ".join(a_faire))

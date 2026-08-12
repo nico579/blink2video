@@ -41,7 +41,7 @@ VERSION = "0.2.1"
 # s'est produit : « autostart » manquait dans une description, « list » et
 # « login » n'apparaissaient nulle part dans la liste des verbes.
 #
-# Le programme « blink » désigne blink.py lui-même, qui traite ces verbes sans
+# Le programme « blink » désigne blink2video.py lui-même, qui traite ces verbes sans
 # déléguer : le verbe lui est alors passé en argument.
 # Chaque verbe porte ses deux libellés : l'aide en ligne prend le français,
 # docs.py prend l'un ou l'autre selon le README qu'il remplit. Le README anglais
@@ -114,7 +114,7 @@ def bootstrap() -> None:
     vérifier des dépendances après avoir échoué à les importer.
 
     Trois modes, choisis par --bootstrap= ou par la variable BLINK_BOOTSTRAP :
-      auto (défaut) : venv dans ~/.blink/venv, créé au besoin, puis relance
+      auto (défaut) : venv dans ~/.blink2video/venv, créé au besoin, puis relance
       pip           : installation dans l'environnement courant
       none          : aucune installation, on vérifie et on explique
 
@@ -143,7 +143,7 @@ def bootstrap() -> None:
             _installer(sys.executable, manquantes)
         return
 
-    venv_dir = Path.home() / ".blink" / "venv"
+    venv_dir = Path.home() / ".blink2video" / "venv"
     python = venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
     # Déjà dans le bon environnement : on continue, sans quoi on se relancerait
@@ -420,7 +420,7 @@ def commande_composee(arguments) -> list:
     if frozen():
         return [sys.executable, *arguments]
     return [sys.executable, "-u",
-            str(Path(__file__).resolve().parent / "blink.py"), *arguments]
+            str(Path(__file__).resolve().parent / "blink2video.py"), *arguments]
 
 
 def self_command(verb: str, *arguments: str) -> list:
@@ -436,6 +436,6 @@ def self_command(verb: str, *arguments: str) -> list:
     module = VERBES[verb].module
     base = [sys.executable, "-u",
             str(Path(__file__).resolve().parent / f"{module}.py")]
-    # blink.py attend son verbe comme premier argument positionnel ; les autres
+    # blink2video.py attend son verbe comme premier argument positionnel ; les autres
     # programmes sont appelés directement, sans verbe.
     return base + ([verb] if module == "blink" else []) + list(arguments)

@@ -47,44 +47,44 @@ from every assembled video.
 
 Download the archive for your system from the
 [latest release](https://github.com/nico579/blink2video/releases/latest),
-unpack it, and run `blink` from a terminal. ffmpeg travels inside the bundle.
+unpack it, and run `blink2video` from a terminal. ffmpeg travels inside the bundle.
 
 From source, with Python 3.11 or newer:
 
 ```bash
 git clone https://github.com/nico579/blink2video
 cd blink2video
-python blink.py login
+python blink2video.py login
 ```
 
-The first run creates an isolated environment in `~/.blink/venv` and restarts
-there. `blink smoketest` then checks that everything works on your machine.
+The first run creates an isolated environment in `~/.blink2video/venv` and restarts
+there. `blink2video smoketest` then checks that everything works on your machine.
 
 ## Usage
 
 <!-- verbes:début -->
-One command, one verb per action. `blink <verb> --help` gives each one's options.
+One command, one verb per action. `blink2video <verb> --help` gives each one's options.
 
 ```bash
-blink login       # sign in to the Blink account, two-step verification handled
-blink list        # what the Sync Module currently holds
-blink download    # fetch new clips before rotation erases them
-blink merge       # normalize, stamp and assemble day, week and month
-blink watch       # check the installation and alert when it degrades
-blink all         # everything, that is watch then download then merge
-blink serve       # serve the web interface, to watch, discard, see live
-blink stop        # stop the instance running in the background
-blink autostart   # register the command that follows with your session
-blink smoketest   # check that the installation works on this machine
+blink2video login       # sign in to the Blink account, two-step verification handled
+blink2video list        # what the Sync Module currently holds
+blink2video download    # fetch new clips before rotation erases them
+blink2video merge       # normalize, stamp and assemble day, week and month
+blink2video watch       # check the installation and alert when it degrades
+blink2video all         # everything, that is watch then download then merge
+blink2video serve       # serve the web interface, to watch, discard, see live
+blink2video stop        # stop the instance running in the background
+blink2video autostart   # register the command that follows with your session
+blink2video smoketest   # check that the installation works on this machine
 ```
 <!-- verbes:fin -->
-Options follow the verb: `blink serve --port 8899`. Several verbs can be named in
+Options follow the verb: `blink2video serve --port 8899`. Several verbs can be named in
 a row, each with its own options, and run together:
-`blink serve all --loop 10`.
+`blink2video serve all --loop 10`.
 
 ### The web interface
 
-`blink serve` serves a page on `127.0.0.1:8765` and opens it. Four views:
+`blink2video serve` serves a page on `127.0.0.1:8765` and opens it. Four views:
 
 - **Live**: one tile per camera, with its state and arming.
 - **Clips**: newest first, with a preview and an "Écarter" (discard) button.
@@ -98,7 +98,7 @@ Detection fires on a shadow, a bird, a cloud. Discarding removes the clip from
 every assembled video:
 
 ```bash
-blink merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
+blink2video merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
 ```
 
 The raw file moves to `Blink_Excluded/`, it will never be downloaded again, and
@@ -107,8 +107,8 @@ the day, week and month are rebuilt without it. `--include` undoes all of it.
 ### Monitoring
 
 ```bash
-blink watch --loop     # check and alert, every ten minutes
-blink all --loop       # also fetch clips and rebuild the videos
+blink2video watch --loop     # check and alert, every ten minutes
+blink2video all --loop       # also fetch clips and rebuild the videos
 ```
 
 A camera going offline, a fading battery, detection switched off or a camera
@@ -119,13 +119,13 @@ only, so a camera you knowingly leave offline warns you once, and
 ## Start the watcher with your session
 
 ```bash
-blink autostart on                    # the default: serve --no-browser all --loop 10
-blink autostart status                # what is installed
-blink autostart off                   # remove
+blink2video autostart on                    # the default: serve --no-browser all --loop 10
+blink2video autostart status                # what is installed
+blink2video autostart off                   # remove
 ```
 
 `autostart` runs nothing: it registers the command that follows it, exactly as
-you would have typed it without the prefix. So `blink autostart on watch --loop 30`
+you would have typed it without the prefix. So `blink2video autostart on watch --loop 30`
 automates the alerts only. No administrator rights are needed, and `--dry-run`
 shows what would happen.
 
@@ -137,7 +137,7 @@ shows what would happen.
 ```powershell
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut(
   "$([Environment]::GetFolderPath('Startup'))\blink2video.lnk")
-$s.TargetPath = "C:\path\to\blink.exe"; $s.Arguments = "serve --no-browser all --loop 10"
+$s.TargetPath = "C:\path\to\blink2video.exe"; $s.Arguments = "serve --no-browser all --loop 10"
 $s.WorkingDirectory = "C:\path\to"; $s.Save()
 ```
 
@@ -150,7 +150,7 @@ Task Scheduler would also do, but its root folder requires elevation.
 <plist version="1.0"><dict>
   <key>Label</key><string>com.nico579.blink2video</string>
   <key>ProgramArguments</key>
-  <array><string>/path/to/blink</string><string>serve</string><string>--no-browser</string><string>all</string><string>--loop</string><string>10</string></array>
+  <array><string>/path/to/blink2video</string><string>serve</string><string>--no-browser</string><string>all</string><string>--loop</string><string>10</string></array>
   <key>WorkingDirectory</key><string>/path/to</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -164,7 +164,7 @@ Loaded with `launchctl load`, stopped with `launchctl unload`.
 
 ```ini
 [Service]
-ExecStart=/path/to/blink serve --no-browser all --loop 10
+ExecStart=/path/to/blink2video serve --no-browser all --loop 10
 WorkingDirectory=/path/to
 Restart=on-failure
 
@@ -185,14 +185,14 @@ The instance started with your session holds the interface port and talks to the
 Sync Module: stop it before replacing any file.
 
 ```bash
-blink stop                 # stops the instance and all its verbs
+blink2video stop                 # stops the instance and all its verbs
 ```
 
 Then replace the folder with the new archive, or `git pull` from source, and
 start it again: the Startup shortcut on Windows, `launchctl load` on macOS,
 `systemctl --user start blink2video` on Linux. The next logon does it anyway.
 
-`blink autostart status` says what is installed and whether an instance is
+`blink2video autostart status` says what is installed and whether an instance is
 running. In a terminal, Ctrl+C is enough: `stop` exists for instances without a
 console, which Ctrl+C cannot reach and whose verbs were left orphaned when only
 the parent process was killed.
@@ -213,7 +213,7 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 <details>
 <summary>All options</summary>
 
-`blink <verb> --help` is always authoritative; this table summarizes.
+`blink2video <verb> --help` is always authoritative; this table summarizes.
 
 **Root**: `login`, `list`, `download`. With no verb, the help is shown.
 
@@ -225,7 +225,7 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--output FOLDER` | destination of raw clips (default `Blink_Clips`) |
 | `--overwrite` | replace existing files of a different size |
 
-**`blink merge`**: normalization and assembly.
+**`blink2video merge`**: normalization and assembly.
 
 | Option | Effect |
 |---|---|
@@ -241,7 +241,7 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--timezone ZONE` | time zone of the timestamp (default `Europe/Paris`) |
 | `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | location of each folder |
 
-**`blink watch`**: check the state, alert when it degrades.
+**`blink2video watch`**: check the state, alert when it degrades.
 
 | Option | Effect |
 |---|---|
@@ -251,7 +251,7 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--test` | fire a verification notification |
 | `--dry-run` | show without notifying or saving state |
 
-**`blink all`**: watch, then download, then merge.
+**`blink2video all`**: watch, then download, then merge.
 
 | Option | Effect |
 |---|---|
@@ -259,7 +259,7 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--hub`, `--camera`, `--since` | as for `download` |
 | `--dry-run`, `--timezone` | as for `watch` |
 
-**`blink serve`**: serve the web interface.
+**`blink2video serve`**: serve the web interface.
 
 | Option | Effect |
 |---|---|
@@ -270,13 +270,13 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--timezone ZONE` | display time zone |
 | the same folder options as `merge` | |
 
-**`blink stop`**: stop the running instance and all its verbs. No options.
+**`blink2video stop`**: stop the running instance and all its verbs. No options.
 
-**`blink autostart on\|off\|status [verb…]`**: register the command that
+**`blink2video autostart on\|off\|status [verb…]`**: register the command that
 follows it with your session. Without a verb, `serve --no-browser all --loop 10`.
 `--dry-run` shows without acting.
 
-**`blink smoketest`**: installation check. `--keep` keeps the working folder,
+**`blink2video smoketest`**: installation check. `--keep` keeps the working folder,
 `--timezone` picks the time zone of the demonstration video.
 
 **Environment variables**
@@ -332,7 +332,7 @@ downloaded would come back as new.
 python build.py
 ```
 
-Produces `dist/blink/`, about 110 MB, most of it ffmpeg. PyInstaller is not a
+Produces `dist/blink2video/`, about 110 MB, most of it ffmpeg. PyInstaller is not a
 cross-compiler and the ffmpeg binary is platform-specific: each system needs its
 own build. The release workflow handles that on GitHub runners.
 

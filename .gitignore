@@ -32,5 +32,5 @@ build_venv/
 __pycache__/
 *.pyc
 
-# Vidéo de démonstration produite par « blink smoketest ».
+# Vidéo de démonstration produite par « blink2video smoketest ».
 smoketest.mp4

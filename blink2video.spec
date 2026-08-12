@@ -52,7 +52,7 @@ def _modules() -> list:
 FFMPEG = _ffmpeg()
 
 analysis = Analysis(
-    ["blink.py"],
+    ["blink2video.py"],
     pathex=["."],
     # ffmpeg voyage à la racine du bundle : merge_daily.find_ffmpeg l'y cherche
     # en premier, avant le PATH de la machine cible.
@@ -84,7 +84,7 @@ executable = EXE(
     analysis.scripts,
     [],
     exclude_binaries=True,
-    name="blink",
+    name="blink2video",
     debug=False,
     strip=False,
     upx=False,
@@ -97,5 +97,5 @@ COLLECT(
     analysis.datas,
     strip=False,
     upx=False,
-    name="blink",
+    name="blink2video",
 )

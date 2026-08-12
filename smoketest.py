@@ -11,8 +11,8 @@ du démarrage automatique. Il ne touche ni à vos clips, ni à vos vidéos : tou
 passe dans un dossier temporaire, sauf la vidéo de démonstration, laissée à
 l'endroit indiqué pour que vous puissiez la regarder.
 
-    blink smoketest
-    blink smoketest --keep    conserve le dossier de travail
+    blink2video smoketest
+    blink2video smoketest --keep    conserve le dossier de travail
 """
 
 import argparse
@@ -133,7 +133,7 @@ def main() -> int:
     session = runtime.app_dir() / "blink_auth.json"
     if not session.is_file():
         constat(False, "session enregistrée",
-                "lancez « blink login » ; sans elle, ni téléchargement ni direct")
+                "lancez « blink2video login » ; sans elle, ni téléchargement ni direct")
     else:
         constat(True, "session enregistrée", str(session))
         registre = md.load_json(runtime.app_dir() / "Blink_Clips" / md.DOWNLOAD_STATE, {})
@@ -141,7 +141,7 @@ def main() -> int:
         ecartes = sum(1 for c in clips.values() if isinstance(c, dict) and c.get("excluded"))
         constat(bool(clips), "clips déjà récupérés",
                 f"{len(clips)} clip(s) dont {ecartes} écarté(s)" if clips
-                else "aucun ; lancez « blink download »")
+                else "aucun ; lancez « blink2video download »")
 
     print("\nDémarrage automatique")
     try:

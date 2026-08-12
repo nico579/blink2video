@@ -50,44 +50,44 @@ Chaque carte donne la caméra, la durée, la date et le modèle, et le bouton
 
 Téléchargez l'archive de votre système depuis la
 [dernière version publiée](https://github.com/nico579/blink2video/releases/latest),
-décompressez, et lancez `blink` depuis un terminal. ffmpeg voyage dans le bundle.
+décompressez, et lancez `blink2video` depuis un terminal. ffmpeg voyage dans le bundle.
 
 Depuis les sources, avec Python 3.11 ou plus récent :
 
 ```bash
 git clone https://github.com/nico579/blink2video
 cd blink2video
-python blink.py login
+python blink2video.py login
 ```
 
-Le premier lancement crée un environnement isolé dans `~/.blink/venv` et s'y
-relance. `blink smoketest` vérifie ensuite que tout fonctionne sur votre machine.
+Le premier lancement crée un environnement isolé dans `~/.blink2video/venv` et s'y
+relance. `blink2video smoketest` vérifie ensuite que tout fonctionne sur votre machine.
 
 ## Utilisation
 
 <!-- verbes:début -->
-Une commande, un verbe par action. `blink <verbe> --help` donne les options de chacun.
+Une commande, un verbe par action. `blink2video <verbe> --help` donne les options de chacun.
 
 ```bash
-blink login       # se connecter au compte Blink, vérification en deux étapes gérée
-blink list        # ce que contient le module de synchronisation en ce moment
-blink download    # récupérer les nouveaux clips avant que la rotation ne les efface
-blink merge       # normaliser, horodater et assembler jour, semaine et mois
-blink watch       # contrôler l'état de l'installation et alerter s'il se dégrade
-blink all         # tout, c'est-à-dire watch puis download puis merge
-blink serve       # servir l'interface web, pour regarder, écarter, voir en direct
-blink stop        # arrêter l'instance qui tourne en fond
-blink autostart   # inscrire à l'ouverture de session la commande qui suit
-blink smoketest   # vérifier que l'installation fonctionne sur cette machine
+blink2video login       # se connecter au compte Blink, vérification en deux étapes gérée
+blink2video list        # ce que contient le module de synchronisation en ce moment
+blink2video download    # récupérer les nouveaux clips avant que la rotation ne les efface
+blink2video merge       # normaliser, horodater et assembler jour, semaine et mois
+blink2video watch       # contrôler l'état de l'installation et alerter s'il se dégrade
+blink2video all         # tout, c'est-à-dire watch puis download puis merge
+blink2video serve       # servir l'interface web, pour regarder, écarter, voir en direct
+blink2video stop        # arrêter l'instance qui tourne en fond
+blink2video autostart   # inscrire à l'ouverture de session la commande qui suit
+blink2video smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
 <!-- verbes:fin -->
-Les options suivent le verbe : `blink serve --port 8899`. Plusieurs verbes se
+Les options suivent le verbe : `blink2video serve --port 8899`. Plusieurs verbes se
 citent d'affilée, chacun avec les siennes, et tournent ensemble :
-`blink serve all --loop 10`.
+`blink2video serve all --loop 10`.
 
 ### L'interface web
 
-`blink serve` sert une page sur `127.0.0.1:8765` et l'ouvre. Quatre vues :
+`blink2video serve` sert une page sur `127.0.0.1:8765` et l'ouvre. Quatre vues :
 
 - **Direct** : une tuile par caméra, avec son état et l'armement.
 - **Clips** : du plus récent au plus ancien, avec aperçu et bouton « Écarter ».
@@ -102,7 +102,7 @@ La détection se déclenche sur une ombre, un oiseau, un nuage. Écarter retire 
 clip de toutes les vidéos assemblées :
 
 ```bash
-blink merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
+blink2video merge --exclude Blink_Clips/jardin/2026-08/2026-08-10_14-05-04Z_jardin.mp4
 ```
 
 Le brut part dans `Blink_Excluded/`, il ne sera plus retéléchargé, et le jour, la
@@ -111,8 +111,8 @@ semaine et le mois sont reconstruits sans lui. `--include` défait le tout.
 ### Surveillance
 
 ```bash
-blink watch --loop     # contrôler et alerter, toutes les dix minutes
-blink all --loop       # en plus, rapatrier les clips et reconstruire les vidéos
+blink2video watch --loop     # contrôler et alerter, toutes les dix minutes
+blink2video all --loop       # en plus, rapatrier les clips et reconstruire les vidéos
 ```
 
 Une caméra hors ligne, une batterie qui faiblit, une détection coupée ou une
@@ -123,13 +123,13 @@ hors ligne ne prévient qu'une fois, et `--ignore "Portail"` la met en sourdine.
 ## Lancer la surveillance avec la session
 
 ```bash
-blink autostart on                    # le défaut : serve --no-browser all --loop 10
-blink autostart status                # ce qui est installé
-blink autostart off                   # retirer
+blink2video autostart on                    # le défaut : serve --no-browser all --loop 10
+blink2video autostart status                # ce qui est installé
+blink2video autostart off                   # retirer
 ```
 
 `autostart` n'exécute rien : il inscrit au démarrage la commande qui le suit,
-telle que vous l'auriez tapée sans lui. `blink autostart on watch --loop 30`
+telle que vous l'auriez tapée sans lui. `blink2video autostart on watch --loop 30`
 n'automatise donc que les alertes. Aucun droit d'administrateur n'est nécessaire,
 et `--dry-run` montre ce qui serait fait.
 
@@ -141,7 +141,7 @@ et `--dry-run` montre ce qui serait fait.
 ```powershell
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut(
   "$([Environment]::GetFolderPath('Startup'))\blink2video.lnk")
-$s.TargetPath = "C:\path\to\blink.exe"; $s.Arguments = "serve --no-browser all --loop 10"
+$s.TargetPath = "C:\path\to\blink2video.exe"; $s.Arguments = "serve --no-browser all --loop 10"
 $s.WorkingDirectory = "C:\path\to"; $s.Save()
 ```
 
@@ -155,7 +155,7 @@ une élévation.
 <plist version="1.0"><dict>
   <key>Label</key><string>com.nico579.blink2video</string>
   <key>ProgramArguments</key>
-  <array><string>/path/to/blink</string><string>serve</string><string>--no-browser</string><string>all</string><string>--loop</string><string>10</string></array>
+  <array><string>/path/to/blink2video</string><string>serve</string><string>--no-browser</string><string>all</string><string>--loop</string><string>10</string></array>
   <key>WorkingDirectory</key><string>/path/to</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -169,7 +169,7 @@ Chargé par `launchctl load`, arrêté par `launchctl unload`.
 
 ```ini
 [Service]
-ExecStart=/path/to/blink serve --no-browser all --loop 10
+ExecStart=/path/to/blink2video serve --no-browser all --loop 10
 WorkingDirectory=/path/to
 Restart=on-failure
 
@@ -191,7 +191,7 @@ L'instance lancée avec la session tient le port de l'interface et parle au
 module de synchronisation : il faut l'arrêter avant de remplacer les fichiers.
 
 ```bash
-blink stop                 # arrête l'instance et tous ses verbes
+blink2video stop                 # arrête l'instance et tous ses verbes
 ```
 
 Puis remplacez le dossier par la nouvelle archive, ou faites `git pull` depuis
@@ -199,7 +199,7 @@ les sources, et relancez : le raccourci du dossier Démarrage sous Windows,
 `launchctl load` sous macOS, `systemctl --user start blink2video` sous Linux. La
 prochaine ouverture de session s'en charge de toute façon.
 
-`blink autostart status` dit ce qui est installé et si une instance tourne. Dans
+`blink2video autostart status` dit ce qui est installé et si une instance tourne. Dans
 un terminal, Ctrl+C suffit : c'est `stop` qui existe pour les instances sans
 console, qu'un Ctrl+C ne peut pas atteindre et dont tuer le seul processus
 parent laissait les verbes orphelins.
@@ -220,7 +220,7 @@ Blink_Monthly/     une par mois
 <details>
 <summary>Toutes les options</summary>
 
-`blink <verbe> --help` fait toujours foi ; ce tableau récapitule.
+`blink2video <verbe> --help` fait toujours foi ; ce tableau récapitule.
 
 **Racine** : `login`, `list`, `download`. Sans verbe, l'aide s'affiche.
 
@@ -232,7 +232,7 @@ Blink_Monthly/     une par mois
 | `--output DOSSIER` | destination des clips bruts (défaut `Blink_Clips`) |
 | `--overwrite` | remplacer les fichiers existants de taille différente |
 
-**`blink merge`** : normalisation et assemblage.
+**`blink2video merge`** : normalisation et assemblage.
 
 | Option | Effet |
 |---|---|
@@ -248,7 +248,7 @@ Blink_Monthly/     une par mois
 | `--timezone ZONE` | fuseau de l'horodatage (défaut `Europe/Paris`) |
 | `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | emplacements de chaque dossier |
 
-**`blink watch`** : contrôler l'état, alerter s'il se dégrade.
+**`blink2video watch`** : contrôler l'état, alerter s'il se dégrade.
 
 | Option | Effet |
 |---|---|
@@ -258,7 +258,7 @@ Blink_Monthly/     une par mois
 | `--test` | déclencher une notification de vérification |
 | `--dry-run` | montrer sans notifier ni enregistrer l'état |
 
-**`blink all`** : watch, puis download, puis merge.
+**`blink2video all`** : watch, puis download, puis merge.
 
 | Option | Effet |
 |---|---|
@@ -266,7 +266,7 @@ Blink_Monthly/     une par mois
 | `--hub`, `--camera`, `--since` | comme pour `download` |
 | `--dry-run`, `--timezone` | comme pour `watch` |
 
-**`blink serve`** : servir l'interface web.
+**`blink2video serve`** : servir l'interface web.
 
 | Option | Effet |
 |---|---|
@@ -277,13 +277,13 @@ Blink_Monthly/     une par mois
 | `--timezone ZONE` | fuseau d'affichage |
 | les mêmes options de dossiers que `merge` | |
 
-**`blink stop`** : arrêter l'instance en cours et tous ses verbes. Sans option.
+**`blink2video stop`** : arrêter l'instance en cours et tous ses verbes. Sans option.
 
-**`blink autostart on\|off\|status [verbe…]`** : inscrire au démarrage de
+**`blink2video autostart on\|off\|status [verbe…]`** : inscrire au démarrage de
 session la commande qui suit. Sans verbe, `serve --no-browser all --loop 10`.
 `--dry-run` montre sans agir.
 
-**`blink smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
+**`blink2video smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
 de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
 
 **Variables d'environnement**
@@ -342,7 +342,7 @@ récupérés reviendraient comme neufs.
 python build.py
 ```
 
-Produit `dist/blink/`, environ 110 Mo dont la plus grande part est ffmpeg.
+Produit `dist/blink2video/`, environ 110 Mo dont la plus grande part est ffmpeg.
 PyInstaller n'est pas un compilateur croisé et le binaire ffmpeg est propre à
 chaque plateforme : chaque système exige sa propre construction. Le workflow de
 publication s'en charge sur les runners GitHub.

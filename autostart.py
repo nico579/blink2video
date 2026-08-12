@@ -319,10 +319,10 @@ def _installe(cible: Path, quoi: tuple = DEFAUT) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="blink autostart",
+        prog="blink2video autostart",
         description="Démarrage de la surveillance avec la session.",
-        epilog="Exemples : blink autostart on | blink autostart status | "
-               "blink autostart off --dry-run",
+        epilog="Exemples : blink2video autostart on | blink2video autostart status | "
+               "blink2video autostart off --dry-run",
     )
     parser.add_argument("etat", choices=("on", "off", "status"), nargs="?",
                         default="status",

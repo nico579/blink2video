@@ -32,12 +32,12 @@ def bloc(langue: str) -> str:
     largeur = max(len(v) for v in runtime.VERBES)
     lignes = [f"{nom:<{largeur}}   # {getattr(verbe, langue)}"
               for nom, verbe in runtime.VERBES.items()]
-    entete = ("Une commande, un verbe par action. `blink <verbe> --help` donne "
+    entete = ("Une commande, un verbe par action. `blink2video <verbe> --help` donne "
               "les options de chacun."
               if langue == "fr" else
-              "One command, one verb per action. `blink <verb> --help` gives "
+              "One command, one verb per action. `blink2video <verb> --help` gives "
               "each one's options.")
-    corps = "\n".join(f"blink {ligne}" for ligne in lignes)
+    corps = "\n".join(f"blink2video {ligne}" for ligne in lignes)
     return f"{DEBUT}\n{entete}\n\n```bash\n{corps}\n```\n{FIN}"
 
 

@@ -7,7 +7,7 @@ dans site-packages, sans rapport avec l'outil. Un environnement neuf ne
 contient que les quatre dépendances déclarées, et le résultat est reproductible
 d'une machine à l'autre.
 
-Le venv de construction est isolé de celui d'exécution (~/.blink/venv) parce
+Le venv de construction est isolé de celui d'exécution (~/.blink2video/venv) parce
 qu'il contient PyInstaller, qui n'a rien à faire dans l'environnement de tous
 les jours.
 
@@ -25,7 +25,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 VENV = BASE_DIR / "build_venv"
 PYTHON = VENV / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-SORTIE = BASE_DIR / "dist" / "blink"
+SORTIE = BASE_DIR / "dist" / "blink2video"
 
 # Dépendances d'exécution, plus PyInstaller. Volontairement non figées : ce
 # n'est pas un logiciel distribué à des tiers, et un verrouillage de versions
@@ -127,10 +127,10 @@ def main() -> int:
     print(f"\nffmpeg embarqué : {ffmpeg}")
     os.environ["BLINK_FFMPEG"] = ffmpeg
     executer([str(PYTHON), "-m", "PyInstaller", "--noconfirm", "--clean",
-              str(BASE_DIR / "blink.spec")],
+              str(BASE_DIR / "blink2video.spec")],
              "construction du bundle")
 
-    executable = SORTIE / ("blink.exe" if sys.platform == "win32" else "blink")
+    executable = SORTIE / ("blink2video.exe" if sys.platform == "win32" else "blink2video")
     # Rappel utile : le bundle produit ne vaut que pour la plateforme courante.
     if not executable.exists():
         raise SystemExit(f"Bundle introuvable : {executable}")
