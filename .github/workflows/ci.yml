@@ -92,21 +92,21 @@ jobs:
       # version cible est inscrite dans l'en-tête Mach-O ; sous Linux, c'est la
       # plus haute version de glibc exigée par les symboles importés qui décide
       # de la distribution la plus ancienne.
-      - name: Système minimal exigé par le binaire (macOS)
+      - name: Système minimal exigé par le bundle (macOS)
         if: runner.os == 'macOS'
         run: |
-          vtool -show-build "${{ matrix.exe }}" || true
-          minos=$(vtool -show-build "${{ matrix.exe }}" | awk '/minos/ {print $2; exit}')
-          echo "macOS minimal : $minos"
-          if [ "${minos%%.*}" -gt 14 ] 2>/dev/null; then
-            echo "::warning::le binaire exige macOS $minos, le README annonce 14+"
-          fi
+          # Tout le bundle, et non le seul lanceur : ce sont les bibliothèques
+          # embarquées qui exigent le plus, et donc elles qui décident.
+          minos=$(find dist/blink2video -type f -perm -u+r                   \( -name '*.so' -o -name '*.dylib' -o -perm -u+x \)                   -exec vtool -show-build {} + 2>/dev/null                   | awk '/minos/ {print $2}' | sort -V | tail -1)
+          echo "macOS minimal exigé : ${minos:-inconnu}"
+          echo "macOS minimal exigé : ${minos:-inconnu}" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Système minimal exigé par le binaire (Linux)
+      - name: Système minimal exigé par le bundle (Linux)
         if: runner.os == 'Linux'
         run: |
-          glibc=$(objdump -T "${{ matrix.exe }}" | grep -o 'GLIBC_[0-9.]*'                   | sort -V | tail -1)
-          echo "glibc minimale : $glibc"
+          glibc=$(find dist/blink2video -type f \( -name '*.so*' -o -perm -u+x \)                   -exec objdump -T {} + 2>/dev/null                   | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -1)
+          echo "glibc minimale exigée : ${glibc:-inconnue}"
+          echo "glibc minimale exigée : ${glibc:-inconnue}" >> "$GITHUB_STEP_SUMMARY"
 
       # Le bundle doit être autonome : aucun ffmpeg du système ne doit être
       # nécessaire, et celui qu'il embarque doit savoir incruster du texte,
