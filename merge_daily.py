@@ -514,7 +514,13 @@ def camera_target(registry: dict, camera: str, infos: list) -> tuple:
     stored = registry["cameras"].get(camera) or {}
     width = max([info.width for info in infos] + [int(stored.get("width", 0))])
     height = max([info.height for info in infos] + [int(stored.get("height", 0))])
-    fps = round(max([info.fps for info in infos] + [float(stored.get("fps", 0))]), 3)
+    # Cadence arrondie à l'image entière. Mesurée au millième, elle varie d'un
+    # clip à l'autre sans que rien ne change pour l'œil : un clip venu du cloud
+    # mesuré à 30,11 au lieu de 30,0 a suffi à relever la cible, donc à
+    # ré-encoder les trente-deux segments de la caméra. La montée doit répondre
+    # à une vraie différence, 15 contre 30, pas à un artefact de mesure.
+    fps = float(round(max([info.fps for info in infos]
+                          + [float(stored.get("fps", 0))])))
     registry["cameras"][camera] = {"width": width, "height": height, "fps": fps}
     return width, height, fps
 
@@ -970,7 +976,7 @@ def concat_videos(
                 ffmpeg, infos,
                 max(i.width for i in infos),
                 max(i.height for i in infos),
-                round(max(i.fps for i in infos), 3),
+                float(round(max(i.fps for i in infos))),
                 timezone, None, preset, crf, temporary,
             )
         if not ok:

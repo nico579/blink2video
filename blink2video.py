@@ -279,6 +279,91 @@ async def read_local_manifest(sync) -> list:
     )
 
 
+class CloudClip:
+    """Un clip du cloud, présenté comme ceux de la clé USB.
+
+    Même surface que les objets de blinkpy : un nom de caméra, un instant, un
+    identifiant. Le reste de la chaîne, identité, nom de fichier, registre,
+    normalisation, ignore donc d'où vient l'enregistrement, et c'est le but :
+    une seule archive, quelle que soit la source."""
+
+    def __init__(self, entree: dict):
+        self.raw = entree
+        self.name = str(entree.get("device_name") or "").strip() or "camera"
+        self.id = entree.get("id")
+        self.created_at = dt.datetime.fromisoformat(str(entree["created_at"]))
+        self.address = entree.get("media")
+        self.network_id = entree.get("network_id")
+
+    async def download_to(self, blink: Blink, target: Path) -> bool:
+        """Écrit le média dans `target`, en passant par la session Blink."""
+        if not self.address:
+            return False
+        reponse = await blink.do_http_get(self.address)
+        if reponse is None:
+            return False
+        contenu = await reponse.read()
+        if not contenu:
+            return False
+        target.write_bytes(contenu)
+        return True
+
+
+async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
+    """Inventaire des clips conservés dans le cloud de l'abonnement Blink.
+
+    Distinct du manifeste USB, et indépendant du Sync Module : c'est le compte
+    qui répond, pas le module. Un abonnement ne couvrant qu'une partie des
+    caméras, les deux inventaires ne se recouvrent que partiellement, d'où le
+    rapprochement fait plus loin plutôt qu'un choix de source."""
+    depuis = dt.datetime.now() - dt.timedelta(days=since_days or 30)
+    entrees = await blink.get_videos_metadata(
+        since=depuis.strftime("%Y/%m/%d %H:%M:%S"), stop=20
+    )
+    clips = []
+    for entree in entrees or []:
+        # Un média supprimé reste listé, marqué comme tel ; un média partiel est
+        # un enregistrement encore en cours d'écriture côté Blink.
+        if entree.get("deleted") or entree.get("partial"):
+            continue
+        if str(entree.get("type") or "video") != "video":
+            continue
+        try:
+            clips.append(CloudClip(entree))
+        except (KeyError, ValueError):
+            continue
+    return clips
+
+
+def rapprocher(locaux: list, cloud: list, tolerance: int = 2) -> tuple:
+    """Sépare les clips cloud inédits de ceux déjà offerts par la clé USB.
+
+    Une même détection peut être écrite des deux côtés lorsque l'abonnement
+    couvre une caméra dont le stockage local fonctionne aussi. L'identité reste
+    la caméra et l'instant, mais les deux sources horodatent l'événement
+    séparément : quelques secondes d'écart sont possibles, d'où la tolérance.
+    Sans elle, le même enregistrement serait rapatrié deux fois et apparaîtrait
+    en double dans la journalière.
+
+    Fonction pure, éprouvée par tests.py sans compte Blink : c'est la seule
+    partie de la lecture du cloud qui peut l'être."""
+    connus = {}
+    for clip in locaux:
+        connus.setdefault(safe_name(clip.name).casefold(), []).append(
+            clip_datetime_utc(clip)
+        )
+
+    inedits, doublons = [], []
+    for clip in cloud:
+        instant = clip_datetime_utc(clip)
+        proches = connus.get(safe_name(clip.name).casefold(), ())
+        if any(abs((instant - autre).total_seconds()) <= tolerance for autre in proches):
+            doublons.append(clip)
+        else:
+            inedits.append(clip)
+    return inedits, doublons
+
+
 def clip_datetime_utc(clip) -> dt.datetime:
     """Normalise l'horodatage Blink en UTC."""
     created = clip.created_at
@@ -500,6 +585,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="remplacer les fichiers existants de taille différente",
     )
+    parser.add_argument(
+        "--no-cloud",
+        action="store_true",
+        help="ignorer les clips conservés dans le cloud de l'abonnement Blink",
+    )
     args = parser.parse_args()
     if args.command is None:
         # Sans commande, l'aide plutôt qu'une connexion au compte : une
@@ -509,6 +599,82 @@ def parse_args() -> argparse.Namespace:
     if args.since is not None and args.since < 0:
         parser.error("--since doit être positif ou nul")
     return args
+
+
+async def traiter_cloud(blink: Blink, args, modules: list) -> bool:
+    """Inventorie, puis rapatrie, les clips que l'abonnement garde dans le cloud.
+
+    Le compte répond ici, pas le module : aucune réservation du hub n'est donc
+    nécessaire, et cette partie fonctionne même quand le module est occupé par
+    un direct. Les fichiers rejoignent la même arborescence et le même registre
+    que ceux de la clé, puisqu'un clip reste un clip."""
+    clips = await read_cloud_manifest(blink, args.since)
+    if args.camera:
+        clips = [c for c in clips
+                 if safe_name(c.name).casefold() == safe_name(args.camera).casefold()]
+    if not clips:
+        return False
+
+    print("\n=== CLOUD DE L'ABONNEMENT ===")
+    # Le rapprochement se fait avec ce qui est déjà au registre, et non avec le
+    # manifeste USB : celui-ci ne montre que ce que la clé contient encore,
+    # alors que le registre garde la trace de tout ce qui a été rapatrié.
+    output = args.output.resolve()
+    state = load_download_state(output)
+    connus = [_ClipConnu(entree) for entree in (state.get("clips") or {}).values()
+              if entree.get("created_at")]
+    inedits, doublons = rapprocher(connus, clips)
+    print(f"  {len(clips)} clip(s) dans le cloud, {len(doublons)} déjà acquis "
+          f"par ailleurs, {len(inedits)} à rapatrier.")
+    if args.command != "download" or not inedits:
+        return False
+
+    # Le registre attend un module pour former l'identité. Le cloud n'en
+    # dépend pas : à défaut, le réseau du clip en tient lieu, ce qui suffit,
+    # l'identité réelle restant la caméra et l'instant.
+    sync = next((s for _, s in modules), None) or _HubCloud(clips[0].network_id)
+    echecs = 0
+    for position, clip in enumerate(sorted(inedits, key=clip_datetime_utc), start=1):
+        target = target_path(output, clip)
+        print(f"  [{position}/{len(inedits)}] {target.name}")
+        if target.exists() and target.stat().st_size > 0 and not args.overwrite:
+            remember_download(state, sync, args.hub or "cloud", clip, output, target)
+            save_download_state(output, state)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partiel = target.with_suffix(target.suffix + ".part")
+        try:
+            if await clip.download_to(blink, partiel):
+                partiel.replace(target)
+                remember_download(state, sync, args.hub or "cloud", clip, output, target)
+                save_download_state(output, state)
+            else:
+                echecs += 1
+                print("    Échec : média cloud indisponible.")
+        except Exception as erreur:  # Continuer avec les autres clips.
+            echecs += 1
+            print(f"    Échec : {type(erreur).__name__}: {erreur}")
+        finally:
+            partiel.unlink(missing_ok=True)
+
+    print(f"  Terminé : {len(inedits) - echecs} téléchargé(s), {echecs} échec(s).")
+    return echecs > 0
+
+
+class _HubCloud:
+    """Module de substitution, quand seul le cloud répond."""
+
+    def __init__(self, network_id):
+        self.sync_id = network_id or "cloud"
+
+
+class _ClipConnu:
+    """Entrée du registre présentée comme un clip, pour le rapprochement."""
+
+    def __init__(self, entree: dict):
+        self.name = entree.get("camera") or "camera"
+        self.created_at = dt.datetime.fromisoformat(entree["created_at"])
+        self.id = 0
 
 
 async def main(args: argparse.Namespace) -> int:
@@ -604,6 +770,9 @@ async def main(args: argparse.Namespace) -> int:
                 f"{skipped} déjà présent(s), {failed} échec(s)."
             )
             had_error = had_error or failed > 0
+
+        if not args.no_cloud:
+            had_error = await traiter_cloud(blink, args, modules) or had_error
 
         return 1 if had_error else 0
 

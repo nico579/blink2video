@@ -19,7 +19,8 @@ Everything runs on your machine. Nothing is sent anywhere.
 
 - Live view of any camera in the browser, arming the system or a single camera.
 - Battery, temperature, signal, model and firmware for each camera.
-- Incremental download from the module, before erasure.
+- Incremental download from the module's USB stick and from the subscription
+  cloud, never fetching the same recording twice.
 - Time burned into the picture, so any player keeps it.
 - One video per day, per ISO week and per month, for each camera.
 - Uninteresting clips discarded in one click, moved aside rather than deleted,
@@ -234,6 +235,7 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--since DAYS` | keep only clips from the last N days |
 | `--output FOLDER` | destination of raw clips (default `Blink_Clips`) |
 | `--overwrite` | replace existing files of a different size |
+| `--no-cloud` | ignore clips kept in the subscription cloud |
 
 **`blink2video merge`**: normalization and assembly.
 
@@ -322,8 +324,9 @@ downloaded would come back as new.
 
 ## Limits
 
-- Only clips on the module's local storage are visible; whatever lives in the
-  cloud alone is out of reach.
+- Blink Mini cameras do not write to the module's USB stick: unless a
+  subscription covers them, their detections leave only a notification, with no
+  recording to archive.
 - A camera out of range of the module accepts the live request but never sends a
   picture; the interface says so.
 - On Linux, the imageio-ffmpeg binary is built without libfreetype and cannot

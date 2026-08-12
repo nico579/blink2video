@@ -312,8 +312,30 @@ def test_arret() -> None:
         shutil.rmtree(maison, ignore_errors=True)
 
 
+def test_cadence_cible() -> None:
+    """Une cadence mesurée au millième ne doit pas relever la cible.
+
+    Un clip venu du cloud, mesuré à 30,11 images/s au lieu de 30,0, a suffi à
+    invalider les trente-deux segments déjà encodés d'une caméra. La montée doit
+    répondre à une vraie différence de cadence, pas à un artefact de mesure."""
+    print("\nCadence cible")
+    faux = lambda fps: md.ClipInfo(None, Path("x.mp4"), 1.0, 1920, 1080, fps, False)
+
+    registre = {"cameras": {}}
+    md.camera_target(registre, "jardin", [faux(30.0)])
+    _, _, apres = md.camera_target(registre, "jardin", [faux(30.11)])
+    verifier(apres == 30.0, "un écart de mesure ne relève pas la cadence", str(apres))
+
+    _, _, monte = md.camera_target(registre, "jardin", [faux(60.0)])
+    verifier(monte == 60.0, "une vraie montée est suivie", str(monte))
+
+    _, _, garde = md.camera_target(registre, "jardin", [faux(15.0)])
+    verifier(garde == 60.0, "la cible ne redescend jamais", str(garde))
+
+
 def main() -> int:
     test_verbes()
+    test_cadence_cible()
     test_installation_neuve()
     test_arret()
     ffmpeg = md.find_ffmpeg()

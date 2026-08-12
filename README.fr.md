@@ -21,7 +21,8 @@ Tout tourne sur votre machine. Rien n'est envoyé ailleurs.
 - Direct de n'importe quelle caméra dans le navigateur, armement du système ou
   d'une seule caméra.
 - Batterie, température, signal, modèle et micrologiciel de chaque caméra.
-- Téléchargement incrémental depuis le module, avant effacement.
+- Téléchargement incrémental depuis la clé USB du module et depuis le cloud de
+  l'abonnement, sans jamais rapatrier deux fois le même enregistrement.
 - Heure incrustée dans l'image, donc conservée par n'importe quel lecteur.
 - Une vidéo par jour, par semaine ISO et par mois, pour chaque caméra.
 - Clips sans intérêt écartés d'un clic, mis de côté plutôt que supprimés, et
@@ -242,6 +243,7 @@ Blink_Monthly/     une par mois
 | `--since JOURS` | ne garder que les clips des N derniers jours |
 | `--output DOSSIER` | destination des clips bruts (défaut `Blink_Clips`) |
 | `--overwrite` | remplacer les fichiers existants de taille différente |
+| `--no-cloud` | ignorer les clips conservés dans le cloud de l'abonnement |
 
 **`blink2video merge`** : normalisation et assemblage.
 
@@ -331,8 +333,9 @@ récupérés reviendraient comme neufs.
 
 ## Limites
 
-- Seuls les clips présents sur le stockage local du module sont visibles ; ce
-  qui ne vit que dans le cloud échappe à l'outil.
+- Les caméras Blink Mini n'écrivent pas sur la clé USB du module : sans
+  abonnement les couvrant, leurs détections ne laissent qu'une notification,
+  sans enregistrement à archiver.
 - Une caméra hors de portée du module accepte la demande de direct mais n'envoie
   jamais d'image ; l'interface le dit.
 - Sous Linux, le ffmpeg d'imageio-ffmpeg est compilé sans libfreetype et ne sait
