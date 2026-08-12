@@ -285,6 +285,13 @@ def download_new_clips() -> int:
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
         env=dict(os.environ, PYTHONIOENCODING="utf-8"), check=False,
     )
+    if result.returncode != 0:
+        # Un échec silencieux est le pire des cas : le téléchargement a cessé de
+        # fonctionner pendant des heures après un renommage de fichier, sans que
+        # rien n'apparaisse au journal, la boucle ne notant que ses alertes.
+        derniere = (result.stdout or "").strip().splitlines()[-1:] or [""]
+        journal(f"ECHEC telechargement (code {result.returncode}) : {derniere[0][:200]}")
+        return 0
     return compter_nouveaux(result.stdout or "")
 
 
@@ -418,10 +425,11 @@ def _rapatrier(args, assembler: bool) -> None:
         journal(f"telechargement reporte : {error}")
         return
     if not neufs:
+        journal("aucun nouveau clip")
         return
     journal(f"{neufs} nouveau(x) clip(s)")
-    if assembler:
-        build_videos()
+    if assembler and not build_videos():
+        journal("ECHEC assemblage")
     pluriel = "s" if neufs > 1 else ""
     toast("Blink",
           f"{neufs} nouveau{'x' if neufs > 1 else ''} clip{pluriel} récupéré{pluriel}"

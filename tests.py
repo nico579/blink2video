@@ -351,8 +351,29 @@ def test_compte_des_nouveaux() -> None:
              "une sortie sans synthèse ne compte rien")
 
 
+def test_relance() -> None:
+    """Chaque verbe sait relancer l'outil sur un programme qui existe.
+
+    Le marqueur du point d'entrée dans la table des verbes servait aussi à
+    fabriquer un nom de fichier : après le renommage en blink2video.py, la
+    surveillance lançait « blink.py », absent, et n'a plus rien téléchargé
+    pendant des heures sans que rien ne le signale."""
+    import runtime
+
+    print("\nRelance sur un autre verbe")
+    manquants = []
+    for verbe in runtime.VERBES:
+        commande = runtime.self_command(verbe)
+        programme = Path(commande[2])
+        if not programme.is_file():
+            manquants.append(f"{verbe} -> {programme.name}")
+    verifier(not manquants, "chaque verbe vise un fichier existant",
+             " ; ".join(manquants))
+
+
 def main() -> int:
     test_verbes()
+    test_relance()
     test_compte_des_nouveaux()
     test_cadence_cible()
     test_installation_neuve()

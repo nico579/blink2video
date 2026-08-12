@@ -46,6 +46,12 @@ VERSION = "0.3.1"
 # Chaque verbe porte ses deux libellés : l'aide en ligne prend le français,
 # docs.py prend l'un ou l'autre selon le README qu'il remplit. Le README anglais
 # a longtemps affiché la liste des verbes en français, faute de cette colonne.
+# Nom du point d'entrée, sans extension. Les verbes qu'il traite lui-même le
+# désignent par cette constante : le déduire d'un marqueur écrit à la main a
+# survécu au renommage du fichier et cassé toute relance, silencieusement.
+ENTREE = "blink2video"
+
+
 class Verbe(NamedTuple):
     """Un verbe : le programme qui l'exécute, et son libellé dans chaque langue.
 
@@ -60,13 +66,13 @@ class Verbe(NamedTuple):
 
 
 VERBES = {
-    "login": Verbe("blink",
+    "login": Verbe(ENTREE,
               "se connecter au compte Blink, vérification en deux étapes gérée",
               "sign in to the Blink account, two-step verification handled"),
-    "list": Verbe("blink",
+    "list": Verbe(ENTREE,
              "ce que contient le module de synchronisation en ce moment",
              "what the Sync Module currently holds"),
-    "download": Verbe("blink",
+    "download": Verbe(ENTREE,
                  "récupérer les nouveaux clips avant que la rotation ne les efface",
                  "fetch new clips before rotation erases them"),
     "merge": Verbe("merge_daily",
@@ -81,7 +87,7 @@ VERBES = {
     "serve": Verbe("serve",
               "servir l'interface web, pour regarder, écarter, voir en direct",
               "serve the web interface, to watch, discard, see live"),
-    "stop": Verbe("blink",
+    "stop": Verbe(ENTREE,
             "arrêter l'instance qui tourne en fond",
             "stop the instance running in the background"),
     "autostart": Verbe("autostart",
@@ -94,7 +100,7 @@ VERBES = {
 
 # Verbes confiés à un autre programme, déduits de la table ci-dessus.
 DELEGUES = {nom: verbe.module for nom, verbe in VERBES.items()
-            if verbe.module != "blink"}
+            if verbe.module != ENTREE}
 
 
 DEPENDANCES = {
@@ -436,6 +442,6 @@ def self_command(verb: str, *arguments: str) -> list:
     module = VERBES[verb].module
     base = [sys.executable, "-u",
             str(Path(__file__).resolve().parent / f"{module}.py")]
-    # blink2video.py attend son verbe comme premier argument positionnel ; les autres
-    # programmes sont appelés directement, sans verbe.
-    return base + ([verb] if module == "blink" else []) + list(arguments)
+    # Le point d'entrée attend son verbe comme premier argument positionnel ;
+    # les autres programmes sont appelés directement, sans verbe.
+    return base + ([verb] if module == ENTREE else []) + list(arguments)

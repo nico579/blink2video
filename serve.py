@@ -46,8 +46,6 @@ import blink2video as bk
 import merge_daily as md
 
 
-import runtime
-
 BASE_DIR = runtime.app_dir()
 
 # Un identifiant de clip est un chemin relatif « caméra/mois/fichier.mp4 ».
@@ -83,10 +81,9 @@ LIVE_MAX_SECONDS = 300
 LIVE_FIRST_FRAME_SECONDS = 40
 LIVE_BOUNDARY = "blinkframe"
 
-# Durée de validité d'une vignette de caméra. Blink ne la rafraîchit qu'à
-# l'occasion d'un enregistrement ou d'une capture manuelle : la redemander plus
-# souvent ne montrerait rien de neuf.
-CAMERA_THUMB_SECONDS = 600
+# Aucune vignette n'est redemandée d'elle-même : elle est récupérée une fois,
+# puis conservée jusqu'à ce qu'on clique sur Actualiser. Une image qui change
+# seule sous les yeux, sans qu'on l'ait demandé, n'est pas un service rendu.
 
 
 def safe_file(name: str) -> str:
@@ -100,6 +97,10 @@ def read_entries(paths: dict) -> dict:
 
 
 ETIQUETTES_SOURCE = {"usb": "USB", "cloud": "cloud"}
+
+# Un seul réassemblage à la fois : deux assemblages simultanés de la même
+# journée écriraient le même fichier.
+REASSEMBLAGE = threading.Lock()
 
 
 def provenances(entrees: dict) -> dict:
@@ -730,14 +731,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         d'emblée ce que regarde la caméra, y compris pour celles qui sont hors
         de portée et dont le direct échouera. C'est l'image que Blink garde de
         son côté, pas une capture neuve : la demander réveillerait la caméra et
-        userait sa batterie à chaque affichage de la page."""
+        userait sa batterie à chaque affichage de la page.
+
+        Récupérée une seule fois, puis servie telle quelle : seul « Actualiser »
+        la renouvelle."""
         cached = (self.paths["thumbs"] / "cameras" / f"{safe_file(name)}.jpg")
-        fresh = (
-            cached.is_file()
-            and cached.stat().st_size > 0
-            and time.time() - cached.stat().st_mtime < CAMERA_THUMB_SECONDS
-        )
-        if not fresh:
+        if not (cached.is_file() and cached.stat().st_size > 0):
             def fetch(blink):
                 async def run(_blink=blink):
                     _, camera = BLINK.find_camera(_blink, name)
@@ -1093,6 +1092,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_event({"line": "Une actualisation est déjà en cours."})
             self.send_event({"done": True, "ok": False})
             return
+        # Les vignettes de caméra sont renouvelées ici, et nulle part ailleurs :
+        # elles ne changent donc que sur demande explicite.
+        for vignette in (self.paths["thumbs"] / "cameras").glob("*.jpg"):
+            vignette.unlink(missing_ok=True)
         try:
             # Le téléchargement interroge le Sync Module, comme le direct. Les
             # laisser se chevaucher garantirait un « System is busy » : mieux
@@ -1240,10 +1243,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except RuntimeError as error:
                     self.send_json({"error": str(error)}, 500)
                     return
+            # Écarter un clip change la liste des segments d'une journée, donc
+            # son empreinte : sans reconstruction, la journalière, la semaine et
+            # le mois continuent de le montrer jusqu'au prochain assemblage. La
+            # ligne de commande enchaîne déjà ; l'interface le fait maintenant
+            # aussi, en tâche de fond pour que le clic reste immédiat.
+            self.reassembler(identity)
             self.send_json({"ok": True})
             return
 
         self.send_error(404)
+
+    def reassembler(self, identity: str) -> None:
+        """Reconstruit, en arrière-plan, les vidéos de la journée touchée.
+
+        Ciblé sur une caméra et un jour : les agrégats de la semaine et du mois
+        suivent, et rien d'autre n'est réencodé, l'assemblage n'étant qu'une
+        copie de flux."""
+        entree = (read_entries(self.paths).get(identity)
+                  or next((e for e in read_entries(self.paths).values()
+                           if e.get("path") == identity), None))
+        camera = str((entree or {}).get("camera") or "").strip()
+        try:
+            jour = md.parse_created_at(str((entree or {}).get("created_at")))                      .astimezone(self.timezone).date().isoformat()
+        except (TypeError, ValueError):
+            jour = None
+        if not camera or not jour:
+            return
+
+        def travailler():
+            with REASSEMBLAGE:
+                runtime.lancer(
+                    runtime.self_command("merge", "--camera", camera, "--date", jour),
+                    cwd=str(runtime.app_dir()), stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+                )
+
+        threading.Thread(target=travailler, daemon=True).start()
 
 
 PAGE = """<!doctype html>

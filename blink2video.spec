@@ -46,7 +46,7 @@ def _modules() -> list:
     runtime = importlib.util.module_from_spec(charge)
     charge.loader.exec_module(runtime)
     return sorted({verbe.module for verbe in runtime.VERBES.values()}
-                  - {"blink"} | {"runtime", "tzdata"})
+                  - {runtime.ENTREE} | {"runtime", "tzdata"})
 
 
 FFMPEG = _ffmpeg()
