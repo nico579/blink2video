@@ -273,6 +273,17 @@ def test_arret() -> None:
         verifier(True, "l'instance dépose sa fiche",
                  f"{len(donnees['enfants'])} enfant(s)")
 
+        # « stop --help » doit s'expliquer, pas agir : tant qu'il agissait,
+        # test_verbes arrêtait l'instance réelle de la machine à chaque passage,
+        # en demandant l'aide de chaque verbe.
+        aide = subprocess.run([*commande, "stop", "--help"], cwd=str(BASE_DIR),
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, env=environnement,
+                              check=False)
+        verifier(aide.returncode == 0
+                 and runtime.processus_vivant(int(donnees["pid"])),
+                 "« stop --help » explique sans arrêter")
+
         arret = subprocess.run([*commande, "stop"], cwd=str(BASE_DIR),
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True,

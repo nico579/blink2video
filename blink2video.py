@@ -636,7 +636,7 @@ def deleguer(verbe: str, arguments: list) -> int:
     return int(module.main() or 0)
 
 
-def arreter() -> int:
+def arreter(arguments: list = ()) -> int:
     """Arrête les instances en cours, y compris celle du démarrage automatique.
 
     Une instance lancée sans console ne peut pas recevoir de Ctrl+C, et la tuer
@@ -644,6 +644,15 @@ def arreter() -> int:
     de tourner, orphelin, en tenant le module de synchronisation. La fiche
     déposée au démarrage donne le processus à interrompre, et le système donne
     sa descendance."""
+    # Les options passent par argparse comme pour les autres verbes, même s'il
+    # n'en a aucune : sans cela « stop --help » arrêtait l'instance au lieu de
+    # s'expliquer, ce que la suite de tests faisait à chaque passage, sur
+    # l'instance réelle de la machine.
+    argparse.ArgumentParser(
+        prog="blink2video stop",
+        description=arreter.__doc__.splitlines()[0],
+    ).parse_args(list(arguments))
+
     instances = runtime.lire_instances()
     if not instances:
         print("Rien ne tourne.")
@@ -682,7 +691,7 @@ def executer(groupes: list) -> int:
         if len(groupes) > 1:
             print("« stop » s'emploie seul : il arrête ce qui tourne déjà.")
             return 2
-        return arreter()
+        return arreter(groupes[0][1:])
 
     if len(groupes) == 1:
         verbe, *arguments = groupes[0]

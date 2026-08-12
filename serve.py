@@ -1220,7 +1220,7 @@ PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Clips Blink</title>
+<title>blink2video</title>
 <style>
   :root { color-scheme: dark; --bg:#16181d; --card:#1e2128; --line:#2c313b;
           --text:#e6e8ec; --dim:#9aa2b1; --out:#e0574a; --in:#4aa96c; }
@@ -1304,7 +1304,7 @@ PAGE = """<!doctype html>
 </head>
 <body>
 <header>
-  <h1>Blink<span class="v">__VERSION__</span></h1>
+  <h1>blink2video<span class="v">__VERSION__</span></h1>
   <select id="view">
     <option value="live">Direct</option>
     <option value="clips">Clips</option>
