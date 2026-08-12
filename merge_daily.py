@@ -452,11 +452,14 @@ def set_excluded(
             changed += 1
 
     if changed:
-        # Relu pour n'écraser que la table des clips : le registre porte aussi
-        # sa version, et un jour d'autres champs.
-        state = load_json(state_path, {})
-        state["clips"] = clips
-        save_json(state_path, state)
+        # Même verrou que le téléchargement : sans lui, une exclusion écrirait
+        # le registre entier par-dessus des clips arrivés entre-temps.
+        with runtime.verrou("registre", "exclusion", stale_after=60, attente=10):
+            # Relu pour n'écraser que la table des clips : le registre porte
+            # aussi sa version, et un jour d'autres champs.
+            state = load_json(state_path, {})
+            state["clips"] = clips
+            save_json(state_path, state)
     return changed
 
 
@@ -1109,7 +1112,8 @@ def main() -> int:
     args = parse_args()
     def travail():
         try:
-            with runtime.verrou("merge", "assemblage", stale_after=7200):
+            with runtime.verrou("merge", "assemblage", stale_after=7200,
+                                attente=30):
                 code = _executer(args)
         except runtime.BusyError as erreur:
             # Un assemblage déjà en cours fait le même travail : le doubler

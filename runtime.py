@@ -443,7 +443,7 @@ class BusyError(RuntimeError):
 
 
 @contextlib.contextmanager
-def verrou(nom: str, owner: str, stale_after: int = 600):
+def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
     """Réserve une ressource entre processus, le temps d'une opération.
 
     Deux ressources ne se partagent pas : le Sync Module, qui ne traite qu'une
@@ -455,22 +455,34 @@ def verrou(nom: str, owner: str, stale_after: int = 600):
     Deux garde-fous contre une marque oubliée après un plantage : on ignore
     celle dont le processus n'existe plus, et toute marque plus vieille que
     `stale_after`. Mieux vaut un conflit rare qu'un outil bloqué par un
-    fichier."""
+    fichier.
+
+    `attente` donne le temps pendant lequel on réessaie avant de renoncer. Un
+    direct dure quelques minutes ; sans attente, une boucle qui tombe dessus
+    perdrait son tour entier, alors que la ressource se libère souvent en
+    quelques secondes."""
     import datetime as dt
 
     fichier = app_dir() / f".blink_{nom}.lock"
-    maintenant = time.time()
-    try:
-        presente = json.loads(fichier.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        presente = None
+    limite = time.time() + max(attente, 0)
+    while True:
+        maintenant = time.time()
+        try:
+            presente = json.loads(fichier.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            presente = None
 
-    if presente:
+        if not presente:
+            break
         age = maintenant - float(presente.get("at") or 0)
-        if age < stale_after and processus_vivant(int(presente.get("pid") or 0)):
+        if age >= stale_after or not processus_vivant(int(presente.get("pid") or 0)):
+            break
+        if maintenant >= limite:
             raise BusyError(f"déjà réservé par « {presente.get('owner')} » "
                             f"depuis {int(age)} s")
+        time.sleep(1)
 
+    maintenant = time.time()
     fichier.write_text(json.dumps({"owner": owner, "pid": os.getpid(),
                                    "at": maintenant}), encoding="utf-8")
     try:

@@ -428,6 +428,13 @@ def save_download_state(output: Path, state: dict) -> None:
     l'ancien registre intact plutôt qu'un fichier tronqué."""
     output.mkdir(parents=True, exist_ok=True)
     state_file = output / STATE_FILENAME
+    with runtime.verrou("registre", "ecriture", stale_after=60, attente=10):
+        _ecrire_registre(state_file, state)
+
+
+def _ecrire_registre(state_file: Path, state: dict) -> None:
+    """Superpose ses propres entrées à celles déjà sur disque, atomiquement."""
+    output = state_file.parent
     fusionne = dict(state)
     disque = load_download_state(output)
     if disque.get("clips"):
@@ -705,7 +712,15 @@ async def boucler(blink: Blink, args, modules: list) -> int:
     reconnecter à chaque tour coûterait plus cher que le travail lui-même, et
     multiplierait les authentifications sans raison."""
     while True:
-        code = await un_passage(blink, args, modules)
+        try:
+            # Un seul rapatriement à la fois, quelle que soit la source : deux
+            # processus qui prennent le même clip écriraient le même fichier
+            # partiel, et le premier renommage laisserait l'autre dans le vide.
+            with runtime.verrou("download", "download", attente=30):
+                code = await un_passage(blink, args, modules)
+        except runtime.BusyError as erreur:
+            print(f"Téléchargement déjà en cours ({erreur}).")
+            code = 0
         if not args.loop:
             return code
         await asyncio.sleep(args.loop * 60)
