@@ -285,11 +285,21 @@ def download_new_clips() -> int:
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
         env=dict(os.environ, PYTHONIOENCODING="utf-8"), check=False,
     )
+    return compter_nouveaux(result.stdout or "")
+
+
+def compter_nouveaux(sortie: str) -> int:
+    """Nombre de clips acquis, lu dans la ligne de synthèse du téléchargement.
+
+    Une seule ligne fait foi, toutes sources confondues. La version précédente
+    additionnait les « Incrémental » section par section, donc ignorait le
+    cloud : ses clips arrivaient sans déclencher ni assemblage ni notification.
+    Fonction séparée pour que tests.py éprouve ce contrat entre programmes."""
     total = 0
-    for ligne in (result.stdout or "").splitlines():
-        trouve = re.search(r"Incrémental\s*:\s*(\d+)\s+nouveau", ligne)
+    for ligne in sortie.splitlines():
+        trouve = re.search(r"Nouveaux clips\s*:\s*(\d+)", ligne)
         if trouve:
-            total += int(trouve.group(1))
+            total = int(trouve.group(1))
     return total
 
 

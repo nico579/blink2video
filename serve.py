@@ -99,6 +99,27 @@ def read_entries(paths: dict) -> dict:
     return md.read_registry(paths["input"] / md.DOWNLOAD_STATE)
 
 
+ETIQUETTES_SOURCE = {"usb": "USB", "cloud": "cloud"}
+
+
+def provenances(entrees: dict) -> dict:
+    """Où sont enregistrés les clips de chaque caméra, par caméra.
+
+    Constaté plutôt que déduit : c'est la provenance des clips réellement
+    rapatriés, pas une lecture des réglages du compte. Une caméra couverte par
+    un abonnement dit « cloud », une autre « USB », et l'absence des deux se
+    voit aussi, ce qui explique une caméra qui ne produit rien. Les entrées
+    antérieures à cette distinction viennent forcément de la clé, seule source
+    existante alors."""
+    vues = {}
+    for entree in entrees.values():
+        camera = str(entree.get("camera") or "").strip()
+        if camera:
+            vues.setdefault(camera, set()).add(str(entree.get("source") or "usb"))
+    return {camera: " + ".join(ETIQUETTES_SOURCE.get(s, s) for s in sorted(sources))
+            for camera, sources in vues.items()}
+
+
 def known_identities(paths: dict) -> set:
     """Chemins de clips que le registre reconnaît, sans rien mesurer.
 
@@ -206,6 +227,7 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "") -> dict:
         "cameras": sorted({clip["camera"] for clip in clips}),
         # Le modèle est propre à la caméra, pas au clip : envoyé une fois ici,
         # et retiré de chaque clip pour qu'aucun affichage ne le répète.
+        "sources": provenances(entries),
         "models": {nom: modele for nom, modele in (
             (clip["camera"], clip.pop("model", None)) for clip in clips) if modele},
         "days": sorted({clip["day"] for clip in clips}, reverse=True),
@@ -640,6 +662,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         le module de synchronisation commande l'ensemble, chaque caméra a en
         plus son propre interrupteur. Une caméra armée dans un système désarmé
         ne détecte rien, d'où l'affichage des deux."""
+        # Lu une fois pour toutes les caméras : c'est un fichier, pas une
+        # question posée à Blink.
+        venues = provenances(read_entries(self.paths))
+
         def read(blink):
             async def run(_blink=blink):
                 await _blink.refresh(force=True)
@@ -670,7 +696,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "module_firmware": module.get("fw_version"),
                         "module_serial": module.get("serial"),
                         "cameras": [
-                            self.describe_camera(camera_name, camera, raw)
+                            dict(self.describe_camera(camera_name, camera, raw),
+                                 clips_source=venues.get(camera_name.strip()))
                             for camera_name, camera in sync.cameras.items()
                         ],
                     })
@@ -1454,6 +1481,7 @@ function cameraCard(c, systemArmed) {
         <div class="sub">${details || "—"}</div>
         <div class="sub tiny">${[c.model,
           c.firmware ? "micrologiciel " + c.firmware : null, c.serial,
+          c.clips_source ? "clips : " + c.clips_source : "aucun clip récupéré",
         ].filter(Boolean).join(" · ")}</div>
       </div>
       <button class="act ${c.armed ? "in" : "out"}"
@@ -1628,7 +1656,8 @@ async function load() {
   if (data.error) { $("log").style.display = "block"; $("log").textContent = data.error; return; }
   // Le modèle accompagne le nom ici, une fois, plutôt que sur chaque vignette.
   fill($("camera"), data.cameras, "toutes caméras",
-       (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
+       (nom) => [nom, (data.models || {})[nom],
+                 (data.sources || {})[nom]].filter(Boolean).join(" · "));
   fill($("day"), data.days, "tous les jours");
   render();
 }

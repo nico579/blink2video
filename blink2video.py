@@ -477,14 +477,21 @@ def state_key(sync, clip) -> str:
     return f"{sync.sync_id}:{safe_name(clip.name)}:{created}"
 
 
-def remember_download(state: dict, sync, hub_name: str, clip, output: Path, target: Path) -> None:
-    """Marque un clip comme acquis uniquement lorsque son fichier existe."""
+def remember_download(state: dict, sync, hub_name: str, clip, output: Path,
+                      target: Path, source: str = "usb") -> None:
+    """Marque un clip comme acquis uniquement lorsque son fichier existe.
+
+    La provenance est notée : une caméra couverte par un abonnement enregistre
+    dans le cloud, une autre sur la clé du module, et une Blink Mini n'écrit
+    jamais sur la clé. L'interface le montre par caméra, ce qui évite de
+    chercher pourquoi telle caméra ne produit rien."""
     state["clips"][state_key(sync, clip)] = {
         "hub": hub_name,
         "camera": clip.name,
         "created_at": clip_datetime_utc(clip).isoformat(),
         "path": target.relative_to(output).as_posix(),
         "bytes": target.stat().st_size,
+        "source": source,
     }
 
 
@@ -601,7 +608,7 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-async def traiter_cloud(blink: Blink, args, modules: list) -> bool:
+async def traiter_cloud(blink: Blink, args, modules: list) -> tuple:
     """Inventorie, puis rapatrie, les clips que l'abonnement garde dans le cloud.
 
     Le compte répond ici, pas le module : aucune réservation du hub n'est donc
@@ -627,7 +634,7 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> bool:
     print(f"  {len(clips)} clip(s) dans le cloud, {len(doublons)} déjà acquis "
           f"par ailleurs, {len(inedits)} à rapatrier.")
     if args.command != "download" or not inedits:
-        return False
+        return False, 0
 
     # Le registre attend un module pour former l'identité. Le cloud n'en
     # dépend pas : à défaut, le réseau du clip en tient lieu, ce qui suffit,
@@ -638,7 +645,8 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> bool:
         target = target_path(output, clip)
         print(f"  [{position}/{len(inedits)}] {target.name}")
         if target.exists() and target.stat().st_size > 0 and not args.overwrite:
-            remember_download(state, sync, args.hub or "cloud", clip, output, target)
+            remember_download(state, sync, args.hub or "cloud", clip, output,
+                              target, source="cloud")
             save_download_state(output, state)
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -646,7 +654,8 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> bool:
         try:
             if await clip.download_to(blink, partiel):
                 partiel.replace(target)
-                remember_download(state, sync, args.hub or "cloud", clip, output, target)
+                remember_download(state, sync, args.hub or "cloud", clip, output,
+                                  target, source="cloud")
                 save_download_state(output, state)
             else:
                 echecs += 1
@@ -658,7 +667,7 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> bool:
             partiel.unlink(missing_ok=True)
 
     print(f"  Terminé : {len(inedits) - echecs} téléchargé(s), {echecs} échec(s).")
-    return echecs > 0
+    return echecs > 0, len(inedits) - echecs
 
 
 class _HubCloud:
@@ -703,6 +712,7 @@ async def main(args: argparse.Namespace) -> int:
             return 2
 
         had_error = False
+        neufs_total = 0
         for name, sync in modules:
             print(f"\n=== STOCKAGE LOCAL : {name} ===")
             try:
@@ -770,9 +780,19 @@ async def main(args: argparse.Namespace) -> int:
                 f"{skipped} déjà présent(s), {failed} échec(s)."
             )
             had_error = had_error or failed > 0
+            neufs_total += downloaded
 
         if not args.no_cloud:
-            had_error = await traiter_cloud(blink, args, modules) or had_error
+            echec_cloud, neufs_cloud = await traiter_cloud(blink, args, modules)
+            had_error = echec_cloud or had_error
+            neufs_total += neufs_cloud
+
+        if args.command == "download":
+            # Ligne de synthèse, toutes sources confondues : c'est elle que la
+            # surveillance lit pour savoir s'il faut assembler et prévenir. Elle
+            # ne comptait auparavant que les clips de la clé, et un
+            # enregistrement venu du cloud arrivait sans que rien ne suive.
+            print(f"\nNouveaux clips : {neufs_total}")
 
         return 1 if had_error else 0
 
