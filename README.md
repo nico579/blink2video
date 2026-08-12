@@ -84,6 +84,7 @@ blink2video merge       # normalize, stamp and assemble day, week and month
 blink2video watch       # check the installation and alert when it degrades
 blink2video all         # everything, that is watch then download then merge
 blink2video serve       # serve the web interface, to watch, discard, see live
+blink2video open        # open the web interface in the browser
 blink2video stop        # stop the instance running in the background
 blink2video autostart   # register the command that follows with your session
 blink2video smoketest   # check that the installation works on this machine
@@ -294,6 +295,9 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--thumbs FOLDER` | thumbnail cache, disposable |
 | `--timezone ZONE` | display time zone |
 | the same folder options as `merge` | |
+
+**`blink2video open`**: open the interface in the browser, and say so when
+nobody is listening. `--port` if you moved it.
 
 **`blink2video stop`**: stop the running instance and all its verbs. No options.
 

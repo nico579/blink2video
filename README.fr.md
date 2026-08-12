@@ -88,6 +88,7 @@ blink2video merge       # normaliser, horodater et assembler jour, semaine et mo
 blink2video watch       # contrôler l'état de l'installation et alerter s'il se dégrade
 blink2video all         # tout, c'est-à-dire watch puis download puis merge
 blink2video serve       # servir l'interface web, pour regarder, écarter, voir en direct
+blink2video open        # ouvrir l'interface web dans le navigateur
 blink2video stop        # arrêter l'instance qui tourne en fond
 blink2video autostart   # inscrire à l'ouverture de session la commande qui suit
 blink2video smoketest   # vérifier que l'installation fonctionne sur cette machine
@@ -302,6 +303,9 @@ Blink_Monthly/     une par mois
 | `--thumbs DOSSIER` | cache des vignettes, jetable |
 | `--timezone ZONE` | fuseau d'affichage |
 | les mêmes options de dossiers que `merge` | |
+
+**`blink2video open`** : ouvrir l'interface dans le navigateur, et dire si
+personne n'écoute. `--port` si vous l'avez déplacée.
 
 **`blink2video stop`** : arrêter l'instance en cours et tous ses verbes. Sans option.
 

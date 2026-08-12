@@ -865,6 +865,37 @@ def deleguer(verbe: str, arguments: list) -> int:
     return int(module.main() or 0)
 
 
+def ouvrir(arguments: list = ()) -> int:
+    """Ouvre l'interface dans le navigateur, et dit si personne n'écoute.
+
+    L'adresse est évidente pour qui la connaît ; elle ne l'est pas pour qui
+    installe l'outil. Un verbe se trouve dans « --help », un port se retient
+    mal."""
+    import socket
+    import webbrowser
+
+    parseur = argparse.ArgumentParser(
+        prog="blink2video open",
+        description=ouvrir.__doc__.splitlines()[0],
+    )
+    parseur.add_argument("--port", type=int, default=8765,
+                         help="port de l'interface (défaut 8765)")
+    options = parseur.parse_args(list(arguments))
+    adresse = f"http://127.0.0.1:{options.port}/"
+
+    with socket.socket() as prise:
+        prise.settimeout(2)
+        if prise.connect_ex(("127.0.0.1", options.port)) != 0:
+            print(f"Personne n'écoute sur {adresse}.")
+            print("Lancez « blink2video serve », ou « blink2video autostart on » "
+                  "pour que l'interface démarre avec la session.")
+            return 1
+
+    print(f"Ouverture de {adresse}")
+    webbrowser.open(adresse)
+    return 0
+
+
 def arreter(arguments: list = ()) -> int:
     """Arrête les instances en cours, y compris celle du démarrage automatique.
 
@@ -916,6 +947,9 @@ def executer(groupes: list) -> int:
     code de retour directs. Plusieurs sont lancés côte à côte et attendus : ils
     s'arrêtent ensemble, faute de quoi un Ctrl+C laisserait derrière lui des
     programmes sans personne pour les arrêter."""
+    if len(groupes) == 1 and groupes[0][0] == "open":
+        return ouvrir(groupes[0][1:])
+
     if any(groupe[0] == "stop" for groupe in groupes):
         if len(groupes) > 1:
             print("« stop » s'emploie seul : il arrête ce qui tourne déjà.")
