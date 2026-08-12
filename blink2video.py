@@ -453,12 +453,30 @@ def load_download_state(output: Path) -> dict:
 
 
 def save_download_state(output: Path, state: dict) -> None:
-    """Enregistre atomiquement le registre incrémental."""
+    """Enregistre le registre incrémental, sans écraser le travail d'un autre.
+
+    Deux boucles écrivent désormais ici, l'une pour la clé USB toutes les dix
+    minutes, l'autre pour le cloud toutes les minutes. Écrire sa propre copie
+    en bloc ferait perdre les clips que l'autre vient d'ajouter : on relit donc
+    le fichier juste avant d'écrire, et on superpose ses propres entrées. Une
+    entrée n'est jamais retirée par ce chemin, seulement ajoutée ou mise à
+    jour, ce qui rend la superposition sûre.
+
+    Le remplacement reste atomique : un plantage en cours d'écriture laisse
+    l'ancien registre intact plutôt qu'un fichier tronqué."""
     output.mkdir(parents=True, exist_ok=True)
     state_file = output / STATE_FILENAME
+    fusionne = dict(state)
+    disque = load_download_state(output)
+    if disque.get("clips"):
+        clips = dict(disque["clips"])
+        clips.update(state.get("clips") or {})
+        fusionne["clips"] = clips
     temporary = state_file.with_suffix(".tmp")
-    temporary.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.write_text(json.dumps(fusionne, indent=2, ensure_ascii=False),
+                         encoding="utf-8")
     temporary.replace(state_file)
+    state["clips"] = fusionne.get("clips", state.get("clips"))
 
 
 def state_key(sync, clip) -> str:
@@ -597,6 +615,15 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="ignorer les clips conservés dans le cloud de l'abonnement Blink",
     )
+    parser.add_argument(
+        "--cloud-only",
+        action="store_true",
+        help="n'interroger que le cloud, sans réveiller le module de synchronisation",
+    )
+    # Une boucle propre au verbe : le cloud se sonde à la minute sans rien
+    # réveiller, là où le manifeste USB mobilise le module et se contente de dix
+    # minutes. Deux cadences valent mieux qu'un compromis unique.
+    runtime.ajouter_boucle(parser)
     args = parser.parse_args()
     if args.command is None:
         # Sans commande, l'aide plutôt qu'une connexion au compte : une
@@ -711,90 +738,108 @@ async def main(args: argparse.Namespace) -> int:
             print(f"\nErreur : {error}")
             return 2
 
-        had_error = False
-        neufs_total = 0
-        for name, sync in modules:
-            print(f"\n=== STOCKAGE LOCAL : {name} ===")
+        return await boucler(blink, args, modules)
+
+
+async def boucler(blink: Blink, args, modules: list) -> int:
+    """Répète le passage si --loop est donné, en gardant la session ouverte.
+
+    La session est ouverte une fois pour toutes : à cadence rapide, se
+    reconnecter à chaque tour coûterait plus cher que le travail lui-même, et
+    multiplierait les authentifications sans raison."""
+    while True:
+        code = await un_passage(blink, args, modules)
+        if not args.loop:
+            return code
+        await asyncio.sleep(args.loop * 60)
+
+
+async def un_passage(blink: Blink, args, modules: list) -> int:
+    """Un tour : la clé USB de chaque module, puis le cloud du compte."""
+    had_error = False
+    neufs_total = 0
+    for name, sync in ([] if args.cloud_only else modules):
+        print(f"\n=== STOCKAGE LOCAL : {name} ===")
+        try:
+            clips = await read_local_manifest(sync)
+        except RuntimeError as error:
+            print(f"  Indisponible : {error}.")
+            had_error = True
+            continue
+
+        clips = filter_clips(clips, args.camera, args.since)
+        print_clip_summary(clips)
+
+        if args.command != "download" or not clips:
+            continue
+
+        output = args.output.resolve()
+        print(f"  Destination : {output}")
+        state = load_download_state(output)
+        pending = []
+        adopted = 0
+        for clip in clips:
+            target = target_path(output, clip)
+            if is_downloaded(state, sync, clip, target) and not args.overwrite:
+                continue
+            if target.exists() and target.stat().st_size > 0 and not args.overwrite:
+                remember_download(state, sync, name, clip, output, target)
+                adopted += 1
+                continue
+            pending.append(clip)
+
+        save_download_state(output, state)
+        already_downloaded = len(clips) - len(pending) - adopted
+        print(
+            f"  Incrémental : {len(pending)} nouveau(x), "
+            f"{already_downloaded + adopted} déjà acquis."
+        )
+        if not pending:
+            continue
+
+        downloaded = skipped = failed = 0
+        for position, clip in enumerate(pending, start=1):
+            target = target_path(output, clip)
+            print(f"  [{position}/{len(pending)}] {target.name}")
             try:
-                clips = await read_local_manifest(sync)
-            except RuntimeError as error:
-                print(f"  Indisponible : {error}.")
-                had_error = True
-                continue
+                result = await download_clip(blink, clip, target, args.overwrite)
+            except Exception as error:  # Continuer avec les autres clips.
+                print(f"    Échec : {type(error).__name__}: {error}")
+                result = "failed"
 
-            clips = filter_clips(clips, args.camera, args.since)
-            print_clip_summary(clips)
-
-            if args.command != "download" or not clips:
-                continue
-
-            output = args.output.resolve()
-            print(f"  Destination : {output}")
-            state = load_download_state(output)
-            pending = []
-            adopted = 0
-            for clip in clips:
-                target = target_path(output, clip)
-                if is_downloaded(state, sync, clip, target) and not args.overwrite:
-                    continue
-                if target.exists() and target.stat().st_size > 0 and not args.overwrite:
-                    remember_download(state, sync, name, clip, output, target)
-                    adopted += 1
-                    continue
-                pending.append(clip)
-
-            save_download_state(output, state)
-            already_downloaded = len(clips) - len(pending) - adopted
-            print(
-                f"  Incrémental : {len(pending)} nouveau(x), "
-                f"{already_downloaded + adopted} déjà acquis."
-            )
-            if not pending:
-                continue
-
-            downloaded = skipped = failed = 0
-            for position, clip in enumerate(pending, start=1):
-                target = target_path(output, clip)
-                print(f"  [{position}/{len(pending)}] {target.name}")
-                try:
-                    result = await download_clip(blink, clip, target, args.overwrite)
-                except Exception as error:  # Continuer avec les autres clips.
-                    print(f"    Échec : {type(error).__name__}: {error}")
-                    result = "failed"
-
-                if result == "downloaded":
-                    downloaded += 1
+            if result == "downloaded":
+                downloaded += 1
+                remember_download(state, sync, name, clip, output, target)
+                save_download_state(output, state)
+            elif result == "skipped":
+                skipped += 1
+                if target.exists() and target.stat().st_size > 0:
                     remember_download(state, sync, name, clip, output, target)
                     save_download_state(output, state)
-                elif result == "skipped":
-                    skipped += 1
-                    if target.exists() and target.stat().st_size > 0:
-                        remember_download(state, sync, name, clip, output, target)
-                        save_download_state(output, state)
-                else:
-                    failed += 1
-                    print("    Échec du téléchargement après plusieurs tentatives.")
+            else:
+                failed += 1
+                print("    Échec du téléchargement après plusieurs tentatives.")
 
-            print(
-                f"  Terminé : {downloaded} téléchargé(s), "
-                f"{skipped} déjà présent(s), {failed} échec(s)."
-            )
-            had_error = had_error or failed > 0
-            neufs_total += downloaded
+        print(
+            f"  Terminé : {downloaded} téléchargé(s), "
+            f"{skipped} déjà présent(s), {failed} échec(s)."
+        )
+        had_error = had_error or failed > 0
+        neufs_total += downloaded
 
-        if not args.no_cloud:
-            echec_cloud, neufs_cloud = await traiter_cloud(blink, args, modules)
-            had_error = echec_cloud or had_error
-            neufs_total += neufs_cloud
+    if not args.no_cloud:
+        echec_cloud, neufs_cloud = await traiter_cloud(blink, args, modules)
+        had_error = echec_cloud or had_error
+        neufs_total += neufs_cloud
 
-        if args.command == "download":
-            # Ligne de synthèse, toutes sources confondues : c'est elle que la
-            # surveillance lit pour savoir s'il faut assembler et prévenir. Elle
-            # ne comptait auparavant que les clips de la clé, et un
-            # enregistrement venu du cloud arrivait sans que rien ne suive.
-            print(f"\nNouveaux clips : {neufs_total}")
+    if args.command == "download":
+        # Ligne de synthèse, toutes sources confondues : c'est elle que la
+        # surveillance lit pour savoir s'il faut assembler et prévenir. Elle
+        # ne comptait auparavant que les clips de la clé, et un
+        # enregistrement venu du cloud arrivait sans que rien ne suive.
+        print(f"\nNouveaux clips : {neufs_total}")
 
-        return 1 if had_error else 0
+    return 1 if had_error else 0
 
 
 # Point d'entrée unique. Les autres programmes gardent leur propre fichier et

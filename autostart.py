@@ -36,13 +36,18 @@ def etiquette(quoi: tuple) -> str:
     return f"{NOM}-{(quoi or DEFAUT)[0]}"
 
 
-# Ce qu'on automatise par défaut : l'interface, qui accueille la boucle des
-# trois activités. Une seule entrée suffit donc. Rien n'oblige à automatiser
+# Ce qu'on automatise par défaut : l'interface, la boucle des trois activités,
+# et une seconde boucle plus rapide pour le cloud. Deux cadences, parce que les
+# deux sources n'ont pas le même coût : le manifeste USB réveille le module de
+# synchronisation, l'inventaire cloud est un appel de 0,13 s au compte, session
+# déjà ouverte. Un clip cloud remonte donc en une minute au lieu de dix, sans
+# solliciter le matériel davantage. Rien n'oblige à automatiser
 # cela : « autostart on watch --loop » n'alerterait que, sans rien rapatrier.
 # --no-browser parce qu'à l'ouverture de session, ouvrir un navigateur de force
 # serait déplacé : l'interface attend qu'on vienne, ou qu'on clique sur une
 # notification.
-DEFAUT = ("serve", "--no-browser", "all", "--loop", "10")
+DEFAUT = ("serve", "--no-browser", "all", "--loop", "10",
+          "download", "--cloud-only", "--loop", "1")
 
 
 def commande(verbe_et_options: tuple = DEFAUT) -> list:

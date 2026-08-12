@@ -130,7 +130,7 @@ only, so a camera you knowingly leave offline warns you once, and
 ## Start the watcher with your session
 
 ```bash
-blink2video autostart on                    # the default: serve --no-browser all --loop 10
+blink2video autostart on                    # the default, see below
 blink2video autostart status                # what is installed
 blink2video autostart off                   # remove
 ```
@@ -139,6 +139,18 @@ blink2video autostart off                   # remove
 you would have typed it without the prefix. So `blink2video autostart on watch --loop 30`
 automates the alerts only. No administrator rights are needed, and `--dry-run`
 shows what would happen.
+
+With no verb, the entry is the interface plus two loops running at different
+rates:
+
+```
+serve --no-browser all --loop 10 download --cloud-only --loop 1
+```
+
+Ten minutes for the USB stick, whose manifest wakes the Sync Module, and one
+minute for the cloud, whose inventory costs a tenth of a second once the session
+is open. A cloud clip therefore shows up within a minute instead of ten, without
+asking more of the hardware.
 
 <details>
 <summary>Doing it yourself, without <code>autostart</code></summary>
@@ -236,6 +248,8 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--output FOLDER` | destination of raw clips (default `Blink_Clips`) |
 | `--overwrite` | replace existing files of a different size |
 | `--no-cloud` | ignore clips kept in the subscription cloud |
+| `--cloud-only` | poll the cloud only, without waking the module |
+| `--loop [MINUTES]` | repeat instead of acting once (default 10) |
 
 **`blink2video merge`**: normalization and assembly.
 

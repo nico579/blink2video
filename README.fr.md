@@ -135,7 +135,7 @@ hors ligne ne prévient qu'une fois, et `--ignore "Portail"` la met en sourdine.
 ## Lancer la surveillance avec la session
 
 ```bash
-blink2video autostart on                    # le défaut : serve --no-browser all --loop 10
+blink2video autostart on                    # le défaut, voir plus bas
 blink2video autostart status                # ce qui est installé
 blink2video autostart off                   # retirer
 ```
@@ -144,6 +144,18 @@ blink2video autostart off                   # retirer
 telle que vous l'auriez tapée sans lui. `blink2video autostart on watch --loop 30`
 n'automatise donc que les alertes. Aucun droit d'administrateur n'est nécessaire,
 et `--dry-run` montre ce qui serait fait.
+
+Sans verbe, l'entrée posée est l'interface plus deux boucles de cadences
+différentes :
+
+```
+serve --no-browser all --loop 10 download --cloud-only --loop 1
+```
+
+Dix minutes pour la clé USB, dont la lecture réveille le module de
+synchronisation, et une minute pour le cloud, dont l'inventaire coûte un
+dixième de seconde une fois la session ouverte. Un clip du cloud remonte donc
+en une minute au lieu de dix, sans solliciter le matériel davantage.
 
 <details>
 <summary>Le faire soi-même, sans passer par <code>autostart</code></summary>
@@ -244,6 +256,8 @@ Blink_Monthly/     une par mois
 | `--output DOSSIER` | destination des clips bruts (défaut `Blink_Clips`) |
 | `--overwrite` | remplacer les fichiers existants de taille différente |
 | `--no-cloud` | ignorer les clips conservés dans le cloud de l'abonnement |
+| `--cloud-only` | n'interroger que le cloud, sans réveiller le module |
+| `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
 
 **`blink2video merge`** : normalisation et assemblage.
 
