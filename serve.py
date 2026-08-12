@@ -1055,6 +1055,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_media(path)
             return
 
+        if route == "/api/passages":
+            self.send_json(runtime.passages())
+            return
+
         if route == "/api/refresh":
             self.stream_refresh()
             return
@@ -1471,16 +1475,26 @@ async function loadSystem(force) {
   renderLive();
 }
 
-function heuresDePassage() {
-  // Voir quand chaque activité est passée pour la dernière fois rend visible
-  // une boucle arrêtée, ce qu'aucune alerte ne signale : rien ne se produit,
-  // justement.
-  const noms = { watch: "état lu", download: "clips vus", merge: "vidéos" };
-  const vus = (data && data.passages) || (system && system.passages) || {};
-  const dit = Object.keys(noms)
-    .filter((cle) => vus[cle])
-    .map((cle) => `${noms[cle]} ${vus[cle].slice(11, 16)}`);
-  $("passages").textContent = dit.join(" · ");
+async function heuresDePassage() {
+  // Une seule heure, la plus ancienne des trois : c'est elle qui dit si
+  // l'ensemble suit. Le détail n'apparaît que si une activité traîne, sans
+  // quoi trois horodatages identiques n'apprennent rien.
+  let vus = {};
+  try {
+    vus = await (await fetch("/api/passages")).json();
+  } catch (erreur) { return; }
+  const noms = { watch: "contrôle", download: "clips", merge: "vidéos" };
+  const dates = Object.keys(noms).filter((cle) => vus[cle]);
+  if (!dates.length) return;
+
+  const heure = (cle) => vus[cle].slice(11, 16);
+  const instant = (cle) => new Date(vus[cle]).getTime();
+  const plusAncien = dates.reduce((a, b) => (instant(a) < instant(b) ? a : b));
+  const plusRecent = dates.reduce((a, b) => (instant(a) > instant(b) ? a : b));
+  const ecart = (instant(plusRecent) - instant(plusAncien)) / 60000;
+  $("passages").textContent = ecart > 20
+    ? `actualisé ${heure(plusRecent)} · ${noms[plusAncien]} ${heure(plusAncien)}`
+    : `actualisé ${heure(plusAncien)}`;
 }
 
 function renderLive() {
@@ -1849,6 +1863,10 @@ $("refresh").onclick = async () => {
 };
 
 for (const id of ["view", "camera", "day", "showOut"]) $(id).onchange = render;
+// Seule cette ligne de texte se met à jour d'elle-même : elle sert précisément
+// à repérer une boucle arrêtée, ce qu'on ne verrait pas en regardant des clips
+// qui, eux, ne changent plus.
+setInterval(heuresDePassage, 60000);
 $("view").value = "clips";   // au démarrage on montre les clips, pas d'appel réseau
 load();
 </script>
