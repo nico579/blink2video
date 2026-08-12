@@ -230,6 +230,7 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "") -> dict:
         "cameras": sorted({clip["camera"] for clip in clips}),
         # Le modèle est propre à la caméra, pas au clip : envoyé une fois ici,
         # et retiré de chaque clip pour qu'aucun affichage ne le répète.
+        "passages": runtime.passages(),
         "sources": provenances(entries),
         "models": {nom: modele for nom, modele in (
             (clip["camera"], clip.pop("model", None)) for clip in clips) if modele},
@@ -1445,6 +1446,7 @@ function duration(seconds) {
 }
 
 function render() {
+  heuresDePassage();
   const kind = $("view").value;
   const clips = kind === "clips";
   $("day").hidden = !clips;
@@ -1474,7 +1476,7 @@ function heuresDePassage() {
   // une boucle arrêtée, ce qu'aucune alerte ne signale : rien ne se produit,
   // justement.
   const noms = { watch: "état lu", download: "clips vus", merge: "vidéos" };
-  const vus = (system && system.passages) || {};
+  const vus = (data && data.passages) || (system && system.passages) || {};
   const dit = Object.keys(noms)
     .filter((cle) => vus[cle])
     .map((cle) => `${noms[cle]} ${vus[cle].slice(11, 16)}`);
@@ -1482,7 +1484,6 @@ function heuresDePassage() {
 }
 
 function renderLive() {
-  heuresDePassage();
   if (!system) return loadSystem(false);
   if (system.error) {
     $("list").innerHTML = `<p class="empty">${system.error}</p>`;
