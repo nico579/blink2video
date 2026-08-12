@@ -21,6 +21,7 @@ import contextlib
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -378,6 +379,45 @@ def demarrer(commande, **options):
     return subprocess.Popen(commande, **options)
 
 
+def _applescript(texte: str) -> str:
+    """Encode une chaîne pour AppleScript, dont l'échappement n'est pas celui
+    d'un shell : seules les guillemets et la barre oblique inverse comptent."""
+    return '"' + texte.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+
+def _declarer_identite() -> None:
+    """Déclare l'identité applicative auprès de Windows, une fois pour toutes.
+
+    Sans elle, la notification est acceptée par l'API et jetée par le
+    système, sans erreur ni trace. La clé vit dans la ruche de
+    l'utilisateur, ne concerne que les notifications, et se retire en la
+    supprimant :
+
+        HKCU\\SOFTWARE\\Classes\\AppUserModelId\\blink2video
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import winreg
+    except ImportError:
+        return
+    chemin = 'SOFTWARE\\Classes\\AppUserModelId' + '\\' + APP_ID
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, chemin) as cle:
+            if winreg.QueryValueEx(cle, "DisplayName")[0] == APP_ID:
+                return
+    except OSError:
+        pass
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, chemin) as cle:
+            winreg.SetValueEx(cle, "DisplayName", 0, winreg.REG_SZ, APP_ID)
+    except OSError:
+        # Registre en lecture seule : la notification échouera peut-être,
+        # ce n'est pas une raison d'interrompre le travail en cours.
+        pass
+
+
 def toast(titre: str, corps: str, url: str = "") -> None:
     """Notification Windows non bloquante, sans rien installer.
 
@@ -389,7 +429,7 @@ def toast(titre: str, corps: str, url: str = "") -> None:
     évite d'ajouter une dépendance pour une dizaine de lignes, et de réécrire
     à la main un icône de zone de notification en Win32."""
     if sys.platform == "darwin":
-        runtime.lancer(
+        lancer(
             ["osascript", "-e",
              f"display notification {_applescript(corps)} with title {_applescript(titre)}"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -398,13 +438,15 @@ def toast(titre: str, corps: str, url: str = "") -> None:
         return
     if sys.platform.startswith("linux"):
         if shutil.which("notify-send"):
-            runtime.lancer(["notify-send", titre, corps],
+            lancer(["notify-send", titre, corps],
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL, check=False, timeout=20)
             return
     if sys.platform != "win32":
         print(f"{titre} : {corps}")
         return
+    _declarer_identite()
+
     def echappe(valeur: str) -> str:
         return (valeur.replace("&", "&amp;").replace("<", "&lt;")
                       .replace(">", "&gt;").replace("'", "&apos;"))
@@ -427,10 +469,10 @@ def toast(titre: str, corps: str, url: str = "") -> None:
         # auprès de Windows. Plutôt que d'en enregistrer une, on emprunte
         # l'identité de PowerShell, déjà déclarée sur toute installation.
         "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
-        + repr(POWERSHELL_APP_ID) +
+        + repr(APP_ID) +
         ").Show($n)"
     )
-    runtime.lancer(
+    lancer(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL, check=False, timeout=20,
@@ -494,6 +536,14 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
                 fichier.unlink(missing_ok=True)
         except (OSError, json.JSONDecodeError):
             pass
+
+
+# Identité applicative sous laquelle les notifications Windows sont émises.
+# Windows jette en silence, en rendant zéro, toute notification dont
+# l'identité n'est pas déclarée : emprunter celle de PowerShell marchait sur
+# certaines installations et pas sur d'autres, sans jamais dire pourquoi. On
+# déclare donc la nôtre, comme le font Firefox ou Acrobat.
+APP_ID = "blink2video"
 
 
 PASSAGES = Path(".blink_passages.json")

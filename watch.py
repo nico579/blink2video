@@ -53,9 +53,6 @@ WATCH_STATE = BASE_DIR / ".blink_watch_state.json"
 # Deux jours plutôt qu'un : un jardin peut rester calme vingt-quatre heures.
 SILENCE_DAYS = 2
 
-# Identité applicative empruntée pour émettre les notifications Windows.
-POWERSHELL_APP_ID = (r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}"
-                     r"\WindowsPowerShell\v1.0\powershell.exe")
 
 
 
@@ -210,12 +207,6 @@ def popup(title: str, body: str) -> None:
     ctypes.windll.user32.MessageBoxW(
         None, body, title, ICONE_AVERTISSEMENT | PREMIER_PLAN | AU_DESSUS
     )
-
-
-def _applescript(texte: str) -> str:
-    """Encode une chaîne pour AppleScript, dont l'échappement n'est pas celui
-    d'un shell : seules les guillemets et la barre oblique inverse comptent."""
-    return '"' + texte.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def ensure_server(port: int) -> bool:

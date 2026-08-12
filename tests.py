@@ -353,8 +353,40 @@ def test_relance() -> None:
              " ; ".join(manquants))
 
 
+def test_notification() -> None:
+    """La notification part sans exception, et son identité est déclarée.
+
+    Une notification ne se vérifie pas sans écran, mais tout ce qui l'entoure
+    si : déplacer cette fonction d'un module à l'autre a cassé d'un coup ses
+    appels internes, une constante et une fonction auxiliaire, sans que rien ne
+    proteste. Et sous Windows, une identité non déclarée fait jeter la
+    notification par le système, en silence, avec un code de retour nul."""
+    import runtime
+
+    print("\nNotification")
+    try:
+        runtime.toast("blink2video", "Test automatique, aucune action requise.")
+        verifier(True, "la notification part sans exception")
+    except Exception as erreur:
+        verifier(False, "la notification part sans exception",
+                 f"{type(erreur).__name__}: {erreur}")
+
+    if sys.platform == "win32":
+        import winreg
+
+        try:
+            chemin = "SOFTWARE" + chr(92) + "Classes" + chr(92) + "AppUserModelId"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                chemin + chr(92) + runtime.APP_ID) as cle:
+                nom = winreg.QueryValueEx(cle, "DisplayName")[0]
+            verifier(nom == runtime.APP_ID, "l'identité est déclarée à Windows", nom)
+        except OSError as erreur:
+            verifier(False, "l'identité est déclarée à Windows", str(erreur))
+
+
 def main() -> int:
     test_verbes()
+    test_notification()
     test_relance()
     test_cadence_cible()
     test_installation_neuve()

@@ -436,7 +436,11 @@ récupérés reviendraient comme neufs.
   macOS n'ont besoin de rien.
 - Les notifications empruntent les outils du système : fenêtre native sous
   Windows, osascript sous macOS, notify-send et zenity sous Linux. À défaut, la
-  surveillance écrit dans `watch.log` et continue.
+  surveillance écrit dans `watch.log` et continue. Sous Windows, l'outil déclare
+  son identité de notification au premier envoi, dans
+  `HKCU\SOFTWARE\Classes\AppUserModelId\blink2video` : sans elle, le système
+  jette les notifications sans rien dire. Supprimer cette clé annule la
+  déclaration.
 - Rien ne tourne pendant que l'ordinateur est éteint : une caméra qui tombe la
   nuit est signalée à l'ouverture de session suivante.
 - Blink refuse certains points d'entrée de son API selon la version de client

@@ -424,7 +424,10 @@ downloaded would come back as new.
   finds and keeps the first that can write text. Windows and macOS need nothing.
 - Notifications borrow each system's own tools: the native dialog on Windows,
   osascript on macOS, notify-send and zenity on Linux. Failing that, the watcher
-  writes to `watch.log` and carries on.
+  writes to `watch.log` and carries on. On Windows, the tool declares its
+  notification identity on first use, in
+  `HKCU\SOFTWARE\Classes\AppUserModelId\blink2video`: without it, the system
+  drops notifications silently. Deleting that key undoes the declaration.
 - Nothing runs while the computer is off: a camera failing at night is reported
   at the next logon.
 - Blink refuses some API endpoints depending on the client version announced,
