@@ -113,7 +113,7 @@ refuses the first run of an archive downloaded through a browser, hence the
 
 ## The interface
 
-`blink2video open` opens the page served on `127.0.0.1:8765`. Four views:
+`blink2video open` opens the page served on `127.0.0.1:8765`. Five views:
 
 - **Live**: one tile per camera, its state, and detection arming.
 - **Clips**: newest first, with a preview and an "Écarter" button that removes a
