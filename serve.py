@@ -1392,6 +1392,9 @@ PAGE = """<!doctype html>
 <header>
   <h1>blink2video<span class="v">__VERSION__</span></h1>
   <span class="sub tiny" id="passages"></span>
+  <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
+    <input type="checkbox" id="auto"> actualisation auto
+  </label>
   <select id="view">
     <option value="live">Direct</option>
     <option value="clips">Clips</option>
@@ -1502,6 +1505,12 @@ async function heuresDePassage() {
   const plusAncien = dates.reduce((a, b) => (instant(a) < instant(b) ? a : b));
   const plusRecent = dates.reduce((a, b) => (instant(a) > instant(b) ? a : b));
   const ecart = (instant(plusRecent) - instant(plusAncien)) / 60000;
+  // Choix mémorisé d'un affichage à l'autre : une préférence qu'il faudrait
+  // recocher à chaque ouverture n'en serait pas une.
+  if (arrives && $("auto").checked) {
+    load();
+    return;
+  }
   const nouveaux = arrives
     ? ` · ${arrives} nouveau${arrives > 1 ? "x" : ""} clip${arrives > 1 ? "s" : ""}, cliquez sur Actualiser`
     : "";
@@ -1880,6 +1889,11 @@ for (const id of ["view", "camera", "day", "showOut"]) $(id).onchange = render;
 // à repérer une boucle arrêtée, ce qu'on ne verrait pas en regardant des clips
 // qui, eux, ne changent plus.
 setInterval(heuresDePassage, 60000);
+$("auto").checked = localStorage.getItem("auto") === "1";
+$("auto").onchange = () => {
+  localStorage.setItem("auto", $("auto").checked ? "1" : "0");
+  heuresDePassage();
+};
 $("view").value = "clips";   // au démarrage on montre les clips, pas d'appel réseau
 load();
 </script>
