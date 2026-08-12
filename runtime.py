@@ -52,6 +52,19 @@ VERSION = "0.4.0"
 ENTREE = "blink2video"
 
 
+# La configuration recommandée, en un seul endroit : « start » la lance,
+# « autostart on » la planifie. Chaque activité a sa cadence, parce qu'elles
+# n'ont pas le même coût : l'inventaire cloud est un appel de 0,13 s au compte,
+# le manifeste USB réveille le module de synchronisation, l'assemblage ne fait
+# rien quand rien n'a changé. Verbeux à lire, jamais à taper.
+STANDARD = ("serve",
+            "watch", "--loop", "10",
+            "download", "--from", "usb", "--loop", "10",
+            "download", "--from", "cloud", "--loop", "1",
+            "merge", "--loop", "5")
+
+
+
 class Verbe(NamedTuple):
     """Un verbe : le programme qui l'exécute, et son libellé dans chaque langue.
 
@@ -81,12 +94,12 @@ VERBES = {
     "watch": Verbe("watch",
               "contrôler l'état de l'installation et alerter s'il se dégrade",
               "check the installation and alert when it degrades"),
-    "all": Verbe("daily",
-            "tout, c'est-à-dire watch puis download puis merge",
-            "everything, that is watch then download then merge"),
     "serve": Verbe("serve",
               "servir l'interface web, pour regarder, écarter, voir en direct",
               "serve the web interface, to watch, discard, see live"),
+    "start": Verbe(ENTREE,
+             "tout lancer avec les réglages recommandés",
+             "start everything with the recommended settings"),
     "open": Verbe(ENTREE,
             "ouvrir l'interface web dans le navigateur",
             "open the web interface in the browser"),
@@ -362,6 +375,112 @@ def demarrer(commande, **options):
     """subprocess.Popen, même précaution."""
     options.setdefault("creationflags", SANS_FENETRE)
     return subprocess.Popen(commande, **options)
+
+
+def toast(titre: str, corps: str, url: str = "") -> None:
+    """Notification Windows non bloquante, sans rien installer.
+
+    Distincte du popup à dessein : une coupure est rare et doit être vue, donc
+    elle bloque jusqu'à acquittement ; l'arrivée d'un clip est fréquente et
+    banale, une fenêtre modale à chaque fois serait insupportable.
+
+    Passe par PowerShell, qui expose l'API de notification de Windows 10. Ça
+    évite d'ajouter une dépendance pour une dizaine de lignes, et de réécrire
+    à la main un icône de zone de notification en Win32."""
+    if sys.platform == "darwin":
+        runtime.lancer(
+            ["osascript", "-e",
+             f"display notification {_applescript(corps)} with title {_applescript(titre)}"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, check=False, timeout=20,
+        )
+        return
+    if sys.platform.startswith("linux"):
+        if shutil.which("notify-send"):
+            runtime.lancer(["notify-send", titre, corps],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, check=False, timeout=20)
+            return
+    if sys.platform != "win32":
+        print(f"{titre} : {corps}")
+        return
+    def echappe(valeur: str) -> str:
+        return (valeur.replace("&", "&amp;").replace("<", "&lt;")
+                      .replace(">", "&gt;").replace("'", "&apos;"))
+
+    lancement = (f' activationType="protocol" launch="{echappe(url)}"') if url else ""
+    script = (
+        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications,"
+        " ContentType = WindowsRuntime] | Out-Null;"
+        "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom,"
+        " ContentType = WindowsRuntime] | Out-Null;"
+        "$x = [Windows.Data.Xml.Dom.XmlDocument]::new();"
+        # activationType=protocol : Windows ouvre l'URL au clic, sans qu'on ait
+        # à enregistrer un gestionnaire d'activation. C'est ce qui permet de
+        # passer directement du « nouveau clip » à la page qui l'affiche.
+        f"$x.LoadXml('<toast{lancement}><visual><binding template=\"ToastGeneric\">"
+        f"<text>{echappe(titre)}</text><text>{echappe(corps)}</text>"
+        "</binding></visual></toast>');"
+        "$n = [Windows.UI.Notifications.ToastNotification]::new($x);"
+        # Une notification doit être émise au nom d'une application déclarée
+        # auprès de Windows. Plutôt que d'en enregistrer une, on emprunte
+        # l'identité de PowerShell, déjà déclarée sur toute installation.
+        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+        + repr(POWERSHELL_APP_ID) +
+        ").Show($n)"
+    )
+    runtime.lancer(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, check=False, timeout=20,
+    )
+
+
+
+PASSAGES = Path(".blink_passages.json")
+
+
+def marquer(verbe: str) -> None:
+    """Note l'heure à laquelle un verbe vient de finir son travail.
+
+    Deux usages : l'interface affiche ces heures, ce qui rend visible d'un coup
+    d'œil une boucle qui ne tourne plus, et un verbe évite de refaire ce qu'un
+    autre vient de faire."""
+    import datetime as dt
+
+    fichier = app_dir() / PASSAGES
+    passages = {}
+    try:
+        passages = json.loads(fichier.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        passages = {}
+    passages[verbe] = dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    try:
+        fichier.write_text(json.dumps(passages, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def passages() -> dict:
+    """Heure du dernier passage de chaque verbe."""
+    try:
+        return json.loads((app_dir() / PASSAGES).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def passage_recent(verbe: str, minutes: float) -> bool:
+    """Vrai si ce verbe est passé il y a moins de `minutes`."""
+    import datetime as dt
+
+    quand = passages().get(verbe)
+    if not quand:
+        return False
+    try:
+        moment = dt.datetime.fromisoformat(quand)
+    except ValueError:
+        return False
+    return (dt.datetime.now().astimezone() - moment).total_seconds() < minutes * 60
 
 
 def decouper_verbes(arguments) -> list:

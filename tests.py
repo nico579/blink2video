@@ -333,24 +333,6 @@ def test_cadence_cible() -> None:
     verifier(garde == 60.0, "la cible ne redescend jamais", str(garde))
 
 
-def test_compte_des_nouveaux() -> None:
-    """La surveillance sait lire le décompte que le téléchargement annonce.
-
-    Contrat entre deux programmes, tenu par une expression régulière : c'est
-    exactement ce qui s'est rompu quand le cloud est apparu, la surveillance
-    comptant alors les seules sections du stockage local."""
-    import watch
-
-    print("\nDécompte des nouveaux clips")
-    sortie = (BASE_DIR / "blink2video.py").read_text(encoding="utf-8")
-    verifier("Nouveaux clips :" in sortie,
-             "le téléchargement écrit bien cette ligne")
-    verifier(watch.compter_nouveaux("bruit\nNouveaux clips : 3\nautre") == 3,
-             "la surveillance la lit")
-    verifier(watch.compter_nouveaux("aucune ligne de synthèse") == 0,
-             "une sortie sans synthèse ne compte rien")
-
-
 def test_relance() -> None:
     """Chaque verbe sait relancer l'outil sur un programme qui existe.
 
@@ -374,7 +356,6 @@ def test_relance() -> None:
 def main() -> int:
     test_verbes()
     test_relance()
-    test_compte_des_nouveaux()
     test_cadence_cible()
     test_installation_neuve()
     test_arret()

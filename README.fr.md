@@ -86,17 +86,19 @@ blink2video list        # ce que contient le module de synchronisation en ce mom
 blink2video download    # récupérer les nouveaux clips avant que la rotation ne les efface
 blink2video merge       # normaliser, horodater et assembler jour, semaine et mois
 blink2video watch       # contrôler l'état de l'installation et alerter s'il se dégrade
-blink2video all         # tout, c'est-à-dire watch puis download puis merge
 blink2video serve       # servir l'interface web, pour regarder, écarter, voir en direct
+blink2video start       # tout lancer avec les réglages recommandés
 blink2video open        # ouvrir l'interface web dans le navigateur
 blink2video stop        # arrêter l'instance qui tourne en fond
 blink2video autostart   # inscrire à l'ouverture de session la commande qui suit
 blink2video smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```
 <!-- verbes:fin -->
-Les options suivent le verbe : `blink2video serve --port 8899`. Plusieurs verbes se
-citent d'affilée, chacun avec les siennes, et tournent ensemble :
-`blink2video serve all --loop 10`.
+Les options suivent le verbe : `blink2video serve --port 8899`. Plusieurs verbes
+se citent d'affilée, chacun avec les siennes. Ce qui se termine s'enchaîne dans
+l'ordre cité, ce qui ne se termine pas tourne à côté : `blink2video download merge`
+télécharge **puis** assemble, tandis que `serve`, ou tout verbe muni de `--loop`,
+occupe son propre processus jusqu'à `blink2video stop`.
 
 ### L'interface web
 
@@ -125,7 +127,7 @@ semaine et le mois sont reconstruits sans lui. `--include` défait le tout.
 
 ```bash
 blink2video watch --loop     # contrôler et alerter, toutes les dix minutes
-blink2video all --loop       # en plus, rapatrier les clips et reconstruire les vidéos
+blink2video start            # tout : contrôle, rapatriement, assemblage, interface
 ```
 
 Une caméra hors ligne, une batterie qui faiblit, une détection coupée ou une
@@ -150,13 +152,21 @@ Sans verbe, l'entrée posée est l'interface plus deux boucles de cadences
 différentes :
 
 ```
-serve all --loop 10 download --from cloud --loop 1
+blink2video start
 ```
 
-Dix minutes pour la clé USB, dont la lecture réveille le module de
-synchronisation, et une minute pour le cloud, dont l'inventaire coûte un
-dixième de seconde une fois la session ouverte. Un clip du cloud remonte donc
-en une minute au lieu de dix, sans solliciter le matériel davantage.
+Les deux sources ne coûtent pas la même chose : l'inventaire cloud est un
+appel au compte de 0,13 s, quand le manifeste USB réveille le module de
+synchronisation. Une cadence nommée règle les deux d'un mot, et l'annonce au
+démarrage :
+
+| Préréglage | Cloud | Clé USB |
+|---|---|---|
+| `reactif` | 1 min | 10 min |
+| `equilibre` | 5 min | 15 min |
+| `econome` | 15 min | 60 min |
+
+`--loop N` reste possible et applique le même rythme aux deux.
 
 <details>
 <summary>Le faire soi-même, sans passer par <code>autostart</code></summary>
@@ -166,7 +176,7 @@ en une minute au lieu de dix, sans solliciter le matériel davantage.
 ```powershell
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut(
   "$([Environment]::GetFolderPath('Startup'))\blink2video.lnk")
-$s.TargetPath = "C:\path\to\blink2video.exe"; $s.Arguments = "serve all --loop 10 download --from cloud --loop 1"
+$s.TargetPath = "C:\path\to\blink2video.exe"; $s.Arguments = "blink2video start"
 $s.WorkingDirectory = "C:\path\to"; $s.Save()
 ```
 
@@ -194,7 +204,7 @@ Chargé par `launchctl load`, arrêté par `launchctl unload`.
 
 ```ini
 [Service]
-ExecStart=/path/to/blink2video serve all --loop 10 download --from cloud --loop 1
+ExecStart=/path/to/blink2video blink2video start
 WorkingDirectory=/path/to
 Restart=on-failure
 
@@ -285,13 +295,10 @@ Blink_Monthly/     une par mois
 | `--test` | déclencher une notification de vérification |
 | `--dry-run` | montrer sans notifier ni enregistrer l'état |
 
-**`blink2video all`** : watch, puis download, puis merge.
-
-| Option | Effet |
-|---|---|
-| `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
-| `--hub`, `--camera`, `--since` | comme pour `download` |
-| `--dry-run`, `--timezone` | comme pour `watch` |
+**`blink2video start`** : la configuration recommandée, en une commande :
+l'interface, le contrôle toutes les dix minutes, la clé USB toutes les dix, le
+cloud toutes les minutes, l'assemblage toutes les cinq. Les options données
+après lui vont à l'interface, `--port` par exemple.
 
 **`blink2video serve`** : servir l'interface web.
 
@@ -310,7 +317,7 @@ personne n'écoute. `--port` si vous l'avez déplacée.
 **`blink2video stop`** : arrêter l'instance en cours et tous ses verbes. Sans option.
 
 **`blink2video autostart on\|off\|status [verbe…]`** : inscrire au démarrage de
-session la commande qui suit. Sans verbe, `serve all --loop 10 download --from cloud --loop 1`.
+session la commande qui suit. Sans verbe, `blink2video start`.
 `--dry-run` montre sans agir.
 
 **`blink2video smoketest`** : contrôle de l'installation. `--keep` conserve le dossier

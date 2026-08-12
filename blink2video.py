@@ -828,11 +828,19 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
         neufs_total += neufs_cloud
 
     if args.command == "download":
-        # Ligne de synthèse, toutes sources confondues : c'est elle que la
-        # surveillance lit pour savoir s'il faut assembler et prévenir. Elle
-        # ne comptait auparavant que les clips de la clé, et un
-        # enregistrement venu du cloud arrivait sans que rien ne suive.
+        # Ligne de synthèse, toutes sources confondues.
         print(f"\nNouveaux clips : {neufs_total}")
+        runtime.marquer("download")
+        if neufs_total:
+            # Le verbe qui ramène est celui qui annonce : « watch » regarde les
+            # caméras, il n'a pas à parler des clips.
+            pluriel = "s" if neufs_total > 1 else ""
+            runtime.toast(
+                "Blink",
+                f"{neufs_total} nouveau{'x' if neufs_total > 1 else ''} "
+                f"clip{pluriel} récupéré{pluriel}. Cliquez pour ouvrir.",
+                url="http://127.0.0.1:8765/",
+            )
 
     return 1 if had_error else 0
 
@@ -947,6 +955,27 @@ def executer(groupes: list) -> int:
     code de retour directs. Plusieurs sont lancés côte à côte et attendus : ils
     s'arrêtent ensemble, faute de quoi un Ctrl+C laisserait derrière lui des
     programmes sans personne pour les arrêter."""
+    if len(groupes) == 1 and groupes[0][0] == "start":
+        # L'aide doit s'afficher, pas déclencher la configuration : sans ce
+        # traitement, « start --help » lançait les boucles et ne rendait jamais
+        # la main, ce que la suite de tests a montré en se bloquant dessus.
+        if {"-h", "--help"} & set(groupes[0][1:]):
+            print("usage : blink2video start [options de serve]")
+            print()
+            print("Lance la configuration recommandée :")
+            print()
+            print("  blink2video " + " ".join(runtime.STANDARD))
+            print()
+            print("Les options données ici vont à l'interface, --port par exemple.")
+            print("« blink2video stop » arrête l'ensemble.")
+            return 0
+        # « start » n'est pas un travail de plus : c'est le nom de la
+        # composition recommandée, options comprises. Les options données après
+        # lui s'ajoutent au premier verbe, « serve », d'où le --port qui marche.
+        supplement = groupes[0][1:]
+        return executer(runtime.decouper_verbes(
+            [runtime.STANDARD[0], *supplement, *runtime.STANDARD[1:]]))
+
     if len(groupes) == 1 and groupes[0][0] == "open":
         return ouvrir(groupes[0][1:])
 
@@ -964,9 +993,17 @@ def executer(groupes: list) -> int:
         sys.argv = ["blink2video", verbe, *arguments]
         return asyncio.run(main(parse_args()))
 
+    # Ce qui se termine s'enchaîne, ce qui ne se termine pas tourne à côté.
+    # « serve » porte un --loop implicite : il ne rend jamais la main, comme
+    # tout verbe à qui on demande de se répéter. Les autres font un passage et
+    # s'arrêtent, donc les faire tourner en même temps n'aurait aucun sens :
+    # l'assemblage démarrerait pendant que le téléchargement écrit encore.
+    persistant = [g for g in groupes if g[0] == "serve" or "--loop" in g]
+    ponctuels = [g for g in groupes if g not in persistant]
+
     runtime.inscrire_instance(groupes)
     lances = []
-    for verbe, *arguments in groupes:
+    for verbe, *arguments in persistant:
         lances.append((verbe, runtime.demarrer(
             runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()),
             creationflags=runtime.flags_enfant(),
@@ -976,6 +1013,18 @@ def executer(groupes: list) -> int:
             start_new_session=(os.name != "nt"))))
         print(f"Lancé : {verbe} {' '.join(arguments)}".rstrip())
     runtime.inscrire_instance(groupes, [p.pid for _, p in lances])
+
+    # Les passages uniques, l'un après l'autre, dans l'ordre où ils sont cités.
+    pire_ponctuel = 0
+    for verbe, *arguments in ponctuels:
+        print(f"Étape : {verbe} {' '.join(arguments)}".rstrip())
+        resultat = runtime.lancer(
+            runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()),
+            stdin=subprocess.DEVNULL, check=False,
+        )
+        pire_ponctuel = max(pire_ponctuel, abs(resultat.returncode))
+    if not lances:
+        return max(pire, pire_ponctuel)
 
     # Surveillés ensemble plutôt qu'attendus l'un après l'autre : un verbe qui
     # meurt à la première seconde doit se voir tout de suite, et non à la fin
@@ -1000,7 +1049,7 @@ def executer(groupes: list) -> int:
         for _, processus in lances:
             if processus.poll() is None:
                 processus.terminate()
-    return pire
+    return max(pire, pire_ponctuel)
 
 
 if __name__ == "__main__":

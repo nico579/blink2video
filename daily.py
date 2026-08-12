@@ -21,9 +21,6 @@ import runtime
 
 runtime.bootstrap()
 
-import watch
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="blink2video all",
@@ -37,6 +34,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry-run", action="store_true",
         help="montrer sans notifier, sans enregistrer l'état ni télécharger",
+    )
+    parser.add_argument(
+        "--from", dest="source", choices=("usb", "cloud", "all"), default="all",
+        help="où chercher les clips lors d'un passage unique (défaut : les deux)",
     )
     runtime.ajouter_boucle(parser)
     return parser.parse_args()
@@ -54,7 +55,7 @@ def main() -> int:
     a_faire = ["watch", "download", "merge"]
     print("Étapes : " + ", ".join(a_faire))
     return runtime.repeter(
-        lambda: watch.un_tour(args, timezone, a_faire),
+        lambda: watch.un_tour(args, timezone, a_faire, args.source),
         args.loop, watch.journal,
     )
 

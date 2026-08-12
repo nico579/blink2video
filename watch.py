@@ -186,6 +186,9 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
     return alerts, recoveries
 
 
+toast = runtime.toast
+
+
 def popup(title: str, body: str) -> None:
     """Affiche une boîte de dialogue Windows, sans aucune dépendance.
 
@@ -213,120 +216,6 @@ def _applescript(texte: str) -> str:
     """Encode une chaîne pour AppleScript, dont l'échappement n'est pas celui
     d'un shell : seules les guillemets et la barre oblique inverse comptent."""
     return '"' + texte.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
-def toast(titre: str, corps: str, url: str = "") -> None:
-    """Notification Windows non bloquante, sans rien installer.
-
-    Distincte du popup à dessein : une coupure est rare et doit être vue, donc
-    elle bloque jusqu'à acquittement ; l'arrivée d'un clip est fréquente et
-    banale, une fenêtre modale à chaque fois serait insupportable.
-
-    Passe par PowerShell, qui expose l'API de notification de Windows 10. Ça
-    évite d'ajouter une dépendance pour une dizaine de lignes, et de réécrire
-    à la main un icône de zone de notification en Win32."""
-    if sys.platform == "darwin":
-        runtime.lancer(
-            ["osascript", "-e",
-             f"display notification {_applescript(corps)} with title {_applescript(titre)}"],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, check=False, timeout=20,
-        )
-        return
-    if sys.platform.startswith("linux"):
-        if shutil.which("notify-send"):
-            runtime.lancer(["notify-send", titre, corps],
-                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, check=False, timeout=20)
-            return
-    if sys.platform != "win32":
-        print(f"{titre} : {corps}")
-        return
-    def echappe(valeur: str) -> str:
-        return (valeur.replace("&", "&amp;").replace("<", "&lt;")
-                      .replace(">", "&gt;").replace("'", "&apos;"))
-
-    lancement = (f' activationType="protocol" launch="{echappe(url)}"') if url else ""
-    script = (
-        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications,"
-        " ContentType = WindowsRuntime] | Out-Null;"
-        "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom,"
-        " ContentType = WindowsRuntime] | Out-Null;"
-        "$x = [Windows.Data.Xml.Dom.XmlDocument]::new();"
-        # activationType=protocol : Windows ouvre l'URL au clic, sans qu'on ait
-        # à enregistrer un gestionnaire d'activation. C'est ce qui permet de
-        # passer directement du « nouveau clip » à la page qui l'affiche.
-        f"$x.LoadXml('<toast{lancement}><visual><binding template=\"ToastGeneric\">"
-        f"<text>{echappe(titre)}</text><text>{echappe(corps)}</text>"
-        "</binding></visual></toast>');"
-        "$n = [Windows.UI.Notifications.ToastNotification]::new($x);"
-        # Une notification doit être émise au nom d'une application déclarée
-        # auprès de Windows. Plutôt que d'en enregistrer une, on emprunte
-        # l'identité de PowerShell, déjà déclarée sur toute installation.
-        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
-        + repr(POWERSHELL_APP_ID) +
-        ").Show($n)"
-    )
-    runtime.lancer(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL, check=False, timeout=20,
-    )
-
-
-def download_new_clips() -> int:
-    """Lance un téléchargement incrémental et renvoie le nombre de clips acquis.
-
-    On relit le compte annoncé par blink2video.py plutôt que de compter les fichiers :
-    c'est lui qui fait autorité, et il distingue déjà le neuf de l'acquis."""
-    result = runtime.lancer(
-        runtime.self_command("download", "--hub", "Maison"),
-        cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-        env=dict(os.environ, PYTHONIOENCODING="utf-8"), check=False,
-    )
-    if result.returncode != 0:
-        # Un échec silencieux est le pire des cas : le téléchargement a cessé de
-        # fonctionner pendant des heures après un renommage de fichier, sans que
-        # rien n'apparaisse au journal, la boucle ne notant que ses alertes.
-        derniere = (result.stdout or "").strip().splitlines()[-1:] or [""]
-        journal(f"ECHEC telechargement (code {result.returncode}) : {derniere[0][:200]}")
-        return 0
-    return compter_nouveaux(result.stdout or "")
-
-
-def compter_nouveaux(sortie: str) -> int:
-    """Nombre de clips acquis, lu dans la ligne de synthèse du téléchargement.
-
-    Une seule ligne fait foi, toutes sources confondues. La version précédente
-    additionnait les « Incrémental » section par section, donc ignorait le
-    cloud : ses clips arrivaient sans déclencher ni assemblage ni notification.
-    Fonction séparée pour que tests.py éprouve ce contrat entre programmes."""
-    total = 0
-    for ligne in sortie.splitlines():
-        trouve = re.search(r"Nouveaux clips\s*:\s*(\d+)", ligne)
-        if trouve:
-            total = int(trouve.group(1))
-    return total
-
-
-def build_videos() -> bool:
-    """Assemble journalières, semaines et mois après l'arrivée de clips.
-
-    Lancé dans la foulée du téléchargement pour que tout soit prêt quand on
-    ouvre l'interface : le clip est normalisé, la journée réassemblée. Le
-    surcoût est celui d'un seul encodage, les assemblages n'étant que des
-    copies de flux."""
-    result = runtime.lancer(
-        runtime.self_command("merge"),
-        cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-        env=dict(os.environ, PYTHONIOENCODING="utf-8"), check=False,
-    )
-    for ligne in (result.stdout or "").splitlines():
-        if "échec" in ligne.lower() and "0 échec" not in ligne:
-            journal(f"assemblage : {ligne.strip()}")
-    return result.returncode == 0
 
 
 def ensure_server(port: int) -> bool:
@@ -364,18 +253,14 @@ def journal(ligne: str) -> None:
 
 
 
-def un_tour(args, timezone, a_faire) -> None:
-    """Un tour : l'état d'abord, puis les clips, puis l'assemblage.
+def un_tour(args, timezone) -> None:
+    """Un contrôle : lire l'état de l'installation, comparer, alerter.
 
-    L'ordre n'est pas celui de la ligne de commande mais celui des dépendances.
-    L'état passe en premier pour qu'une panne soit signalée même si le
-    téléchargement échoue ensuite."""
-    if "watch" in a_faire:
-        _controler(args, timezone)
-    if "download" not in a_faire:
-        return
-    _rapatrier(args, "merge" in a_faire)
-
+    Rien d'autre. Constater est le travail de ce verbe ; rapatrier et assembler
+    sont ceux de « download » et « merge », qui tournent à côté avec leur
+    propre cadence."""
+    _controler(args, timezone)
+    runtime.marquer("watch")
 
 def _controler(args, timezone) -> None:
     try:
@@ -411,30 +296,6 @@ def _controler(args, timezone) -> None:
         popup(f"Blink : {len(alerts)} anomalie(s)", "\n".join(corps))
     for ligne in recoveries:
         toast("Blink : retour à la normale", ligne)
-
-
-def _rapatrier(args, assembler: bool) -> None:
-    """Rapatrie les nouveaux clips, les assemble, et le signale."""
-    try:
-        # Le module ne traite qu'une commande à la fois : si l'interface diffuse
-        # un direct, on passe notre tour plutôt que d'échouer sur « System is
-        # busy ». Le prochain contrôle rattrapera les clips.
-        with bk.hub_lock("surveillance"):
-            neufs = download_new_clips()
-    except bk.BusyError as error:
-        journal(f"telechargement reporte : {error}")
-        return
-    if not neufs:
-        journal("aucun nouveau clip")
-        return
-    journal(f"{neufs} nouveau(x) clip(s)")
-    if assembler and not build_videos():
-        journal("ECHEC assemblage")
-    pluriel = "s" if neufs > 1 else ""
-    toast("Blink",
-          f"{neufs} nouveau{'x' if neufs > 1 else ''} clip{pluriel} récupéré{pluriel}"
-          f"{'' if assembler else ''}. Cliquez pour ouvrir.",
-          url=f"http://127.0.0.1:{args.port}/")
 
 
 def parse_args() -> argparse.Namespace:
@@ -493,7 +354,7 @@ def main() -> int:
     # Ce programme contrôle l'état, rien de plus, conformément à son nom. La
     # répétition est une option commune à tous les verbes, pas un verbe.
     return runtime.repeter(
-        lambda: un_tour(args, timezone, ("watch",)),
+        lambda: un_tour(args, timezone),
         args.loop, journal,
     )
 

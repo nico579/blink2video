@@ -1107,7 +1107,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    return runtime.repeter(lambda: _executer(args), args.loop)
+    def travail():
+        code = _executer(args)
+        runtime.marquer("merge")
+        return code
+
+    return runtime.repeter(travail, args.loop)
 
 
 def _executer(args) -> int:

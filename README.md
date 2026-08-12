@@ -82,17 +82,19 @@ blink2video list        # what the Sync Module currently holds
 blink2video download    # fetch new clips before rotation erases them
 blink2video merge       # normalize, stamp and assemble day, week and month
 blink2video watch       # check the installation and alert when it degrades
-blink2video all         # everything, that is watch then download then merge
 blink2video serve       # serve the web interface, to watch, discard, see live
+blink2video start       # start everything with the recommended settings
 blink2video open        # open the web interface in the browser
 blink2video stop        # stop the instance running in the background
 blink2video autostart   # register the command that follows with your session
 blink2video smoketest   # check that the installation works on this machine
 ```
 <!-- verbes:fin -->
-Options follow the verb: `blink2video serve --port 8899`. Several verbs can be named in
-a row, each with its own options, and run together:
-`blink2video serve all --loop 10`.
+Options follow the verb: `blink2video serve --port 8899`. Several verbs can be
+named in a row, each with its own options. What finishes runs in sequence, what
+does not finish runs alongside: `blink2video download merge` downloads **then**
+assembles, while `serve`, or any verb given `--loop`, holds its own process until
+`blink2video stop`.
 
 ### The web interface
 
@@ -120,7 +122,7 @@ the day, week and month are rebuilt without it. `--include` undoes all of it.
 
 ```bash
 blink2video watch --loop     # check and alert, every ten minutes
-blink2video all --loop       # also fetch clips and rebuild the videos
+blink2video start            # everything: checks, downloads, assembly, interface
 ```
 
 A camera going offline, a fading battery, detection switched off or a camera
@@ -145,13 +147,20 @@ With no verb, the entry is the interface plus two loops running at different
 rates:
 
 ```
-serve all --loop 10 download --from cloud --loop 1
+blink2video start
 ```
 
-Ten minutes for the USB stick, whose manifest wakes the Sync Module, and one
-minute for the cloud, whose inventory costs a tenth of a second once the session
-is open. A cloud clip therefore shows up within a minute instead of ten, without
-asking more of the hardware.
+The two sources do not cost the same: the cloud inventory is a 0.13 s call to
+the account, whereas the USB manifest wakes the Sync Module. A named pace sets
+both in one word, and announces itself on startup:
+
+| Preset | Cloud | USB stick |
+|---|---|---|
+| `reactif` | 1 min | 10 min |
+| `equilibre` | 5 min | 15 min |
+| `econome` | 15 min | 60 min |
+
+`--loop N` still works and applies the same rhythm to both.
 
 <details>
 <summary>Doing it yourself, without <code>autostart</code></summary>
@@ -161,7 +170,7 @@ asking more of the hardware.
 ```powershell
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut(
   "$([Environment]::GetFolderPath('Startup'))\blink2video.lnk")
-$s.TargetPath = "C:\path\to\blink2video.exe"; $s.Arguments = "serve all --loop 10 download --from cloud --loop 1"
+$s.TargetPath = "C:\path\to\blink2video.exe"; $s.Arguments = "blink2video start"
 $s.WorkingDirectory = "C:\path\to"; $s.Save()
 ```
 
@@ -188,7 +197,7 @@ Loaded with `launchctl load`, stopped with `launchctl unload`.
 
 ```ini
 [Service]
-ExecStart=/path/to/blink2video serve all --loop 10 download --from cloud --loop 1
+ExecStart=/path/to/blink2video blink2video start
 WorkingDirectory=/path/to
 Restart=on-failure
 
@@ -277,13 +286,10 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--test` | fire a verification notification |
 | `--dry-run` | show without notifying or saving state |
 
-**`blink2video all`**: watch, then download, then merge.
-
-| Option | Effect |
-|---|---|
-| `--loop [MINUTES]` | repeat instead of acting once (default 10) |
-| `--hub`, `--camera`, `--since` | as for `download` |
-| `--dry-run`, `--timezone` | as for `watch` |
+**`blink2video start`**: the recommended setup in one command: the interface,
+the state check every ten minutes, the USB stick every ten, the cloud every
+minute, assembly every five. Options given after it go to the interface,
+`--port` for instance.
 
 **`blink2video serve`**: serve the web interface.
 
@@ -302,7 +308,7 @@ nobody is listening. `--port` if you moved it.
 **`blink2video stop`**: stop the running instance and all its verbs. No options.
 
 **`blink2video autostart on\|off\|status [verb…]`**: register the command that
-follows it with your session. Without a verb, `serve all --loop 10 download --from cloud --loop 1`.
+follows it with your session. Without a verb, `blink2video start`.
 `--dry-run` shows without acting.
 
 **`blink2video smoketest`**: installation check. `--keep` keeps the working folder,

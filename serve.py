@@ -704,7 +704,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             for camera_name, camera in sync.cameras.items()
                         ],
                     })
-                return {"systems": systems}
+                return {"systems": systems, "passages": runtime.passages()}
             return run()
 
         state = BLINK.call(read, timeout=60)
@@ -1125,49 +1125,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.lock.release()
 
     def run_refresh(self) -> None:
+        """Télécharge puis assemble, en poussant la sortie des deux au fil de l'eau.
+
+        Deux programmes enchaînés ici plutôt qu'un verbe qui les enchaînerait :
+        « download » et « merge » sont les deux seules mains de l'outil, et les
+        appeler l'un après l'autre dit exactement ce qui se passe."""
         auth = BASE_DIR / "blink_auth.json"
-        script, phase = BASE_DIR / "daily.py", "Téléchargement"
+        etapes = [("Téléchargement", runtime.self_command("download", "--hub", self.hub)),
+                  ("Fusion", runtime.self_command("merge"))]
         if not auth.is_file():
-            # blink2video.py demanderait l'e-mail, le mot de passe et le code 2FA sur
-            # l'entrée standard, qui n'existe pas ici : le processus resterait
-            # bloqué. On le dit et on se contente de reconstruire.
+            # Le téléchargement demanderait l'e-mail, le mot de passe et le code
+            # de vérification sur l'entrée standard, qui n'existe pas ici : le
+            # processus resterait bloqué. On le dit et on se contente
+            # d'assembler ce qui est déjà là.
             self.send_event({"line": (
-                f"Session Blink absente ({auth.name}). Lancez « python blink2video.py "
-                "login » dans un terminal pour vous connecter. Reconstruction "
-                "des vidéos seule."
+                f"Session Blink absente ({auth.name}). Lancez « blink2video login » "
+                "dans un terminal pour vous connecter. Reconstruction des vidéos seule."
             )})
-            script, phase = BASE_DIR / "merge_daily.py", "Fusion"
+            etapes = etapes[1:]
 
-        command = (runtime.self_command("all", "--hub", self.hub)
-                   if script.name == "daily.py"
-                   else runtime.self_command("merge"))
-
-        # PYTHONUNBUFFERED se transmet aux petits-enfants (daily.py lance
-        # blink2video.py et merge_daily.py) : sans lui, leur sortie arriverait par
-        # blocs de plusieurs kilo-octets et la barre avancerait par à-coups.
+        # PYTHONUNBUFFERED : sans lui, la sortie arriverait par blocs de
+        # plusieurs kilo-octets et la barre avancerait par à-coups.
         # PYTHONIOENCODING évite les accents mutilés par la console Windows.
-        env = dict(__import__("os").environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
-        self.send_event({"phase": phase, "line": f"$ {Path(script).name}"})
+        env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
+        for phase, command in etapes:
+            self.send_event({"phase": phase, "line": f"$ {phase.lower()}"})
+            if not self.suivre(command, env, phase):
+                return
+        self.send_event({"done": True, "ok": True})
 
+    def suivre(self, command: list, env: dict, phase: str) -> bool:
+        """Fait avancer la barre au fil des lignes. Faux si on doit s'arrêter."""
         process = runtime.demarrer(
             command, cwd=str(BASE_DIR),
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True,
             encoding="utf-8", errors="replace", bufsize=1, env=env,
         )
-        alive = True
         for raw in process.stdout:
             line = raw.rstrip("\n")
             event = {"line": line}
-            # blink2video.py et merge_daily.py annoncent tous deux leur avancement
-            # sous la forme « [3/24] ». Une seule règle de lecture suffit donc,
-            # et chaque phase repart naturellement de 1.
+            # Les deux programmes annoncent leur avancement sous la forme
+            # « [3/24] ». Une seule règle de lecture suffit, et chaque phase
+            # repart naturellement de 1.
             counter = PROGRESS.search(line)
             if counter:
                 index, total = int(counter.group(1)), int(counter.group(2))
-                # Une ligne « [3/24] 45% » ne dit rien de neuf au journal : elle
-                # ne sert qu'à faire avancer la barre entre deux clips. On la
-                # retire du texte pour ne pas noyer les messages utiles.
                 inner = INNER.match(line)
                 fraction = int(inner.group(1)) / 100 if inner else 0.0
                 if inner:
@@ -1177,17 +1180,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 }
             heading = HEADING.match(line)
             if heading:
-                # Les titres de daily.py sont en capitales ; on les adoucit sans
-                # abîmer un nom propre déjà correctement casé.
-                title = heading.group(1).strip()
-                event["phase"] = title.capitalize() if title.isupper() else title
+                titre = heading.group(1).strip()
+                event["phase"] = titre.capitalize() if titre.isupper() else titre
             if not self.send_event(event):
-                alive = False
                 process.terminate()
-                break
+                process.wait()
+                return False
         process.wait()
-        if alive:
-            self.send_event({"done": True, "ok": process.returncode == 0})
+        if process.returncode != 0:
+            self.send_event({"line": f"{phase} : échec (code {process.returncode})"})
+            self.send_event({"done": True, "ok": False})
+            return False
+        return True
 
     def do_POST(self):
         route = urlparse(self.path).path
@@ -1378,6 +1382,7 @@ PAGE = """<!doctype html>
 <body>
 <header>
   <h1>blink2video<span class="v">__VERSION__</span></h1>
+  <span class="sub tiny" id="passages"></span>
   <select id="view">
     <option value="live">Direct</option>
     <option value="clips">Clips</option>
@@ -1464,7 +1469,20 @@ async function loadSystem(force) {
   renderLive();
 }
 
+function heuresDePassage() {
+  // Voir quand chaque activité est passée pour la dernière fois rend visible
+  // une boucle arrêtée, ce qu'aucune alerte ne signale : rien ne se produit,
+  // justement.
+  const noms = { watch: "état lu", download: "clips vus", merge: "vidéos" };
+  const vus = (system && system.passages) || {};
+  const dit = Object.keys(noms)
+    .filter((cle) => vus[cle])
+    .map((cle) => `${noms[cle]} ${vus[cle].slice(11, 16)}`);
+  $("passages").textContent = dit.join(" · ");
+}
+
 function renderLive() {
+  heuresDePassage();
   if (!system) return loadSystem(false);
   if (system.error) {
     $("list").innerHTML = `<p class="empty">${system.error}</p>`;
