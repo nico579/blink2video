@@ -210,6 +210,8 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "") -> dict:
             "time": local.strftime("%H:%M:%S"),
             "excluded": excluded,
             "source": source,
+            "origine": ETIQUETTES_SOURCE.get(str(entry.get("source") or "usb"),
+                                             str(entry.get("source"))),
             "duration": float(seconds or 0.0),
             # Pas de « modèle » : l'API Blink n'expose qu'un nom de code interne
             # (« owl », « catalina ») dont seul le premier est documenté. La
@@ -1696,8 +1698,7 @@ async function load() {
   if (data.error) { $("log").style.display = "block"; $("log").textContent = data.error; return; }
   // Le modèle accompagne le nom ici, une fois, plutôt que sur chaque vignette.
   fill($("camera"), data.cameras, "toutes caméras",
-       (nom) => [nom, (data.models || {})[nom],
-                 (data.sources || {})[nom]].filter(Boolean).join(" · "));
+       (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
   fill($("day"), data.days, "tous les jours");
   render();
 }
