@@ -46,8 +46,18 @@ from every assembled video.
 ## Installation
 
 Download the archive for your system from the
-[latest release](https://github.com/nico579/blink2video/releases/latest),
-unpack it, and run `blink2video` from a terminal. ffmpeg travels inside the bundle.
+[latest release](https://github.com/nico579/blink2video/releases/latest) and
+unpack it. ffmpeg travels inside the bundle; nothing is installed system-wide.
+
+| System | Archive | First run |
+|---|---|---|
+| Windows 10/11, x86-64 | `blink2video-windows-x86_64.zip` | `blink2video.exe` from a terminal |
+| Linux, x86-64 | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, then `./blink2video` |
+| macOS 14+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, then `./blink2video` |
+
+The binary is neither signed nor notarized: on macOS, Gatekeeper refuses the
+first run of an archive downloaded through a browser, hence the command above.
+Right-click then "Open" does the same.
 
 From source, with Python 3.11 or newer:
 

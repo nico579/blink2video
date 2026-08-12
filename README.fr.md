@@ -50,7 +50,18 @@ Chaque carte donne la caméra, la durée, la date et le modèle, et le bouton
 
 Téléchargez l'archive de votre système depuis la
 [dernière version publiée](https://github.com/nico579/blink2video/releases/latest),
-décompressez, et lancez `blink2video` depuis un terminal. ffmpeg voyage dans le bundle.
+et décompressez-la. ffmpeg voyage dans le bundle, rien n'est installé dans le
+système.
+
+| Système | Archive | Premier lancement |
+|---|---|---|
+| Windows 10/11, x86-64 | `blink2video-windows-x86_64.zip` | `blink2video.exe` depuis un terminal |
+| Linux, x86-64 | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, puis `./blink2video` |
+| macOS 14+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, puis `./blink2video` |
+
+Le binaire n'est ni signé ni notarisé : sous macOS, Gatekeeper refuse le premier
+lancement d'une archive téléchargée par un navigateur, d'où la commande
+ci-dessus. Un clic droit puis « Ouvrir » fait la même chose.
 
 Depuis les sources, avec Python 3.11 ou plus récent :
 
