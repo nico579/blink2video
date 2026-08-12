@@ -203,6 +203,56 @@ notification en double.
 
 </details>
 
+## Exemples
+
+La grammaire tient en trois règles. **Le verbe d'abord, ses options ensuite.**
+**Plusieurs verbes se citent à la suite**, chacun avec les siennes. **Ce qui
+boucle tourne à côté, le reste s'enchaîne** dans l'ordre où c'est écrit.
+
+Les gestes courants :
+
+```bash
+blink2video start                  # tout, avec les réglages recommandés
+blink2video open                   # ouvrir l'interface dans le navigateur
+blink2video stop                   # arrêter l'instance de fond et ses verbes
+```
+
+Un passage unique, sans rien laisser tourner :
+
+```bash
+blink2video download               # les deux sources, une fois
+blink2video download --from cloud  # une seule source
+blink2video download merge         # télécharger, puis assembler
+blink2video download --since 7 merge   # rattraper une semaine, puis assembler
+```
+
+Reprendre une journée, ou écarter un clip :
+
+```bash
+blink2video merge --camera jardin --date 2026-08-12
+blink2video merge --exclude Blink_Clips/jardin/2026-08/2026-08-12_09-23-21Z_jardin.mp4
+```
+
+Composer soi-même, quand le défaut ne convient pas :
+
+```bash
+blink2video serve --port 8899                       # l'interface ailleurs
+blink2video serve merge --loop 30                   # interface, et assemblage toutes les 30 min
+blink2video watch --loop 5 download --from cloud --loop 1   # deux boucles, deux cadences
+```
+
+Planifier autre chose que le défaut :
+
+```bash
+blink2video autostart on watch --loop 30   # n'inscrire que les alertes
+blink2video autostart status               # ce qui est inscrit, et ce qui tourne
+blink2video autostart off                  # retirer
+```
+
+Une option placée avant le premier verbe n'appartient à personne, et est
+refusée : `blink2video --loop 5 merge` vous le dira plutôt que de faire quelque
+chose d'inattendu.
+
 ## Mettre à jour
 
 L'instance lancée avec la session tient le port de l'interface et parle au

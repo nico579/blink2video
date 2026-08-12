@@ -1001,7 +1001,7 @@ def executer(groupes: list) -> int:
         )
         pire_ponctuel = max(pire_ponctuel, abs(resultat.returncode))
     if not lances:
-        return max(pire, pire_ponctuel)
+        return pire_ponctuel
 
     # Surveillés ensemble plutôt qu'attendus l'un après l'autre : un verbe qui
     # meurt à la première seconde doit se voir tout de suite, et non à la fin
@@ -1038,6 +1038,14 @@ if __name__ == "__main__":
             raise SystemExit(deleguer("autostart", sys.argv[2:]))
         if len(sys.argv) > 1 and sys.argv[1] in runtime.VERBES:
             raise SystemExit(executer(runtime.decouper_verbes(sys.argv[1:])))
+        # Une option avant le premier verbe n'appartient à personne :
+        # « blink2video --loop 5 merge » se lisait jusqu'ici comme une commande
+        # racine qui boucle sur rien, et tournait indéfiniment sans rien faire.
+        if len(sys.argv) > 1 and sys.argv[1].startswith("-")                 and sys.argv[1] not in ("-h", "--help", "--version"):
+            print(f"« {sys.argv[1]} » précède le premier verbe : les options "
+                  "suivent le verbe auquel elles s'appliquent.")
+            print(f"Verbes : {', '.join(runtime.VERBES)}")
+            raise SystemExit(2)
         raise SystemExit(asyncio.run(main(parse_args())))
     except ValueError as erreur:
         print(f"{erreur}. Verbes : {', '.join(runtime.VERBES)}")

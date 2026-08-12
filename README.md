@@ -195,6 +195,55 @@ One launcher at a time: two give two watchers, and every notification twice.
 
 </details>
 
+## Examples
+
+The grammar holds in three rules. **The verb first, its options after.**
+**Several verbs can be named in a row**, each with its own. **What loops runs
+alongside, the rest runs in sequence**, in the order written.
+
+Everyday gestures:
+
+```bash
+blink2video start                  # everything, with the recommended settings
+blink2video open                   # open the interface in the browser
+blink2video stop                   # stop the background instance and its verbs
+```
+
+A single pass, leaving nothing running:
+
+```bash
+blink2video download               # both sources, once
+blink2video download --from cloud  # one source only
+blink2video download merge         # download, then assemble
+blink2video download --since 7 merge   # catch up a week, then assemble
+```
+
+Redo one day, or discard a clip:
+
+```bash
+blink2video merge --camera jardin --date 2026-08-12
+blink2video merge --exclude Blink_Clips/jardin/2026-08/2026-08-12_09-23-21Z_jardin.mp4
+```
+
+Compose your own, when the default does not fit:
+
+```bash
+blink2video serve --port 8899                       # the interface elsewhere
+blink2video serve merge --loop 30                   # interface, and assembly every 30 min
+blink2video watch --loop 5 download --from cloud --loop 1   # two loops, two paces
+```
+
+Register something other than the default:
+
+```bash
+blink2video autostart on watch --loop 30   # register the alerts only
+blink2video autostart status               # what is registered, and what runs
+blink2video autostart off                  # remove
+```
+
+An option placed before the first verb belongs to nobody, and is refused:
+`blink2video --loop 5 merge` will say so rather than do something unexpected.
+
 ## Updating
 
 The instance started with your session holds the interface port and talks to the
