@@ -368,15 +368,16 @@ def decouper_verbes(arguments) -> list:
     suivant : les options appartiennent donc au verbe qui les précède. C'est ce
     qui permet d'en citer autant qu'on veut, chacun réglé à sa façon.
 
+    Un même verbe peut être cité plusieurs fois, avec des options différentes :
+    « download --from usb --loop 10 download --from cloud --loop 1 » suit deux
+    sources à deux cadences. La règle inverse, un verbe une seule fois, visait
+    des réglages contradictoires ; ceux-là sont complémentaires.
+
     Lève ValueError si le premier élément n'est pas un verbe, faute de quoi on
-    ne saurait pas à qui rattacher les premières options, et si un verbe est
-    cité deux fois : deux réglages contradictoires pour la même chose seraient
-    ambigus, et rien ne justifie de lancer deux fois le même travail."""
+    ne saurait pas à qui rattacher les premières options."""
     groupes = []
     for element in arguments:
         if element in VERBES:
-            if any(groupe[0] == element for groupe in groupes):
-                raise ValueError(f"« {element} » est cité deux fois")
             groupes.append([element])
         elif groupes:
             groupes[-1].append(element)

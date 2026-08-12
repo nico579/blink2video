@@ -611,14 +611,9 @@ def parse_args() -> argparse.Namespace:
         help="remplacer les fichiers existants de taille différente",
     )
     parser.add_argument(
-        "--no-cloud",
-        action="store_true",
-        help="ignorer les clips conservés dans le cloud de l'abonnement Blink",
-    )
-    parser.add_argument(
-        "--cloud-only",
-        action="store_true",
-        help="n'interroger que le cloud, sans réveiller le module de synchronisation",
+        "--from", dest="source", choices=("usb", "cloud", "all"), default="all",
+        help="où chercher les clips : « usb » la clé du module, « cloud » celui "
+             "de l'abonnement, « all » les deux (défaut)",
     )
     # Une boucle propre au verbe : le cloud se sonde à la minute sans rien
     # réveiller, là où le manifeste USB mobilise le module et se contente de dix
@@ -758,7 +753,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
     """Un tour : la clé USB de chaque module, puis le cloud du compte."""
     had_error = False
     neufs_total = 0
-    for name, sync in ([] if args.cloud_only else modules):
+    for name, sync in ([] if args.source == "cloud" else modules):
         print(f"\n=== STOCKAGE LOCAL : {name} ===")
         try:
             clips = await read_local_manifest(sync)
@@ -827,7 +822,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
         had_error = had_error or failed > 0
         neufs_total += downloaded
 
-    if not args.no_cloud:
+    if args.source != "usb":
         echec_cloud, neufs_cloud = await traiter_cloud(blink, args, modules)
         had_error = echec_cloud or had_error
         neufs_total += neufs_cloud

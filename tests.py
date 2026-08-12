@@ -254,7 +254,7 @@ def test_arret() -> None:
                          PYTHONIOENCODING="utf-8")
     commande = [BUNDLE] if BUNDLE else [sys.executable, "-u", str(BASE_DIR / "blink2video.py")]
     parent = subprocess.Popen(
-        [*commande, "serve", "--no-browser", "--port", "8945", "merge", "--loop", "60"],
+        [*commande, "serve", "--port", "8945", "merge", "--loop", "60"],
         cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL, env=environnement,
     )
@@ -438,7 +438,7 @@ def main() -> int:
 
         print("\nInterface web")
         serveur = subprocess.Popen(
-            [sys.executable, str(BASE_DIR / "serve.py"), "--no-browser", "--port", "8899"],
+            [sys.executable, str(BASE_DIR / "serve.py"), "--port", "8899"],
             cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=dict(os.environ, BLINK_HOME=str(racine), PYTHONIOENCODING="utf-8"),

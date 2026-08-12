@@ -43,11 +43,10 @@ def etiquette(quoi: tuple) -> str:
 # déjà ouverte. Un clip cloud remonte donc en une minute au lieu de dix, sans
 # solliciter le matériel davantage. Rien n'oblige à automatiser
 # cela : « autostart on watch --loop » n'alerterait que, sans rien rapatrier.
-# --no-browser parce qu'à l'ouverture de session, ouvrir un navigateur de force
-# serait déplacé : l'interface attend qu'on vienne, ou qu'on clique sur une
-# notification.
-DEFAUT = ("serve", "--no-browser", "all", "--loop", "10",
-          "download", "--cloud-only", "--loop", "1")
+# L'interface n'ouvre pas de navigateur : elle attend qu'on vienne, ou qu'on
+# clique sur une notification.
+DEFAUT = ("serve", "all", "--loop", "10",
+          "download", "--from", "cloud", "--loop", "1")
 
 
 def commande(verbe_et_options: tuple = DEFAUT) -> list:
@@ -82,9 +81,9 @@ def appliquer_tous(etat: str, simulation: bool, quoi: tuple) -> int:
     verbes, « autostart on serve watch --loop merge --loop 60 » pose une seule
     entrée, qui lancera les trois. L'entrée est nommée d'après le premier
     verbe, ce qui permet d'en tenir plusieurs et d'en retirer une seule."""
-    if quoi and "serve" in quoi and "--no-browser" not in quoi:
-        print("Note : « serve » ouvrira un navigateur à chaque ouverture de "
-              "session. Ajoutez --no-browser pour l'éviter.")
+    if quoi and "--open-browser" in quoi:
+        print("Note : « --open-browser » ouvrira un navigateur à chaque "
+              "ouverture de session.")
     if quoi:
         # Vérifie la syntaxe avant d'écrire quoi que ce soit : une entrée de
         # démarrage fautive ne se découvre qu'à l'ouverture de session

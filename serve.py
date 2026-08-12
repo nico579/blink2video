@@ -1863,7 +1863,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
-        "--no-browser", action="store_true", help="ne pas ouvrir le navigateur"
+        # Un serveur n'ouvre pas de fenêtre de lui-même : c'est l'usage, et
+        # celui-ci passe l'essentiel de sa vie lancé au démarrage de session, où
+        # surgir dans le navigateur serait déplacé. On le demande donc.
+        "--open-browser", action="store_true",
+        help="ouvrir la page dans le navigateur au démarrage"
     )
     return parser.parse_args()
 
@@ -1909,7 +1913,7 @@ def main() -> int:
         return 1
     url = f"http://127.0.0.1:{args.port}/"
     print(f"Interface disponible sur {url}   (Ctrl+C pour arrêter)")
-    if not args.no_browser:
+    if args.open_browser:
         threading.Timer(0.5, webbrowser.open, [url]).start()
     try:
         server.serve_forever()

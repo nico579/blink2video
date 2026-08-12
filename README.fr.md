@@ -149,7 +149,7 @@ Sans verbe, l'entrée posée est l'interface plus deux boucles de cadences
 différentes :
 
 ```
-serve --no-browser all --loop 10 download --cloud-only --loop 1
+serve all --loop 10 download --from cloud --loop 1
 ```
 
 Dix minutes pour la clé USB, dont la lecture réveille le module de
@@ -165,7 +165,7 @@ en une minute au lieu de dix, sans solliciter le matériel davantage.
 ```powershell
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut(
   "$([Environment]::GetFolderPath('Startup'))\blink2video.lnk")
-$s.TargetPath = "C:\path\to\blink2video.exe"; $s.Arguments = "serve --no-browser all --loop 10"
+$s.TargetPath = "C:\path\to\blink2video.exe"; $s.Arguments = "serve all --loop 10 download --from cloud --loop 1"
 $s.WorkingDirectory = "C:\path\to"; $s.Save()
 ```
 
@@ -179,7 +179,7 @@ une élévation.
 <plist version="1.0"><dict>
   <key>Label</key><string>com.nico579.blink2video</string>
   <key>ProgramArguments</key>
-  <array><string>/path/to/blink2video</string><string>serve</string><string>--no-browser</string><string>all</string><string>--loop</string><string>10</string></array>
+  <array><string>/path/to/blink2video</string><string>serve</string><string>all</string><string>--loop</string><string>10</string><string>download</string><string>--from</string><string>cloud</string><string>--loop</string><string>1</string></array>
   <key>WorkingDirectory</key><string>/path/to</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -193,7 +193,7 @@ Chargé par `launchctl load`, arrêté par `launchctl unload`.
 
 ```ini
 [Service]
-ExecStart=/path/to/blink2video serve --no-browser all --loop 10
+ExecStart=/path/to/blink2video serve all --loop 10 download --from cloud --loop 1
 WorkingDirectory=/path/to
 Restart=on-failure
 
@@ -255,8 +255,7 @@ Blink_Monthly/     une par mois
 | `--since JOURS` | ne garder que les clips des N derniers jours |
 | `--output DOSSIER` | destination des clips bruts (défaut `Blink_Clips`) |
 | `--overwrite` | remplacer les fichiers existants de taille différente |
-| `--no-cloud` | ignorer les clips conservés dans le cloud de l'abonnement |
-| `--cloud-only` | n'interroger que le cloud, sans réveiller le module |
+| `--from usb\|cloud\|all` | où chercher les clips : la clé du module, le cloud de l'abonnement, ou les deux (défaut) |
 | `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
 
 **`blink2video merge`** : normalisation et assemblage.
@@ -298,7 +297,7 @@ Blink_Monthly/     une par mois
 | Option | Effet |
 |---|---|
 | `--port N` | port d'écoute (défaut 8765) |
-| `--no-browser` | ne pas ouvrir le navigateur |
+| `--open-browser` | ouvrir la page dans le navigateur au démarrage |
 | `--hub NOM` | module de synchronisation |
 | `--thumbs DOSSIER` | cache des vignettes, jetable |
 | `--timezone ZONE` | fuseau d'affichage |
@@ -307,7 +306,7 @@ Blink_Monthly/     une par mois
 **`blink2video stop`** : arrêter l'instance en cours et tous ses verbes. Sans option.
 
 **`blink2video autostart on\|off\|status [verbe…]`** : inscrire au démarrage de
-session la commande qui suit. Sans verbe, `serve --no-browser all --loop 10`.
+session la commande qui suit. Sans verbe, `serve all --loop 10 download --from cloud --loop 1`.
 `--dry-run` montre sans agir.
 
 **`blink2video smoketest`** : contrôle de l'installation. `--keep` conserve le dossier

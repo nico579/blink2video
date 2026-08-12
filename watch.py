@@ -343,7 +343,7 @@ def ensure_server(port: int) -> bool:
             return False
 
     runtime.demarrer(
-        runtime.self_command("serve", "--no-browser", "--port", str(port)),
+        runtime.self_command("serve", "--port", str(port)),
         cwd=str(BASE_DIR), stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),

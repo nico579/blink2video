@@ -144,7 +144,7 @@ With no verb, the entry is the interface plus two loops running at different
 rates:
 
 ```
-serve --no-browser all --loop 10 download --cloud-only --loop 1
+serve all --loop 10 download --from cloud --loop 1
 ```
 
 Ten minutes for the USB stick, whose manifest wakes the Sync Module, and one
@@ -160,7 +160,7 @@ asking more of the hardware.
 ```powershell
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut(
   "$([Environment]::GetFolderPath('Startup'))\blink2video.lnk")
-$s.TargetPath = "C:\path\to\blink2video.exe"; $s.Arguments = "serve --no-browser all --loop 10"
+$s.TargetPath = "C:\path\to\blink2video.exe"; $s.Arguments = "serve all --loop 10 download --from cloud --loop 1"
 $s.WorkingDirectory = "C:\path\to"; $s.Save()
 ```
 
@@ -173,7 +173,7 @@ Task Scheduler would also do, but its root folder requires elevation.
 <plist version="1.0"><dict>
   <key>Label</key><string>com.nico579.blink2video</string>
   <key>ProgramArguments</key>
-  <array><string>/path/to/blink2video</string><string>serve</string><string>--no-browser</string><string>all</string><string>--loop</string><string>10</string></array>
+  <array><string>/path/to/blink2video</string><string>serve</string><string>all</string><string>--loop</string><string>10</string><string>download</string><string>--from</string><string>cloud</string><string>--loop</string><string>1</string></array>
   <key>WorkingDirectory</key><string>/path/to</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -187,7 +187,7 @@ Loaded with `launchctl load`, stopped with `launchctl unload`.
 
 ```ini
 [Service]
-ExecStart=/path/to/blink2video serve --no-browser all --loop 10
+ExecStart=/path/to/blink2video serve all --loop 10 download --from cloud --loop 1
 WorkingDirectory=/path/to
 Restart=on-failure
 
@@ -247,8 +247,7 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | `--since DAYS` | keep only clips from the last N days |
 | `--output FOLDER` | destination of raw clips (default `Blink_Clips`) |
 | `--overwrite` | replace existing files of a different size |
-| `--no-cloud` | ignore clips kept in the subscription cloud |
-| `--cloud-only` | poll the cloud only, without waking the module |
+| `--from usb\|cloud\|all` | where to look for clips: the module's stick, the subscription cloud, or both (default) |
 | `--loop [MINUTES]` | repeat instead of acting once (default 10) |
 
 **`blink2video merge`**: normalization and assembly.
@@ -290,7 +289,7 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 | Option | Effect |
 |---|---|
 | `--port N` | listening port (default 8765) |
-| `--no-browser` | do not open the browser |
+| `--open-browser` | open the page in the browser on startup |
 | `--hub NAME` | Sync Module |
 | `--thumbs FOLDER` | thumbnail cache, disposable |
 | `--timezone ZONE` | display time zone |
@@ -299,7 +298,7 @@ Next to the executable, or in the folder named by `BLINK_HOME`.
 **`blink2video stop`**: stop the running instance and all its verbs. No options.
 
 **`blink2video autostart on\|off\|status [verb…]`**: register the command that
-follows it with your session. Without a verb, `serve --no-browser all --loop 10`.
+follows it with your session. Without a verb, `serve all --loop 10 download --from cloud --loop 1`.
 `--dry-run` shows without acting.
 
 **`blink2video smoketest`**: installation check. `--keep` keeps the working folder,
