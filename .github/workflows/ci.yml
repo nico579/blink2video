@@ -72,7 +72,7 @@ jobs:
           - os: windows-latest
             asset: blink2video-windows-x86_64
             exe: dist/blink2video/blink2video.exe
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             asset: blink2video-linux-x86_64
             exe: dist/blink2video/blink2video
           - os: macos-latest
@@ -97,7 +97,9 @@ jobs:
         run: |
           # Tout le bundle, et non le seul lanceur : ce sont les bibliothèques
           # embarquées qui exigent le plus, et donc elles qui décident.
-          minos=$(find dist/blink2video -type f -perm -u+r                   \( -name '*.so' -o -name '*.dylib' -o -perm -u+x \)                   -exec vtool -show-build {} + 2>/dev/null                   | awk '/minos/ {print $2}' | sort -V | tail -1)
+          minos=$(find dist/blink2video -type f -exec sh -c '
+                    file -b "$1" | grep -q "Mach-O" && vtool -show-build "$1"
+                  ' _ {} \; 2>/dev/null                   | awk '/minos/ {print $2}' | sort -V | tail -1)
           echo "macOS minimal exigé : ${minos:-inconnu}"
           echo "macOS minimal exigé : ${minos:-inconnu}" >> "$GITHUB_STEP_SUMMARY"
 

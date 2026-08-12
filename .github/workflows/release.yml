@@ -62,7 +62,7 @@ jobs:
             asset: blink2video-windows-x86_64
             archive: zip
             exe: dist/blink2video/blink2video.exe
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             asset: blink2video-linux-x86_64
             archive: tar
             exe: dist/blink2video/blink2video
