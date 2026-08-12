@@ -87,6 +87,27 @@ jobs:
       - name: Construire le bundle
         run: python build.py
 
+      # Jusqu'où le binaire descend, lu dans le fichier plutôt que deviné : le
+      # README annonce un système minimal et rien ne le vérifiait. Sur macOS la
+      # version cible est inscrite dans l'en-tête Mach-O ; sous Linux, c'est la
+      # plus haute version de glibc exigée par les symboles importés qui décide
+      # de la distribution la plus ancienne.
+      - name: Système minimal exigé par le binaire (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          vtool -show-build "${{ matrix.exe }}" || true
+          minos=$(vtool -show-build "${{ matrix.exe }}" | awk '/minos/ {print $2; exit}')
+          echo "macOS minimal : $minos"
+          if [ "${minos%%.*}" -gt 14 ] 2>/dev/null; then
+            echo "::warning::le binaire exige macOS $minos, le README annonce 14+"
+          fi
+
+      - name: Système minimal exigé par le binaire (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          glibc=$(objdump -T "${{ matrix.exe }}" | grep -o 'GLIBC_[0-9.]*'                   | sort -V | tail -1)
+          echo "glibc minimale : $glibc"
+
       # Le bundle doit être autonome : aucun ffmpeg du système ne doit être
       # nécessaire, et celui qu'il embarque doit savoir incruster du texte,
       # sans quoi les vidéos sortiraient sans horodatage.
