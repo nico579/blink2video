@@ -31,50 +31,12 @@ STATE_FILENAME = ".blink_download_state.json"
 HUB_LOCK = Path(".blink_hub.lock")
 
 
-@contextlib.contextmanager
 def hub_lock(owner: str, stale_after: int = 600):
-    """Réserve le Sync Module le temps d'une opération, entre processus.
-
-    Le module ne traite qu'une commande à la fois et refuse les suivantes avec
-    « System is busy ». À l'intérieur d'un même programme un verrou mémoire
-    suffit, mais la surveillance, l'interface et la ligne de commande sont trois
-    processus distincts : il faut donc une marque sur disque.
-
-    Un verrou oublié après un plantage bloquerait tout, d'où deux garde-fous :
-    on ignore une marque dont le processus n'existe plus, et toute marque plus
-    vieille que `stale_after` secondes. Mieux vaut un conflit rare qu'un outil
-    définitivement bloqué par un fichier."""
-    now = time.time()
-    existing = None
-    try:
-        existing = json.loads(HUB_LOCK.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        existing = None
-
-    if existing:
-        age = now - float(existing.get("at") or 0)
-        if age < stale_after and _process_alive(int(existing.get("pid") or 0)):
-            raise BusyError(
-                f"le module est déjà occupé par « {existing.get('owner')} » "
-                f"depuis {int(age)} s"
-            )
-
-    HUB_LOCK.write_text(
-        json.dumps({"owner": owner, "pid": os.getpid(), "at": now}), encoding="utf-8"
-    )
-    try:
-        yield
-    finally:
-        try:
-            current = json.loads(HUB_LOCK.read_text(encoding="utf-8"))
-            if int(current.get("pid") or 0) == os.getpid():
-                HUB_LOCK.unlink(missing_ok=True)
-        except (OSError, json.JSONDecodeError):
-            pass
+    """Réserve le Sync Module. Conservé ici pour les appelants existants."""
+    return runtime.verrou("hub", owner, stale_after)
 
 
-class BusyError(RuntimeError):
-    """Le Sync Module est déjà réservé par une autre opération."""
+BusyError = runtime.BusyError
 
 
 def _process_alive(pid: int) -> bool:

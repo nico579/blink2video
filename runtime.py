@@ -17,6 +17,7 @@ qui se relance par sys.executable + chemin de script fonctionne parfaitement en
 développement et échoue une fois figé.
 """
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -435,6 +436,52 @@ def toast(titre: str, corps: str, url: str = "") -> None:
         stderr=subprocess.DEVNULL, check=False, timeout=20,
     )
 
+
+
+class BusyError(RuntimeError):
+    """La ressource est déjà réservée par une autre opération."""
+
+
+@contextlib.contextmanager
+def verrou(nom: str, owner: str, stale_after: int = 600):
+    """Réserve une ressource entre processus, le temps d'une opération.
+
+    Deux ressources ne se partagent pas : le Sync Module, qui ne traite qu'une
+    commande à la fois et répond « System is busy » à la seconde, et
+    l'assemblage, qui écrirait deux fois les mêmes fichiers. Les verbes tournant
+    dans des processus séparés, un verrou mémoire ne suffit pas : il faut une
+    marque sur disque.
+
+    Deux garde-fous contre une marque oubliée après un plantage : on ignore
+    celle dont le processus n'existe plus, et toute marque plus vieille que
+    `stale_after`. Mieux vaut un conflit rare qu'un outil bloqué par un
+    fichier."""
+    import datetime as dt
+
+    fichier = app_dir() / f".blink_{nom}.lock"
+    maintenant = time.time()
+    try:
+        presente = json.loads(fichier.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        presente = None
+
+    if presente:
+        age = maintenant - float(presente.get("at") or 0)
+        if age < stale_after and processus_vivant(int(presente.get("pid") or 0)):
+            raise BusyError(f"déjà réservé par « {presente.get('owner')} » "
+                            f"depuis {int(age)} s")
+
+    fichier.write_text(json.dumps({"owner": owner, "pid": os.getpid(),
+                                   "at": maintenant}), encoding="utf-8")
+    try:
+        yield
+    finally:
+        try:
+            courante = json.loads(fichier.read_text(encoding="utf-8"))
+            if int(courante.get("pid") or 0) == os.getpid():
+                fichier.unlink(missing_ok=True)
+        except (OSError, json.JSONDecodeError):
+            pass
 
 
 PASSAGES = Path(".blink_passages.json")

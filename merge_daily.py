@@ -1108,7 +1108,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     def travail():
-        code = _executer(args)
+        try:
+            with runtime.verrou("merge", "assemblage", stale_after=7200):
+                code = _executer(args)
+        except runtime.BusyError as erreur:
+            # Un assemblage déjà en cours fait le même travail : le doubler
+            # réencoderait les mêmes clips et brouillerait le registre.
+            print(f"Assemblage déjà en cours ({erreur}). Rien à faire.")
+            return 0
         runtime.marquer("merge")
         return code
 
