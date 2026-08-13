@@ -1114,7 +1114,12 @@ def main() -> int:
         try:
             with runtime.verrou("merge", "assemblage", stale_after=7200,
                                 attente=30):
-                code = _executer(args)
+                try:
+                    code = _executer(args)
+                finally:
+                    # Toujours retirer la marque d'avancement, même après une
+                    # erreur : l'interface croirait sinon qu'un calcul dure.
+                    runtime.fin_travail()
         except runtime.BusyError as erreur:
             # Un assemblage déjà en cours fait le même travail : le doubler
             # réencoderait les mêmes clips et brouillerait le registre.
@@ -1241,6 +1246,7 @@ def _executer(args) -> int:
                 position += 1
                 print(f"  [{position}/{total}] {identity}", flush=True)
                 report = progress_printer(f"[{position}/{total}]")
+                runtime.travail("Préparation des clips", position - 1, total)
             ok, error, did_encode = normalize_clip(
                 ffmpeg, timezone, registry, normalized_dir, identity, info,
                 target, key, font_path, args.preset, args.crf, args.force,
@@ -1283,6 +1289,7 @@ def _executer(args) -> int:
 
         print(f"  [{index}/{len(todo)}] Assemblage : {day} / {camera} / "
               f"{len(segments)} clip(s)")
+        runtime.travail("Assemblage des vidéos", index - 1, len(todo))
         ok, error = merge_group(ffmpeg, segments, destination)
         if not ok:
             print(f"  Échec : {error}")

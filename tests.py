@@ -384,9 +384,31 @@ def test_notification() -> None:
             verifier(False, "l'identité est déclarée à Windows", str(erreur))
 
 
+def test_avancement() -> None:
+    """L'avancement publié par un calcul est lisible, et disparaît à la fin.
+
+    C'est le seul lien entre une boucle de fond et l'interface : si la marque
+    survivait à la fin du calcul, le bouton Actualiser resterait inactif jusqu'à
+    l'expiration du délai de péremption, soit un quart d'heure."""
+    import runtime
+
+    print("\nAvancement d'un calcul")
+    try:
+        runtime.travail("Assemblage des vidéos", 3, 12)
+        etat = runtime.travail_en_cours()
+        verifier(etat.get("quoi") == "Assemblage des vidéos"
+                 and etat.get("fait") == 3 and etat.get("total") == 12,
+                 "l'avancement se relit tel qu'il a été publié", str(etat))
+    finally:
+        runtime.fin_travail()
+    verifier(runtime.travail_en_cours() == {},
+             "la marque disparaît quand le calcul se termine")
+
+
 def main() -> int:
     test_verbes()
     test_notification()
+    test_avancement()
     test_relance()
     test_cadence_cible()
     test_installation_neuve()

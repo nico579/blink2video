@@ -592,6 +592,60 @@ def passage_recent(verbe: str, minutes: float) -> bool:
     return (dt.datetime.now().astimezone() - moment).total_seconds() < minutes * 60
 
 
+TRAVAIL = Path(".blink_travail.json")
+
+
+def travail(quoi: str, fait: float = 0, total: int = 0) -> None:
+    """Publie l'avancement du travail en cours, pour qui voudrait le montrer.
+
+    Les verbes tournent dans leurs propres processus : quand l'assemblage part
+    d'une boucle de fond, l'interface ne voit rien de sa sortie. Ce fichier est
+    le seul point où elle peut apprendre qu'un calcul occupe la machine, et où
+    il en est. Écrit à chaque clip, effacé à la fin."""
+    import datetime as dt
+
+    etat = {"quoi": quoi, "fait": round(fait, 3), "total": total,
+            "pid": os.getpid(),
+            "depuis": dt.datetime.now().astimezone().isoformat(timespec="seconds")}
+    try:
+        (app_dir() / TRAVAIL).write_text(json.dumps(etat, ensure_ascii=False),
+                                         encoding="utf-8")
+    except OSError:
+        pass
+
+
+def fin_travail() -> None:
+    """Retire notre marque d'avancement, si c'est bien la nôtre."""
+    en_cours = travail_en_cours()
+    if not en_cours or en_cours.get("pid") == os.getpid():
+        try:
+            (app_dir() / TRAVAIL).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def travail_en_cours() -> dict:
+    """Le travail en cours, ou un dictionnaire vide.
+
+    Mêmes garde-fous que les verrous : une marque laissée par un processus mort
+    ou trop vieille ne doit pas faire croire à un calcul éternel."""
+    import datetime as dt
+
+    try:
+        etat = json.loads((app_dir() / TRAVAIL).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(etat, dict) or not processus_vivant(int(etat.get("pid") or 0)):
+        return {}
+    try:
+        depuis = dt.datetime.fromisoformat(str(etat.get("depuis")))
+    except ValueError:
+        return {}
+    if (dt.datetime.now().astimezone() - depuis).total_seconds() > 900:
+        return {}
+    return etat
+
+
 def decouper_verbes(arguments) -> list:
     """Découpe « watch --loop download --loop merge » en groupes.
 

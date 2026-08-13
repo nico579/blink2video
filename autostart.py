@@ -148,10 +148,14 @@ def _windows(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
 
     # Un raccourci se crée par l'interface COM de l'explorateur, présente sur
     # toute installation de Windows. PowerShell l'expose sans rien installer.
+    # WindowStyle 7 = réduite : depuis un bundle, l'exécutable garde sa console
+    # (c'est un outil en ligne de commande), et sans cela elle s'ouvrirait en
+    # plein écran à chaque ouverture de session. Réduite, elle reste consultable
+    # dans la barre des tâches sans rien recouvrir.
     script = (
         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut({cible});"
         "$s.TargetPath = {executable}; $s.Arguments = {arguments};"
-        "$s.WorkingDirectory = {dossier};"
+        "$s.WorkingDirectory = {dossier}; $s.WindowStyle = 7;"
         "$s.Description = 'Surveillance blink2video'; $s.Save()"
     ).format(
         cible=_chaine_ps(str(cible)),

@@ -717,7 +717,10 @@ async def boucler(blink: Blink, args, modules: list) -> int:
             # processus qui prennent le même clip écriraient le même fichier
             # partiel, et le premier renommage laisserait l'autre dans le vide.
             with runtime.verrou("download", "download", attente=30):
-                code = await un_passage(blink, args, modules)
+                try:
+                    code = await un_passage(blink, args, modules)
+                finally:
+                    runtime.fin_travail()
         except runtime.BusyError as erreur:
             print(f"Téléchargement déjà en cours ({erreur}).")
             code = 0
@@ -773,6 +776,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
         for position, clip in enumerate(pending, start=1):
             target = target_path(output, clip)
             print(f"  [{position}/{len(pending)}] {target.name}")
+            runtime.travail("Téléchargement des clips", position - 1, len(pending))
             try:
                 result = await download_clip(blink, clip, target, args.overwrite)
             except Exception as error:  # Continuer avec les autres clips.

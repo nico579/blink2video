@@ -102,6 +102,11 @@ ETIQUETTES_SOURCE = {"usb": "USB", "cloud": "cloud"}
 # journée écriraient le même fichier.
 REASSEMBLAGE = threading.Lock()
 
+# Écarter un clip ne touche que le registre. Lui donner son propre verrou plutôt
+# que celui de l'actualisation : sinon un clic pendant un téléchargement attend
+# la fin de ce téléchargement, et le bouton semble bloqué une minute entière.
+REGISTRE = threading.Lock()
+
 
 def provenances(entrees: dict) -> dict:
     """Où sont enregistrés les clips de chaque caméra, par caméra.
@@ -1060,7 +1065,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # compare à ce qu'elle affiche et signale l'écart, sans rien
             # redessiner de lui-même.
             self.send_json({"passages": runtime.passages(),
-                            "clips": len(read_entries(self.paths))})
+                            "clips": len(read_entries(self.paths)),
+                            "travail": runtime.travail_en_cours()})
             return
 
         if route == "/api/refresh":
@@ -1103,10 +1109,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_event({"line": "Une actualisation est déjà en cours."})
             self.send_event({"done": True, "ok": False})
             return
-        # Les vignettes de caméra sont renouvelées ici, et nulle part ailleurs :
-        # elles ne changent donc que sur demande explicite.
-        for vignette in (self.paths["thumbs"] / "cameras").glob("*.jpg"):
-            vignette.unlink(missing_ok=True)
+        # Un calcul lancé par les boucles de fond occupe déjà ffmpeg et le
+        # registre. En lancer un second ne ferait qu'attendre le verrou pendant
+        # de longues minutes, en donnant l'impression d'un blocage.
+        en_cours = runtime.travail_en_cours()
+        if en_cours:
+            self.send_event({"line": (
+                f"{en_cours.get('quoi', 'Un calcul')} est déjà en cours. "
+                "Attendez la fin de la barre, puis réessayez."
+            )})
+            self.send_event({"done": True, "ok": False})
+            self.lock.release()
+            return
+        # Les vignettes de caméra ne sont pas renouvelées ici : « Actualiser »
+        # demande les clips, pas une nouvelle photo de chaque caméra. Elles sont
+        # prises une fois, à la première ouverture de la vue Direct, et ne
+        # changent plus tant qu'on ne les efface pas.
         try:
             # Le téléchargement interroge le Sync Module, comme le direct. Les
             # laisser se chevaucher garantirait un « System is busy » : mieux
@@ -1248,7 +1266,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             # Une seule décision à la fois : le registre est un fichier, deux
             # écritures concurrentes en perdraient une.
-            with self.lock:
+            with REGISTRE:
                 try:
                     md.set_excluded(
                         self.paths["input"], self.paths["normalized"],
@@ -1325,6 +1343,11 @@ PAGE = """<!doctype html>
      assemblées, où il ne veut rien dire. */
   [hidden] { display:none !important; }
   .count { color:var(--dim); margin-left:auto; font-variant-numeric:tabular-nums; }
+  /* Le groupe « mise à jour » : encadré discret pour qu'on voie d'un coup que
+     l'heure, la coche et le bouton parlent de la même chose. */
+  .maj { display:flex; align-items:center; gap:10px; padding:5px 5px 5px 12px;
+         border:1px solid var(--line); border-radius:9px; background:var(--card); }
+  .maj #passages { font-variant-numeric:tabular-nums; }
   main { padding:20px; }
   h2 { font-size:14px; color:var(--dim); font-weight:600; margin:28px 0 12px;
        border-bottom:1px solid var(--line); padding-bottom:7px; }
@@ -1391,10 +1414,6 @@ PAGE = """<!doctype html>
 <body>
 <header>
   <h1>blink2video<span class="v">__VERSION__</span></h1>
-  <span class="sub tiny" id="passages"></span>
-  <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
-    <input type="checkbox" id="auto"> actualisation auto
-  </label>
   <select id="view">
     <option value="live">Direct</option>
     <option value="clips">Clips</option>
@@ -1405,8 +1424,16 @@ PAGE = """<!doctype html>
   <select id="camera"></select>
   <select id="day"></select>
   <label id="outLabel"><input type="checkbox" id="showOut"> voir les écartés</label>
-  <button class="primary" id="refresh">Actualiser</button>
   <span class="count" id="count"></span>
+  <!-- Tout ce qui concerne la mise à jour tient ensemble, à droite : l'heure du
+       dernier passage, la coche qui recharge seule, et le bouton. -->
+  <div class="maj">
+    <span class="sub tiny" id="passages"></span>
+    <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
+      <input type="checkbox" id="auto"> auto
+    </label>
+    <button class="primary" id="refresh">Actualiser</button>
+  </div>
   <div id="work"><span id="phase"></span><progress id="bar"></progress></div>
 </header>
 <main><div id="list"></div><pre id="log"></pre></main>
@@ -1482,6 +1509,39 @@ async function loadSystem(force) {
   renderLive();
 }
 
+// Un calcul lancé par les boucles de fond, hors de cette page : le
+// téléchargement et l'assemblage publient leur avancement dans un fichier, seul
+// moyen pour la page d'apprendre que la machine travaille. Tant qu'il tourne,
+// le bouton reste inactif : un second calcul attendrait le même verrou, sans
+// rien avancer.
+let travailEnCours = false;
+let actualisationLocale = false;
+
+function montrerTravail(travail) {
+  if (actualisationLocale) return;    // notre propre barre parle déjà
+  const actif = !!(travail && travail.quoi);
+  if (!actif) {
+    if (travailEnCours) { $("work").classList.remove("on"); load(); }
+    travailEnCours = false;
+    $("refresh").disabled = false;
+    return;
+  }
+  travailEnCours = true;
+  $("refresh").disabled = true;
+  $("work").classList.add("on");
+  const total = travail.total || 0;
+  const fait = travail.fait || 0;
+  if (total) {
+    $("bar").max = total;
+    $("bar").value = fait;
+    $("phase").textContent =
+      `${travail.quoi} ${Math.min(fait + 1, total)}/${total}`;
+  } else {
+    $("bar").removeAttribute("value");
+    $("phase").textContent = travail.quoi;
+  }
+}
+
 async function heuresDePassage() {
   // Une seule heure, la plus ancienne des trois : c'est elle qui dit si
   // l'ensemble suit. Le détail n'apparaît que si une activité traîne, sans
@@ -1490,6 +1550,7 @@ async function heuresDePassage() {
   try {
     etat = await (await fetch("/api/passages")).json();
   } catch (erreur) { return; }
+  montrerTravail(etat.travail);
   const vus = etat.passages || {};
   // Des clips sont arrivés depuis que la page a été chargée : on le dit, et
   // c'est à vous de cliquer sur Actualiser. La liste ne se réorganise pas sous
@@ -1506,8 +1567,9 @@ async function heuresDePassage() {
   const plusRecent = dates.reduce((a, b) => (instant(a) > instant(b) ? a : b));
   const ecart = (instant(plusRecent) - instant(plusAncien)) / 60000;
   // Choix mémorisé d'un affichage à l'autre : une préférence qu'il faudrait
-  // recocher à chaque ouverture n'en serait pas une.
-  if (arrives && $("auto").checked) {
+  // recocher à chaque ouverture n'en serait pas une. Pendant un calcul, on ne
+  // recharge pas : la liste changerait sous les yeux à chaque vidéo assemblée.
+  if (arrives && $("auto").checked && !travailEnCours) {
     load();
     return;
   }
@@ -1568,10 +1630,7 @@ function cameraCard(c, systemArmed) {
     c.armed && !systemArmed ? "sans effet, système désarmé" : null,
   ].filter(Boolean).join(" · ");
   return `<div class="card ${c.offline ? "out" : ""}">
-    <div class="live" id="live-${cssId(c.name)}">
-      <img class="still" src="/camthumb/${encodeURIComponent(c.name)}" alt="">
-      <button class="watch" onclick="watch('${c.name}')">Voir en direct</button>
-    </div>
+    <div class="live" id="live-${cssId(c.name)}">${repos(c.name, "Voir en direct")}</div>
     <div class="meta">
       <div>
         <div class="time">${c.name}</div>
@@ -1642,14 +1701,19 @@ function watch(name) {
 // ouverte côté serveur.
 function failWatch(name, message) {
   const box = $("live-" + cssId(name));
-  box.innerHTML =
-    `<p class="hint">${message}</p>
-     <button class="watch" onclick="watch('${name}')">Réessayer</button>`;
+  box.innerHTML = repos(name, "Réessayer") + `<p class="hint overlay">${message}</p>`;
 }
 
 function stopWatch(name) {
-  const box = $("live-" + cssId(name));
-  box.innerHTML = `<button class="watch" onclick="watch('${name}')">Voir en direct</button>`;
+  $("live-" + cssId(name)).innerHTML = repos(name, "Voir en direct");
+}
+
+// L'état de repos d'un cadre : la dernière image connue de la caméra, et le
+// bouton par-dessus. Arrêter un direct ramène ici, donc la vignette revient au
+// lieu de laisser un rectangle noir jusqu'au rechargement de la page.
+function repos(name, libelle) {
+  return `<img class="still" src="/camthumb/${encodeURIComponent(name)}" alt="">
+     <button class="watch" onclick="watch('${name}')">${libelle}</button>`;
 }
 
 async function setArmed(scope, name, armed) {
@@ -1765,7 +1829,12 @@ async function toggle(identity, excluded) {
   });
   const result = await answer.json();
   if (result.error) { alert(result.error); return; }
-  await load();
+  // La décision est connue : on retourne la vignette tout de suite plutôt que
+  // de recharger la liste entière, qui relit le registre et refait défiler la
+  // page. La reconstruction des journalières se poursuit en arrière-plan.
+  const clip = data.clips.find((c) => c.identity === identity);
+  if (clip) clip.excluded = excluded;
+  render();
 }
 
 // --- connexion Blink -------------------------------------------------------
@@ -1836,6 +1905,7 @@ $("refresh").onclick = async () => {
 
   const button = $("refresh");
   button.disabled = true;
+  actualisationLocale = true;
   $("log").style.display = "block";
   $("log").textContent = "";
   $("work").classList.add("on");
@@ -1872,6 +1942,7 @@ $("refresh").onclick = async () => {
       source.close();
       $("work").classList.remove("on");
       button.disabled = false;
+      actualisationLocale = false;
       if (!event.ok) $("phase").textContent = "Terminé avec des erreurs";
       load();
     }
@@ -1880,6 +1951,7 @@ $("refresh").onclick = async () => {
     source.close();
     $("work").classList.remove("on");
     button.disabled = false;
+    actualisationLocale = false;
     $("log").textContent += "\\nConnexion interrompue.\\n";
   };
 };
@@ -1888,7 +1960,14 @@ for (const id of ["view", "camera", "day", "showOut"]) $(id).onchange = render;
 // Seule cette ligne de texte se met à jour d'elle-même : elle sert précisément
 // à repérer une boucle arrêtée, ce qu'on ne verrait pas en regardant des clips
 // qui, eux, ne changent plus.
-setInterval(heuresDePassage, 60000);
+// Une minute au repos, trois secondes pendant un calcul : c'est le seul moment
+// où quelque chose bouge assez vite pour qu'on ait envie de le suivre.
+(function veiller() {
+  setTimeout(async () => {
+    await heuresDePassage();
+    veiller();
+  }, travailEnCours ? 3000 : 60000);
+})();
 $("auto").checked = localStorage.getItem("auto") === "1";
 $("auto").onchange = () => {
   localStorage.setItem("auto", $("auto").checked ? "1" : "0");
