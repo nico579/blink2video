@@ -1543,9 +1543,6 @@ function montrerTravail(travail) {
 }
 
 async function heuresDePassage() {
-  // Une seule heure, la plus ancienne des trois : c'est elle qui dit si
-  // l'ensemble suit. Le détail n'apparaît que si une activité traîne, sans
-  // quoi trois horodatages identiques n'apprennent rien.
   let etat = {};
   try {
     etat = await (await fetch("/api/passages")).json();
@@ -1557,15 +1554,13 @@ async function heuresDePassage() {
   // les yeux de qui est en train de la lire.
   const arrives = (data && data.clips)
     ? Math.max(0, (etat.clips || 0) - data.clips.length) : 0;
-  const noms = { watch: "contrôle", download: "clips", merge: "vidéos" };
-  const dates = Object.keys(noms).filter((cle) => vus[cle]);
+  // Une seule heure, la plus récente des trois. Le détail du verbe le plus en
+  // retard alourdissait la ligne pour un cas rare.
+  const dates = ["watch", "download", "merge"].filter((cle) => vus[cle]);
   if (!dates.length) return;
 
-  const heure = (cle) => vus[cle].slice(11, 16);
   const instant = (cle) => new Date(vus[cle]).getTime();
-  const plusAncien = dates.reduce((a, b) => (instant(a) < instant(b) ? a : b));
   const plusRecent = dates.reduce((a, b) => (instant(a) > instant(b) ? a : b));
-  const ecart = (instant(plusRecent) - instant(plusAncien)) / 60000;
   // Choix mémorisé d'un affichage à l'autre : une préférence qu'il faudrait
   // recocher à chaque ouverture n'en serait pas une. Pendant un calcul, on ne
   // recharge pas : la liste changerait sous les yeux à chaque vidéo assemblée.
@@ -1576,9 +1571,8 @@ async function heuresDePassage() {
   const nouveaux = arrives
     ? ` · ${arrives} nouveau${arrives > 1 ? "x" : ""} clip${arrives > 1 ? "s" : ""}, cliquez sur Actualiser`
     : "";
-  $("passages").textContent = (ecart > 20
-    ? `actualisé ${heure(plusRecent)} · ${noms[plusAncien]} ${heure(plusAncien)}`
-    : `actualisé ${heure(plusAncien)}`) + nouveaux;
+  $("passages").textContent =
+    `actualisé ${vus[plusRecent].slice(11, 16)}` + nouveaux;
 }
 
 function renderLive() {
@@ -1730,9 +1724,9 @@ async function setArmed(scope, name, armed) {
 
 function renderClips() {
   const clips = visible();
-  const out = data.clips.filter((c) => c.excluded).length;
-  $("count").textContent =
-    `${clips.length} affiché(s) · ${data.clips.length - out} retenu(s) · ${out} écarté(s)`;
+  // Pas de décompte ici : les clips sont sous les yeux, et trois nombres de
+  // plus en haut de page ne disent rien qu'on cherchait.
+  $("count").textContent = "";
 
   if (!clips.length) {
     // Distinguer « rien ne correspond au filtre » de « rien n'a jamais été
