@@ -338,7 +338,6 @@ class TestsDefautsSynchrones(BacASable):
             arguments = b2v.parse_args()
         self.assertEqual(arguments.command, "start")
 
-    @unittest.expectedFailure
     def test_B03_renumerotation_utilise_le_chemin_memorise(self):
         """B-03 : un ID distant nouveau ne retélécharge pas le même événement."""
         sortie = self.home / "clips"
@@ -596,7 +595,6 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         registre = b2v.load_download_state(sortie)
         self.assertEqual(len(registre["clips"]), 3)
 
-    @unittest.expectedFailure
     async def test_I05_fichier_cloud_absent_est_repare(self):
         """I-05 : registre sans média n'est pas un doublon définitif."""
         sortie = self.home / "clips"
@@ -624,7 +622,7 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 resultat = await b2v.traiter_cloud(
                     object(), self.arguments(command="download", output=sortie), [],
                 )
-        self.assertEqual(resultat, (False, 1))
+        self.assertEqual(resultat, b2v.CloudResult(1, 0, 0, 0))
 
     async def test_I09_compte_cloud_only_accepte_login(self):
         """I-09 : login ne dépend pas de la présence d'un Sync Module."""
@@ -648,7 +646,6 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(code, 0)
         boucle.assert_awaited_once_with(blink, arguments, [])
 
-    @unittest.expectedFailure
     async def test_I16_noms_distincts_ne_collisionnent_pas_apres_assainissement(self):
         """I-16 : safe_name sert au chemin, jamais à l'identité métier."""
         local = FauxClip(1, nom="Entrée/jardin")

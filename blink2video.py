@@ -1,11 +1,15 @@
 import argparse
 import asyncio
+import bisect
 import contextlib
 import datetime as dt
 import getpass
+import hashlib
 import json
+import math
 import os
 import re
+import stat as stat_module
 import subprocess
 import sys
 import time
@@ -27,6 +31,7 @@ from blinkpy.blinkpy import Blink
 CONFIG = Path("blink_auth.json")
 OUTPUT = Path("Blink_Clips")
 STATE_FILENAME = ".blink_download_state.json"
+STATE_V1_BACKUP_FILENAME = ".blink_download_state.v1.backup.json"
 
 
 HUB_LOCK = Path(".blink_hub.lock")
@@ -281,6 +286,9 @@ class CloudClip:
         self.created_at = dt.datetime.fromisoformat(str(entree["created_at"]))
         self.address = entree.get("media")
         self.network_id = entree.get("network_id")
+        self.device_id = (
+            entree.get("device_id") or entree.get("camera_id")
+        )
         self.download_issue = None
 
     async def download_to(self, blink: Blink, target: Path) -> bool:
@@ -353,6 +361,172 @@ async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
     return clips
 
 
+def _identifiant_reseau(clip, sync=None) -> str:
+    """Retourne le réseau immuable quand l'API l'expose."""
+    valeur = getattr(clip, "network_id", None)
+    if valeur in (None, "") and sync is not None:
+        valeur = getattr(sync, "network_id", None)
+    return str(valeur or "")
+
+
+def _identifiant_camera(clip) -> str:
+    """Retourne l'identifiant matériel, absent des objets USB blinkpy 0.25."""
+    for attribut in ("device_id", "camera_id"):
+        valeur = getattr(clip, attribut, None)
+        if valeur not in (None, ""):
+            return str(valeur)
+    brut = getattr(clip, "raw", None)
+    if isinstance(brut, dict):
+        for cle in ("device_id", "camera_id"):
+            if brut.get(cle) not in (None, ""):
+                return str(brut[cle])
+    return ""
+
+
+def _meme_camera(gauche, droite, sync_gauche=None, sync_droite=None) -> bool:
+    """Compare deux caméras sans confondre deux réseaux explicites."""
+    reseau_gauche = _identifiant_reseau(gauche, sync_gauche)
+    reseau_droite = _identifiant_reseau(droite, sync_droite)
+    if reseau_gauche and reseau_droite and reseau_gauche != reseau_droite:
+        return False
+
+    camera_gauche = _identifiant_camera(gauche)
+    camera_droite = _identifiant_camera(droite)
+    if camera_gauche and camera_droite:
+        return camera_gauche == camera_droite
+
+    # blinkpy 0.25 n'expose ni device_id ni network_id sur certains objets USB.
+    # Dans ce seul cas, le nom API original (jamais le nom de chemin assaini)
+    # reste le meilleur signal disponible pour rapprocher USB et cloud.
+    return str(gauche.name).casefold() == str(droite.name).casefold()
+
+
+def _apparier_evenements(locaux: list, distants: list, tolerance: int = 2, *,
+                         priorites_locaux=None, compatibles=None) -> list:
+    """Retourne un appariement maximal ``(local, distant)`` déterministe."""
+    if tolerance < 0 or not locaux or not distants:
+        return []
+
+    # L'index temporel réduit le graphe aux seuls voisins dans la fenêtre. Les
+    # listes d'adjacence sont ensuite ordonnées par écart puis par index afin
+    # que deux exécutions sur les mêmes manifestes rendent les mêmes paires.
+    marge = dt.timedelta(seconds=tolerance)
+    locaux_ordonnes = sorted(
+        (clip_datetime_utc(local), indice)
+        for indice, local in enumerate(locaux)
+    )
+    instants_locaux = [instant for instant, _ in locaux_ordonnes]
+    priorites = priorites_locaux or [0] * len(locaux)
+    meme_camera = compatibles or _meme_camera
+    voisinages = [[] for _ in distants]
+    for indice_distant, distant in enumerate(distants):
+        instant_cloud = clip_datetime_utc(distant)
+        debut = bisect.bisect_left(instants_locaux, instant_cloud - marge)
+        fin = bisect.bisect_right(instants_locaux, instant_cloud + marge)
+        for position in range(debut, fin):
+            instant_local, indice_local = locaux_ordonnes[position]
+            local = locaux[indice_local]
+            if not meme_camera(local, distant):
+                continue
+            ecart = abs((instant_local - instant_cloud).total_seconds())
+            voisinages[indice_distant].append(
+                (priorites[indice_local], ecart, indice_local)
+            )
+        voisinages[indice_distant].sort()
+
+    infini = len(locaux) + len(distants) + 1
+    ordre_distants = sorted(
+        range(len(distants)),
+        key=lambda indice: (
+            voisinages[indice][0][:2] if voisinages[indice]
+            else (math.inf, math.inf),
+            indice,
+        ),
+    )
+    paire_distante = [-1] * len(distants)
+    paire_locale = [-1] * len(locaux)
+
+    def niveaux():
+        distances = [infini] * len(distants)
+        file = []
+        for indice_distant in ordre_distants:
+            if paire_distante[indice_distant] < 0:
+                distances[indice_distant] = 0
+                file.append(indice_distant)
+
+        profondeur_libre = infini
+        position = 0
+        while position < len(file):
+            indice_distant = file[position]
+            position += 1
+            profondeur_suivante = distances[indice_distant] + 1
+            if profondeur_suivante > profondeur_libre:
+                continue
+            for _, _, indice_local in voisinages[indice_distant]:
+                autre_distant = paire_locale[indice_local]
+                if autre_distant < 0:
+                    profondeur_libre = min(profondeur_libre, profondeur_suivante)
+                elif (
+                    profondeur_suivante < profondeur_libre
+                    and distances[autre_distant] == infini
+                ):
+                    distances[autre_distant] = profondeur_suivante
+                    file.append(autre_distant)
+        return distances, profondeur_libre
+
+    def augmenter(racine, distances, profondeur_libre, positions):
+        # Version itérative du parcours de Hopcroft-Karp : aucun risque de
+        # dépasser la profondeur de récursion sur un grand registre.
+        pile = [racine]
+        parents = {}
+        while pile:
+            indice_distant = pile[-1]
+            avance = False
+            while positions[indice_distant] < len(voisinages[indice_distant]):
+                _, _, indice_local = voisinages[indice_distant][
+                    positions[indice_distant]
+                ]
+                positions[indice_distant] += 1
+                autre_distant = paire_locale[indice_local]
+                if autre_distant < 0:
+                    if distances[indice_distant] + 1 != profondeur_libre:
+                        continue
+                    courant, local_libre = indice_distant, indice_local
+                    while True:
+                        paire_distante[courant] = local_libre
+                        paire_locale[local_libre] = courant
+                        if courant == racine:
+                            return True
+                        courant, local_libre = parents[courant]
+                elif (
+                    distances[autre_distant] == distances[indice_distant] + 1
+                    and autre_distant not in parents
+                ):
+                    parents[autre_distant] = (indice_distant, indice_local)
+                    pile.append(autre_distant)
+                    avance = True
+                    break
+            if not avance:
+                distances[indice_distant] = infini
+                pile.pop()
+        return False
+
+    while True:
+        distances, profondeur_libre = niveaux()
+        if profondeur_libre == infini:
+            break
+        positions = [0] * len(distants)
+        for indice_distant in ordre_distants:
+            if paire_distante[indice_distant] < 0:
+                augmenter(indice_distant, distances, profondeur_libre, positions)
+
+    return sorted(
+        (indice_local, indice_distant)
+        for indice_distant, indice_local in enumerate(paire_distante)
+        if indice_local >= 0
+    )
+
+
 def rapprocher(locaux: list, cloud: list, tolerance: int = 2) -> tuple:
     """Sépare les clips cloud inédits de ceux déjà offerts par la clé USB.
 
@@ -363,22 +537,12 @@ def rapprocher(locaux: list, cloud: list, tolerance: int = 2) -> tuple:
     Sans elle, le même enregistrement serait rapatrié deux fois et apparaîtrait
     en double dans la journalière.
 
-    Fonction pure, éprouvée par tests.py sans compte Blink : c'est la seule
-    partie de la lecture du cloud qui peut l'être."""
-    connus = {}
-    for clip in locaux:
-        connus.setdefault(safe_name(clip.name).casefold(), []).append(
-            clip_datetime_utc(clip)
-        )
+    Fonction pure, éprouvée par la suite dédiée sans compte Blink."""
+    paires = _apparier_evenements(locaux, cloud, tolerance)
+    cloud_pris = {indice_cloud for _, indice_cloud in paires}
 
-    inedits, doublons = [], []
-    for clip in cloud:
-        instant = clip_datetime_utc(clip)
-        proches = connus.get(safe_name(clip.name).casefold(), ())
-        if any(abs((instant - autre).total_seconds()) <= tolerance for autre in proches):
-            doublons.append(clip)
-        else:
-            inedits.append(clip)
+    doublons = [clip for indice, clip in enumerate(cloud) if indice in cloud_pris]
+    inedits = [clip for indice, clip in enumerate(cloud) if indice not in cloud_pris]
     return inedits, doublons
 
 
@@ -419,18 +583,57 @@ def human_size(size: int) -> str:
     return f"{size} o"
 
 
+def _tronquer_utf8(value: str, maximum: int) -> str:
+    brut = value.encode("utf-8")[:maximum]
+    return brut.decode("utf-8", errors="ignore")
+
+
 def safe_name(value: str) -> str:
     """Produit un composant de chemin sûr à partir du nom d'une caméra."""
     cleaned = re.sub(r"[^\w.-]+", "_", value, flags=re.UNICODE).strip("._")
-    return cleaned or "camera"
+    cleaned = _tronquer_utf8(cleaned, 32).rstrip(". ") or "camera"
+    racine = cleaned.split(".", 1)[0].casefold()
+    reserves = {"con", "prn", "aux", "nul", *{f"com{i}" for i in range(1, 10)},
+                *{f"lpt{i}" for i in range(1, 10)}}
+    if racine in reserves:
+        cleaned = f"_{cleaned}"
+    return cleaned
 
 
-def target_path(output: Path, clip) -> Path:
-    """Construit un nom stable et unique pour un clip local."""
+def target_path(output: Path, clip, sync=None, source: str | None = None) -> Path:
+    """Construit un chemin sûr ; ce chemin n'est jamais l'identité métier.
+
+    Le suffixe porte une courte empreinte des valeurs API avant assainissement.
+    Ainsi deux noms/identifiants qui deviennent le même composant de chemin, ou
+    deux hubs qui réemploient le même numéro de manifeste, restent distincts.
+    ``sync_id`` ne concerne que l'USB : dans le cloud, ``network_id`` désigne la
+    source et le pseudo-module utilisé par l'appelant ne doit pas modifier le
+    chemin.
+    """
     created = clip_datetime_utc(clip)
     camera = safe_name(clip.name)
     month = created.strftime("%Y-%m")
-    filename = f"{created:%Y-%m-%d_%H-%M-%SZ}_{camera}_{clip.id}.mp4"
+    identifiant = safe_name(str(clip.id))[:40]
+    provenance = source or (
+        "cloud" if isinstance(clip, CloudClip) or hasattr(clip, "download_to")
+        else "usb"
+    )
+    empreinte = json.dumps(
+        [
+            provenance,
+            _identifiant_reseau(clip, sync),
+            str(getattr(sync, "sync_id", "")) if provenance == "usb" else "",
+            str(clip.name),
+            str(getattr(clip, "id", "")),
+            created.isoformat(),
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    suffixe = hashlib.sha256(empreinte.encode("utf-8")).hexdigest()[:12]
+    filename = (
+        f"{created:%Y-%m-%d_%H-%M-%SZ}_{camera}_{identifiant}_{suffixe}.mp4"
+    )
     return output / camera / month / filename
 
 
@@ -464,7 +667,7 @@ def load_download_state(output: Path) -> dict:
         state = json.loads(state_file.read_text(encoding="utf-8"))
         if not isinstance(state, dict):
             raise ValueError("la racine JSON doit être un objet")
-        if state.get("version") != 1 or not isinstance(state.get("clips"), dict):
+        if state.get("version") not in (1, 2) or not isinstance(state.get("clips"), dict):
             raise ValueError("format inconnu")
         valides = {}
         ignores = 0
@@ -481,10 +684,32 @@ def load_download_state(output: Path) -> dict:
             except ValueError:
                 ignores += 1
                 continue
+            # Migration v1 additive : les anciennes clés et archives restent
+            # intactes. Les métadonnées nouvelles permettent les recherches
+            # sans dépendre du nom de fichier ni de l'ID USB renuméroté.
+            entree.setdefault("source", "usb")
+            entree.setdefault("network_id", "")
+            entree.setdefault("device_id", "")
+            entree.setdefault("remote_id", "")
+            entree.setdefault("sync_id", str(cle).split(":", 1)[0])
+            camera_identite = (
+                f"device:{entree['device_id']}" if entree["device_id"]
+                else f"name:{str(entree.get('camera') or 'camera').casefold()}"
+            )
+            entree.setdefault("camera_identity", camera_identite)
+            empreinte = json.dumps(
+                [entree["network_id"], camera_identite, instant],
+                ensure_ascii=False, separators=(",", ":"),
+            )
+            entree.setdefault(
+                "correlation_id",
+                hashlib.sha256(empreinte.encode("utf-8")).hexdigest(),
+            )
             valides[cle] = entree
         if ignores:
             print(f"  ! [données] {ignores} entrée(s) de registre invalide(s) ignorée(s).")
         state["clips"] = valides
+        state["version"] = 2
         return state
     except OSError:
         categorie = "fichier"
@@ -514,7 +739,35 @@ def save_download_state(output: Path, state: dict) -> None:
     output.mkdir(parents=True, exist_ok=True)
     state_file = output / STATE_FILENAME
     with runtime.verrou("registre", "ecriture", stale_after=60, attente=10):
+        _sauvegarder_registre_v1(state_file)
         _ecrire_registre(state_file, state)
+
+
+def _sauvegarder_registre_v1(state_file: Path) -> None:
+    """Conserve une copie unique du registre v1 avant sa première migration."""
+    backup = state_file.with_name(STATE_V1_BACKUP_FILENAME)
+    if not state_file.exists():
+        return
+    try:
+        brut = state_file.read_bytes()
+        ancien = json.loads(brut)
+        if not isinstance(ancien, dict) or ancien.get("version") != 1:
+            return
+        if backup.exists():
+            sauvegarde = backup.read_bytes()
+            chargee = json.loads(sauvegarde)
+            if not isinstance(chargee, dict) or chargee.get("version") != 1:
+                raise OSError("sauvegarde v1 invalide")
+            return
+        temporaire = backup.with_suffix(backup.suffix + ".tmp")
+        temporaire.write_bytes(brut)
+        temporaire.replace(backup)
+        if backup.read_bytes() != brut:
+            raise OSError("sauvegarde v1 non vérifiable")
+    except (OSError, json.JSONDecodeError) as erreur:
+        raise OSError(
+            "migration v2 annulée : sauvegarde du registre v1 impossible"
+        ) from erreur
 
 
 def _ecrire_registre(state_file: Path, state: dict) -> None:
@@ -522,31 +775,59 @@ def _ecrire_registre(state_file: Path, state: dict) -> None:
     output = state_file.parent
     fusionne = dict(state)
     disque = load_download_state(output)
-    if disque.get("clips"):
-        clips = dict(disque["clips"])
-        clips.update(state.get("clips") or {})
-        fusionne["clips"] = clips
+    clips = dict(disque.get("clips") or {})
+    for cle, entree in (state.get("clips") or {}).items():
+        precedente = clips.get(cle)
+        # Une exclusion posée par l'interface est une décision utilisateur :
+        # une copie périmée du downloader ne doit jamais l'annuler.
+        if (
+            isinstance(precedente, dict)
+            and precedente.get("excluded")
+            and isinstance(entree, dict)
+            and not entree.get("excluded")
+        ):
+            continue
+        clips[cle] = entree
+    fusionne["clips"] = clips
+    fusionne["version"] = max(
+        2, int(disque.get("version") or 1), int(state.get("version") or 1),
+    )
     temporary = state_file.with_suffix(".tmp")
     temporary.write_text(json.dumps(fusionne, indent=2, ensure_ascii=False),
                          encoding="utf-8")
     temporary.replace(state_file)
+    _invalider_index_registre(state)
+    state["version"] = fusionne["version"]
     state["clips"] = fusionne.get("clips", state.get("clips"))
 
 
-def state_key(sync, clip) -> str:
-    """Identifie un enregistrement par ce qui ne bouge pas : la caméra et l'instant.
+def state_key(sync, clip, source: str = "usb") -> str:
+    """Identifie la provenance sans la confondre avec la corrélation.
 
-    L'identifiant numérique du manifeste ne convient pas, bien qu'il soit
-    tentant. Il est stable d'une lecture à l'autre, mais le Sync Module
-    réindexe son stockage de temps en temps et renumérote tout : le même
-    enregistrement réapparaît alors sous un nouvel identifiant, donc comme un
-    clip inédit. Il est retéléchargé, et une exclusion posée sur l'ancien
-    identifiant ne s'y applique plus.
+    Une identité USB contient module, réseau, caméra et instant, mais jamais
+    l'ID du manifeste : le Sync Module le renumérote lors d'une réindexation.
+    Une identité cloud ajoute au contraire l'ID distant du média, immuable
+    lorsqu'il est fourni par l'API. Le rapprochement USB/cloud reste une
+    opération séparée, tolérante sur l'instant.
 
-    Une caméra ne peut pas commencer deux enregistrements dans la même seconde :
-    le couple caméra + instant est donc une identité fiable."""
+    Faute de ``device_id`` dans les objets USB de blinkpy 0.25, leur nom API
+    original est le repli documenté ; un renommage de caméra USB ne peut donc
+    pas être reconnu avec certitude."""
     created = clip_datetime_utc(clip).isoformat()
-    return f"{sync.sync_id}:{safe_name(clip.name)}:{created}"
+    camera = _identifiant_camera(clip) or f"name:{str(clip.name).casefold()}"
+    identite = json.dumps(
+        [
+            source,
+            str(getattr(sync, "sync_id", "")),
+            _identifiant_reseau(clip, sync),
+            camera,
+            created,
+            str(getattr(clip, "id", "")) if source == "cloud" else "",
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return "v2:" + hashlib.sha256(identite.encode("utf-8")).hexdigest()
 
 
 def remember_download(state: dict, sync, hub_name: str, clip, output: Path,
@@ -557,17 +838,245 @@ def remember_download(state: dict, sync, hub_name: str, clip, output: Path,
     dans le cloud, une autre sur la clé du module, et une Blink Mini n'écrit
     jamais sur la clé. L'interface le montre par caméra, ce qui évite de
     chercher pourquoi telle caméra ne produit rien."""
-    state["clips"][state_key(sync, clip)] = {
+    _invalider_index_registre(state)
+    state["version"] = 2
+    state.setdefault("clips", {})[state_key(sync, clip, source)] = {
         "hub": hub_name,
         "camera": clip.name,
         "created_at": clip_datetime_utc(clip).isoformat(),
         "path": target.relative_to(output).as_posix(),
         "bytes": target.stat().st_size,
         "source": source,
+        "network_id": _identifiant_reseau(clip, sync),
+        "device_id": _identifiant_camera(clip),
+        "remote_id": str(getattr(clip, "id", "")),
+        "sync_id": str(getattr(sync, "sync_id", "")),
+        "camera_identity": (
+            f"device:{_identifiant_camera(clip)}" if _identifiant_camera(clip)
+            else f"name:{str(clip.name).casefold()}"
+        ),
     }
+    entree = state["clips"][state_key(sync, clip, source)]
+    empreinte = json.dumps(
+        [entree["network_id"], entree["camera_identity"], entree["created_at"]],
+        ensure_ascii=False, separators=(",", ":"),
+    )
+    entree["correlation_id"] = hashlib.sha256(empreinte.encode("utf-8")).hexdigest()
 
 
-def is_downloaded(state: dict, sync, clip, target: Path) -> bool:
+def _chemin_entree(output: Path, entry: dict, *, index=None,
+                   cle: str | None = None) -> Path | None:
+    """Résout un média du registre uniquement à l'intérieur de ``output``."""
+    brut = entry.get("path")
+    if not isinstance(brut, str) or not brut.strip():
+        return None
+    cache_cle = (cle, os.fspath(output))
+    if index is not None and cle is not None:
+        memorise = index.chemins.get(cache_cle)
+        if memorise is not None and memorise[0] == brut:
+            return memorise[1]
+    relatif = Path(brut)
+    if relatif.is_absolute() or ".." in relatif.parts:
+        return None
+    if index is None:
+        racine = output.resolve()
+    else:
+        racine = index.racines.get(os.fspath(output))
+        if racine is None:
+            racine = output.resolve()
+            index.racines[os.fspath(output)] = racine
+    chemin = (racine / relatif).resolve()
+    try:
+        chemin.relative_to(racine)
+    except ValueError:
+        return None
+    if index is not None and cle is not None:
+        index.chemins[cache_cle] = (brut, chemin)
+    return chemin
+
+
+class _IndexRegistre:
+    """Vue temporelle éphémère d'un registre, jamais incluse dans son JSON."""
+
+    def __init__(self, state: dict):
+        self.state = state
+        self.clips = state.get("clips")
+        self.taille = len(self.clips) if isinstance(self.clips, dict) else 0
+        self.valides = []
+        self.racines = {}
+        self.chemins = {}
+        self.fichiers = {}
+        temporels = []
+        tombstones = []
+        for position, (cle, entry) in enumerate((self.clips or {}).items()):
+            if not isinstance(cle, str) or not isinstance(entry, dict):
+                continue
+            if not entry.get("created_at"):
+                continue
+            try:
+                connu = _ClipConnu(entry)
+                instant = clip_datetime_utc(connu)
+            except (TypeError, ValueError):
+                continue
+            self.valides.append((cle, entry, connu, position))
+            element = (instant, position, cle, entry, connu)
+            temporels.append(element)
+            if entry.get("excluded"):
+                tombstones.append(element)
+        self.temporels = sorted(temporels)
+        self.instants = [element[0] for element in self.temporels]
+        self.tombstones = sorted(tombstones)
+        self.instants_tombstones = [element[0] for element in self.tombstones]
+
+
+_CACHE_INDEX_REGISTRE = None
+
+
+def _invalider_index_registre(state: dict) -> None:
+    """Oublie la vue éphémère avant toute mutation interne du registre."""
+    global _CACHE_INDEX_REGISTRE
+    if (
+        _CACHE_INDEX_REGISTRE is not None
+        and _CACHE_INDEX_REGISTRE.state is state
+    ):
+        _CACHE_INDEX_REGISTRE = None
+
+
+def _index_registre(state: dict) -> _IndexRegistre:
+    """Réutilise un unique index hors JSON pour les recherches successives."""
+    global _CACHE_INDEX_REGISTRE
+    clips = state.get("clips")
+    taille = len(clips) if isinstance(clips, dict) else 0
+    if (
+        _CACHE_INDEX_REGISTRE is None
+        or _CACHE_INDEX_REGISTRE.state is not state
+        or _CACHE_INDEX_REGISTRE.clips is not clips
+        or _CACHE_INDEX_REGISTRE.taille != taille
+    ):
+        _CACHE_INDEX_REGISTRE = _IndexRegistre(state)
+    return _CACHE_INDEX_REGISTRE
+
+
+def _trouver_entree(state: dict, sync, clip,
+                    consumed: set[str] | None = None,
+                    index: _IndexRegistre | None = None,
+                    source: str = "usb",
+                    ) -> tuple[str | None, dict | None]:
+    """Trouve au plus une entrée corrélée, avec priorité aux tombstones."""
+    cle_exacte = state_key(sync, clip, source)
+    entry = None if cle_exacte in (consumed or ()) else state["clips"].get(cle_exacte)
+    if isinstance(entry, dict) and entry.get("excluded"):
+        return cle_exacte, entry
+
+    index = index or _index_registre(state)
+    instant = clip_datetime_utc(clip)
+    marge = dt.timedelta(seconds=2)
+    # Avec une clé exacte ordinaire, seule une ancienne tombstone peut avoir
+    # priorité. Ne pas rescanner les médias ordinaires préserve le chemin rapide.
+    if isinstance(entry, dict):
+        temporels = index.tombstones
+        instants = index.instants_tombstones
+    else:
+        temporels = index.temporels
+        instants = index.instants
+    debut = bisect.bisect_left(instants, instant - marge)
+    fin = bisect.bisect_right(instants, instant + marge)
+    meilleur = None
+    for indice in range(debut, fin):
+        instant_connu, position, cle, candidat, connu = temporels[indice]
+        if cle in (consumed or ()):
+            continue
+        ecart = abs((instant_connu - instant).total_seconds())
+        if _meme_camera(connu, clip, sync_droite=sync):
+            classement = (
+                not bool(candidat.get("excluded")),
+                cle != cle_exacte,
+                ecart,
+                position,
+            )
+            if meilleur is None or classement < meilleur[0]:
+                meilleur = (classement, cle, candidat)
+    if meilleur is None:
+        return (cle_exacte, entry) if isinstance(entry, dict) else (None, None)
+    return meilleur[1], meilleur[2]
+
+
+def _apparier_registre(state: dict, sync, clips: list,
+                       index: _IndexRegistre | None = None) -> dict:
+    """Associe en lot chaque clip USB à au plus une entrée du registre."""
+    index = index or _index_registre(state)
+    correspondances = {}
+    cles_prises = set()
+    clips_pris = set()
+
+    # Une exclusion est une décision utilisateur absolue, même si une entrée
+    # ordinaire possède par ailleurs une clé de source exacte pour le clip.
+    tombstones = [
+        (cle, entry, connu)
+        for cle, entry, connu, _ in index.valides
+        if entry.get("excluded")
+    ]
+    if tombstones:
+        paires_exclues = _apparier_evenements(
+            [element[2] for element in tombstones],
+            clips,
+            2,
+            compatibles=lambda connu, clip: _meme_camera(
+                connu, clip, sync_droite=sync,
+            ),
+        )
+        for indice_entree, indice_clip in paires_exclues:
+            cle, entry, _ = tombstones[indice_entree]
+            correspondances[indice_clip] = (cle, entry)
+            cles_prises.add(cle)
+            clips_pris.add(indice_clip)
+
+    # Pour le reste, une identité de source exacte est plus forte qu'une
+    # corrélation tolérante.
+    for indice_clip, clip in enumerate(clips):
+        if indice_clip in clips_pris:
+            continue
+        cle = state_key(sync, clip)
+        entry = state.get("clips", {}).get(cle)
+        if (
+            isinstance(entry, dict)
+            and not entry.get("excluded")
+            and cle not in cles_prises
+        ):
+            correspondances[indice_clip] = (cle, entry)
+            cles_prises.add(cle)
+            clips_pris.add(indice_clip)
+
+    restants = [indice for indice in range(len(clips)) if indice not in clips_pris]
+
+    entrees = [
+        (cle, entry, connu)
+        for cle, entry, connu, _ in index.valides
+        if cle not in cles_prises and not entry.get("excluded")
+    ]
+    if not entrees or not restants:
+        return correspondances
+
+    connus = [element[2] for element in entrees]
+    clips_restants = [clips[indice] for indice in restants]
+    paires = _apparier_evenements(
+        connus,
+        clips_restants,
+        2,
+        compatibles=lambda connu, clip: _meme_camera(
+            connu, clip, sync_droite=sync,
+        ),
+    )
+    for indice_entree, indice_restant in paires:
+        cle, entry, _ = entrees[indice_entree]
+        correspondances[restants[indice_restant]] = (cle, entry)
+    return correspondances
+
+
+def is_downloaded(state: dict, sync, clip, target: Path,
+                  consumed: set[str] | None = None,
+                  index: _IndexRegistre | None = None,
+                  source: str = "usb") -> bool:
     """Un clip est acquis si le registre et le fichier non vide sont présents.
 
     Exception : un clip marqué « exclu » compte comme acquis même sans fichier.
@@ -576,14 +1085,46 @@ def is_downloaded(state: dict, sync, clip, target: Path) -> bool:
     fichier ne ferait que provoquer un nouveau téléchargement. Même principe
     que le fichier d'archive de yt-dlp (--download-archive, hérité de
     youtube-dl) : on retient l'identifiant, pas la présence du média."""
-    entry = state["clips"].get(state_key(sync, clip))
-    if isinstance(entry, dict) and entry.get("excluded"):
-        return True
-    return (
-        entry is not None
-        and target.exists()
-        and target.stat().st_size > 0
+    index = index or _index_registre(state)
+    cle_entree, entry = _trouver_entree(
+        state, sync, clip, consumed, index, source,
     )
+    if isinstance(entry, dict) and entry.get("excluded"):
+        acquis = True
+    elif not isinstance(entry, dict):
+        acquis = False
+    else:
+        chemin = _chemin_entree(
+            target.parents[2], entry, index=index, cle=cle_entree,
+        )
+        empreinte_fichier = None
+        if chemin is not None:
+            try:
+                stat = chemin.stat()
+                empreinte_fichier = (
+                    os.fspath(chemin), stat.st_size, stat.st_mtime_ns,
+                    entry.get("bytes"),
+                )
+            except OSError:
+                stat = None
+        else:
+            stat = None
+        memorise = index.fichiers.get(cle_entree)
+        if memorise is not None and memorise[0] == empreinte_fichier:
+            acquis = memorise[1]
+        elif stat is None or not stat_module.S_ISREG(stat.st_mode):
+            acquis = False
+        else:
+            taille = stat.st_size
+            annoncee = entry.get("bytes")
+            acquis = taille > 0 and (
+                not isinstance(annoncee, int) or annoncee <= 0 or taille == annoncee
+            )
+        if cle_entree is not None:
+            index.fichiers[cle_entree] = (empreinte_fichier, acquis)
+    if acquis and consumed is not None:
+        consumed.add(cle_entree)
+    return acquis
 
 
 def print_clip_summary(clips: list) -> None:
@@ -691,8 +1232,7 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
     que ceux de la clé, puisqu'un clip reste un clip."""
     clips = await read_cloud_manifest(blink, args.since)
     if args.camera:
-        clips = [c for c in clips
-                 if safe_name(c.name).casefold() == safe_name(args.camera).casefold()]
+        clips = [c for c in clips if c.name.casefold() == args.camera.casefold()]
     if not clips:
         return CloudResult()
 
@@ -702,25 +1242,50 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
     # alors que le registre garde la trace de tout ce qui a été rapatrié.
     output = args.output.resolve()
     state = load_download_state(output)
-    connus = [_ClipConnu(entree) for entree in state["clips"].values()]
+    connus = [
+        _ClipConnu(entree)
+        for entree in state["clips"].values()
+        if _entree_acquise(output, entree)
+    ]
+    tombstones = [
+        _ClipConnu(entree)
+        for entree in state["clips"].values()
+        if isinstance(entree, dict) and entree.get("excluded")
+    ]
+    sans_tombstone = (
+        rapprocher(tombstones, clips)[0] if tombstones else list(clips)
+    )
+    # `sans_tombstone` contient les clips sans exclusion ; une décision explicite
+    # reste donc prioritaire même lors d'un retéléchargement forcé.
+    clips_autorises = sans_tombstone
+    ignores_exclus = len(clips) - len(clips_autorises)
     if args.overwrite:
-        inedits, doublons = clips, []
+        inedits, doublons = clips_autorises, []
     else:
-        inedits, doublons = rapprocher(connus, clips)
+        inedits, doublons = rapprocher(connus, clips_autorises)
     print(f"  {len(clips)} clip(s) dans le cloud, {len(doublons)} déjà acquis "
           f"par ailleurs, {len(inedits)} à rapatrier.")
     if args.command != "download" or not inedits:
-        return CloudResult(skipped=len(doublons))
+        return CloudResult(skipped=len(doublons) + ignores_exclus)
 
     # Le registre attend un module pour former l'identité. Le cloud n'en
     # dépend pas : à défaut, le réseau du clip en tient lieu, ce qui suffit,
     # l'identité réelle restant la caméra et l'instant.
-    sync = next((s for _, s in modules), None) or _HubCloud(clips[0].network_id)
     downloaded = adopted = failed = 0
     for position, clip in enumerate(sorted(inedits, key=clip_datetime_utc), start=1):
-        target = target_path(output, clip)
+        sync = _HubCloud(clip.network_id)
+        target = target_path(output, clip, sync=sync, source="cloud")
         print(f"  [{position}/{len(inedits)}] {target.name}")
-        if target.exists() and target.stat().st_size > 0 and not args.overwrite:
+        _, entree_connue = _trouver_entree(
+            state, sync, clip, source="cloud",
+        )
+        if (
+            entree_connue is None
+            and target.exists()
+            and target.is_file()
+            and target.stat().st_size > 0
+            and not args.overwrite
+        ):
             remember_download(state, sync, args.hub or "cloud", clip, output,
                               target, source="cloud")
             save_download_state(output, state)
@@ -754,7 +1319,7 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
     resultat = CloudResult(
         downloaded=downloaded,
         adopted=adopted,
-        skipped=len(doublons),
+        skipped=len(doublons) + ignores_exclus,
         failed=failed,
     )
     print(
@@ -770,6 +1335,7 @@ class _HubCloud:
 
     def __init__(self, network_id):
         self.sync_id = network_id or "cloud"
+        self.network_id = network_id or ""
 
 
 class _ClipConnu:
@@ -778,7 +1344,25 @@ class _ClipConnu:
     def __init__(self, entree: dict):
         self.name = entree.get("camera") or "camera"
         self.created_at = dt.datetime.fromisoformat(entree["created_at"])
-        self.id = 0
+        self.id = entree.get("remote_id") or 0
+        self.device_id = entree.get("device_id") or ""
+        self.network_id = entree.get("network_id") or ""
+
+
+def _entree_acquise(output: Path, entree: dict) -> bool:
+    """Une tombstone reste connue ; un média ordinaire doit exister et être entier."""
+    if not isinstance(entree, dict):
+        return False
+    if entree.get("excluded"):
+        return True
+    chemin = _chemin_entree(output, entree)
+    if chemin is None or not chemin.is_file():
+        return False
+    taille = chemin.stat().st_size
+    annoncee = entree.get("bytes")
+    return taille > 0 and (
+        not isinstance(annoncee, int) or annoncee <= 0 or taille == annoncee
+    )
 
 
 async def main(args: argparse.Namespace) -> int:
@@ -864,11 +1448,30 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
         state = load_download_state(output)
         pending = []
         adopted = 0
-        for clip in clips:
-            target = target_path(output, clip)
-            if is_downloaded(state, sync, clip, target) and not args.overwrite:
+        index_registre = _index_registre(state)
+        correspondances = _apparier_registre(
+            state, sync, clips, index_registre,
+        )
+        for indice_clip, clip in enumerate(clips):
+            target = target_path(output, clip, sync=sync, source="usb")
+            _, entree_connue = correspondances.get(
+                indice_clip, (None, None),
+            )
+            if isinstance(entree_connue, dict) and entree_connue.get("excluded"):
                 continue
-            if target.exists() and target.stat().st_size > 0 and not args.overwrite:
+            if (
+                isinstance(entree_connue, dict)
+                and _entree_acquise(output, entree_connue)
+                and not args.overwrite
+            ):
+                continue
+            if (
+                entree_connue is None
+                and target.exists()
+                and target.is_file()
+                and target.stat().st_size > 0
+                and not args.overwrite
+            ):
                 remember_download(state, sync, name, clip, output, target)
                 adopted += 1
                 continue
@@ -885,7 +1488,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
 
         downloaded = skipped = failed = 0
         for position, clip in enumerate(pending, start=1):
-            target = target_path(output, clip)
+            target = target_path(output, clip, sync=sync, source="usb")
             print(f"  [{position}/{len(pending)}] {target.name}")
             runtime.travail("Téléchargement des clips", position - 1, len(pending))
             try:

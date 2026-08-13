@@ -1,0 +1,176 @@
+{
+  "schema_version": 2,
+  "kind": "blink2video-stage0-baseline",
+  "validity": "partial",
+  "metadata": {
+    "captured_at": "2026-08-13T19:02:34+02:00",
+    "run_id": "20260813T170234.187443Z",
+    "seed": 20260813,
+    "profile": "quick",
+    "reference_revision_requested": "58f5566",
+    "reference_revision_resolved": "58f55660cf535d72e9a303b339df832e9ce437d5",
+    "executed_head": "4f678178579a3e146cff2d7f16c1f6fba487eed2",
+    "executed_branch": "audit-remediation",
+    "executed_tracked_worktree_dirty": true,
+    "executed_production_sha256": {
+      "blink2video.py": "58e6d55148d8219013972fac1297f418d7c52f4797ddf24b174a05e904e77030",
+      "runtime.py": "1bd4f66352977810c18d7614793e23800b70276e054b84df2547e8ce825aee8e",
+      "serve.py": "748473298d85b951523d9b5b47246d9a61e43d1c26ac2e7d2481698abeb9574e",
+      "merge_daily.py": "6c054640f0df8f8fee7dfa733378a15044e4d683243dc23731ccd359f271bc80"
+    },
+    "python": "3.12.0 (tags/v3.12.0:0fb18b0, Oct  2 2023, 13:03:39) [MSC v.1935 64 bit (AMD64)]",
+    "implementation": "CPython",
+    "os": "Windows-10-10.0.19045-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 10, GenuineIntel",
+    "logical_cpu": 4,
+    "physical_memory_bytes": 8425529344,
+    "workspace_disk_free_bytes": 26224283648,
+    "power_plan": "GUID du mode de gestion de l’alimentation : 381b4222-f694-41f0-9685-ff5bb260df2e  (Utilisation normale)",
+    "dependencies": {
+      "aiohttp": "3.14.3",
+      "blinkpy": "0.25.9",
+      "tzdata": "2025.3",
+      "psutil": "7.0.0"
+    }
+  },
+  "protocol": {
+    "warmups": 3,
+    "short_runs": 20,
+    "heavy_runs": 5,
+    "process_warmups": 3,
+    "process_runs": 20,
+    "P01_cooldown_s": 0.25,
+    "clock": "time.perf_counter_ns",
+    "median_ci": "bootstrap 95%, 2000 resamples",
+    "internet": "disabled; loopback only"
+  },
+  "safety_notes": [
+    "P-07 est borné à 8 Mio : le flux 1 Gio est réservé au profil full; la capacité mémoire et disque doit être contrôlée avant ce profil.",
+    "P-02 à P-05 utilisent les volumes quick consignés dans chaque scénario; aucune extrapolation vers 100 000 entrées n'est revendiquée."
+  ],
+  "benchmarks": {
+    "P-01": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-02": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-03": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-04": {
+      "status": "measured",
+      "mode": "real_state_and_files",
+      "scenarios": {
+        "1000": {
+          "duration_ms": {
+            "n": 20,
+            "min": 78.7582,
+            "median": 82.81045,
+            "p95": 87.2417,
+            "max": 87.572,
+            "mean": 82.63918,
+            "stdev": 2.3348514787026606,
+            "cv_percent": 2.8253565423842066,
+            "median_ci95": [
+              81.1111,
+              83.60445
+            ],
+            "samples": [
+              83.5232,
+              85.3061,
+              80.9492,
+              79.5088,
+              83.1403,
+              87.572,
+              80.5888,
+              82.8574,
+              83.6857,
+              78.7582,
+              82.7635,
+              83.1656,
+              87.2417,
+              82.2067,
+              84.2087,
+              81.273,
+              79.6314,
+              82.5861,
+              83.8294,
+              79.9878
+            ]
+          },
+          "checks": 1000,
+          "reindexed": 100,
+          "excluded": 100,
+          "errors": 0,
+          "correctness": true
+        }
+      }
+    },
+    "P-05": {
+      "status": "measured",
+      "mode": "real_matching_synthetic_dataset",
+      "scenarios": {
+        "5000x500": {
+          "duration_ms": {
+            "n": 5,
+            "min": 4.152,
+            "median": 5.7737,
+            "p95": 7.3751,
+            "max": 7.3751,
+            "mean": 5.82314,
+            "stdev": 1.316162957387876,
+            "cv_percent": 22.602289441570626,
+            "median_ci95": [
+              4.152,
+              7.3751
+            ],
+            "samples": [
+              5.7737,
+              7.3751,
+              7.2196,
+              4.5953,
+              4.152
+            ]
+          },
+          "python_heap_peak_bytes": 591276,
+          "expected_duplicates": 250,
+          "observed_duplicates": 250,
+          "observed_new": 250,
+          "correctness": true
+        }
+      }
+    },
+    "P-06": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-07": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-08": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-09": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-10": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-11": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-12": {
+      "status": "not_run",
+      "mode": "excluded_or_requires_p01"
+    }
+  }
+}
