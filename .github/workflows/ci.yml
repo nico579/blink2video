@@ -20,6 +20,34 @@ on:
   workflow_dispatch:
 
 jobs:
+  caracterisation:
+    name: caractérisation ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Installer les dépendances minimales
+        run: python -m pip install --quiet aiohttp blinkpy
+
+      # Les anomalies confirmées sont des expectedFailure nommés par leur ID
+      # d'audit. Un correctif qui passe sans retirer ce marqueur devient un
+      # unexpected success : unittest échoue alors jusqu'à la mise à jour du
+      # test et du journal, ce qui empêche de cacher une correction.
+      - name: Tests isolés de caractérisation blink2video
+        env:
+          BLINK_BOOTSTRAP: none
+        run: python -B -m unittest -v test_blink2video_audit.py
+
   tester:
     name: chaîne vidéo ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

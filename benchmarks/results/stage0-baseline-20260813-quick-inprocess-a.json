@@ -1,0 +1,509 @@
+{
+  "schema_version": 1,
+  "kind": "blink2video-stage0-baseline",
+  "validity": "provisional",
+  "validity_note": "Campagne interne correcte à conserver, mais non qualifiante : la stabilité inter-campagnes inférieure à 10 % n'a pas été atteinte.",
+  "metadata": {
+    "captured_at": "2026-08-13T17:00:51+02:00",
+    "seed": 20260813,
+    "profile": "quick",
+    "baseline_revision_requested": "58f5566",
+    "baseline_revision_resolved": "58f55660cf535d72e9a303b339df832e9ce437d5",
+    "head": "4f23039b03d5817d073b78bc767278eb2eaedf10",
+    "branch": "audit-remediation",
+    "tracked_dirty": true,
+    "production_sha256": {
+      "blink2video.py": "a18a7dadf507dacda24af00018f52157f240eca924d741acc512ec3b1cdfe908",
+      "runtime.py": "7321165809ed09a8ea10d41a33163a8449da0c0896d204aa93cf49c53dfc3e93",
+      "serve.py": "0947dc4366c1c5c9fe8ac7ad76297bd806f081d77cd0d5a5ac2e5bf2fbf399ef",
+      "merge_daily.py": "6c054640f0df8f8fee7dfa733378a15044e4d683243dc23731ccd359f271bc80"
+    },
+    "python": "3.12.0 (tags/v3.12.0:0fb18b0, Oct  2 2023, 13:03:39) [MSC v.1935 64 bit (AMD64)]",
+    "implementation": "CPython",
+    "os": "Windows-10-10.0.19045-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 10, GenuineIntel",
+    "logical_cpu": 4,
+    "physical_memory_bytes": 8425529344,
+    "power_plan": "GUID du mode de gestion de l’alimentation : 381b4222-f694-41f0-9685-ff5bb260df2e  (Utilisation normale)",
+    "dependencies": {
+      "aiohttp": "3.14.3",
+      "blinkpy": "0.25.9",
+      "tzdata": "2025.3",
+      "psutil": "7.0.0"
+    }
+  },
+  "protocol": {
+    "warmups": 3,
+    "short_runs": 20,
+    "heavy_runs": 5,
+    "process_warmups": 3,
+    "process_runs": 20,
+    "clock": "time.perf_counter_ns",
+    "median_ci": "bootstrap 95%, 2000 resamples",
+    "internet": "disabled; loopback only"
+  },
+  "safety_notes": [
+    "P-07 est borné à 8 Mio : le flux 1 Gio est réservé au profil full; la machine de référence ne disposait que d'environ 3,4 Gio libres.",
+    "P-02 à P-05 utilisent les volumes quick consignés dans chaque scénario; aucune extrapolation vers 100 000 entrées n'est revendiquée."
+  ],
+  "benchmarks": {
+    "P-01": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-02": {
+      "status": "measured",
+      "mode": "real_json_io",
+      "scenarios": {
+        "100": {
+          "duration_ms": {
+            "n": 5,
+            "min": 2.3442,
+            "median": 3.4154,
+            "p95": 6.2461,
+            "max": 6.2461,
+            "mean": 3.97958,
+            "stdev": 1.325717469749871,
+            "cv_percent": 33.31299960673918,
+            "median_ci95": [
+              2.3442,
+              6.2461
+            ],
+            "samples": [
+              3.3736,
+              2.3442,
+              3.4154,
+              6.2461,
+              4.5186
+            ]
+          },
+          "stored_bytes": 23229,
+          "entries": 100,
+          "correctness": true
+        },
+        "1000": {
+          "duration_ms": {
+            "n": 5,
+            "min": 15.1456,
+            "median": 17.4347,
+            "p95": 17.8608,
+            "max": 17.8608,
+            "mean": 16.87548,
+            "stdev": 0.9762523472955139,
+            "cv_percent": 5.78503454299086,
+            "median_ci95": [
+              15.1456,
+              17.8608
+            ],
+            "samples": [
+              15.1456,
+              17.454,
+              17.4347,
+              16.4823,
+              17.8608
+            ]
+          },
+          "stored_bytes": 232929,
+          "entries": 1000,
+          "correctness": true
+        },
+        "5000": {
+          "duration_ms": {
+            "n": 5,
+            "min": 106.2047,
+            "median": 315.4097,
+            "p95": 497.8926,
+            "max": 497.8926,
+            "mean": 288.25814,
+            "stdev": 141.99463675596485,
+            "cv_percent": 49.25954103359053,
+            "median_ci95": [
+              106.2047,
+              497.8926
+            ],
+            "samples": [
+              364.5434,
+              497.8926,
+              315.4097,
+              157.2403,
+              106.2047
+            ]
+          },
+          "stored_bytes": 1168929,
+          "entries": 5000,
+          "correctness": true
+        }
+      }
+    },
+    "P-03": {
+      "status": "measured",
+      "mode": "real_json_io",
+      "scenarios": {
+        "5000": {
+          "duration_ms": {
+            "n": 20,
+            "min": 109.1364,
+            "median": 140.29605,
+            "p95": 255.2073,
+            "max": 274.2146,
+            "mean": 157.3268,
+            "stdev": 48.157016055108734,
+            "cv_percent": 30.60954399066703,
+            "median_ci95": [
+              123.41319999999999,
+              162.00315
+            ],
+            "samples": [
+              171.1085,
+              116.7864,
+              117.6551,
+              153.5066,
+              218.61,
+              170.4997,
+              140.3154,
+              122.5312,
+              119.7615,
+              124.2952,
+              131.5513,
+              255.2073,
+              237.1652,
+              274.2146,
+              137.8608,
+              143.5295,
+              141.402,
+              109.1364,
+              140.2767,
+              121.1226
+            ]
+          },
+          "bytes_rewritten_per_update": 1168954,
+          "correctness": true
+        }
+      }
+    },
+    "P-04": {
+      "status": "measured",
+      "mode": "real_state_and_files",
+      "scenarios": {
+        "1000": {
+          "duration_ms": {
+            "n": 20,
+            "min": 82.4442,
+            "median": 87.8113,
+            "p95": 126.247,
+            "max": 152.0403,
+            "mean": 94.408725,
+            "stdev": 16.502008008659885,
+            "cv_percent": 17.47932514570013,
+            "median_ci95": [
+              85.4514,
+              95.751
+            ],
+            "samples": [
+              152.0403,
+              126.247,
+              90.1642,
+              84.1152,
+              87.0937,
+              82.4474,
+              82.4442,
+              86.7876,
+              83.8373,
+              88.4834,
+              87.1392,
+              99.9138,
+              83.9748,
+              83.9204,
+              87.0339,
+              91.6257,
+              98.7946,
+              99.3343,
+              100.0701,
+              92.7074
+            ]
+          },
+          "checks": 1000,
+          "reindexed": 100,
+          "excluded": 100,
+          "errors": 100,
+          "correctness": false
+        }
+      }
+    },
+    "P-05": {
+      "status": "measured",
+      "mode": "real_matching_synthetic_dataset",
+      "scenarios": {
+        "5000x500": {
+          "duration_ms": {
+            "n": 5,
+            "min": 35.5693,
+            "median": 45.0685,
+            "p95": 58.8919,
+            "max": 58.8919,
+            "mean": 46.27096,
+            "stdev": 7.476430543942745,
+            "cv_percent": 16.15793262975902,
+            "median_ci95": [
+              35.5693,
+              58.8919
+            ],
+            "samples": [
+              58.8919,
+              35.5693,
+              44.5039,
+              45.0685,
+              47.3212
+            ]
+          },
+          "python_heap_peak_bytes": 48096,
+          "expected_duplicates": 250,
+          "observed_duplicates": 250,
+          "observed_new": 250,
+          "correctness": true
+        }
+      }
+    },
+    "P-06": {
+      "status": "measured",
+      "mode": "real_parser_fake_blink_no_network",
+      "scenarios": {
+        "600_clips": {
+          "duration_ms": {
+            "n": 5,
+            "min": 1.4227,
+            "median": 2.1865,
+            "p95": 2.3526,
+            "max": 2.3526,
+            "mean": 2.01434,
+            "stdev": 0.34721219218224464,
+            "cv_percent": 17.237020174461346,
+            "median_ci95": [
+              1.4227,
+              2.3526
+            ],
+            "samples": [
+              2.3526,
+              2.1865,
+              1.4227,
+              2.2845,
+              1.8254
+            ]
+          },
+          "clips": 600,
+          "api_calls_per_scan": 1,
+          "requested_stop": 20,
+          "correctness": true,
+          "target_paginate_until_empty": false
+        }
+      }
+    },
+    "P-07": {
+      "status": "measured",
+      "mode": "real_loopback_http",
+      "scenarios": {
+        "1048576": {
+          "duration_ms": {
+            "n": 5,
+            "min": 5.7089,
+            "median": 7.4384,
+            "p95": 8.9059,
+            "max": 8.9059,
+            "mean": 7.325880000000001,
+            "stdev": 1.0366702762209403,
+            "cv_percent": 14.150795211236606,
+            "median_ci95": [
+              5.7089,
+              8.9059
+            ],
+            "samples": [
+              5.7089,
+              7.6394,
+              8.9059,
+              6.9368,
+              7.4384
+            ]
+          },
+          "throughput_mib_s": 134.43751344375136,
+          "python_heap_peak_bytes": 2195509,
+          "stored_bytes": 1048576,
+          "correctness": true,
+          "implementation_observed": "response.read_then_write_bytes"
+        },
+        "8388608": {
+          "duration_ms": {
+            "n": 5,
+            "min": 29.3059,
+            "median": 33.5582,
+            "p95": 34.6034,
+            "max": 34.6034,
+            "mean": 32.53854,
+            "stdev": 2.0694175495534974,
+            "cv_percent": 6.359896754905099,
+            "median_ci95": [
+              29.3059,
+              34.6034
+            ],
+            "samples": [
+              34.2931,
+              34.6034,
+              29.3059,
+              30.9321,
+              33.5582
+            ]
+          },
+          "throughput_mib_s": 238.39180885744767,
+          "python_heap_peak_bytes": 16881701,
+          "stored_bytes": 8388608,
+          "correctness": true,
+          "implementation_observed": "response.read_then_write_bytes"
+        }
+      }
+    },
+    "P-08": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-09": {
+      "status": "measured",
+      "mode": "real_orchestrator_fake_io",
+      "scenarios": {
+        "two_hubs_plus_cloud": {
+          "duration_ms": {
+            "n": 20,
+            "min": 87.939,
+            "median": 94.3954,
+            "p95": 107.4616,
+            "max": 109.3127,
+            "mean": 96.0173,
+            "stdev": 5.486413927056544,
+            "cv_percent": 5.713984799673125,
+            "median_ci95": [
+              93.4354,
+              95.83840000000001
+            ],
+            "samples": [
+              92.5793,
+              109.3127,
+              97.7371,
+              107.4616,
+              93.9068,
+              96.377,
+              90.1577,
+              94.6211,
+              94.1308,
+              93.4354,
+              94.5639,
+              94.3863,
+              92.6564,
+              107.1822,
+              87.939,
+              95.2998,
+              92.6278,
+              94.4045,
+              97.7465,
+              93.8201
+            ]
+          },
+          "fake_operation_delay_ms": 20.0,
+          "sequential_floor_ms": 60.0,
+          "parallel_target_ms": 20.0,
+          "return_code": 0,
+          "correctness": true,
+          "target_distinct_sources_overlap": false
+        }
+      }
+    },
+    "P-10": {
+      "status": "measured",
+      "mode": "real_file_io_fake_tokens",
+      "scenarios": {
+        "serial_refresh": {
+          "duration_ms": {
+            "n": 20,
+            "min": 0.7008,
+            "median": 0.8518,
+            "p95": 1.5823,
+            "max": 2.2774,
+            "mean": 0.96663,
+            "stdev": 0.3706359670890023,
+            "cv_percent": 38.343106161509816,
+            "median_ci95": [
+              0.7201500000000001,
+              0.9900499999999999
+            ],
+            "samples": [
+              1.1584,
+              0.9,
+              0.8549,
+              1.0815,
+              1.1631,
+              1.0331,
+              0.947,
+              0.8487,
+              0.9246,
+              0.7659,
+              0.8364,
+              0.7128,
+              0.7025,
+              0.7008,
+              0.7059,
+              0.7275,
+              0.7048,
+              0.705,
+              1.5823,
+              2.2774
+            ]
+          },
+          "correctness": true
+        },
+        "8_concurrent_writers": {
+          "duration_ms": {
+            "n": 5,
+            "min": 4.5579,
+            "median": 5.2788,
+            "p95": 11.1124,
+            "max": 11.1124,
+            "mean": 6.5155199999999995,
+            "stdev": 2.443911266310624,
+            "cv_percent": 37.50907473709887,
+            "median_ci95": [
+              4.5579,
+              11.1124
+            ],
+            "samples": [
+              6.9067,
+              4.7218,
+              5.2788,
+              11.1124,
+              4.5579
+            ]
+          },
+          "errors_per_run": [
+            0,
+            0,
+            0,
+            1,
+            0
+          ],
+          "valid_final_session": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "correctness": false
+        }
+      }
+    },
+    "P-11": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-12": {
+      "status": "not_run",
+      "mode": "excluded_or_requires_p01"
+    }
+  }
+}

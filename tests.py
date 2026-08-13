@@ -10,25 +10,69 @@ service d'intégration.
 
     python tests.py
 
+Le contrôle visuel d'une notification réelle appartient à ``smoketest.py`` et
+n'est jamais déclenché ici. Avec ``BLINK_TEST_BUNDLE``, tous les parcours de
+ligne de commande (verbes, assemblage, serveur et arrêt) passent par le binaire
+figé.
+
 Aucun effet sur vos données : tout se passe dans un dossier temporaire désigné
-par BLINK_HOME.
+par BLINK_HOME, avec un dossier de travail distinct de la racine de données.
 """
 
+import atexit
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
-import merge_daily as md
-
-
 BASE_DIR = Path(__file__).resolve().parent
 ECHECS = []
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+# Résoudre le chemin du bundle avant de quitter le dossier depuis lequel la
+# suite a été lancée : les workflows lui donnent volontairement un chemin
+# relatif à la racine du dépôt.
+_BUNDLE_RECU = os.environ.get("BLINK_TEST_BUNDLE")
+BUNDLE = str(Path(_BUNDLE_RECU).resolve()) if _BUNDLE_RECU else None
+
+# Certains tests appellent directement des fonctions de runtime.py. Sans cette
+# barrière posée avant leur import, elles écriraient leurs marques de travail et
+# leurs caches dans le vrai dossier applicatif. Le CWD est lui aussi distinct :
+# cela révèle les modules qui ignoreraient BLINK_HOME au profit d'un chemin
+# relatif implicite, sans jamais risquer les données de l'utilisateur.
+_CWD_INITIAL = Path.cwd()
+_BAC_A_SABLE = tempfile.TemporaryDirectory(prefix="blink_suite_")
+_BAC_RACINE = Path(_BAC_A_SABLE.name)
+SUITE_HOME = _BAC_RACINE / "home"
+SUITE_CWD = _BAC_RACINE / "cwd"
+SUITE_HOME.mkdir()
+SUITE_CWD.mkdir()
+os.environ["BLINK_HOME"] = str(SUITE_HOME)
+os.environ["BLINK_BOOTSTRAP"] = "none"
+os.chdir(SUITE_CWD)
+
+
+def _nettoyer_bac_a_sable() -> None:
+    """Restaure le CWD avant d'effacer son dossier, notamment sous Windows."""
+    try:
+        os.chdir(_CWD_INITIAL)
+    except OSError:
+        pass
+    _BAC_A_SABLE.cleanup()
+
+
+atexit.register(_nettoyer_bac_a_sable)
+
+import merge_daily as md  # noqa: E402 - bac à sable installé avant import
+import runtime  # noqa: E402 - bac à sable installé avant import
 
 # La console d'un runner Windows est en cp1252 : sans cela, le premier accent
 # affiché fait échouer les tests eux-mêmes, ce qui laisse croire à un défaut de
@@ -91,23 +135,39 @@ def installation_fictive(racine: Path, ffmpeg: str) -> dict:
     return {"attendus": len(clips), "duree_totale": sum(c[2] for c in clips)}
 
 
-# Chemin résolu : Windows cherche un exécutable relatif dans le répertoire du
-# processus appelant, pas dans celui qu'on donne à l'enfant.
-BUNDLE = os.environ.get("BLINK_TEST_BUNDLE")
-if BUNDLE:
-    BUNDLE = str(Path(BUNDLE).resolve())
+def environnement_test(racine: Path) -> dict:
+    """Environnement hermétique commun à chaque processus enfant."""
+    return dict(
+        os.environ,
+        BLINK_HOME=str(racine.resolve()),
+        BLINK_BOOTSTRAP="none",
+        PYTHONIOENCODING="utf-8",
+    )
+
+
+def commande_blink(*arguments: str) -> list[str]:
+    """Même point d'entrée en sources et dans le bundle à distribuer."""
+    if BUNDLE:
+        return [BUNDLE, *arguments]
+    return [sys.executable, "-u", str(BASE_DIR / "blink2video.py"), *arguments]
+
+
+def port_dynamique() -> int:
+    """Demande au système un port loopback libre, sans numéro partagé en CI."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as prise:
+        prise.bind(("127.0.0.1", 0))
+        return int(prise.getsockname()[1])
 
 
 def lancer(racine: Path, arguments: list) -> subprocess.CompletedProcess:
     # Avec BLINK_TEST_BUNDLE, on éprouve l'exécutable figé plutôt que les
     # sources : mêmes vérifications, mais sur ce qui sera réellement distribué.
-    commande = ([BUNDLE, "merge", *arguments] if BUNDLE
-                else [sys.executable, "-u", str(BASE_DIR / "merge_daily.py"), *arguments])
+    commande = commande_blink("merge", *arguments)
     return subprocess.run(
         commande,
-        cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        cwd=str(SUITE_CWD), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-        env=dict(os.environ, BLINK_HOME=str(racine), PYTHONIOENCODING="utf-8"),
+        env=environnement_test(racine),
         check=False,
     )
 
@@ -188,20 +248,19 @@ def test_verbes() -> None:
     print("\nLes verbes répondent")
     for verbe in runtime.VERBES:
         resultat = subprocess.run(
-            [sys.executable, str(BASE_DIR / "blink2video.py"), "--bootstrap=none",
-             verbe, "--help"],
-            cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            commande_blink(verbe, "--help"),
+            cwd=str(SUITE_CWD), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
-            env=dict(os.environ, PYTHONIOENCODING="utf-8"), check=False,
+            env=environnement_test(SUITE_HOME), check=False,
         )
         verifier(resultat.returncode == 0, f"blink2video {verbe} --help",
                  (resultat.stderr or "").strip()[:160])
 
     sans = subprocess.run(
-        [sys.executable, str(BASE_DIR / "blink2video.py"), "--bootstrap=none"],
-        cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        commande_blink(),
+        cwd=str(SUITE_CWD), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-        env=dict(os.environ, PYTHONIOENCODING="utf-8"), check=False,
+        env=environnement_test(SUITE_HOME), check=False,
     )
     verifier(sans.returncode == 0 and "Verbes :" in sans.stdout,
              "sans argument, l'aide s'affiche", sans.stdout[-200:])
@@ -250,22 +309,38 @@ def test_arret() -> None:
 
     print("\nArrêt d'une instance")
     maison = Path(tempfile.mkdtemp(prefix="blink_stop_"))
-    environnement = dict(os.environ, BLINK_HOME=str(maison),
-                         PYTHONIOENCODING="utf-8")
-    commande = [BUNDLE] if BUNDLE else [sys.executable, "-u", str(BASE_DIR / "blink2video.py")]
+    environnement = environnement_test(maison)
+    port = port_dynamique()
+    marque = f"controle-stop-{os.getpid()}-{time.time_ns()}"
+    md.save_json(maison / "Blink_Clips" / md.DOWNLOAD_STATE, {
+        "version": 1,
+        "clips": {
+            marque: {
+                "hub": "Test",
+                "camera": marque,
+                "created_at": "2026-08-13T12:00:00+00:00",
+                "path": f"{marque}/2026-08/{marque}.mp4",
+                "bytes": 0,
+            },
+        },
+    })
+    donnees = {}
     parent = subprocess.Popen(
-        [*commande, "serve", "--port", "8945", "merge", "--loop", "60"],
-        cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        commande_blink("serve", "--port", str(port), "merge", "--loop", "60"),
+        cwd=str(SUITE_CWD), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL, env=environnement,
     )
     try:
         fiches = maison / runtime.INSTANCES
         for _ in range(60):
             trouvees = sorted(fiches.glob("*.json")) if fiches.is_dir() else []
-            if trouvees:
-                donnees = json.loads(trouvees[0].read_text(encoding="utf-8"))
-                if donnees.get("enfants"):
+            for fiche in trouvees:
+                candidate = json.loads(fiche.read_text(encoding="utf-8"))
+                if candidate.get("enfants"):
+                    donnees = candidate
                     break
+            if donnees.get("enfants"):
+                break
             time.sleep(0.5)
         else:
             verifier(False, "l'instance dépose sa fiche")
@@ -273,10 +348,42 @@ def test_arret() -> None:
         verifier(True, "l'instance dépose sa fiche",
                  f"{len(donnees['enfants'])} enfant(s)")
 
+        enfants = [int(numero) for numero in donnees.get("enfants") or []]
+        vivants_avant = [numero for numero in enfants
+                         if runtime.processus_vivant(numero)]
+        verifier(len(enfants) == 2,
+                 "la composition lance les deux enfants attendus",
+                 f"{len(enfants)} enfant(s), attendu 2")
+        verifier(vivants_avant == enfants,
+                 "tous les enfants attendus vivent avant l'arrêt",
+                 f"vivants {vivants_avant}, attendus {enfants}")
+
+        adresse = f"http://127.0.0.1:{port}"
+        page = attendre(
+            adresse + "/", processus=parent,
+            attendu=lambda corps: (
+                b"blink2video" in corps.lower()
+                and runtime.VERSION.encode("utf-8") in corps
+            ),
+        )
+        verifier(page is not None,
+                 "le serveur de la composition expose la version attendue")
+        inventaire_brut = attendre(
+            adresse + "/api/clips", processus=parent,
+            attendu=lambda corps: marque.encode("utf-8") in corps,
+        )
+        try:
+            inventaire = json.loads(inventaire_brut or b"{}")
+        except json.JSONDecodeError:
+            inventaire = {}
+        verifier(any(clip.get("camera") == marque
+                     for clip in inventaire.get("clips", [])),
+                 "l'endpoint répond depuis le BLINK_HOME attendu")
+
         # « stop --help » doit s'expliquer, pas agir : tant qu'il agissait,
         # test_verbes arrêtait l'instance réelle de la machine à chaque passage,
         # en demandant l'aide de chaque verbe.
-        aide = subprocess.run([*commande, "stop", "--help"], cwd=str(BASE_DIR),
+        aide = subprocess.run(commande_blink("stop", "--help"), cwd=str(SUITE_CWD),
                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                               stderr=subprocess.DEVNULL, env=environnement,
                               check=False)
@@ -284,7 +391,7 @@ def test_arret() -> None:
                  and runtime.processus_vivant(int(donnees["pid"])),
                  "« stop --help » explique sans arrêter")
 
-        arret = subprocess.run([*commande, "stop"], cwd=str(BASE_DIR),
+        arret = subprocess.run(commande_blink("stop"), cwd=str(SUITE_CWD),
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True,
                                encoding="utf-8", errors="replace",
@@ -307,8 +414,15 @@ def test_arret() -> None:
         verifier(not list(fiches.glob("*.json")) if fiches.is_dir() else True,
                  "la fiche est retirée")
     finally:
+        for numero in donnees.get("enfants") or []:
+            if runtime.processus_vivant(int(numero)):
+                runtime.arreter_processus(int(numero), avec_descendance=True)
         if parent.poll() is None:
             parent.kill()
+        try:
+            parent.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
         shutil.rmtree(maison, ignore_errors=True)
 
 
@@ -319,7 +433,8 @@ def test_cadence_cible() -> None:
     invalider les trente-deux segments déjà encodés d'une caméra. La montée doit
     répondre à une vraie différence de cadence, pas à un artefact de mesure."""
     print("\nCadence cible")
-    faux = lambda fps: md.ClipInfo(None, Path("x.mp4"), 1.0, 1920, 1080, fps, False)
+    def faux(fps):
+        return md.ClipInfo(None, Path("x.mp4"), 1.0, 1920, 1080, fps, False)
 
     registre = {"cameras": {}}
     md.camera_target(registre, "jardin", [faux(30.0)])
@@ -343,6 +458,16 @@ def test_relance() -> None:
     import runtime
 
     print("\nRelance sur un autre verbe")
+    if BUNDLE:
+        # Un bundle n'expose naturellement aucun chemin vers ses modules
+        # internes. Sa vraie relance est éprouvée dans test_arret : le binaire
+        # doit y engendrer lui-même serve et merge, dont on vérifie ensuite les
+        # processus et l'endpoint. Inspecter runtime.py ici ne testerait que les
+        # sources qui ont servi à le construire.
+        verifier(Path(BUNDLE).is_file(),
+                 "le point d'entrée du bundle à relancer existe", BUNDLE)
+        return
+
     manquants = []
     for verbe in runtime.VERBES:
         commande = runtime.self_command(verbe)
@@ -354,34 +479,47 @@ def test_relance() -> None:
 
 
 def test_notification() -> None:
-    """La notification part sans exception, et son identité est déclarée.
+    """La notification se construit sans émettre de notification réelle.
 
-    Une notification ne se vérifie pas sans écran, mais tout ce qui l'entoure
-    si : déplacer cette fonction d'un module à l'autre a cassé d'un coup ses
-    appels internes, une constante et une fonction auxiliaire, sans que rien ne
-    proteste. Et sous Windows, une identité non déclarée fait jeter la
-    notification par le système, en silence, avec un code de retour nul."""
+    Son contrôle visuel est explicitement réservé à ``smoketest.py``. Ici, les
+    appels au système sont capturés : un passage automatique ne doit ni afficher
+    un toast, ni écrire l'identité dans le registre Windows."""
     import runtime
 
-    print("\nNotification")
+    print("\nNotification simulée")
+    appels = []
+    declarations = []
+    vrai_lancer = runtime.lancer
+    vraie_declaration = runtime._declarer_identite
+
+    def faux_lancer(commande, **options):
+        appels.append((list(commande), dict(options)))
+        return subprocess.CompletedProcess(commande, 0)
+
+    runtime.lancer = faux_lancer
+    runtime._declarer_identite = lambda: declarations.append(runtime.APP_ID)
     try:
         runtime.toast("blink2video", "Test automatique, aucune action requise.")
-        verifier(True, "la notification part sans exception")
+        verifier(True, "la notification se prépare sans exception")
     except Exception as erreur:
-        verifier(False, "la notification part sans exception",
+        verifier(False, "la notification se prépare sans exception",
                  f"{type(erreur).__name__}: {erreur}")
+    finally:
+        runtime.lancer = vrai_lancer
+        runtime._declarer_identite = vraie_declaration
 
+    verifier(runtime.APP_ID == "blink2video",
+             "l'identité applicative est déclarée dans le code", runtime.APP_ID)
     if sys.platform == "win32":
-        import winreg
-
-        try:
-            chemin = "SOFTWARE" + chr(92) + "Classes" + chr(92) + "AppUserModelId"
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                                chemin + chr(92) + runtime.APP_ID) as cle:
-                nom = winreg.QueryValueEx(cle, "DisplayName")[0]
-            verifier(nom == runtime.APP_ID, "l'identité est déclarée à Windows", nom)
-        except OSError as erreur:
-            verifier(False, "l'identité est déclarée à Windows", str(erreur))
+        verifier(declarations == [runtime.APP_ID],
+                 "la déclaration Windows aurait été demandée une fois",
+                 str(declarations))
+        verifier(len(appels) == 1 and appels[0][0][0].lower() == "powershell",
+                 "la commande de notification Windows est construite une fois",
+                 str(appels))
+    else:
+        verifier(not declarations,
+                 "aucune déclaration Windows n'est tentée sur cette plateforme")
 
 
 def test_avancement() -> None:
@@ -564,32 +702,54 @@ def main() -> int:
         test_horodatage(racine, ffmpeg)
 
         print("\nInterface web")
+        port = port_dynamique()
+        adresse = f"http://127.0.0.1:{port}"
         serveur = subprocess.Popen(
-            [sys.executable, str(BASE_DIR / "serve.py"), "--port", "8899"],
-            cwd=str(BASE_DIR), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            commande_blink("serve", "--port", str(port)),
+            cwd=str(SUITE_CWD), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            env=dict(os.environ, BLINK_HOME=str(racine), PYTHONIOENCODING="utf-8"),
+            env=environnement_test(racine),
         )
         try:
-            page = attendre("http://127.0.0.1:8899/")
-            verifier(page is not None and b"blink" in page.lower(), "la page répond")
-            clips = json.loads(attendre("http://127.0.0.1:8899/api/clips") or b"{}")
             # Le registre fait foi : le test d'horodatage y a ajouté un clip.
             registre = md.load_json(racine / "Blink_Clips" / md.DOWNLOAD_STATE, {})
             attendus = len(registre.get("clips") or {})
+            identite_témoin = next(iter(registre["clips"].values()))["path"]
+            page = attendre(
+                adresse + "/", processus=serveur,
+                attendu=lambda corps: (
+                    b"blink2video" in corps.lower()
+                    and runtime.VERSION.encode("utf-8") in corps
+                ),
+            )
+            verifier(page is not None,
+                     "la page répond avec la version attendue")
+            clips_bruts = attendre(
+                adresse + "/api/clips", processus=serveur,
+                attendu=lambda corps: identite_témoin.encode("utf-8") in corps,
+            )
+            verifier(clips_bruts is not None,
+                     "l'endpoint clips vient du serveur attendu")
+            clips = json.loads(clips_bruts or b"{}")
             verifier(len(clips.get("clips", [])) == attendus,
                      "l'inventaire liste tous les clips, écartés compris",
                      f"{len(clips.get('clips', []))} au lieu de {attendus}")
             verifier(sum(1 for c in clips.get("clips", []) if c["excluded"]) == 1,
                      "un seul clip est marqué écarté")
-            videos = json.loads(attendre("http://127.0.0.1:8899/api/videos") or b"{}")
+            videos = json.loads(attendre(adresse + "/api/videos", processus=serveur)
+                                or b"{}")
             verifier(len(videos.get("monthly", [])) == 1,
                      "la mensuelle apparaît dans l'inventaire")
-            verifier(statut("http://127.0.0.1:8899/media/monthly/../../blink2video.py") == 404,
+            verifier(statut(adresse + "/media/monthly/../../blink2video.py") == 404,
                      "une traversée de chemin est refusée")
         finally:
-            serveur.terminate()
-            serveur.wait(timeout=10)
+            if serveur.poll() is None:
+                serveur.terminate()
+            try:
+                serveur.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                serveur.kill()
+                serveur.wait(timeout=10)
     finally:
         shutil.rmtree(racine, ignore_errors=True)
 
@@ -601,16 +761,20 @@ def main() -> int:
     return 0
 
 
-def attendre(url: str, essais: int = 40) -> bytes | None:
-    """Interroge une adresse jusqu'à ce que le serveur soit prêt."""
-    import time
-
+def attendre(url: str, essais: int = 40, processus=None,
+             attendu=None) -> bytes | None:
+    """Attend le bon serveur, et s'arrête immédiatement s'il est déjà mort."""
     for _ in range(essais):
+        if processus is not None and processus.poll() is not None:
+            return None
         try:
-            with urllib.request.urlopen(url, timeout=5) as reponse:
-                return reponse.read()
+            with urllib.request.urlopen(url, timeout=1) as reponse:
+                corps = reponse.read()
+            if attendu is None or attendu(corps):
+                return corps
         except Exception:
-            time.sleep(0.5)
+            pass
+        time.sleep(0.25)
     return None
 
 

@@ -1,0 +1,1088 @@
+{
+  "schema_version": 1,
+  "kind": "blink2video-stage0-baseline",
+  "validity": "invalid",
+  "invalid_reasons": [
+    "Activité de MsMpEng signalée à 100 % pendant P-01 après les créations répétées de processus.",
+    "La charge antivirus contamine les durées, la dispersion et les mesures de ressources de la campagne entière.",
+    "Campagne conservée comme preuve brute, mais interdite pour une comparaison avant/après ou une revendication de gain."
+  ],
+  "metadata": {
+    "captured_at": "2026-08-13T16:47:31+02:00",
+    "seed": 20260813,
+    "profile": "quick",
+    "baseline_revision_requested": "58f5566",
+    "baseline_revision_resolved": "58f55660cf535d72e9a303b339df832e9ce437d5",
+    "head": "4f23039b03d5817d073b78bc767278eb2eaedf10",
+    "branch": "audit-remediation",
+    "tracked_dirty": true,
+    "production_sha256": {
+      "blink2video.py": "a18a7dadf507dacda24af00018f52157f240eca924d741acc512ec3b1cdfe908",
+      "runtime.py": "7321165809ed09a8ea10d41a33163a8449da0c0896d204aa93cf49c53dfc3e93",
+      "serve.py": "0947dc4366c1c5c9fe8ac7ad76297bd806f081d77cd0d5a5ac2e5bf2fbf399ef",
+      "merge_daily.py": "6c054640f0df8f8fee7dfa733378a15044e4d683243dc23731ccd359f271bc80"
+    },
+    "python": "3.12.0 (tags/v3.12.0:0fb18b0, Oct  2 2023, 13:03:39) [MSC v.1935 64 bit (AMD64)]",
+    "implementation": "CPython",
+    "os": "Windows-10-10.0.19045-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 10, GenuineIntel",
+    "logical_cpu": 4,
+    "physical_memory_bytes": 8425529344,
+    "power_plan": "GUID du mode de gestion de l’alimentation : 381b4222-f694-41f0-9685-ff5bb260df2e  (Utilisation normale)",
+    "dependencies": {
+      "aiohttp": "3.14.3",
+      "blinkpy": "0.25.9",
+      "tzdata": "2025.3",
+      "psutil": "7.0.0"
+    }
+  },
+  "protocol": {
+    "warmups": 3,
+    "short_runs": 20,
+    "heavy_runs": 5,
+    "clock": "time.perf_counter_ns",
+    "median_ci": "bootstrap 95%, 2000 resamples",
+    "internet": "disabled; loopback only"
+  },
+  "safety_notes": [
+    "P-07 est borné à 8 Mio : le flux 1 Gio est réservé au profil full; la machine de référence ne disposait que d'environ 3,4 Gio libres.",
+    "P-02 à P-05 utilisent les volumes quick consignés dans chaque scénario; aucune extrapolation vers 100 000 entrées n'est revendiquée."
+  ],
+  "benchmarks": {
+    "P-01": {
+      "status": "measured",
+      "mode": "real_subprocess",
+      "scenarios": {
+        "no_args": {
+          "duration_ms": {
+            "n": 20,
+            "min": 2047.6017,
+            "median": 3615.6061499999996,
+            "p95": 6068.6268,
+            "max": 7065.0621,
+            "mean": 3843.5271399999997,
+            "stdev": 1344.347135845981,
+            "cv_percent": 34.9769127907337,
+            "median_ci95": [
+              2915.7735000000002,
+              4479.3663
+            ],
+            "samples": [
+              7065.0621,
+              4709.0831,
+              4379.4211,
+              4579.3115,
+              4078.4995,
+              3771.5559,
+              3459.6564,
+              3128.5445,
+              2746.3389,
+              5400.4141,
+              3041.3289,
+              2790.2181,
+              2577.619,
+              2271.5083,
+              2226.1879,
+              2047.6017,
+              3840.9554,
+              6068.6268,
+              5510.9595,
+              3177.6501
+            ]
+          },
+          "peak_tree_rss_bytes": {
+            "n": 20,
+            "min": 47550464.0,
+            "median": 49672192.0,
+            "p95": 49860608.0,
+            "max": 50016256.0,
+            "mean": 49599283.2,
+            "stdev": 487325.20410518476,
+            "cv_percent": 0.9825246912140552,
+            "median_ci95": [
+              49616896.0,
+              49805312.0
+            ],
+            "samples": [
+              50016256.0,
+              49602560.0,
+              49664000.0,
+              49635328.0,
+              49860608.0,
+              49840128.0,
+              49827840.0,
+              49672192.0,
+              49557504.0,
+              47550464.0,
+              49672192.0,
+              49549312.0,
+              49848320.0,
+              49631232.0,
+              49545216.0,
+              49782784.0,
+              49827840.0,
+              49704960.0,
+              49688576.0,
+              49508352.0
+            ]
+          },
+          "exit_codes": [
+            0
+          ],
+          "correctness": true,
+          "observed": "help_and_exit",
+          "target_no_args_equals_start": false
+        },
+        "help": {
+          "duration_ms": {
+            "n": 20,
+            "min": 2370.6921,
+            "median": 3529.1416,
+            "p95": 4729.5677,
+            "max": 7191.7641,
+            "mean": 3676.8993949999995,
+            "stdev": 1009.1321986387455,
+            "cv_percent": 27.44519472061176,
+            "median_ci95": [
+              3115.8059999999996,
+              3886.08785
+            ],
+            "samples": [
+              4356.3753,
+              4013.5748,
+              4729.5677,
+              3758.6009,
+              4415.6487,
+              2813.5193,
+              2619.3602,
+              3442.3374,
+              7191.7641,
+              3125.9554,
+              2370.6921,
+              2780.5658,
+              3912.3141,
+              3583.9498,
+              3105.6566,
+              2973.8206,
+              3668.9619,
+              3832.5234,
+              3474.3334,
+              3368.4664
+            ]
+          },
+          "peak_tree_rss_bytes": {
+            "n": 20,
+            "min": 47353856.0,
+            "median": 49696768.0,
+            "p95": 49930240.0,
+            "max": 50061312.0,
+            "mean": 49555865.6,
+            "stdev": 552113.4521417134,
+            "cv_percent": 1.1141233140758888,
+            "median_ci95": [
+              49610752.0,
+              49790976.0
+            ],
+            "samples": [
+              49909760.0,
+              49639424.0,
+              49795072.0,
+              49229824.0,
+              47353856.0,
+              49655808.0,
+              49524736.0,
+              49618944.0,
+              49696768.0,
+              49238016.0,
+              49930240.0,
+              49729536.0,
+              49696768.0,
+              49602560.0,
+              49229824.0,
+              49786880.0,
+              49909760.0,
+              50061312.0,
+              49803264.0,
+              49704960.0
+            ]
+          },
+          "exit_codes": [
+            0
+          ],
+          "correctness": true,
+          "observed": "command_completed"
+        },
+        "version": {
+          "duration_ms": {
+            "n": 20,
+            "min": 2582.8654,
+            "median": 4138.3782,
+            "p95": 8397.5148,
+            "max": 8848.9323,
+            "mean": 4332.694665,
+            "stdev": 1635.6914364451204,
+            "cv_percent": 37.752289577625255,
+            "median_ci95": [
+              3478.57855,
+              4385.6717499999995
+            ],
+            "samples": [
+              3476.6017,
+              4206.5039,
+              5630.1921,
+              8848.9323,
+              3795.1403,
+              8397.5148,
+              3484.4683,
+              5269.1636,
+              4170.4263,
+              2921.2882,
+              3195.0894,
+              3480.5554,
+              4443.5584,
+              4327.7851,
+              4106.3301,
+              4300.4304,
+              4532.6193,
+              2582.8654,
+              2807.0481,
+              2677.3802
+            ]
+          },
+          "peak_tree_rss_bytes": {
+            "n": 20,
+            "min": 47296512.0,
+            "median": 49518592.0,
+            "p95": 49803264.0,
+            "max": 49872896.0,
+            "mean": 49329561.6,
+            "stdev": 687810.0903736729,
+            "cv_percent": 1.3943162437788073,
+            "median_ci95": [
+              49442816.0,
+              49627136.0
+            ],
+            "samples": [
+              49496064.0,
+              49745920.0,
+              47296512.0,
+              47366144.0,
+              49348608.0,
+              49872896.0,
+              49803264.0,
+              49586176.0,
+              49434624.0,
+              49520640.0,
+              49668096.0,
+              49680384.0,
+              49451008.0,
+              49770496.0,
+              49582080.0,
+              49516544.0,
+              49307648.0,
+              49537024.0,
+              49459200.0,
+              49147904.0
+            ]
+          },
+          "exit_codes": [
+            0
+          ],
+          "correctness": true,
+          "observed": "command_completed"
+        },
+        "open_closed": {
+          "duration_ms": {
+            "n": 20,
+            "min": 4129.2235,
+            "median": 5056.420550000001,
+            "p95": 6888.7795,
+            "max": 7021.8083,
+            "mean": 5272.067625000001,
+            "stdev": 850.9693044590725,
+            "cv_percent": 16.141092356702696,
+            "median_ci95": [
+              4591.3128,
+              5628.640950000001
+            ],
+            "samples": [
+              4417.3201,
+              4129.2235,
+              4591.3128,
+              4449.9017,
+              4889.4606,
+              5025.0496,
+              5262.5726,
+              5759.2068,
+              7021.8083,
+              5499.0331,
+              5087.7915,
+              4414.1441,
+              4674.4251,
+              4488.8433,
+              5857.8178,
+              6886.5953,
+              5581.011,
+              4840.7849,
+              5676.2709,
+              6888.7795
+            ]
+          },
+          "peak_tree_rss_bytes": {
+            "n": 20,
+            "min": 49684480.0,
+            "median": 49872896.0,
+            "p95": 50147328.0,
+            "max": 50176000.0,
+            "mean": 49899110.4,
+            "stdev": 137940.9719925157,
+            "cv_percent": 0.2764397418846884,
+            "median_ci95": [
+              49817600.0,
+              49987584.0
+            ],
+            "samples": [
+              50176000.0,
+              49885184.0,
+              49983488.0,
+              49836032.0,
+              49987584.0,
+              50020352.0,
+              49856512.0,
+              49885184.0,
+              49987584.0,
+              49774592.0,
+              50036736.0,
+              50147328.0,
+              49729536.0,
+              49721344.0,
+              49856512.0,
+              50024448.0,
+              49799168.0,
+              49684480.0,
+              49860608.0,
+              49729536.0
+            ]
+          },
+          "exit_codes": [
+            1
+          ],
+          "correctness": true,
+          "observed": "command_completed"
+        },
+        "stop_idle": {
+          "duration_ms": {
+            "n": 20,
+            "min": 2246.4046,
+            "median": 4087.9172500000004,
+            "p95": 5588.124,
+            "max": 6243.8246,
+            "mean": 4061.603855,
+            "stdev": 1014.2698550732752,
+            "cv_percent": 24.972151181722648,
+            "median_ci95": [
+              3513.74655,
+              4688.92275
+            ],
+            "samples": [
+              3458.8327,
+              4343.1432,
+              5588.124,
+              6243.8246,
+              3991.3883,
+              5103.0192,
+              4184.4462,
+              4309.8979,
+              4639.7029,
+              3258.9807,
+              2246.4046,
+              4876.1056,
+              4738.1426,
+              4814.1854,
+              3835.4394,
+              3599.542,
+              3440.3209,
+              2737.5413,
+              3568.6604,
+              2254.3752
+            ]
+          },
+          "peak_tree_rss_bytes": {
+            "n": 20,
+            "min": 49389568.0,
+            "median": 49682432.0,
+            "p95": 49963008.0,
+            "max": 50036736.0,
+            "mean": 49694720.0,
+            "stdev": 181608.0672040755,
+            "cv_percent": 0.36544741011535126,
+            "median_ci95": [
+              49567744.0,
+              49809408.0
+            ],
+            "samples": [
+              49434624.0,
+              49868800.0,
+              49790976.0,
+              49758208.0,
+              49963008.0,
+              50036736.0,
+              49704960.0,
+              49528832.0,
+              49676288.0,
+              49639424.0,
+              49614848.0,
+              49561600.0,
+              49950720.0,
+              49389568.0,
+              49827840.0,
+              49573888.0,
+              49549312.0,
+              49455104.0,
+              49688576.0,
+              49881088.0
+            ]
+          },
+          "exit_codes": [
+            0
+          ],
+          "correctness": true,
+          "observed": "command_completed"
+        }
+      }
+    },
+    "P-02": {
+      "status": "measured",
+      "mode": "real_json_io",
+      "scenarios": {
+        "100": {
+          "duration_ms": {
+            "n": 5,
+            "min": 3.5163,
+            "median": 4.7586,
+            "p95": 6.3752,
+            "max": 6.3752,
+            "mean": 4.9148000000000005,
+            "stdev": 0.9439639082083595,
+            "cv_percent": 19.20655791097012,
+            "median_ci95": [
+              3.5163,
+              6.3752
+            ],
+            "samples": [
+              4.5509,
+              5.373,
+              6.3752,
+              3.5163,
+              4.7586
+            ]
+          },
+          "stored_bytes": 23229,
+          "entries": 100,
+          "correctness": true
+        },
+        "1000": {
+          "duration_ms": {
+            "n": 5,
+            "min": 30.5602,
+            "median": 39.9114,
+            "p95": 53.1065,
+            "max": 53.1065,
+            "mean": 40.63964,
+            "stdev": 7.247466473354671,
+            "cv_percent": 17.83349083150016,
+            "median_ci95": [
+              30.5602,
+              53.1065
+            ],
+            "samples": [
+              53.1065,
+              41.171,
+              39.9114,
+              38.4491,
+              30.5602
+            ]
+          },
+          "stored_bytes": 232929,
+          "entries": 1000,
+          "correctness": true
+        },
+        "5000": {
+          "duration_ms": {
+            "n": 5,
+            "min": 121.4073,
+            "median": 135.0004,
+            "p95": 299.0718,
+            "max": 299.0718,
+            "mean": 164.63016,
+            "stdev": 67.71633439821149,
+            "cv_percent": 41.13239906844013,
+            "median_ci95": [
+              121.4073,
+              299.0718
+            ],
+            "samples": [
+              144.0878,
+              299.0718,
+              135.0004,
+              123.5835,
+              121.4073
+            ]
+          },
+          "stored_bytes": 1168929,
+          "entries": 5000,
+          "correctness": true
+        }
+      }
+    },
+    "P-03": {
+      "status": "measured",
+      "mode": "real_json_io",
+      "scenarios": {
+        "5000": {
+          "duration_ms": {
+            "n": 20,
+            "min": 127.8449,
+            "median": 399.70215,
+            "p95": 674.5873,
+            "max": 688.6968,
+            "mean": 399.364495,
+            "stdev": 169.896294176496,
+            "cv_percent": 42.54166214162228,
+            "median_ci95": [
+              278.0222,
+              518.3355
+            ],
+            "samples": [
+              522.8782,
+              335.5287,
+              356.2283,
+              527.0286,
+              381.9601,
+              462.166,
+              449.0742,
+              537.99,
+              513.7928,
+              674.5873,
+              688.6968,
+              640.0414,
+              220.5157,
+              199.3577,
+              189.3507,
+              371.7585,
+              127.8449,
+              162.8647,
+              208.1811,
+              417.4442
+            ]
+          },
+          "bytes_rewritten_per_update": 1168954,
+          "correctness": true
+        }
+      }
+    },
+    "P-04": {
+      "status": "measured",
+      "mode": "real_state_and_files",
+      "scenarios": {
+        "1000": {
+          "duration_ms": {
+            "n": 20,
+            "min": 98.671,
+            "median": 123.46245,
+            "p95": 524.524,
+            "max": 557.8045,
+            "mean": 216.389995,
+            "stdev": 155.1426624553655,
+            "cv_percent": 71.69585749810913,
+            "median_ci95": [
+              106.88595000000001,
+              272.5714
+            ],
+            "samples": [
+              489.8527,
+              524.524,
+              557.8045,
+              383.0994,
+              127.4227,
+              108.9911,
+              119.5022,
+              100.558,
+              105.4657,
+              98.671,
+              108.0561,
+              111.9093,
+              99.012,
+              104.107,
+              105.7158,
+              223.4623,
+              156.2923,
+              136.7808,
+              321.6805,
+              344.8925
+            ]
+          },
+          "checks": 1000,
+          "reindexed": 100,
+          "excluded": 100,
+          "errors": 100,
+          "correctness": false
+        }
+      }
+    },
+    "P-05": {
+      "status": "measured",
+      "mode": "real_matching_synthetic_dataset",
+      "scenarios": {
+        "5000x500": {
+          "duration_ms": {
+            "n": 5,
+            "min": 126.8315,
+            "median": 236.6347,
+            "p95": 326.4241,
+            "max": 326.4241,
+            "mean": 228.24868,
+            "stdev": 71.19238011665013,
+            "cv_percent": 31.19070836100788,
+            "median_ci95": [
+              126.8315,
+              326.4241
+            ],
+            "samples": [
+              174.0318,
+              277.3213,
+              126.8315,
+              326.4241,
+              236.6347
+            ]
+          },
+          "python_heap_peak_bytes": 48096,
+          "expected_duplicates": 250,
+          "observed_duplicates": 250,
+          "observed_new": 250,
+          "correctness": true
+        }
+      }
+    },
+    "P-06": {
+      "status": "measured",
+      "mode": "real_parser_fake_blink_no_network",
+      "scenarios": {
+        "600_clips": {
+          "duration_ms": {
+            "n": 5,
+            "min": 3.6778,
+            "median": 5.2613,
+            "p95": 13.6499,
+            "max": 13.6499,
+            "mean": 7.1193,
+            "stdev": 3.5689819517615944,
+            "cv_percent": 50.13107962526645,
+            "median_ci95": [
+              3.6778,
+              13.6499
+            ],
+            "samples": [
+              4.9249,
+              3.6778,
+              8.0826,
+              5.2613,
+              13.6499
+            ]
+          },
+          "clips": 600,
+          "api_calls_per_scan": 1,
+          "requested_stop": 20,
+          "correctness": true,
+          "target_paginate_until_empty": false
+        }
+      }
+    },
+    "P-07": {
+      "status": "measured",
+      "mode": "real_loopback_http",
+      "scenarios": {
+        "1048576": {
+          "duration_ms": {
+            "n": 5,
+            "min": 13.7204,
+            "median": 15.1453,
+            "p95": 15.8354,
+            "max": 15.8354,
+            "mean": 14.95848,
+            "stdev": 0.6967633497824065,
+            "cv_percent": 4.65798229353789,
+            "median_ci95": [
+              13.7204,
+              15.8354
+            ],
+            "samples": [
+              15.1453,
+              14.8514,
+              15.2399,
+              15.8354,
+              13.7204
+            ]
+          },
+          "throughput_mib_s": 66.02708430998395,
+          "python_heap_peak_bytes": 2194619,
+          "stored_bytes": 1048576,
+          "correctness": true,
+          "implementation_observed": "response.read_then_write_bytes"
+        },
+        "8388608": {
+          "duration_ms": {
+            "n": 5,
+            "min": 62.0148,
+            "median": 76.7222,
+            "p95": 136.6209,
+            "max": 136.6209,
+            "mean": 88.93284,
+            "stdev": 26.261636664960545,
+            "cv_percent": 29.5297402680051,
+            "median_ci95": [
+              62.0148,
+              136.6209
+            ],
+            "samples": [
+              136.6209,
+              96.1402,
+              62.0148,
+              73.1661,
+              76.7222
+            ]
+          },
+          "throughput_mib_s": 104.2722966755385,
+          "python_heap_peak_bytes": 16962826,
+          "stored_bytes": 8388608,
+          "correctness": true,
+          "implementation_observed": "response.read_then_write_bytes"
+        }
+      }
+    },
+    "P-08": {
+      "status": "measured",
+      "mode": "real_multiprocess_forced_interleaving",
+      "scenarios": {
+        "8_workers": {
+          "duration_ms": {
+            "n": 5,
+            "min": 4709.638,
+            "median": 5443.8994,
+            "p95": 6316.1709,
+            "max": 6316.1709,
+            "mean": 5531.03726,
+            "stdev": 519.7740444518968,
+            "cv_percent": 9.397406309497484,
+            "median_ci95": [
+              4709.638,
+              6316.1709
+            ],
+            "samples": [
+              4709.638,
+              5443.5973,
+              5443.8994,
+              6316.1709,
+              5741.8807
+            ]
+          },
+          "wait_ms": {
+            "n": 40,
+            "min": 7.7795,
+            "median": 726.3014000000001,
+            "p95": 1814.4582,
+            "max": 1853.8591,
+            "mean": 726.5887825,
+            "stdev": 595.6312414645877,
+            "cv_percent": 81.97638826946626,
+            "median_ci95": [
+              305.7058,
+              931.91305
+            ],
+            "samples": [
+              351.4787,
+              138.5248,
+              7.7795,
+              113.5565,
+              50.993,
+              76.6013,
+              111.152,
+              86.799,
+              907.2165,
+              61.7624,
+              956.6096,
+              895.6508,
+              836.2832,
+              259.9329,
+              833.7491,
+              10.4515,
+              1001.1271,
+              1045.6274,
+              974.8884,
+              1030.152,
+              8.123,
+              1037.5103,
+              1145.7982,
+              557.0843,
+              1843.9632,
+              1814.4582,
+              1495.6037,
+              1687.4152,
+              1853.8591,
+              1730.6966,
+              12.309,
+              1806.5756,
+              713.8064,
+              805.3086,
+              588.4575,
+              738.7964,
+              479.5001,
+              299.0914,
+              10.1781,
+              684.6807
+            ]
+          },
+          "winners_per_run": [
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "errors": [],
+          "correctness": false
+        }
+      }
+    },
+    "P-09": {
+      "status": "measured",
+      "mode": "real_orchestrator_fake_io",
+      "scenarios": {
+        "two_hubs_plus_cloud": {
+          "duration_ms": {
+            "n": 20,
+            "min": 73.132,
+            "median": 84.37265,
+            "p95": 92.3917,
+            "max": 99.605,
+            "mean": 83.65519,
+            "stdev": 6.215561074424415,
+            "cv_percent": 7.429976639135498,
+            "median_ci95": [
+              79.1808,
+              86.01345
+            ],
+            "samples": [
+              78.3976,
+              85.6519,
+              87.1553,
+              85.5316,
+              99.605,
+              77.3084,
+              81.7896,
+              89.1839,
+              84.1159,
+              81.5306,
+              79.1181,
+              84.6294,
+              73.132,
+              75.2277,
+              79.964,
+              92.3917,
+              90.2944,
+              86.375,
+              84.8107,
+              76.891
+            ]
+          },
+          "fake_operation_delay_ms": 20.0,
+          "sequential_floor_ms": 60.0,
+          "parallel_target_ms": 20.0,
+          "return_code": 0,
+          "correctness": true,
+          "target_distinct_sources_overlap": false
+        }
+      }
+    },
+    "P-10": {
+      "status": "measured",
+      "mode": "real_file_io_fake_tokens",
+      "scenarios": {
+        "serial_refresh": {
+          "duration_ms": {
+            "n": 20,
+            "min": 2.0669,
+            "median": 3.1633,
+            "p95": 11.7989,
+            "max": 12.4529,
+            "mean": 4.426665,
+            "stdev": 3.086231628098416,
+            "cv_percent": 69.71911423381746,
+            "median_ci95": [
+              2.42185,
+              4.1112
+            ],
+            "samples": [
+              2.2376,
+              3.7591,
+              2.0791,
+              2.0669,
+              2.358,
+              2.112,
+              2.4857,
+              2.3034,
+              11.7989,
+              8.2851,
+              4.3309,
+              12.4529,
+              3.8058,
+              7.8854,
+              5.0295,
+              2.7545,
+              2.8739,
+              2.5704,
+              3.4527,
+              3.8915
+            ]
+          },
+          "correctness": true
+        },
+        "8_concurrent_writers": {
+          "duration_ms": {
+            "n": 5,
+            "min": 23.5299,
+            "median": 27.7287,
+            "p95": 55.8653,
+            "max": 55.8653,
+            "mean": 33.16128,
+            "stdev": 12.100791831677792,
+            "cv_percent": 36.49072602649172,
+            "median_ci95": [
+              23.5299,
+              55.8653
+            ],
+            "samples": [
+              27.7287,
+              23.6311,
+              35.0514,
+              23.5299,
+              55.8653
+            ]
+          },
+          "errors_per_run": [
+            0,
+            1,
+            0,
+            1,
+            7
+          ],
+          "valid_final_session": [
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "correctness": false
+        }
+      }
+    },
+    "P-11": {
+      "status": "measured",
+      "mode": "real_local_process_tree",
+      "scenarios": {
+        "depth_2_cooperative": {
+          "duration_ms": {
+            "n": 5,
+            "min": 1026.7849,
+            "median": 1046.8356,
+            "p95": 1295.4041,
+            "max": 1295.4041,
+            "mean": 1127.9775,
+            "stdev": 116.8577710889438,
+            "cv_percent": 10.3599381272183,
+            "median_ci95": [
+              1026.7849,
+              1295.4041
+            ],
+            "samples": [
+              1295.4041,
+              1026.7849,
+              1027.4686,
+              1243.3943,
+              1046.8356
+            ]
+          },
+          "survivors_per_run": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "correctness": true
+        }
+      }
+    },
+    "P-12": {
+      "status": "partial",
+      "mode": "current_cli_characterization",
+      "scenarios": {
+        "no_args": {
+          "duration_ms": {
+            "n": 20,
+            "min": 2047.6017,
+            "median": 3615.6061499999996,
+            "p95": 6068.6268,
+            "max": 7065.0621,
+            "mean": 3843.5271399999997,
+            "stdev": 1344.347135845981,
+            "cv_percent": 34.9769127907337,
+            "median_ci95": [
+              2915.7735000000002,
+              4479.3663
+            ],
+            "samples": [
+              7065.0621,
+              4709.0831,
+              4379.4211,
+              4579.3115,
+              4078.4995,
+              3771.5559,
+              3459.6564,
+              3128.5445,
+              2746.3389,
+              5400.4141,
+              3041.3289,
+              2790.2181,
+              2577.619,
+              2271.5083,
+              2226.1879,
+              2047.6017,
+              3840.9554,
+              6068.6268,
+              5510.9595,
+              3177.6501
+            ]
+          },
+          "observed": "help_and_exit",
+          "target_no_args_equals_start": false,
+          "correctness_current_behavior": true
+        },
+        "start_help": {
+          "exit_code": 0,
+          "correctness": true
+        }
+      },
+      "unavailable": {
+        "valid_session_preflight": "structured preflight absent",
+        "missing_session_web_login": "onboarding server absent",
+        "expired_session_web_login": "onboarding server absent",
+        "two_factor_web_login": "onboarding server absent",
+        "browser_fallback": "onboarding server absent",
+        "mini_smoke_before_workers": "startup preflight absent",
+        "time_to_ready": "target lifecycle absent"
+      }
+    }
+  }
+}
