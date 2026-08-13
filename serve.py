@@ -2069,7 +2069,7 @@ def parse_args() -> argparse.Namespace:
         "--thumbs", type=Path, default=BASE_DIR / ".blink_thumbs",
         help="cache des vignettes ; jetable, refabriqué à la demande",
     )
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--port", type=runtime.port_valide, default=8765)
     parser.add_argument(
         # Un serveur n'ouvre pas de fenêtre de lui-même : c'est l'usage, et
         # celui-ci passe l'essentiel de sa vie lancé au démarrage de session, où

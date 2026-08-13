@@ -17,6 +17,7 @@ qui se relance par sys.executable + chemin de script fonctionne parfaitement en
 développement et échoue une fois figé.
 """
 
+import argparse
 import contextlib
 import importlib.util
 import json
@@ -674,6 +675,51 @@ def decouper_verbes(arguments) -> list:
     return groupes
 
 
+def cadence_positive(valeur: str) -> int:
+    """Convertit une cadence CLI en entier strictement positif."""
+    try:
+        minutes = int(valeur)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "la cadence doit être un nombre entier de minutes"
+        ) from exc
+    if minutes <= 0:
+        raise argparse.ArgumentTypeError(
+            "la cadence doit être strictement supérieure à zéro"
+        )
+    return minutes
+
+
+def jours_non_negatifs(valeur: str) -> int:
+    """Convertit un nombre de jours CLI et autorise explicitement zéro."""
+    try:
+        jours = int(valeur)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "le nombre de jours doit être un entier"
+        ) from exc
+    if jours < 0:
+        raise argparse.ArgumentTypeError(
+            "le nombre de jours doit être positif ou nul"
+        )
+    return jours
+
+
+def port_valide(valeur: str) -> int:
+    """Convertit un port CLI et refuse les valeurs hors plage TCP/UDP."""
+    try:
+        port = int(valeur)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "le port doit être un nombre entier"
+        ) from exc
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError(
+            "le port doit être compris entre 1 et 65535"
+        )
+    return port
+
+
 def ajouter_boucle(parser) -> None:
     """Ajoute --loop à un analyseur d'arguments.
 
@@ -681,7 +727,8 @@ def ajouter_boucle(parser) -> None:
     s'applique donc à n'importe quel verbe plutôt que d'en constituer un. Écrite
     une seule fois ici, elle se comporte pareil partout."""
     parser.add_argument(
-        "--loop", type=int, nargs="?", const=10, default=None, metavar="MINUTES",
+        "--loop", type=cadence_positive, nargs="?", const=10, default=None,
+        metavar="MINUTES",
         help="répéter toutes les N minutes au lieu d'agir une fois (défaut 10)",
     )
 

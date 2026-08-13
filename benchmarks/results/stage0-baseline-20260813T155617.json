@@ -1,0 +1,352 @@
+{
+  "schema_version": 2,
+  "kind": "blink2video-stage0-preliminary-baseline",
+  "validity": "partial",
+  "metadata": {
+    "captured_at": "2026-08-13T17:56:17+02:00",
+    "run_id": "20260813T155617.786639Z",
+    "seed": 20260813,
+    "profile": "safe",
+    "reference_revision_requested": "58f5566",
+    "reference_revision_resolved": "58f55660cf535d72e9a303b339df832e9ce437d5",
+    "executed_head": "6c283d88a6d4c408006e17be635274d108fd89c2",
+    "executed_branch": "audit-remediation",
+    "executed_tracked_worktree_dirty": false,
+    "executed_production_sha256": {
+      "blink2video.py": "a18a7dadf507dacda24af00018f52157f240eca924d741acc512ec3b1cdfe908",
+      "runtime.py": "7321165809ed09a8ea10d41a33163a8449da0c0896d204aa93cf49c53dfc3e93",
+      "serve.py": "0947dc4366c1c5c9fe8ac7ad76297bd806f081d77cd0d5a5ac2e5bf2fbf399ef",
+      "merge_daily.py": "6c054640f0df8f8fee7dfa733378a15044e4d683243dc23731ccd359f271bc80"
+    },
+    "python": "3.12.0 (tags/v3.12.0:0fb18b0, Oct  2 2023, 13:03:39) [MSC v.1935 64 bit (AMD64)]",
+    "implementation": "CPython",
+    "os": "Windows-10-10.0.19045-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 10, GenuineIntel",
+    "logical_cpu": 4,
+    "physical_memory_bytes": 8425529344,
+    "workspace_disk_free_bytes": 26250092544,
+    "power_plan": "GUID du mode de gestion de l’alimentation : 381b4222-f694-41f0-9685-ff5bb260df2e  (Utilisation normale)",
+    "dependencies": {
+      "aiohttp": "3.14.3",
+      "blinkpy": "0.25.9",
+      "tzdata": "2025.3",
+      "psutil": "7.0.0"
+    }
+  },
+  "protocol": {
+    "warmups": 1,
+    "short_runs": 5,
+    "heavy_runs": 3,
+    "process_warmups": 0,
+    "process_runs": 2,
+    "P01_cooldown_s": 0.5,
+    "clock": "time.perf_counter_ns",
+    "median_ci": "bootstrap 95%, 2000 resamples",
+    "internet": "disabled; loopback only"
+  },
+  "safety_notes": [
+    "Profil safe non qualifiant : P-01 est limité à deux échantillons sans chauffe après saturation de MsMpEng pendant la campagne conforme.",
+    "La première campagne quick est conservée séparément avec le statut invalid : ses temps contaminés par l'antivirus sont inutilisables."
+  ],
+  "benchmarks": {
+    "P-01": {
+      "status": "measured",
+      "mode": "real_subprocess",
+      "processes_created_total": 15,
+      "process_count_formula": "5 scenarios × (0 warmups + 2 measures + 1 semantic check)",
+      "scenarios": {
+        "no_args": {
+          "duration_ms": {
+            "n": 2,
+            "min": 606.7013,
+            "median": 624.2846,
+            "p95": 641.8679,
+            "max": 641.8679,
+            "mean": 624.2846,
+            "stdev": 17.58330000000001,
+            "cv_percent": 2.816551938010326,
+            "median_ci95": [
+              606.7013,
+              641.8679
+            ],
+            "samples": [
+              606.7013,
+              641.8679
+            ]
+          },
+          "peak_tree_rss_bytes": {
+            "n": 2,
+            "min": 49463296.0,
+            "median": 49631232.0,
+            "p95": 49799168.0,
+            "max": 49799168.0,
+            "mean": 49631232.0,
+            "stdev": 167936.0,
+            "cv_percent": 0.3383675827350004,
+            "median_ci95": [
+              49463296.0,
+              49799168.0
+            ],
+            "samples": [
+              49799168.0,
+              49463296.0
+            ]
+          },
+          "exit_codes": [
+            0
+          ],
+          "process_warmups": 0,
+          "process_measurements": 2,
+          "semantic_check_processes": 1,
+          "processes_created": 3,
+          "cooldown_between_creations_s": 0.5,
+          "cooldown_in_timed_duration": false,
+          "correctness": false,
+          "observed": "help_and_exit",
+          "observed_current_behavior_is_valid": true,
+          "target_no_args_equals_start": false
+        },
+        "help": {
+          "duration_ms": {
+            "n": 2,
+            "min": 596.3712,
+            "median": 613.7375,
+            "p95": 631.1038,
+            "max": 631.1038,
+            "mean": 613.7375,
+            "stdev": 17.366299999999967,
+            "cv_percent": 2.8295973441414235,
+            "median_ci95": [
+              596.3712,
+              631.1038
+            ],
+            "samples": [
+              596.3712,
+              631.1038
+            ]
+          },
+          "peak_tree_rss_bytes": {
+            "n": 2,
+            "min": 49635328.0,
+            "median": 49764352.0,
+            "p95": 49893376.0,
+            "max": 49893376.0,
+            "mean": 49764352.0,
+            "stdev": 129024.0,
+            "cv_percent": 0.25926992880365446,
+            "median_ci95": [
+              49635328.0,
+              49893376.0
+            ],
+            "samples": [
+              49893376.0,
+              49635328.0
+            ]
+          },
+          "exit_codes": [
+            0
+          ],
+          "process_warmups": 0,
+          "process_measurements": 2,
+          "semantic_check_processes": 1,
+          "processes_created": 3,
+          "cooldown_between_creations_s": 0.5,
+          "cooldown_in_timed_duration": false,
+          "correctness": true,
+          "observed": "command_completed"
+        },
+        "version": {
+          "duration_ms": {
+            "n": 2,
+            "min": 621.6108,
+            "median": 626.0552,
+            "p95": 630.4996,
+            "max": 630.4996,
+            "mean": 626.0552,
+            "stdev": 4.444399999999973,
+            "cv_percent": 0.7099054524265549,
+            "median_ci95": [
+              621.6108,
+              630.4996
+            ],
+            "samples": [
+              630.4996,
+              621.6108
+            ]
+          },
+          "peak_tree_rss_bytes": {
+            "n": 2,
+            "min": 49786880.0,
+            "median": 49836032.0,
+            "p95": 49885184.0,
+            "max": 49885184.0,
+            "mean": 49836032.0,
+            "stdev": 49152.0,
+            "cv_percent": 0.09862743486479823,
+            "median_ci95": [
+              49786880.0,
+              49885184.0
+            ],
+            "samples": [
+              49786880.0,
+              49885184.0
+            ]
+          },
+          "exit_codes": [
+            0
+          ],
+          "process_warmups": 0,
+          "process_measurements": 2,
+          "semantic_check_processes": 1,
+          "processes_created": 3,
+          "cooldown_between_creations_s": 0.5,
+          "cooldown_in_timed_duration": false,
+          "correctness": true,
+          "observed": "command_completed"
+        },
+        "open_closed": {
+          "duration_ms": {
+            "n": 2,
+            "min": 2614.5589,
+            "median": 2618.98655,
+            "p95": 2623.4142,
+            "max": 2623.4142,
+            "mean": 2618.98655,
+            "stdev": 4.427650000000085,
+            "cv_percent": 0.1690596692831464,
+            "median_ci95": [
+              2614.5589,
+              2623.4142
+            ],
+            "samples": [
+              2623.4142,
+              2614.5589
+            ]
+          },
+          "peak_tree_rss_bytes": {
+            "n": 2,
+            "min": 50003968.0,
+            "median": 50073600.0,
+            "p95": 50143232.0,
+            "max": 50143232.0,
+            "mean": 50073600.0,
+            "stdev": 69632.0,
+            "cv_percent": 0.1390593047034765,
+            "median_ci95": [
+              50003968.0,
+              50143232.0
+            ],
+            "samples": [
+              50143232.0,
+              50003968.0
+            ]
+          },
+          "exit_codes": [
+            1
+          ],
+          "process_warmups": 0,
+          "process_measurements": 2,
+          "semantic_check_processes": 1,
+          "processes_created": 3,
+          "cooldown_between_creations_s": 0.5,
+          "cooldown_in_timed_duration": false,
+          "correctness": true,
+          "observed": "command_completed"
+        },
+        "stop_idle": {
+          "duration_ms": {
+            "n": 2,
+            "min": 628.7535,
+            "median": 706.10225,
+            "p95": 783.451,
+            "max": 783.451,
+            "mean": 706.10225,
+            "stdev": 77.34875,
+            "cv_percent": 10.95432708223207,
+            "median_ci95": [
+              628.7535,
+              783.451
+            ],
+            "samples": [
+              783.451,
+              628.7535
+            ]
+          },
+          "peak_tree_rss_bytes": {
+            "n": 2,
+            "min": 49614848.0,
+            "median": 49793024.0,
+            "p95": 49971200.0,
+            "max": 49971200.0,
+            "mean": 49793024.0,
+            "stdev": 178176.0,
+            "cv_percent": 0.35783325792785753,
+            "median_ci95": [
+              49614848.0,
+              49971200.0
+            ],
+            "samples": [
+              49614848.0,
+              49971200.0
+            ]
+          },
+          "exit_codes": [
+            0
+          ],
+          "process_warmups": 0,
+          "process_measurements": 2,
+          "semantic_check_processes": 1,
+          "processes_created": 3,
+          "cooldown_between_creations_s": 0.5,
+          "cooldown_in_timed_duration": false,
+          "correctness": true,
+          "observed": "command_completed"
+        }
+      }
+    },
+    "P-02": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-03": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-04": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-05": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-06": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-07": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-08": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-09": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-10": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-11": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-12": {
+      "status": "not_run",
+      "mode": "excluded_or_requires_p01"
+    }
+  }
+}

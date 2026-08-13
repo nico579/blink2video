@@ -70,6 +70,28 @@ class FauxBlinkHTTP:
         return self.reponse
 
 
+class FauxSessionHTTP:
+    """Contexte aiohttp minimal : aucune socket n'est ouverte par les tests."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return False
+
+
+class DateHeureFigee(dt.datetime):
+    """Horloge déterministe pour vérifier précisément la fenêtre ``--since``."""
+
+    INSTANT = dt.datetime(2026, 8, 13, 12, 34, 56)
+
+    @classmethod
+    def now(cls, tz=None):
+        if tz is None:
+            return cls.INSTANT
+        return cls.INSTANT.replace(tzinfo=tz)
+
+
 def _worker_course_verrou(home: str, depart, avant_ecriture, liberation, resultats):
     """Force deux implémentations check-then-write à observer un verrou absent."""
     os.environ["BLINK_HOME"] = home
@@ -207,7 +229,6 @@ class TestsDefautsSynchrones(BacASable):
         self.assertEqual(config.parent, self.home.resolve())
         self.assertEqual(output.parent, self.home.resolve())
 
-    @unittest.expectedFailure
     def test_I10_session_json_tableau_est_refusee_sans_exception(self):
         """I-10 : une racine JSON valide mais non objet doit être tolérée."""
         session = self.home / "blink_auth.json"
@@ -215,12 +236,26 @@ class TestsDefautsSynchrones(BacASable):
         with mock.patch.object(b2v, "CONFIG", session):
             self.assertIsNone(b2v.load_saved_session())
 
-    @unittest.expectedFailure
+    def test_I10_session_json_null_est_refusee_sans_exception(self):
+        """I-10 : la racine JSON ``null`` ne doit pas atteindre ``.get``."""
+        session = self.home / "blink_auth.json"
+        session.write_text("null", encoding="utf-8")
+        with mock.patch.object(b2v, "CONFIG", session):
+            self.assertIsNone(b2v.load_saved_session())
+
     def test_I10_registre_json_tableau_est_refuse_sans_exception(self):
         """I-10 : le chargeur d'état valide le type avant .get()."""
         sortie = self.home / "clips"
         sortie.mkdir()
         (sortie / b2v.STATE_FILENAME).write_text("[]", encoding="utf-8")
+        self.assertEqual(b2v.load_download_state(sortie),
+                         {"version": 1, "clips": {}})
+
+    def test_I10_registre_json_null_est_refuse_sans_exception(self):
+        """I-10 : un registre ``null`` suit la stratégie du registre vide."""
+        sortie = self.home / "clips"
+        sortie.mkdir()
+        (sortie / b2v.STATE_FILENAME).write_text("null", encoding="utf-8")
         self.assertEqual(b2v.load_download_state(sortie),
                          {"version": 1, "clips": {}})
 
@@ -232,21 +267,37 @@ class TestsDefautsSynchrones(BacASable):
             [["download", "--camera", "watch"]],
         )
 
-    @unittest.expectedFailure
     def test_I12_boucle_nulle_est_rejetee(self):
         """I-12 : zéro ne doit pas être accepté comme cadence."""
         parseur = argparse.ArgumentParser()
         runtime.ajouter_boucle(parseur)
-        with self.assertRaises(SystemExit):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parseur.parse_args(["--loop", "0"])
 
-    @unittest.expectedFailure
     def test_I12_boucle_negative_est_rejetee(self):
         """I-12 : une cadence négative créerait une boucle serrée."""
         parseur = argparse.ArgumentParser()
         runtime.ajouter_boucle(parseur)
-        with self.assertRaises(SystemExit):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             parseur.parse_args(["--loop", "-1"])
+
+    def test_I22_open_refuse_le_port_zero_avant_la_socket(self):
+        """I-22 : zéro n'est pas un port utilisateur valide pour ``open``."""
+        with mock.patch("socket.socket") as creer_socket, \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                b2v.ouvrir(["--port", "0"])
+        creer_socket.assert_not_called()
+
+    def test_I22_open_refuse_le_port_65536_avant_la_socket(self):
+        """I-22 : la borne supérieure valide est 65535."""
+        with mock.patch("socket.socket") as creer_socket, \
+             contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                b2v.ouvrir(["--port", "65536"])
+        creer_socket.assert_not_called()
 
     @unittest.expectedFailure
     def test_I13_parent_mort_ne_fait_pas_oublier_un_enfant_vivant(self):
@@ -400,38 +451,150 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         valeurs.update(changements)
         return SimpleNamespace(**valeurs)
 
-    @unittest.expectedFailure
+    async def verifier_http_refuse(self, statut: int) -> None:
+        """Exerce le chemin cloud complet, jusqu'au registre incrémental."""
+        sortie = self.home / f"clips-{statut}"
+        clip = b2v.CloudClip({
+            "id": statut,
+            "device_name": "jardin",
+            "created_at": "2026-08-13T12:00:00+00:00",
+            "media": f"https://example.invalid/{statut}",
+            "network_id": 7,
+        })
+        cible = b2v.target_path(sortie, clip)
+        blink = FauxBlinkHTTP(FauxReponse(statut, b"<html>erreur</html>"))
+        with mock.patch.object(
+            b2v, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip]),
+        ), contextlib.redirect_stdout(io.StringIO()):
+            await b2v.traiter_cloud(
+                blink,
+                self.arguments(command="download", source="cloud", output=sortie),
+                [],
+            )
+        self.assertFalse(cible.exists())
+        self.assertFalse(cible.with_suffix(cible.suffix + ".part").exists())
+        self.assertFalse((sortie / b2v.STATE_FILENAME).exists())
+
     async def test_B01_cloud_vide_retourne_un_tuple(self):
-        """B-01 : un inventaire vide est un succès `(False, 0)`."""
+        """B-01 : un inventaire vide renvoie les quatre compteurs à zéro."""
         with mock.patch.object(b2v, "read_cloud_manifest",
                                new=mock.AsyncMock(return_value=[])):
             resultat = await b2v.traiter_cloud(object(), self.arguments(), [])
-        self.assertEqual(resultat, (False, 0))
+        self.assertIsInstance(resultat, tuple)
+        self.assertEqual(
+            (resultat.downloaded, resultat.adopted, resultat.skipped, resultat.failed),
+            (0, 0, 0, 0),
+        )
 
-    @unittest.expectedFailure
     async def test_B01_filtre_camera_vide_retourne_un_tuple(self):
-        """B-01 : un filtre sans résultat conserve le même contrat."""
+        """B-01 : un filtre sans résultat conserve les quatre compteurs."""
         with mock.patch.object(b2v, "read_cloud_manifest",
                                new=mock.AsyncMock(return_value=[FauxClip()] )):
             resultat = await b2v.traiter_cloud(
                 object(), self.arguments(camera="absente"), [],
             )
-        self.assertEqual(resultat, (False, 0))
-
-    @unittest.expectedFailure
-    async def test_B02_http_404_non_vide_n_est_pas_enregistre_comme_video(self):
-        """B-02 : un corps HTML non vide avec statut 404 est un échec."""
-        clip = b2v.CloudClip({
-            "id": 1, "device_name": "jardin",
-            "created_at": "2026-08-13T12:00:00+00:00",
-            "media": "https://example.invalid/media", "network_id": 7,
-        })
-        cible = self.home / "404.mp4.part"
-        resultat = await clip.download_to(
-            FauxBlinkHTTP(FauxReponse(404, b"<html>not found</html>")), cible,
+        self.assertIsInstance(resultat, tuple)
+        self.assertEqual(
+            (resultat.downloaded, resultat.adopted, resultat.skipped, resultat.failed),
+            (0, 0, 0, 0),
         )
-        self.assertFalse(resultat)
-        self.assertFalse(cible.exists())
+
+    async def test_B01_cloud_vide_un_passage_retourne_code_zero(self):
+        """B-01 : l'appelant peut déballer le succès vide sans ``TypeError``."""
+        with mock.patch.object(
+            b2v, "read_cloud_manifest", new=mock.AsyncMock(return_value=[]),
+        ), contextlib.redirect_stdout(io.StringIO()):
+            code = await b2v.un_passage(
+                object(), self.arguments(command="list", source="cloud"), [],
+            )
+        self.assertEqual(code, 0)
+
+    async def test_B01_filtre_vide_un_passage_retourne_code_zero(self):
+        """B-01 : le filtre vide garde le code de succès de ``list``."""
+        with mock.patch.object(
+            b2v, "read_cloud_manifest", new=mock.AsyncMock(return_value=[FauxClip()]),
+        ), contextlib.redirect_stdout(io.StringIO()):
+            code = await b2v.un_passage(
+                object(),
+                self.arguments(command="list", source="cloud", camera="absente"),
+                [],
+            )
+        self.assertEqual(code, 0)
+
+    async def test_B02_http_404_non_vide_ne_cree_ni_cible_ni_registre(self):
+        """B-02 : une page 404 ne devient jamais un MP4 acquis."""
+        await self.verifier_http_refuse(404)
+
+    async def test_B02_http_429_non_vide_ne_cree_ni_cible_ni_registre(self):
+        """B-02 : le corps d'un rate-limit reste une erreur transitoire."""
+        await self.verifier_http_refuse(429)
+
+    async def test_B02_http_500_non_vide_ne_cree_ni_cible_ni_registre(self):
+        """B-02 : une erreur serveur non vide n'est pas enregistrée."""
+        await self.verifier_http_refuse(500)
+
+    async def test_I18_compteurs_cloud_separent_les_quatre_issues(self):
+        """I-18 : téléchargé, adopté, ignoré et échoué restent distinguables."""
+        sortie = self.home / "compteurs"
+        sortie.mkdir()
+        instant = dt.datetime(2026, 8, 13, 12, tzinfo=dt.timezone.utc)
+        saute = FauxClip(1, "deja-acquis", instant)
+        adopte = FauxClip(2, "a-adopter", instant + dt.timedelta(minutes=1))
+        telecharge = FauxClip(3, "a-telecharger", instant + dt.timedelta(minutes=2))
+        echoue = FauxClip(4, "en-echec", instant + dt.timedelta(minutes=3))
+
+        async def ne_doit_pas_telecharger(_blink, _cible):
+            raise AssertionError("un clip acquis ou adopté ne doit pas être téléchargé")
+
+        async def telecharger(_blink, cible):
+            cible.write_bytes(b"video-neuve")
+            return True
+
+        async def refuser(_blink, cible):
+            cible.write_bytes(b"reponse-partielle")
+            return False
+
+        saute.download_to = ne_doit_pas_telecharger
+        adopte.download_to = ne_doit_pas_telecharger
+        telecharge.download_to = telecharger
+        echoue.download_to = refuser
+
+        cible_sautee = b2v.target_path(sortie, saute)
+        cible_sautee.parent.mkdir(parents=True)
+        cible_sautee.write_bytes(b"video-connue")
+        cible_adoptee = b2v.target_path(sortie, adopte)
+        cible_adoptee.parent.mkdir(parents=True)
+        cible_adoptee.write_bytes(b"video-existante")
+
+        etat = {"version": 1, "clips": {}}
+        b2v.remember_download(etat, FauxSync(10), "cloud", saute, sortie, cible_sautee,
+                              source="cloud")
+        (sortie / b2v.STATE_FILENAME).write_text(
+            json.dumps(etat), encoding="utf-8",
+        )
+
+        with mock.patch.object(
+            b2v,
+            "read_cloud_manifest",
+            new=mock.AsyncMock(return_value=[saute, adopte, telecharge, echoue]),
+        ), contextlib.redirect_stdout(io.StringIO()):
+            resultat = await b2v.traiter_cloud(
+                object(),
+                self.arguments(command="download", source="cloud", output=sortie),
+                [("Maison", FauxSync(10))],
+            )
+
+        self.assertEqual(
+            (resultat.downloaded, resultat.adopted, resultat.skipped, resultat.failed),
+            (1, 1, 1, 1),
+        )
+        self.assertTrue(b2v.target_path(sortie, telecharge).exists())
+        self.assertFalse(b2v.target_path(sortie, echoue).exists())
+        self.assertFalse(
+            b2v.target_path(sortie, echoue).with_suffix(".mp4.part").exists(),
+        )
+        registre = b2v.load_download_state(sortie)
+        self.assertEqual(len(registre["clips"]), 3)
 
     @unittest.expectedFailure
     async def test_I05_fichier_cloud_absent_est_repare(self):
@@ -463,22 +626,27 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual(resultat, (False, 1))
 
-    @unittest.expectedFailure
     async def test_I09_compte_cloud_only_accepte_login(self):
         """I-09 : login ne dépend pas de la présence d'un Sync Module."""
-        class Session:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *_args):
-                return False
-
         blink = SimpleNamespace(sync={})
-        with mock.patch.object(b2v, "ClientSession", Session), \
+        with mock.patch.object(b2v, "ClientSession", FauxSessionHTTP), \
              mock.patch.object(b2v, "connect", new=mock.AsyncMock(return_value=blink)), \
              contextlib.redirect_stdout(io.StringIO()):
             code = await b2v.main(self.arguments(command="login"))
         self.assertEqual(code, 0)
+
+    async def test_I09_compte_sans_hub_accepte_la_source_cloud(self):
+        """I-09 : l'absence de Sync Module n'interdit pas le cloud du compte."""
+        blink = SimpleNamespace(sync={})
+        arguments = self.arguments(command="list", source="cloud")
+        boucle = mock.AsyncMock(return_value=0)
+        with mock.patch.object(b2v, "ClientSession", FauxSessionHTTP), \
+             mock.patch.object(b2v, "connect", new=mock.AsyncMock(return_value=blink)), \
+             mock.patch.object(b2v, "boucler", new=boucle), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = await b2v.main(arguments)
+        self.assertEqual(code, 0)
+        boucle.assert_awaited_once_with(blink, arguments, [])
 
     @unittest.expectedFailure
     async def test_I16_noms_distincts_ne_collisionnent_pas_apres_assainissement(self):
@@ -514,13 +682,19 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
             )
         self.assertIn("hub", noms)
 
-    @unittest.expectedFailure
     async def test_I10_entree_de_registre_non_objet_n_abat_pas_le_cloud(self):
         """I-10 : une entrée corrompue est isolée du reste du registre."""
         sortie = self.home / "clips"
         sortie.mkdir()
         (sortie / b2v.STATE_FILENAME).write_text(json.dumps({
-            "version": 1, "clips": {"corrompue": 17},
+            "version": 1,
+            "clips": {
+                "nombre": 17,
+                "nul": None,
+                "tableau": [],
+                "sans_date": {"camera": "jardin"},
+                "date_invalide": {"camera": "jardin", "created_at": "jamais"},
+            },
         }), encoding="utf-8")
         with mock.patch.object(b2v, "read_cloud_manifest",
                                new=mock.AsyncMock(return_value=[FauxClip()])), \
@@ -528,9 +702,11 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
             resultat = await b2v.traiter_cloud(
                 object(), self.arguments(output=sortie), [],
             )
-        self.assertEqual(resultat, (False, 0))
+        self.assertEqual(
+            (resultat.downloaded, resultat.adopted, resultat.skipped, resultat.failed),
+            (0, 0, 0, 0),
+        )
 
-    @unittest.expectedFailure
     async def test_I07_depuis_zero_signifie_aujourd_hui(self):
         """I-07 : `--since 0` ne doit pas se transformer en trente jours."""
         appels = []
@@ -540,10 +716,35 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 appels.append(options)
                 return []
 
-        avant = dt.datetime.now() - dt.timedelta(days=1)
-        await b2v.read_cloud_manifest(Blink(), 0)
-        depuis = dt.datetime.strptime(appels[0]["since"], "%Y/%m/%d %H:%M:%S")
-        self.assertGreaterEqual(depuis, avant)
+        with mock.patch.object(b2v.dt, "datetime", DateHeureFigee):
+            await b2v.read_cloud_manifest(Blink(), 0)
+        self.assertEqual(appels[0]["since"], "2026/08/13 12:34:56")
+
+    async def test_I07_depuis_none_utilise_la_fenetre_par_defaut(self):
+        """I-07 : l'absence de filtre conserve explicitement les trente jours."""
+        appels = []
+
+        class Blink:
+            async def get_videos_metadata(self, **options):
+                appels.append(options)
+                return []
+
+        with mock.patch.object(b2v.dt, "datetime", DateHeureFigee):
+            await b2v.read_cloud_manifest(Blink(), None)
+        self.assertEqual(appels[0]["since"], "2026/07/14 12:34:56")
+
+    async def test_I07_depuis_n_utilise_exactement_n_jours(self):
+        """I-07 : une valeur positive n'est ni remplacée ni décalée."""
+        appels = []
+
+        class Blink:
+            async def get_videos_metadata(self, **options):
+                appels.append(options)
+                return []
+
+        with mock.patch.object(b2v.dt, "datetime", DateHeureFigee):
+            await b2v.read_cloud_manifest(Blink(), 7)
+        self.assertEqual(appels[0]["since"], "2026/08/06 12:34:56")
 
 
 @unittest.skip("E-01 : serveur d'onboarding prévu à l'étape 5, API absente à l'étape 0")

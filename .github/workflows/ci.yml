@@ -46,7 +46,9 @@ jobs:
       - name: Tests isolés de caractérisation blink2video
         env:
           BLINK_BOOTSTRAP: none
-        run: python -B -m unittest -v test_blink2video_audit.py
+        run: >-
+          python -B -m unittest -v
+          test_blink2video_audit.py test_runtime_validation.py
 
   tester:
     name: chaîne vidéo ${{ matrix.os }}

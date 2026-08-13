@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 # Avant tout import de dépendance : c'est ici qu'un environnement isolé
 # est préparé et le programme relancé dedans si nécessaire.
@@ -17,7 +18,7 @@ import runtime
 
 runtime.bootstrap()
 
-from aiohttp import ClientSession
+from aiohttp import ClientError, ClientSession
 
 from blinkpy.auth import Auth, BlinkTwoFARequiredError
 from blinkpy.blinkpy import Blink
@@ -29,6 +30,23 @@ STATE_FILENAME = ".blink_download_state.json"
 
 
 HUB_LOCK = Path(".blink_hub.lock")
+
+
+class CloudResult(NamedTuple):
+    """Bilan stable d'un passage cloud, sans confondre ses quatre issues."""
+
+    downloaded: int = 0
+    adopted: int = 0
+    skipped: int = 0
+    failed: int = 0
+
+    @property
+    def had_error(self) -> bool:
+        return self.failed > 0
+
+    @property
+    def new_downloads(self) -> int:
+        return self.downloaded
 
 
 def hub_lock(owner: str, stale_after: int = 600):
@@ -63,11 +81,18 @@ def load_saved_session() -> dict | None:
 
     try:
         data = json.loads(CONFIG.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        print(f"Session illisible ({error}). Une nouvelle connexion est nécessaire.")
+    except OSError:
+        print("Session illisible [fichier]. Une nouvelle connexion est nécessaire.")
+        return None
+    except json.JSONDecodeError:
+        print("Session illisible [données JSON]. Une nouvelle connexion est nécessaire.")
         return None
 
-    if not data.get("refresh_token"):
+    if not isinstance(data, dict):
+        print("Session illisible [schéma JSON]. Une nouvelle connexion est nécessaire.")
+        return None
+
+    if not isinstance(data.get("refresh_token"), str) or not data["refresh_token"]:
         return None
 
     # Auth.startup() exige ces clés, même lorsqu'un refresh_token est présent.
@@ -256,19 +281,36 @@ class CloudClip:
         self.created_at = dt.datetime.fromisoformat(str(entree["created_at"]))
         self.address = entree.get("media")
         self.network_id = entree.get("network_id")
+        self.download_issue = None
 
     async def download_to(self, blink: Blink, target: Path) -> bool:
         """Écrit le média dans `target`, en passant par la session Blink."""
+        self.download_issue = None
+        target.unlink(missing_ok=True)
         if not self.address:
+            self.download_issue = ("données", "adresse du média absente")
             return False
-        reponse = await blink.do_http_get(self.address)
-        if reponse is None:
-            return False
-        contenu = await reponse.read()
-        if not contenu:
-            return False
-        target.write_bytes(contenu)
-        return True
+        try:
+            reponse = await blink.do_http_get(self.address)
+            if reponse is None:
+                self.download_issue = ("réseau", "aucune réponse du service Blink")
+                return False
+            statut = getattr(reponse, "status", None)
+            if not isinstance(statut, int) or not 200 <= statut < 300:
+                detail = f"statut HTTP {statut}" if isinstance(statut, int) else "statut HTTP absent"
+                self.download_issue = ("HTTP", f"réponse refusée ({detail})")
+                with contextlib.suppress(Exception):
+                    await reponse.read()
+                return False
+            contenu = await reponse.read()
+            if not contenu:
+                self.download_issue = ("HTTP", "réponse vide")
+                return False
+            target.write_bytes(contenu)
+            return True
+        finally:
+            if self.download_issue is not None:
+                target.unlink(missing_ok=True)
 
 
 async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
@@ -278,12 +320,24 @@ async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
     qui répond, pas le module. Un abonnement ne couvrant qu'une partie des
     caméras, les deux inventaires ne se recouvrent que partiellement, d'où le
     rapprochement fait plus loin plutôt qu'un choix de source."""
-    depuis = dt.datetime.now() - dt.timedelta(days=since_days or 30)
+    jours = 30 if since_days is None else since_days
+    if jours < 0:
+        raise ValueError("le nombre de jours doit être positif ou nul")
+    depuis = dt.datetime.now() - dt.timedelta(days=jours)
     entrees = await blink.get_videos_metadata(
         since=depuis.strftime("%Y/%m/%d %H:%M:%S"), stop=20
     )
+    if entrees is None:
+        return []
+    if not isinstance(entrees, (list, tuple)):
+        print("  ! [données] Manifeste cloud ignoré : racine JSON inattendue.")
+        return []
     clips = []
-    for entree in entrees or []:
+    invalides = 0
+    for entree in entrees:
+        if not isinstance(entree, dict):
+            invalides += 1
+            continue
         # Un média supprimé reste listé, marqué comme tel ; un média partiel est
         # un enregistrement encore en cours d'écriture côté Blink.
         if entree.get("deleted") or entree.get("partial"):
@@ -292,8 +346,10 @@ async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
             continue
         try:
             clips.append(CloudClip(entree))
-        except (KeyError, ValueError):
-            continue
+        except (KeyError, TypeError, ValueError):
+            invalides += 1
+    if invalides:
+        print(f"  ! [données] {invalides} entrée(s) cloud invalide(s) ignorée(s).")
     return clips
 
 
@@ -406,12 +462,41 @@ def load_download_state(output: Path) -> dict:
         return {"version": 1, "clips": {}}
     try:
         state = json.loads(state_file.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            raise ValueError("la racine JSON doit être un objet")
         if state.get("version") != 1 or not isinstance(state.get("clips"), dict):
             raise ValueError("format inconnu")
+        valides = {}
+        ignores = 0
+        for cle, entree in state["clips"].items():
+            if not isinstance(cle, str) or not isinstance(entree, dict):
+                ignores += 1
+                continue
+            instant = entree.get("created_at")
+            if not isinstance(instant, str):
+                ignores += 1
+                continue
+            try:
+                dt.datetime.fromisoformat(instant)
+            except ValueError:
+                ignores += 1
+                continue
+            valides[cle] = entree
+        if ignores:
+            print(f"  ! [données] {ignores} entrée(s) de registre invalide(s) ignorée(s).")
+        state["clips"] = valides
         return state
-    except (OSError, ValueError, json.JSONDecodeError) as error:
-        print(f"  ! État incrémental illisible ({error}); les fichiers existants seront vérifiés.")
-        return {"version": 1, "clips": {}}
+    except OSError:
+        categorie = "fichier"
+    except json.JSONDecodeError:
+        categorie = "données JSON"
+    except ValueError:
+        categorie = "schéma JSON"
+    print(
+        f"  ! État incrémental illisible [{categorie}] ; "
+        "les fichiers existants seront vérifiés."
+    )
+    return {"version": 1, "clips": {}}
 
 
 def save_download_state(output: Path, state: dict) -> None:
@@ -564,7 +649,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera", help="ne garder que cette caméra")
     parser.add_argument(
         "--since",
-        type=int,
+        type=runtime.jours_non_negatifs,
         metavar="JOURS",
         help="ne garder que les clips des N derniers jours",
     )
@@ -577,7 +662,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="remplacer les fichiers existants de taille différente",
+        help="forcer le retéléchargement des clips visibles, même déjà acquis",
     )
     parser.add_argument(
         "--from", dest="source", choices=("usb", "cloud", "all"), default="all",
@@ -594,12 +679,10 @@ def parse_args() -> argparse.Namespace:
         # commande tapée sans argument ne doit pas partir sur le réseau.
         parser.print_help()
         raise SystemExit(0)
-    if args.since is not None and args.since < 0:
-        parser.error("--since doit être positif ou nul")
     return args
 
 
-async def traiter_cloud(blink: Blink, args, modules: list) -> tuple:
+async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
     """Inventorie, puis rapatrie, les clips que l'abonnement garde dans le cloud.
 
     Le compte répond ici, pas le module : aucune réservation du hub n'est donc
@@ -611,7 +694,7 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> tuple:
         clips = [c for c in clips
                  if safe_name(c.name).casefold() == safe_name(args.camera).casefold()]
     if not clips:
-        return False
+        return CloudResult()
 
     print("\n=== CLOUD DE L'ABONNEMENT ===")
     # Le rapprochement se fait avec ce qui est déjà au registre, et non avec le
@@ -619,19 +702,21 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> tuple:
     # alors que le registre garde la trace de tout ce qui a été rapatrié.
     output = args.output.resolve()
     state = load_download_state(output)
-    connus = [_ClipConnu(entree) for entree in (state.get("clips") or {}).values()
-              if entree.get("created_at")]
-    inedits, doublons = rapprocher(connus, clips)
+    connus = [_ClipConnu(entree) for entree in state["clips"].values()]
+    if args.overwrite:
+        inedits, doublons = clips, []
+    else:
+        inedits, doublons = rapprocher(connus, clips)
     print(f"  {len(clips)} clip(s) dans le cloud, {len(doublons)} déjà acquis "
           f"par ailleurs, {len(inedits)} à rapatrier.")
     if args.command != "download" or not inedits:
-        return False, 0
+        return CloudResult(skipped=len(doublons))
 
     # Le registre attend un module pour former l'identité. Le cloud n'en
     # dépend pas : à défaut, le réseau du clip en tient lieu, ce qui suffit,
     # l'identité réelle restant la caméra et l'instant.
     sync = next((s for _, s in modules), None) or _HubCloud(clips[0].network_id)
-    echecs = 0
+    downloaded = adopted = failed = 0
     for position, clip in enumerate(sorted(inedits, key=clip_datetime_utc), start=1):
         target = target_path(output, clip)
         print(f"  [{position}/{len(inedits)}] {target.name}")
@@ -639,26 +724,45 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> tuple:
             remember_download(state, sync, args.hub or "cloud", clip, output,
                               target, source="cloud")
             save_download_state(output, state)
+            adopted += 1
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         partiel = target.with_suffix(target.suffix + ".part")
+        partiel.unlink(missing_ok=True)
         try:
             if await clip.download_to(blink, partiel):
                 partiel.replace(target)
                 remember_download(state, sync, args.hub or "cloud", clip, output,
                                   target, source="cloud")
                 save_download_state(output, state)
+                downloaded += 1
             else:
-                echecs += 1
-                print("    Échec : média cloud indisponible.")
-        except Exception as erreur:  # Continuer avec les autres clips.
-            echecs += 1
-            print(f"    Échec : {type(erreur).__name__}: {erreur}")
+                failed += 1
+                categorie, detail = getattr(
+                    clip, "download_issue", None
+                ) or ("média", "contenu indisponible")
+                print(f"    Échec [{categorie}] : {detail}.")
+        except (ClientError, OSError, asyncio.TimeoutError) as erreur:
+            failed += 1
+            print(f"    Échec [réseau] : {type(erreur).__name__}.")
+        except Exception as erreur:  # Isoler un clip invalide des suivants.
+            failed += 1
+            print(f"    Échec [données] : {type(erreur).__name__}.")
         finally:
             partiel.unlink(missing_ok=True)
 
-    print(f"  Terminé : {len(inedits) - echecs} téléchargé(s), {echecs} échec(s).")
-    return echecs > 0, len(inedits) - echecs
+    resultat = CloudResult(
+        downloaded=downloaded,
+        adopted=adopted,
+        skipped=len(doublons),
+        failed=failed,
+    )
+    print(
+        f"  Terminé : {resultat.downloaded} téléchargé(s), "
+        f"{resultat.adopted} adopté(s), {resultat.skipped} ignoré(s), "
+        f"{resultat.failed} échec(s)."
+    )
+    return resultat
 
 
 class _HubCloud:
@@ -687,17 +791,24 @@ async def main(args: argparse.Namespace) -> int:
         print("\nConnexion Blink réussie.")
         print(f"Session sauvegardée dans : {CONFIG.resolve()}")
         print("\n=== SYNC MODULES ===")
-        if not blink.sync:
+        synchronisations = getattr(blink, "sync", None) or {}
+        if not synchronisations:
             print("Aucun Sync Module trouvé sur ce compte.")
-            return 1
-        for name, sync in blink.sync.items():
+        for name, sync in synchronisations.items():
             print(f"- {name} (ID {sync.sync_id}, réseau {sync.network_id})")
 
         if args.command == "login":
             return 0
 
+        if args.source == "usb" and not synchronisations:
+            print("\nLa source USB exige un Sync Module ; utilisez --from cloud.")
+            return 1
+
         try:
-            modules = select_sync_modules(blink, args.hub)
+            modules = (
+                [] if args.source == "cloud"
+                else select_sync_modules(blink, args.hub)
+            )
         except ValueError as error:
             print(f"\nErreur : {error}")
             return 2
@@ -804,9 +915,9 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
         neufs_total += downloaded
 
     if args.source != "usb":
-        echec_cloud, neufs_cloud = await traiter_cloud(blink, args, modules)
-        had_error = echec_cloud or had_error
-        neufs_total += neufs_cloud
+        resultat_cloud = await traiter_cloud(blink, args, modules)
+        had_error = resultat_cloud.had_error or had_error
+        neufs_total += resultat_cloud.new_downloads
 
     if args.command == "download":
         # Ligne de synthèse, toutes sources confondues.
@@ -867,7 +978,7 @@ def ouvrir(arguments: list = ()) -> int:
         prog="blink2video open",
         description=ouvrir.__doc__.splitlines()[0],
     )
-    parseur.add_argument("--port", type=int, default=8765,
+    parseur.add_argument("--port", type=runtime.port_valide, default=8765,
                          help="port de l'interface (défaut 8765)")
     options = parseur.parse_args(list(arguments))
     adresse = f"http://127.0.0.1:{options.port}/"

@@ -1179,8 +1179,11 @@ def ecrire_resultat(resultat, label, output_dir):
     base = output_dir / (
         f"stage0-baseline-{horodatage}-{resultat['metadata']['profile']}-{label_sain}"
     )
-    json_path = base.with_suffix(".json")
-    md_path = base.with_suffix(".md")
+    # `run_id` contient un point avant les microsecondes : `with_suffix()`
+    # prendrait tout ce qui suit pour une extension et supprimerait le profil
+    # ainsi que le libellé. Construire le nom complet les conserve.
+    json_path = Path(f"{base}.json")
+    md_path = Path(f"{base}.md")
     # Mode exclusif : une collision, même improbable, est signalée plutôt que
     # d'écraser silencieusement une campagne antérieure.
     with json_path.open("x", encoding="utf-8") as sortie:

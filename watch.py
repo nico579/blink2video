@@ -305,7 +305,8 @@ def parse_args() -> argparse.Namespace:
         help="déclencher une notification de vérification et s'arrêter",
     )
     parser.add_argument(
-        "--port", type=int, default=8765, help="port de l'interface (défaut : 8765)",
+        "--port", type=runtime.port_valide, default=8765,
+        help="port de l'interface (défaut : 8765)",
     )
     parser.add_argument(
         "--ignore", metavar="CAMERA", nargs="+", default=[],

@@ -1,0 +1,313 @@
+{
+  "schema_version": 2,
+  "kind": "blink2video-stage0-baseline",
+  "validity": "partial",
+  "metadata": {
+    "captured_at": "2026-08-13T17:55:41+02:00",
+    "run_id": "20260813T155541.777574Z",
+    "seed": 20260813,
+    "profile": "quick",
+    "reference_revision_requested": "58f5566",
+    "reference_revision_resolved": "58f55660cf535d72e9a303b339df832e9ce437d5",
+    "executed_head": "6c283d88a6d4c408006e17be635274d108fd89c2",
+    "executed_branch": "audit-remediation",
+    "executed_tracked_worktree_dirty": false,
+    "executed_production_sha256": {
+      "blink2video.py": "a18a7dadf507dacda24af00018f52157f240eca924d741acc512ec3b1cdfe908",
+      "runtime.py": "7321165809ed09a8ea10d41a33163a8449da0c0896d204aa93cf49c53dfc3e93",
+      "serve.py": "0947dc4366c1c5c9fe8ac7ad76297bd806f081d77cd0d5a5ac2e5bf2fbf399ef",
+      "merge_daily.py": "6c054640f0df8f8fee7dfa733378a15044e4d683243dc23731ccd359f271bc80"
+    },
+    "python": "3.12.0 (tags/v3.12.0:0fb18b0, Oct  2 2023, 13:03:39) [MSC v.1935 64 bit (AMD64)]",
+    "implementation": "CPython",
+    "os": "Windows-10-10.0.19045-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 10, GenuineIntel",
+    "logical_cpu": 4,
+    "physical_memory_bytes": 8425529344,
+    "workspace_disk_free_bytes": 23950995456,
+    "power_plan": "GUID du mode de gestion de l’alimentation : 381b4222-f694-41f0-9685-ff5bb260df2e  (Utilisation normale)",
+    "dependencies": {
+      "aiohttp": "3.14.3",
+      "blinkpy": "0.25.9",
+      "tzdata": "2025.3",
+      "psutil": "7.0.0"
+    }
+  },
+  "protocol": {
+    "warmups": 3,
+    "short_runs": 20,
+    "heavy_runs": 5,
+    "process_warmups": 3,
+    "process_runs": 20,
+    "P01_cooldown_s": 0.25,
+    "clock": "time.perf_counter_ns",
+    "median_ci": "bootstrap 95%, 2000 resamples",
+    "internet": "disabled; loopback only"
+  },
+  "safety_notes": [
+    "P-07 est borné à 8 Mio : le flux 1 Gio est réservé au profil full; la capacité mémoire et disque doit être contrôlée avant ce profil.",
+    "P-02 à P-05 utilisent les volumes quick consignés dans chaque scénario; aucune extrapolation vers 100 000 entrées n'est revendiquée."
+  ],
+  "benchmarks": {
+    "P-01": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-02": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-03": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-04": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-05": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-06": {
+      "status": "measured",
+      "mode": "instrumented_production_parser_fake_blink_no_network",
+      "measurement_kind": "instrumented",
+      "pagination_observed": false,
+      "known_protocol_gap": "production makes one metadata call with stop=20; the fake returns the whole supplied manifest so parser cost can be measured, not provider pagination",
+      "qualification_correctness": false,
+      "scenarios": {
+        "first_600": {
+          "duration_ms": {
+            "n": 5,
+            "min": 7.1576,
+            "median": 9.9283,
+            "p95": 10.8298,
+            "max": 10.8298,
+            "mean": 9.6785,
+            "stdev": 1.3448988854185282,
+            "cv_percent": 13.895736792049679,
+            "median_ci95": [
+              7.1576,
+              10.8298
+            ],
+            "samples": [
+              10.8298,
+              9.9283,
+              10.8189,
+              9.6579,
+              7.1576
+            ]
+          },
+          "clips_returned": 600,
+          "expected_new": 600,
+          "observed_new": 600,
+          "api_calls_observed": 1,
+          "api_call_options_observed": [
+            {
+              "since": "2026/07/14 17:55:42",
+              "stop": 20
+            }
+          ],
+          "metadata_bytes_returned": 83780,
+          "requested_stop": 20,
+          "newness_counter_scope": "benchmark harness over production parser output",
+          "correctness": true
+        },
+        "then_0_new": {
+          "duration_ms": {
+            "n": 5,
+            "min": 5.0345,
+            "median": 5.4878,
+            "p95": 6.7767,
+            "max": 6.7767,
+            "mean": 5.60538,
+            "stdev": 0.6106736588391544,
+            "cv_percent": 10.894420339729944,
+            "median_ci95": [
+              5.0345,
+              6.7767
+            ],
+            "samples": [
+              6.7767,
+              5.4987,
+              5.2292,
+              5.0345,
+              5.4878
+            ]
+          },
+          "clips_returned": 600,
+          "expected_new": 0,
+          "observed_new": 0,
+          "api_calls_observed": 1,
+          "api_call_options_observed": [
+            {
+              "since": "2026/07/14 17:55:42",
+              "stop": 20
+            }
+          ],
+          "metadata_bytes_returned": 83780,
+          "requested_stop": 20,
+          "newness_counter_scope": "benchmark harness over production parser output",
+          "correctness": true
+        },
+        "then_1_new": {
+          "duration_ms": {
+            "n": 5,
+            "min": 7.0322,
+            "median": 9.6697,
+            "p95": 10.4785,
+            "max": 10.4785,
+            "mean": 9.34692,
+            "stdev": 1.2463416696877307,
+            "cv_percent": 13.334249888602134,
+            "median_ci95": [
+              7.0322,
+              10.4785
+            ],
+            "samples": [
+              10.349,
+              9.6697,
+              10.4785,
+              9.2052,
+              7.0322
+            ]
+          },
+          "clips_returned": 601,
+          "expected_new": 1,
+          "observed_new": 1,
+          "api_calls_observed": 1,
+          "api_call_options_observed": [
+            {
+              "since": "2026/07/14 17:55:42",
+              "stop": 20
+            }
+          ],
+          "metadata_bytes_returned": 83920,
+          "requested_stop": 20,
+          "newness_counter_scope": "benchmark harness over production parser output",
+          "correctness": true
+        },
+        "then_10_new": {
+          "duration_ms": {
+            "n": 5,
+            "min": 6.1419,
+            "median": 7.0963,
+            "p95": 21.078,
+            "max": 21.078,
+            "mean": 10.23852,
+            "stdev": 5.58358166140695,
+            "cv_percent": 54.53504668064282,
+            "median_ci95": [
+              6.1419,
+              21.078
+            ],
+            "samples": [
+              6.8181,
+              21.078,
+              10.0583,
+              7.0963,
+              6.1419
+            ]
+          },
+          "clips_returned": 610,
+          "expected_new": 10,
+          "observed_new": 10,
+          "api_calls_observed": 1,
+          "api_call_options_observed": [
+            {
+              "since": "2026/07/14 17:55:42",
+              "stop": 20
+            }
+          ],
+          "metadata_bytes_returned": 85180,
+          "requested_stop": 20,
+          "newness_counter_scope": "benchmark harness over production parser output",
+          "correctness": true
+        }
+      }
+    },
+    "P-07": {
+      "status": "measured",
+      "mode": "real_loopback_http",
+      "scenarios": {
+        "1048576": {
+          "duration_ms": {
+            "n": 5,
+            "min": 6.3379,
+            "median": 6.9913,
+            "p95": 7.9915,
+            "max": 7.9915,
+            "mean": 7.02552,
+            "stdev": 0.6117402402981187,
+            "cv_percent": 8.70740159159918,
+            "median_ci95": [
+              6.3379,
+              7.9915
+            ],
+            "samples": [
+              7.3694,
+              6.4375,
+              7.9915,
+              6.9913,
+              6.3379
+            ]
+          },
+          "throughput_mib_s": 143.03491482270823,
+          "python_heap_peak_bytes": 2191178,
+          "stored_bytes": 1048576,
+          "correctness": true,
+          "implementation_observed": "response.read_then_write_bytes"
+        },
+        "8388608": {
+          "duration_ms": {
+            "n": 5,
+            "min": 28.7436,
+            "median": 29.1169,
+            "p95": 33.6615,
+            "max": 33.6615,
+            "mean": 30.37076,
+            "stdev": 1.9276180675642138,
+            "cv_percent": 6.346953673744792,
+            "median_ci95": [
+              28.7436,
+              33.6615
+            ],
+            "samples": [
+              31.4785,
+              28.7436,
+              29.1169,
+              28.8533,
+              33.6615
+            ]
+          },
+          "throughput_mib_s": 274.7545240049593,
+          "python_heap_peak_bytes": 16878619,
+          "stored_bytes": 8388608,
+          "correctness": true,
+          "implementation_observed": "response.read_then_write_bytes"
+        }
+      }
+    },
+    "P-08": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-09": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-10": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-11": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-12": {
+      "status": "not_run",
+      "mode": "excluded_or_requires_p01"
+    }
+  }
+}
