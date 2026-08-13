@@ -405,8 +405,45 @@ def test_avancement() -> None:
              "la marque disparaît quand le calcul se termine")
 
 
+def test_mise_a_jour() -> None:
+    """La détection d'une version publiée, et son unique décision.
+
+    Tout le reste de la mise à jour touche à l'installation elle-même et ne se
+    vérifie qu'en la faisant. Ce qui se teste ici est la seule décision prise
+    sans surveillance : cette version est-elle plus récente que la nôtre ? Une
+    comparaison de chaînes rangerait 0.5.10 avant 0.5.9, et l'outil ne
+    proposerait jamais la mise à jour."""
+    import maj
+    import runtime
+
+    print("\nMise à jour")
+    verifier(maj._numeros("v0.5.10") > maj._numeros("0.5.9"),
+             "0.5.10 est plus récent que 0.5.9")
+    verifier(maj._numeros("0.5.3") == maj._numeros("v0.5.3"),
+             "le « v » du nom d'étiquette ne compte pas")
+
+    assets = [{"name": "blink2video-linux-x86_64.tar.gz", "size": 1,
+               "browser_download_url": "u1"},
+              {"name": "blink2video-windows-x86_64.zip", "size": 2,
+               "browser_download_url": "u2"},
+              {"name": "blink2video-macos-arm64.zip", "size": 3,
+               "browser_download_url": "u3"}]
+    choisie = maj._archive_de_ce_systeme(assets)
+    attendu = {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
+    verifier(attendu in choisie.get("nom", ""),
+             "l'archive choisie est celle de ce système", choisie.get("nom", "aucune"))
+
+    # Sans réseau : la réponse ne doit venir que du cache, et une version égale
+    # à la nôtre ne doit rien proposer.
+    verifier(maj.disponible(reseau=False) == {}
+             or maj._numeros(maj.disponible(reseau=False)["version"])
+             > maj._numeros(runtime.VERSION),
+             "aucune mise à jour n'est proposée vers une version plus ancienne")
+
+
 def main() -> int:
     test_verbes()
+    test_mise_a_jour()
     test_notification()
     test_avancement()
     test_relance()

@@ -255,17 +255,31 @@ chose d'inattendu.
 
 ## Mettre à jour
 
-L'instance lancée avec la session tient le port de l'interface et parle au
-module de synchronisation : il faut l'arrêter avant de remplacer les fichiers.
+Quand une version plus récente est publiée, l'interface affiche un bouton
+**Installer 0.x.y**. Il s'occupe de tout : téléchargement, arrêt, remplacement,
+relance des mêmes verbes. La même chose depuis un terminal :
+
+```bash
+blink2video update               # installer la dernière version publiée
+blink2video update --check       # dire seulement s'il en existe une
+```
+
+Rien n'est remplacé tant que la nouvelle version n'a pas démarré et annoncé son
+numéro, et les fichiers précédents sont gardés de côté jusqu'à ce que la
+permutation aboutisse. Depuis un clone git, `update` fait un `git pull` au lieu
+de télécharger une archive.
+
+Pour le faire à la main, arrêtez d'abord l'instance : elle tient le port de
+l'interface et parle au module de synchronisation.
 
 ```bash
 blink2video stop                 # arrête l'instance et tous ses verbes
 ```
 
-Puis remplacez le dossier par la nouvelle archive, ou faites `git pull` depuis
-les sources, et relancez : le raccourci du dossier Démarrage sous Windows,
-`launchctl load` sous macOS, `systemctl --user start blink2video` sous Linux. La
-prochaine ouverture de session s'en charge de toute façon.
+Puis remplacez le dossier par la nouvelle archive et relancez : le raccourci du
+dossier Démarrage sous Windows, `launchctl load` sous macOS, `systemctl --user
+start blink2video` sous Linux. La prochaine ouverture de session s'en charge de
+toute façon.
 
 `blink2video autostart status` dit ce qui est installé et si une instance tourne. Dans
 un terminal, Ctrl+C suffit : c'est `stop` qui existe pour les instances sans
@@ -301,6 +315,7 @@ blink2video serve       # servir l'interface web, pour regarder, écarter, voir 
 blink2video start       # tout lancer avec les réglages recommandés
 blink2video open        # ouvrir l'interface web dans le navigateur
 blink2video stop        # arrêter l'instance qui tourne en fond
+blink2video update      # installer la dernière version publiée
 blink2video autostart   # inscrire à l'ouverture de session la commande qui suit
 blink2video smoketest   # vérifier que l'installation fonctionne sur cette machine
 ```

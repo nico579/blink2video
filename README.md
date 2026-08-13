@@ -246,16 +246,29 @@ An option placed before the first verb belongs to nobody, and is refused:
 
 ## Updating
 
-The instance started with your session holds the interface port and talks to the
-Sync Module: stop it before replacing any file.
+When a newer release exists, the interface shows an **Install 0.x.y** button.
+It does everything: download, stop, replace, start again, with whatever verbs
+were running. The same thing from a terminal:
+
+```bash
+blink2video update               # install the latest published release
+blink2video update --check       # only say whether one exists
+```
+
+Nothing is replaced until the new version has started and stated its own
+version number, and the previous files are kept aside until the swap succeeds.
+From a git clone, `update` runs `git pull` instead of downloading an archive.
+
+To do it by hand, stop the instance first: it holds the interface port and
+talks to the Sync Module.
 
 ```bash
 blink2video stop                 # stops the instance and all its verbs
 ```
 
-Then replace the folder with the new archive, or `git pull` from source, and
-start it again: the Startup shortcut on Windows, `launchctl load` on macOS,
-`systemctl --user start blink2video` on Linux. The next logon does it anyway.
+Then replace the folder with the new archive and start it again: the Startup
+shortcut on Windows, `launchctl load` on macOS, `systemctl --user start
+blink2video` on Linux. The next logon does it anyway.
 
 `blink2video autostart status` says what is installed and whether an instance is
 running. In a terminal, Ctrl+C is enough: `stop` exists for instances without a
@@ -291,6 +304,7 @@ blink2video serve       # serve the web interface, to watch, discard, see live
 blink2video start       # start everything with the recommended settings
 blink2video open        # open the web interface in the browser
 blink2video stop        # stop the instance running in the background
+blink2video update      # install the latest published release
 blink2video autostart   # register the command that follows with your session
 blink2video smoketest   # check that the installation works on this machine
 ```

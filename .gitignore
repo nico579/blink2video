@@ -9,6 +9,7 @@ watch_config.json
 .blink_*.json.*
 .blink_hub.lock
 watch.log
+maj.log
 
 # Images de surveillance du domicile. Rien de tout cela n'a vocation à
 # quitter la machine.

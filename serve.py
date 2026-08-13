@@ -43,6 +43,7 @@ runtime.bootstrap()
 from aiohttp import ClientSession
 
 import blink2video as bk
+import maj
 import merge_daily as md
 
 
@@ -1064,9 +1065,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # Le nombre de clips au registre accompagne les heures : la page le
             # compare à ce qu'elle affiche et signale l'écart, sans rien
             # redessiner de lui-même.
+            # La version publiée est lue dans le cache, jamais chez GitHub : la
+            # page ne doit pas attendre un serveur distant. Un fil de fond tient
+            # ce cache à jour.
             self.send_json({"passages": runtime.passages(),
                             "clips": len(read_entries(self.paths)),
-                            "travail": runtime.travail_en_cours()})
+                            "travail": runtime.travail_en_cours(),
+                            "maj": maj.disponible(reseau=False)})
             return
 
         if route == "/api/refresh":
@@ -1258,6 +1263,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"error": str(error)}, 503)
             return
 
+        if route == "/api/update":
+            neuve = maj.disponible(reseau=False)
+            if not neuve:
+                self.send_json({"error": "Aucune version plus récente."}, 409)
+                return
+            # Détaché, et volontairement sans attendre : ce processus fait
+            # partie de ce que la mise à jour va arrêter. Elle rend compte dans
+            # maj.log, et la page attend simplement le retour du serveur.
+            runtime.demarrer(
+                runtime.self_command("update"), cwd=str(runtime.app_dir()),
+                stdin=subprocess.DEVNULL,
+                stdout=(runtime.app_dir() / "maj.log").open("ab"),
+                stderr=subprocess.STDOUT,
+                start_new_session=(os.name != "nt"))
+            self.send_json({"ok": True, "version": neuve["version"]})
+            return
+
         if route == "/api/toggle":
             identity = str(payload.get("identity", ""))
             excluded = bool(payload.get("excluded"))
@@ -1348,6 +1370,8 @@ PAGE = """<!doctype html>
   .maj { display:flex; align-items:center; gap:10px; padding:5px 5px 5px 12px;
          border:1px solid var(--line); border-radius:9px; background:var(--card); }
   .maj #passages { font-variant-numeric:tabular-nums; }
+  /* Une version qui attend se remarque sans crier : la couleur suffit. */
+  #update { background:#2f4a33; border-color:var(--in); color:#a8e6c0; }
   main { padding:20px; }
   h2 { font-size:14px; color:var(--dim); font-weight:600; margin:28px 0 12px;
        border-bottom:1px solid var(--line); padding-bottom:7px; }
@@ -1428,6 +1452,7 @@ PAGE = """<!doctype html>
   <!-- Tout ce qui concerne la mise à jour tient ensemble, à droite : l'heure du
        dernier passage, la coche qui recharge seule, et le bouton. -->
   <div class="maj">
+    <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
     <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
       <input type="checkbox" id="auto"> auto
@@ -1542,12 +1567,58 @@ function montrerTravail(travail) {
   }
 }
 
+// Une version publiée plus récente que celle qui tourne : le bouton apparaît,
+// et il fait tout, du téléchargement à la relance. Pendant l'opération le
+// serveur s'arrête et revient : la page attend son retour, puis se recharge.
+function montrerMaj(neuve) {
+  const bouton = $("update");
+  bouton.hidden = !(neuve && neuve.version);
+  if (bouton.hidden || bouton.dataset.encours) return;
+  bouton.textContent = `Installer ${neuve.version}`;
+  bouton.title = `Version ${neuve.version} publiée. Le téléchargement, `
+               + `l'arrêt et la relance sont automatiques.`;
+}
+
+$("update").onclick = async () => {
+  const bouton = $("update");
+  bouton.dataset.encours = "1";
+  bouton.disabled = true;
+  bouton.textContent = "Mise à jour…";
+  const reponse = await fetch("/api/update", { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: "{}" });
+  const resultat = await reponse.json();
+  if (resultat.error) {
+    alert(resultat.error);
+    bouton.disabled = false;
+    delete bouton.dataset.encours;
+    return;
+  }
+  $("phase").textContent =
+    `Mise à jour vers ${resultat.version} : téléchargement, puis relance…`;
+  $("bar").removeAttribute("value");
+  $("work").classList.add("on");
+  $("refresh").disabled = true;
+  // Le serveur va disparaître puis revenir sous sa nouvelle version. On teste
+  // sa présence, et c'est son retour qui sert de fin de course.
+  let parti = false;
+  const attente = setInterval(async () => {
+    try {
+      await fetch("/api/status", { cache: "no-store" });
+      if (parti) location.reload();
+    } catch (erreur) {
+      parti = true;      // il s'est arrêté : la relance suit
+    }
+  }, 2000);
+  setTimeout(() => clearInterval(attente), 900000);
+};
+
 async function heuresDePassage() {
   let etat = {};
   try {
     etat = await (await fetch("/api/passages")).json();
   } catch (erreur) { return; }
   montrerTravail(etat.travail);
+  montrerMaj(etat.maj);
   const vus = etat.passages || {};
   // Des clips sont arrivés depuis que la page a été chargée : on le dit, et
   // c'est à vous de cliquer sur Actualiser. La liste ne se réorganise pas sous
@@ -2009,6 +2080,24 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def veiller_sur_les_versions() -> None:
+    """Tient à jour, en fond, la connaissance de la dernière version publiée.
+
+    Un fil séparé plutôt qu'un appel dans la page : GitHub peut mettre dix
+    secondes à répondre, ou ne pas répondre du tout, et rien de tout cela ne
+    doit se voir depuis l'interface. Une visite par jour de fonctionnement
+    suffit à repérer une publication."""
+    def veille():
+        while True:
+            try:
+                maj.disponible()
+            except Exception:      # une panne de réseau n'arrête pas le serveur
+                pass
+            time.sleep(maj.FRAICHEUR)
+
+    threading.Thread(target=veille, daemon=True).start()
+
+
 def main() -> int:
     args = parse_args()
     Handler.paths = {
@@ -2050,6 +2139,7 @@ def main() -> int:
         return 1
     url = f"http://127.0.0.1:{args.port}/"
     print(f"Interface disponible sur {url}   (Ctrl+C pour arrêter)")
+    veiller_sur_les_versions()
     if args.open_browser:
         threading.Timer(0.5, webbrowser.open, [url]).start()
     try:
