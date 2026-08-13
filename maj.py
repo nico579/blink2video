@@ -230,11 +230,28 @@ def _verifier(dossier: Path, attendue: str) -> bool:
 CONTENU_DU_PROGRAMME = ("blink2video.exe", "blink2video", "_internal")
 
 
+def _poser(source: Path, cible: Path) -> None:
+    """Installe un fichier ou un dossier neuf à sa place définitive.
+
+    Une copie, et non un déplacement : le programme qui exécute cette fonction
+    est celui du dossier neuf, ses bibliothèques sont chargées depuis
+    `_internal`, et Windows refuse de renommer un dossier dont un fichier est
+    mappé en mémoire. Copier ne demande rien d'exclusif sur la source. Le
+    dossier temporaire reste derrière, et le ménage se fait au passage
+    suivant."""
+    if source.is_dir():
+        shutil.copytree(source, cible)
+    else:
+        shutil.copy2(source, cible)
+        if os.name != "nt":
+            cible.chmod(0o755)
+
+
 def _permuter(neuf: Path, installe: Path) -> bool:
     """Met les fichiers neufs à la place des anciens, ou remet tout en l'état.
 
-    Les anciens sont écartés avant d'être supprimés : si un déplacement échoue
-    à mi-chemin, on sait revenir en arrière, ce qu'un effacement préalable
+    Les anciens sont écartés avant d'être supprimés : si une copie échoue à
+    mi-chemin, on sait revenir en arrière, ce qu'un effacement préalable
     rendrait impossible."""
     ecartes = []
     try:
@@ -249,7 +266,7 @@ def _permuter(neuf: Path, installe: Path) -> bool:
                     else retire.unlink(missing_ok=True)
                 os.replace(ancien, retire)
                 ecartes.append((retire, ancien))
-            shutil.move(str(source), str(installe / nom))
+            _poser(source, installe / nom)
         return True
     except OSError as erreur:
         print(f"Échec du remplacement ({erreur}). Retour à la version précédente.")
@@ -291,7 +308,7 @@ def _relancer(installe: Path, verbes: list) -> None:
     commande = _ligne(installe, *[mot for groupe in verbes for mot in groupe])
     if not verbes:
         commande.append("start")
-    print(f"Relance : {' '.join(commande)}")
+    print(f"Relance : {' '.join(commande)}", flush=True)
     runtime.demarrer(commande, cwd=str(installe),
                      stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -309,7 +326,7 @@ def finaliser(cible: Path) -> int:
     fiches = runtime.lire_instances()
     verbes = (fiches[0].get("verbes") or []) if fiches else []
 
-    print("Arrêt de la version en place…")
+    print("Arrêt de la version en place…", flush=True)
     runtime.lancer(_ligne(installe, "stop"), cwd=str(installe),
                    stdin=subprocess.DEVNULL, check=False)
 
@@ -330,11 +347,11 @@ def finaliser(cible: Path) -> int:
                 break
             time.sleep(2)
         else:
-            print("La version précédente est intacte : rien n'a été remplacé.")
+            print("La version précédente est intacte : rien n'a été remplacé.", flush=True)
             _relancer(installe, verbes)
             return 1
 
-    print(f"Installé dans {installe}")
+    print(f"Installé dans {installe}", flush=True)
     _relancer(installe, verbes)
     return 0
 

@@ -440,6 +440,61 @@ def test_mise_a_jour() -> None:
              > maj._numeros(runtime.VERSION),
              "aucune mise à jour n'est proposée vers une version plus ancienne")
 
+    # Le remplacement des fichiers, sur une installation factice : c'est le seul
+    # moment où la mise à jour peut casser quelque chose, et ce quelque chose
+    # serait les clips de quelqu'un.
+    base = Path(tempfile.mkdtemp(prefix="blink_maj_"))
+    try:
+        installe, neuf = base / "installe", base / "neuf"
+        (installe / "_internal").mkdir(parents=True)
+        (installe / "_internal" / "vieux.dll").write_text("ancien")
+        (installe / maj._executable(installe).name).write_text("ancien programme")
+        (installe / "Blink_Clips").mkdir()
+        (installe / "Blink_Clips" / "jardin.mp4").write_text("clip précieux")
+        (neuf / "_internal").mkdir(parents=True)
+        (neuf / "_internal" / "neuf.dll").write_text("neuf")
+        (neuf / maj._executable(neuf).name).write_text("nouveau programme")
+
+        verifier(maj._permuter(neuf, installe), "le remplacement aboutit")
+        verifier(maj._executable(installe).read_text() == "nouveau programme",
+                 "le programme est bien celui de la nouvelle version")
+        verifier((installe / "_internal" / "neuf.dll").is_file()
+                 and not (installe / "_internal" / "vieux.dll").is_file(),
+                 "les fichiers internes ont été remplacés en bloc")
+        verifier((installe / "Blink_Clips" / "jardin.mp4").read_text() == "clip précieux",
+                 "les données de l'utilisateur n'ont pas bougé")
+        maj._nettoyer(installe)
+        verifier(not list(installe.glob("*.ancien")),
+                 "les fichiers écartés sont effacés au passage suivant")
+
+        # Panne au milieu du remplacement : l'installation doit se retrouver
+        # dans l'état où elle était, faute de quoi il ne resterait qu'un dossier
+        # à moitié neuf, incapable de démarrer et sans moyen de le dire.
+        installe2, neuf2 = base / "installe2", base / "neuf2"
+        (installe2 / "_internal").mkdir(parents=True)
+        (installe2 / maj._executable(installe2).name).write_text("ancien programme")
+        (neuf2 / "_internal").mkdir(parents=True)
+        (neuf2 / maj._executable(neuf2).name).write_text("nouveau programme")
+        vrai_poser, appels = maj._poser, []
+
+        def poser_qui_lache(source, cible):
+            appels.append(source)
+            if len(appels) > 1:
+                raise OSError("panne simulée en plein remplacement")
+            return vrai_poser(source, cible)
+
+        maj._poser = poser_qui_lache
+        try:
+            verifier(not maj._permuter(neuf2, installe2),
+                     "une panne en cours de remplacement est signalée")
+        finally:
+            maj._poser = vrai_poser
+        verifier(maj._executable(installe2).read_text() == "ancien programme"
+                 and (installe2 / "_internal").is_dir(),
+                 "après une panne, la version précédente est remise en place")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
 
 def main() -> int:
     test_verbes()

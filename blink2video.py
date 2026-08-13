@@ -969,7 +969,12 @@ def executer(groupes: list) -> int:
     if len(groupes) == 1:
         verbe, *arguments = groupes[0]
         if verbe in DELEGUES:
-            runtime.inscrire_instance(groupes)
+            # « update » ne s'inscrit pas : une fiche sert à retrouver ce qu'il
+            # faut arrêter, et la mise à jour est précisément ce qui arrête tout
+            # le reste. Inscrite, elle se trouvait elle-même dans la liste et se
+            # tuait au premier « stop », en silence et à mi-chemin.
+            if verbe != "update":
+                runtime.inscrire_instance(groupes)
             return deleguer(verbe, arguments)
         sys.argv = ["blink2video", verbe, *arguments]
         return asyncio.run(main(parse_args()))
