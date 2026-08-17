@@ -523,8 +523,8 @@ class TestsDefautsSynchrones(BacASable):
             "pid": 111, "depuis": "2026-08-13T12:00:00+02:00",
             "verbes": [["serve"]], "enfants": [222],
         }), encoding="utf-8")
-        with mock.patch.object(runtime, "processus_vivant",
-                               side_effect=lambda pid: int(pid) == 222):
+        with mock.patch.object(runtime, "processus_correspond",
+                               side_effect=lambda pid, *a, **k: int(pid) == 222):
             instances = runtime.lire_instances()
         self.assertEqual(len(instances), 1)
         self.assertTrue(fiche.exists())
@@ -537,11 +537,38 @@ class TestsDefautsSynchrones(BacASable):
                     "enfants": [222], "fiche": fiche}
         with mock.patch.object(runtime, "lire_instances", return_value=[instance]), \
              mock.patch.object(runtime, "arreter_processus"), \
-             mock.patch.object(runtime, "processus_vivant", return_value=True), \
+             mock.patch.object(runtime, "processus_correspond", return_value=True), \
              contextlib.redirect_stdout(io.StringIO()):
             code = blink_cli.arreter([])
         self.assertEqual(code, 1)
         self.assertTrue(fiche.exists())
+
+    def test_stop_ne_tue_pas_un_pid_reattribue(self):
+        """Un numéro de PID existant mais réattribué à un autre logiciel ne
+        doit jamais être tué : ça a réellement arrêté un service tiers et une
+        messagerie sur la machine d'un utilisateur (numéro recyclé après la
+        mort du vrai processus suivi). `processus_vivant` seul ne suffit pas
+        à confirmer une identité ; `arreter` ne doit tuer que ce que
+        `processus_correspond` reconnaît vraiment."""
+        fiche = self.home / "instance.json"
+        fiche.write_text("{}", encoding="utf-8")
+        instance = {"pid": 111, "depuis": "maintenant", "verbes": [["serve"]],
+                    "enfants": [], "fiche": fiche}
+        with mock.patch.object(runtime, "lire_instances", return_value=[instance]), \
+             mock.patch.object(runtime, "arreter_processus") as tuer, \
+             mock.patch.object(runtime, "processus_vivant", return_value=True), \
+             mock.patch.object(runtime, "ligne_de_commande",
+                                return_value=r"C:\Program Files\Autre\Logiciel.exe"), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = blink_cli.arreter([])
+        # Le plus important : jamais un appel à tuer un processus dont
+        # l'identité ne correspond pas, quel que soit le reste.
+        tuer.assert_not_called()
+        # Un PID réattribué n'est pas un survivant à retenir : notre
+        # processus, lui, est bel et bien mort (identité non reconnue), la
+        # fiche périmée part comme si l'arrêt avait réussi.
+        self.assertEqual(code, 0)
+        self.assertFalse(fiche.exists())
 
     def test_E01_sans_argument_selectionne_start(self):
         """E-01/5.1 : l'absence d'argument emprunte le même dispatch que

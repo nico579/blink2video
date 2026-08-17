@@ -237,17 +237,30 @@ def arreter(arguments: list = ()) -> int:
         commande = " ".join(" ".join(groupe) for groupe in fiche.get("verbes") or [])
         print(f"Arrêt de « {commande or 'blink2video'} » "
               f"(PID {fiche['pid']}, depuis {fiche.get('depuis', '?')})")
-        runtime.arreter_processus(int(fiche["pid"]))
-        for enfant in fiche.get("enfants") or []:
-            if runtime.processus_vivant(int(enfant)):
-                runtime.arreter_processus(int(enfant), avec_descendance=True)
+        # Un numéro de processus fini par être réattribué à un logiciel sans
+        # aucun rapport ; le confondre avec l'instance qu'on croit suivre a
+        # déjà fait « arrêter » un service tiers et une messagerie sur la
+        # machine d'un utilisateur. On vérifie l'identité avant de tuer quoi
+        # que ce soit, jamais seulement l'existence du PID.
+        membres = [fiche["pid"], *(fiche.get("enfants") or [])]
+        for membre in membres:
+            if not runtime.processus_vivant(int(membre)):
+                continue
+            if not runtime.processus_correspond(int(membre)):
+                print(f"  PID {membre} ne correspond plus à cette instance "
+                      f"(numéro réattribué à un autre logiciel) : ignoré.")
+                continue
+            runtime.arreter_processus(int(membre),
+                                       avec_descendance=(membre != fiche["pid"]))
 
         # I-14 : la fiche n'est retirée que si tout son monde est bien mort.
         # Elle restait effacée inconditionnellement ici, avant même de savoir
         # si l'arrêt avait réussi ; un survivant devenait alors introuvable au
-        # « stop » suivant, sa seule piste ayant disparu avec la fiche.
-        membres = [fiche["pid"], *(fiche.get("enfants") or [])]
-        survivants = [str(m) for m in membres if runtime.processus_vivant(int(m))]
+        # « stop » suivant, sa seule piste ayant disparu avec la fiche. Un
+        # membre dont le PID existe mais ne correspond plus à cette instance
+        # (ci-dessus) ne compte pas comme un survivant : c'est notre
+        # processus à nous qui est bien mort, seul son numéro a été repris.
+        survivants = [str(m) for m in membres if runtime.processus_correspond(int(m))]
         if survivants:
             restants.extend(survivants)
             continue

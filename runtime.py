@@ -262,6 +262,63 @@ def processus_vivant(pid: int) -> bool:
     return str(pid) in (resultat.stdout or "")
 
 
+def ligne_de_commande(pid: int) -> str:
+    """Ligne de commande du processus, ou chaîne vide si illisible.
+
+    Un nom d'image seul ne suffit pas à confirmer une identité : deux
+    python.exe peuvent coexister sans aucun rapport entre eux. La ligne de
+    commande, elle, porte le chemin du script lancé."""
+    if pid <= 0:
+        return ""
+    if os.name != "nt":
+        resultat = lancer(["ps", "-o", "args=", "-p", str(pid)],
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL, text=True, errors="replace",
+                          check=False)
+        return (resultat.stdout or "").strip()
+    # « wmic », déprécié, disparaît des images Windows récentes ; Get-CimInstance
+    # est son remplaçant courant pour interroger un processus par PID.
+    resultat = lancer(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+         f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' "
+         f"-ErrorAction SilentlyContinue).CommandLine"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, text=True, errors="replace", check=False,
+    )
+    return (resultat.stdout or "").strip()
+
+
+def _empreintes_attendues() -> list:
+    """Ce qu'on doit retrouver dans la ligne de commande d'un vrai processus
+    de ce projet — le point d'entrée lui-même, ou l'un de ses sous-verbes
+    (serve.py, watch.py, merge_daily.py...).
+
+    Deux marqueurs, pas un seul : le point d'entrée porte le nom du projet
+    dans sa ligne de commande quelle que soit la façon dont l'utilisateur l'a
+    tapée (chemin relatif, absolu, bundle), mais les sous-verbes lancés
+    depuis les sources sont des scripts différents (voir self_command) qui ne
+    portent pas ce nom ; seul leur dossier commun l'est, de façon fiable,
+    puisqu'ils se relancent eux-mêmes avec un chemin absolu."""
+    if frozen():
+        return ["blink2video"]
+    return ["blink2video", str(Path(__file__).resolve().parent)]
+
+
+def processus_correspond(pid: int, marqueurs: list | None = None) -> bool:
+    """Vrai si ce PID désigne bien un processus de ce projet.
+
+    Un numéro de processus fini par être réattribué à un logiciel sans
+    aucun rapport ; le confondre avec l'instance qu'on croit suivre a déjà
+    fait « arrêter » un service HP, un terminal et une messagerie sur la
+    machine d'un utilisateur, simplement parce qu'un numéro coïncidait.
+    Vérifier l'existence du PID ne suffit pas : il faut vérifier son
+    identité avant d'y toucher, *a fortiori* avant de le tuer."""
+    if not processus_vivant(pid):
+        return False
+    ligne = ligne_de_commande(pid)
+    return any(m in ligne for m in (marqueurs or _empreintes_attendues()))
+
+
 def inscrire_instance(entrees: list, enfants=None) -> Path:
     """Dépose la fiche de l'instance courante, et la retire à sa mort.
 
@@ -303,7 +360,7 @@ def lire_instances() -> list:
             fiche.unlink(missing_ok=True)
             continue
         membres = [donnees.get("pid"), *(donnees.get("enfants") or [])]
-        if any(processus_vivant(int(membre or 0)) for membre in membres):
+        if any(processus_correspond(int(membre or 0)) for membre in membres):
             donnees["fiche"] = fiche
             vivantes.append(donnees)
         else:
