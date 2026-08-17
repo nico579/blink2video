@@ -36,8 +36,15 @@ PAQUETS = ["aiohttp", "blinkpy", "tzdata", "imageio-ffmpeg", "pyinstaller"]
 # Compilation complète de secours, quand celle fournie par imageio-ffmpeg ne
 # sait pas incruster de texte. C'est le cas sous Linux, où elle est produite
 # sans libfreetype. Variante « gpl » : c'est celle qui embarque libfreetype.
+#
+# Le nom de fichier compte le numéro de version ffmpeg (« n7.1 », « n8.1»...),
+# qui change à chaque nouvelle compilation publiée sous le tag « latest » :
+# l'ancien nom devient introuvable (404) sans que le tag lui-même ne bouge.
+# C'est ce qui a cassé ce lien (n7.1 n'existe plus, remplacé par n9.0).
+# « master-latest », sans numéro, est la variante que BtbN publie justement
+# pour ne pas dépendre d'un nom qui se déplace.
 FFMPEG_SECOURS = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
-                  "ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz")
+                  "ffmpeg-master-latest-linux64-gpl.tar.xz")
 
 
 def ffmpeg_utilisable() -> str:
