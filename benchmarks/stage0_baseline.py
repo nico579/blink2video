@@ -51,6 +51,9 @@ os.environ["BLINK_BOOTSTRAP"] = "none"
 sys.path.insert(0, str(ROOT))
 
 import blink2video as b2v  # noqa: E402 - environnement isolé avant import
+import blink_auth  # noqa: E402
+import blink_models  # noqa: E402
+import blink_registre  # noqa: E402
 import runtime  # noqa: E402 - environnement isolé avant import
 
 try:
@@ -379,10 +382,10 @@ def benchmark_p02(config, racine):
     for rang, taille in enumerate(config["P02_sizes"]):
         dossier = racine / f"batch-{taille}"
         dossier.mkdir()
-        fichier = dossier / b2v.STATE_FILENAME
+        fichier = dossier / blink_registre.STATE_FILENAME
         etat = fabriquer_etat(taille)
         stats, _ = chronometrer(
-            lambda: b2v._ecrire_registre(fichier, etat),
+            lambda: blink_registre._ecrire_registre(fichier, etat),
             config["warmups"], config["heavy_runs"],
         )
         relu = json.loads(fichier.read_text(encoding="utf-8"))
@@ -399,14 +402,14 @@ def benchmark_p03(config, racine):
     taille = config["P03_size"]
     dossier = racine / "single-update"
     dossier.mkdir()
-    fichier = dossier / b2v.STATE_FILENAME
+    fichier = dossier / blink_registre.STATE_FILENAME
     etat = fabriquer_etat(taille)
-    b2v._ecrire_registre(fichier, etat)
+    blink_registre._ecrire_registre(fichier, etat)
     cle = next(iter(etat["clips"]))
 
     def mutation():
         etat["clips"][cle]["excluded"] = not etat["clips"][cle].get("excluded", False)
-        b2v._ecrire_registre(fichier, etat)
+        blink_registre._ecrire_registre(fichier, etat)
 
     stats, _ = chronometrer(mutation, config["warmups"], config["short_runs"])
     return {
@@ -433,9 +436,9 @@ def benchmark_p04(config, racine):
     reindexes = exclusions = 0
     for i in range(taille):
         ancien = Clip(i, f"camera-{i % 10}", base + dt.timedelta(seconds=i))
-        cible = b2v.target_path(sortie, ancien)
+        cible = blink_models.target_path(sortie, ancien)
         if i % 10 == 0:
-            etat["clips"][b2v.state_key(sync, ancien)] = {
+            etat["clips"][blink_registre.state_key(sync, ancien)] = {
                 "camera": ancien.name, "created_at": ancien.created_at.isoformat(),
                 "path": cible.relative_to(sortie).as_posix(), "excluded": True,
             }
@@ -444,16 +447,16 @@ def benchmark_p04(config, racine):
         else:
             cible.parent.mkdir(parents=True, exist_ok=True)
             cible.write_bytes(b"x")
-            b2v.remember_download(etat, sync, "Test", ancien, sortie, cible)
+            blink_registre.remember_download(etat, sync, "Test", ancien, sortie, cible)
             if i % 10 == 1:
                 nouveau = Clip(i + 1_000_000, ancien.name, ancien.created_at)
-                cas.append((nouveau, b2v.target_path(sortie, nouveau), True))
+                cas.append((nouveau, blink_models.target_path(sortie, nouveau), True))
                 reindexes += 1
             else:
                 cas.append((ancien, cible, True))
 
     def verifier():
-        return [b2v.is_downloaded(etat, sync, clip, cible)
+        return [blink_registre.is_downloaded(etat, sync, clip, cible)
                 for clip, cible, _ in cas]
 
     stats, dernier = chronometrer(verifier, config["warmups"], config["short_runs"])
@@ -488,11 +491,11 @@ def benchmark_p05(config, _racine):
                               base + dt.timedelta(days=365, seconds=i)))
 
     stats, dernier = chronometrer(
-        lambda: b2v.rapprocher(locaux, cloud),
+        lambda: blink_models.rapprocher(locaux, cloud),
         config["warmups"], config["heavy_runs"],
     )
     tracemalloc.start()
-    b2v.rapprocher(locaux, cloud)
+    blink_models.rapprocher(locaux, cloud)
     _, pic = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     inedits, doublons = dernier
@@ -529,7 +532,7 @@ def benchmark_p06(config, _racine):
                 appels.append(dict(options))
                 return entrees
 
-        clips = asyncio.run(b2v.read_cloud_manifest(Blink(), 30))
+        clips = asyncio.run(blink_models.read_cloud_manifest(Blink(), 30))
         ids = {clip.id for clip in clips}
         return {
             "clips": len(clips),
@@ -637,7 +640,7 @@ def benchmark_p07(config, racine):
                     class Blink:
                         async def do_http_get(self, adresse):
                             return await session.get(adresse)
-                    clip = b2v.CloudClip({
+                    clip = blink_models.CloudClip({
                         "id": taille, "device_name": "bench",
                         "created_at": "2026-08-13T12:00:00+00:00",
                         "media": f"{base_url}/bytes/{taille}", "network_id": 1,
@@ -851,7 +854,7 @@ def course_auth(config_path, travailleurs):
             "refresh_token": f"faux-{numero}", "username": "x", "password": "secret",
         }))
         try:
-            b2v.save_session(blink)
+            blink_auth.save_session(blink)
         except Exception as erreur:
             erreurs.append(type(erreur).__name__)
 
@@ -888,8 +891,8 @@ def benchmark_p10(config, racine):
             "password": "jamais-sur-disque",
         }))
         with mock.patch.object(b2v, "CONFIG", cible):
-            b2v.save_session(blink)
-            return b2v.load_saved_session()
+            blink_auth.save_session(blink)
+            return blink_auth.load_saved_session()
 
     stats, derniere = chronometrer(
         serialiser, config["warmups"], config["short_runs"],

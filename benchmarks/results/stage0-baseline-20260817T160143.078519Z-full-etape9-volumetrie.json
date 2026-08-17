@@ -1,0 +1,321 @@
+{
+  "schema_version": 2,
+  "kind": "blink2video-stage0-baseline",
+  "validity": "partial",
+  "metadata": {
+    "captured_at": "2026-08-17T18:01:43+02:00",
+    "run_id": "20260817T160143.078519Z",
+    "seed": 20260813,
+    "profile": "full",
+    "reference_revision_requested": "58f5566",
+    "reference_revision_resolved": "58f55660cf535d72e9a303b339df832e9ce437d5",
+    "executed_head": "4f6c43b21a4f07ccbf339dc8b905fd355a555fa8",
+    "executed_branch": "audit-remediation",
+    "executed_tracked_worktree_dirty": true,
+    "executed_production_sha256": {
+      "blink2video.py": "ab5cc686a2b82b6a0ad47148afa10831cf8217f141ef10f217d0f7957b21caf6",
+      "runtime.py": "87ba9673e601bd9cfa1e1c1d3e639bbe4d9988633f431eb5d918f322e43e7410",
+      "serve.py": "3c008768b0ba7da6b7ab11c60ce6a0e62ed5f41df8eff97cb6d843d709c15e96",
+      "merge_daily.py": "6c054640f0df8f8fee7dfa733378a15044e4d683243dc23731ccd359f271bc80"
+    },
+    "python": "3.12.0 (tags/v3.12.0:0fb18b0, Oct  2 2023, 13:03:39) [MSC v.1935 64 bit (AMD64)]",
+    "implementation": "CPython",
+    "os": "Windows-10-10.0.19045-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 10, GenuineIntel",
+    "logical_cpu": 4,
+    "physical_memory_bytes": 8425529344,
+    "workspace_disk_free_bytes": 16851898368,
+    "power_plan": "GUID du mode de gestion de l'alimentation�: 381b4222-f694-41f0-9685-ff5bb260df2e  (Utilisation normale)",
+    "dependencies": {
+      "aiohttp": "3.14.3",
+      "blinkpy": "0.25.9",
+      "tzdata": "2025.3",
+      "psutil": "7.0.0"
+    }
+  },
+  "protocol": {
+    "warmups": 3,
+    "short_runs": 20,
+    "heavy_runs": 5,
+    "process_warmups": 3,
+    "process_runs": 20,
+    "P01_cooldown_s": 0.25,
+    "clock": "time.perf_counter_ns",
+    "median_ci": "bootstrap 95%, 2000 resamples",
+    "internet": "disabled; loopback only"
+  },
+  "safety_notes": [],
+  "benchmarks": {
+    "P-01": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-02": {
+      "status": "measured",
+      "mode": "real_json_io",
+      "scenarios": {
+        "100": {
+          "duration_ms": {
+            "n": 5,
+            "min": 3.0485,
+            "median": 3.3763,
+            "p95": 4.1481,
+            "max": 4.1481,
+            "mean": 3.5735600000000005,
+            "stdev": 0.40532594094136143,
+            "cv_percent": 11.342357227564708,
+            "median_ci95": [
+              3.0485,
+              4.1481
+            ],
+            "samples": [
+              3.0485,
+              3.9354,
+              3.3595,
+              3.3763,
+              4.1481
+            ]
+          },
+          "stored_bytes": 23229,
+          "entries": 100,
+          "correctness": true
+        },
+        "1000": {
+          "duration_ms": {
+            "n": 5,
+            "min": 19.1311,
+            "median": 25.6363,
+            "p95": 31.2924,
+            "max": 31.2924,
+            "mean": 25.24402,
+            "stdev": 4.349342893541507,
+            "cv_percent": 17.22920079108441,
+            "median_ci95": [
+              19.1311,
+              31.2924
+            ],
+            "samples": [
+              31.2924,
+              28.2759,
+              25.6363,
+              21.8844,
+              19.1311
+            ]
+          },
+          "stored_bytes": 232929,
+          "entries": 1000,
+          "correctness": true
+        },
+        "10000": {
+          "duration_ms": {
+            "n": 5,
+            "min": 230.6679,
+            "median": 237.1281,
+            "p95": 270.9614,
+            "max": 270.9614,
+            "mean": 246.52670000000003,
+            "stdev": 16.27142006820549,
+            "cv_percent": 6.600266854748588,
+            "median_ci95": [
+              230.6679,
+              270.9614
+            ],
+            "samples": [
+              233.0354,
+              230.6679,
+              237.1281,
+              260.8407,
+              270.9614
+            ]
+          },
+          "stored_bytes": 2338929,
+          "entries": 10000,
+          "correctness": true
+        },
+        "100000": {
+          "duration_ms": {
+            "n": 5,
+            "min": 2654.8534,
+            "median": 2743.9008,
+            "p95": 3052.4475,
+            "max": 3052.4475,
+            "mean": 2790.1445200000003,
+            "stdev": 141.33772238990423,
+            "cv_percent": 5.065605791269343,
+            "median_ci95": [
+              2654.8534,
+              3052.4475
+            ],
+            "samples": [
+              2654.8534,
+              2810.4852,
+              2689.0357,
+              2743.9008,
+              3052.4475
+            ]
+          },
+          "stored_bytes": 23488929,
+          "entries": 100000,
+          "correctness": true
+        }
+      }
+    },
+    "P-03": {
+      "status": "measured",
+      "mode": "real_json_io",
+      "scenarios": {
+        "100000": {
+          "duration_ms": {
+            "n": 20,
+            "min": 2631.1066,
+            "median": 2740.70895,
+            "p95": 3006.4724,
+            "max": 3101.5916,
+            "mean": 2759.05389,
+            "stdev": 114.05190267928417,
+            "cv_percent": 4.133732330950743,
+            "median_ci95": [
+              2687.7153,
+              2775.6485000000002
+            ],
+            "samples": [
+              2702.8501,
+              2649.1624,
+              3006.4724,
+              2728.2455,
+              2735.3936,
+              2746.0243,
+              2794.1478,
+              2825.2653,
+              2634.0537,
+              2768.131,
+              3101.5916,
+              2808.2954,
+              2669.4158,
+              2770.1021,
+              2769.0062,
+              2781.1949,
+              2696.4309,
+              2676.4729,
+              2631.1066,
+              2687.7153
+            ]
+          },
+          "bytes_rewritten_per_update": 23489186,
+          "correctness": true
+        }
+      }
+    },
+    "P-04": {
+      "status": "measured",
+      "mode": "real_state_and_files",
+      "scenarios": {
+        "100000": {
+          "duration_ms": {
+            "n": 20,
+            "min": 7772.6222,
+            "median": 7848.2276,
+            "p95": 8459.4107,
+            "max": 8487.8526,
+            "mean": 7937.888975,
+            "stdev": 216.60414547627403,
+            "cv_percent": 2.728737403086115,
+            "median_ci95": [
+              7814.5869,
+              7876.6866
+            ],
+            "samples": [
+              8459.4107,
+              7863.7651,
+              7859.3678,
+              7851.7697,
+              7772.6222,
+              7815.2646,
+              7844.6855,
+              8261.8584,
+              8175.631,
+              7813.9092,
+              7791.2764,
+              7860.9198,
+              7801.1366,
+              7815.3626,
+              7802.1728,
+              8487.8526,
+              7968.1702,
+              7889.6081,
+              7778.3999,
+              7844.5963
+            ]
+          },
+          "checks": 100000,
+          "reindexed": 10000,
+          "excluded": 10000,
+          "errors": 0,
+          "correctness": true
+        }
+      }
+    },
+    "P-05": {
+      "status": "measured",
+      "mode": "real_matching_synthetic_dataset",
+      "scenarios": {
+        "100000x5000": {
+          "duration_ms": {
+            "n": 5,
+            "min": 101.5862,
+            "median": 117.6267,
+            "p95": 128.2605,
+            "max": 128.2605,
+            "mean": 115.53306,
+            "stdev": 8.997082993637438,
+            "cv_percent": 7.787453213510867,
+            "median_ci95": [
+              101.5862,
+              128.2605
+            ],
+            "samples": [
+              119.758,
+              128.2605,
+              101.5862,
+              117.6267,
+              110.4339
+            ]
+          },
+          "python_heap_peak_bytes": 12506840,
+          "expected_duplicates": 2500,
+          "observed_duplicates": 2500,
+          "observed_new": 2500,
+          "correctness": true
+        }
+      }
+    },
+    "P-06": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-07": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-08": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-09": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-10": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-11": {
+      "status": "not_run",
+      "mode": "excluded_by_operator"
+    },
+    "P-12": {
+      "status": "not_run",
+      "mode": "excluded_or_requires_p01"
+    }
+  }
+}
