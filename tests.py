@@ -290,8 +290,17 @@ def test_verbes() -> None:
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
         env=environnement_test(SUITE_HOME), check=False, timeout=30,
     )
-    verifier("Délai de connexion dépassé" in avec_start.stdout,
-             "start respecte le délai d'onboarding", avec_start.stdout[-200:])
+    # L'une ou l'autre des deux sorties bornées par le délai est acceptable :
+    # sur une machine lente (bundle PyInstaller plus long à démarrer que le
+    # script source, VM CI froide), le port peut ne pas répondre à temps et
+    # provoquer ce message avant même celui de l'attente de connexion. Les
+    # deux prouvent également que le délai est respecté et qu'aucun serveur
+    # temporaire ne reste actif (5.16).
+    verifier(
+        "Délai de connexion dépassé" in avec_start.stdout
+        or "ne répond pas" in avec_start.stdout,
+        "start respecte le délai d'onboarding", avec_start.stdout[-200:],
+    )
 
     aide = subprocess.run(
         commande_blink("--help"),

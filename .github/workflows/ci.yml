@@ -36,8 +36,15 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
+      # tzdata manquait ici (seuls aiohttp/blinkpy étaient installés) alors que
+      # runtime.DEPENDANCES l'exige inconditionnellement. Sans effet visible
+      # tant que runtime.bootstrap() n'était appelé qu'une fois, tout en haut
+      # de blink2video.py, au moment de l'import ; l'étape 8 l'a rendu
+      # paresseux (appelé depuis accueillir()/executer()/main(), et par les
+      # imports de serve.py/watch.py déjà existants), ce qui a suffi à révéler
+      # ce trou dès la première exécution réelle de ce job.
       - name: Installer les dépendances minimales
-        run: python -m pip install --quiet aiohttp blinkpy
+        run: python -m pip install --quiet aiohttp blinkpy tzdata
 
       # Les anomalies confirmées sont des expectedFailure nommés par leur ID
       # d'audit. Un correctif qui passe sans retirer ce marqueur devient un
