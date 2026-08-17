@@ -31,7 +31,7 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Avant tout import de dépendance : c'est ici qu'un environnement isolé
@@ -42,7 +42,8 @@ runtime.bootstrap()
 
 from aiohttp import ClientSession
 
-import blink2video as bk
+import blink_auth
+import blink_engine
 import maj
 import merge_daily as md
 
@@ -141,6 +142,15 @@ def known_identities(paths: dict) -> set:
 
 
 CAMERA_FACTS = "cameras.json"
+# Durée mesurée des clips écartés, qui n'ont plus d'entrée dans le registre
+# normalisé (voir collect) : sans ce cache, ffmpeg -i était relancé pour
+# chacun d'eux à chaque ouverture de la page.
+EXCLUDED_DURATIONS = "excluded_durations.json"
+
+# Fenêtre par défaut de /api/clips : au-delà, le nombre de vignettes ne fait
+# que croître de jour en jour sans jamais être consulté. L'historique complet
+# reste disponible sur demande explicite (paramètre ?all=1), jamais perdu.
+DEFAULT_WINDOW_DAYS = 30
 
 # L'API ne renvoie que des noms de code internes d'Amazon, jamais de référence
 # commerciale. Deux seulement sont établis : « owl », documenté comme étant le
@@ -170,20 +180,50 @@ def remember_cameras(paths: dict, systems: list) -> None:
         md.save_json(paths["thumbs"] / CAMERA_FACTS, facts)
 
 
-def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "") -> dict:
+def load_excluded_durations(paths: dict) -> dict:
+    cache = md.load_json(paths["thumbs"] / EXCLUDED_DURATIONS, {})
+    return cache if isinstance(cache, dict) else {}
+
+
+def probe_duration_cached(ffmpeg: str, source: Path, identity: str, cache: dict) -> float:
+    """Durée d'un clip écarté, mesurée une seule fois puis mise en cache.
+
+    La clé retient taille et date de modification du fichier source : un clip
+    remplacé (réparation d'un média absent, par exemple) est ainsi re-mesuré
+    plutôt que de garder une durée périmée."""
+    stat = source.stat()
+    empreinte = [stat.st_size, stat.st_mtime]
+    entree = cache.get(identity)
+    if entree and entree.get("empreinte") == empreinte:
+        return entree["duration"]
+    duration = probe_duration(ffmpeg, source)
+    cache[identity] = {"duration": duration, "empreinte": empreinte}
+    return duration
+
+
+def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
+            depuis: "dt.date | None" = None) -> dict:
     """Inventorie les clips connus du registre de téléchargement.
 
     Contrairement à merge_daily.load_groups, les clips écartés sont conservés :
-    c'est précisément ce qu'on veut pouvoir revoir et reprendre."""
+    c'est précisément ce qu'on veut pouvoir revoir et reprendre.
+
+    `depuis` borne la fenêtre renvoyée : le stock grossit chaque jour, et sans
+    cette borne la page finirait par transmettre et dessiner un nombre de
+    vignettes sans rapport avec ce qu'on regarde réellement. L'historique
+    complet reste accessible explicitement (voir DEFAULT_WINDOW_DAYS)."""
     entries = read_entries(paths)
     # Les durées déjà mesurées par merge_daily sont reprises telles quelles ;
     # seules celles des clips écartés, dont l'entrée a été balayée du registre
-    # normalisé, restent à mesurer.
+    # normalisé, restent à mesurer, via leur propre cache (voir
+    # load_excluded_durations) pour ne pas relancer ffmpeg à chaque requête.
     probed = md.load_json(paths["normalized"] / md.NORMALIZED_STATE, {}).get("clips")
     probed = probed if isinstance(probed, dict) else {}
     facts = md.load_json(paths["thumbs"] / CAMERA_FACTS, {})
+    duration_cache = None
 
     clips = []
+    total = 0
     for entry in entries.values():
         try:
             identity = entry["path"]
@@ -193,6 +233,9 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "") -> dict:
             continue
 
         local = created.astimezone(timezone)
+        total += 1
+        if depuis is not None and local.date() < depuis:
+            continue
         excluded = bool(entry.get("excluded"))
         # On sert de préférence la version normalisée : c'est celle qui porte
         # l'horodatage incrusté, donc celle qui aide vraiment à juger.
@@ -205,9 +248,12 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "") -> dict:
         probe = (probed.get(identity) or {}).get("probe") or {}
         seconds = probe.get("duration")
         # Un clip écarté n'a plus d'entrée dans le registre normalisé : on le
-        # mesure alors directement, une fois, depuis Blink_Excluded.
+        # mesure alors une fois, depuis Blink_Excluded, puis on se souvient.
         if seconds is None and source and ffmpeg:
-            seconds = probe_duration(ffmpeg, paths[source] / identity)
+            if duration_cache is None:
+                duration_cache = load_excluded_durations(paths)
+            seconds = probe_duration_cached(
+                ffmpeg, paths[source] / identity, identity, duration_cache)
 
         clips.append({
             "identity": identity,
@@ -225,12 +271,13 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "") -> dict:
             "model": model_name((facts.get(camera) or {}).get("kind")),
         })
 
-    # Du plus récent au plus ancien : c'est ce qu'on vient regarder. Deux tris
-    # successifs plutôt qu'une clé inversée d'un bloc, sinon l'ordre des
-    # caméras se retournerait aussi ; le second tri est stable, il conserve
-    # l'ordre antichronologique établi par le premier.
+    if duration_cache is not None:
+        md.save_json(paths["thumbs"] / EXCLUDED_DURATIONS, duration_cache)
+
+    # Du plus récent au plus ancien : c'est ce qu'on vient regarder. Un seul
+    # tri global est nécessaire ; trier ensuite par caméra ferait passer une
+    # caméra plus ancienne devant les clips récents d'une autre caméra.
     clips.sort(key=lambda clip: (clip["day"], clip["time"]), reverse=True)
-    clips.sort(key=lambda clip: clip["camera"])
     return {
         "clips": clips,
         "cameras": sorted({clip["camera"] for clip in clips}),
@@ -241,6 +288,10 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "") -> dict:
         "models": {nom: modele for nom, modele in (
             (clip["camera"], clip.pop("model", None)) for clip in clips) if modele},
         "days": sorted({clip["day"] for clip in clips}, reverse=True),
+        # Permet à la page de dire « 30 derniers jours, X clips sur Y connus »
+        # et de proposer explicitement de charger le reste.
+        "window_days": None if depuis is None else DEFAULT_WINDOW_DAYS,
+        "total_known": total,
     }
 
 
@@ -380,7 +431,7 @@ class BlinkSession:
             async def run():
                 if self.blink is None:
                     self.session = ClientSession()
-                    self.blink = await bk.connect_saved(self.session)
+                    self.blink = await blink_auth.connect_saved(self.session)
                 if self.blink is None:
                     raise RuntimeError(
                         "Session Blink absente ou expirée. Reconnectez-vous "
@@ -447,7 +498,7 @@ class LoginFlow:
 
         try:
             async with ClientSession() as session:
-                blink = await bk.login(session, username, password, ask_code)
+                blink = await blink_auth.login(session, username, password, ask_code)
         except Exception as error:  # remonter la cause plutôt que planter le serveur
             return {"status": "error", "message": f"{type(error).__name__}: {error}"}
         if blink is None:
@@ -830,7 +881,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # autre processus, elle ne voit pas nos sémaphores. Sans lui, un
             # téléchargement lancé en arrière-plan tomberait sur « System is
             # busy » pendant qu'on diffuse.
-            holder["lock"] = bk.hub_lock("direct")
+            holder["lock"] = blink_engine.hub_lock("direct")
             holder["lock"].__enter__()
             def start(blink):
                 async def run(_blink=blink):
@@ -1038,8 +1089,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/clips":
+            # ?all=1 lève explicitement la fenêtre par défaut : l'historique
+            # complet reste à un clic, jamais perdu, seulement pas chargé
+            # d'office (voir DEFAULT_WINDOW_DAYS).
+            voir_tout = parse_qs(urlparse(self.path).query).get("all", ["0"])[0] == "1"
+            depuis = None if voir_tout else (
+                dt.datetime.now(self.timezone).date()
+                - dt.timedelta(days=DEFAULT_WINDOW_DAYS)
+            )
             try:
-                self.send_json(collect(self.paths, self.timezone, self.ffmpeg))
+                self.send_json(collect(self.paths, self.timezone, self.ffmpeg, depuis))
             except RuntimeError as error:
                 self.send_json({"error": str(error)}, 500)
             return
@@ -1146,9 +1205,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # lancé ici est exactement celui qu'elle fait de son côté, et
                 # elle tourne dans un autre processus qui ne voit pas nos
                 # sémaphores.
-                with bk.hub_lock("actualisation", stale_after=3600):
+                with blink_engine.hub_lock("actualisation", stale_after=3600):
                     self.run_refresh()
-            except bk.BusyError as error:
+            except blink_engine.BusyError as error:
                 self.send_event({"line": f"Module occupé : {error}."})
                 self.send_event({"done": True, "ok": False})
             finally:
@@ -1401,6 +1460,8 @@ PAGE = """<!doctype html>
          padding:14px; margin-top:20px; color:var(--dim); display:none;
          max-height:340px; overflow-y:auto; }
   .empty { color:var(--dim); padding:40px 0; text-align:center; }
+  .window { color:var(--dim); font-size:13px; margin:0 0 16px; }
+  .window a { color:inherit; }
   #work { display:none; width:100%; align-items:center; gap:12px; padding-top:4px; }
   #work.on { display:flex; }
   progress { flex:1; height:8px; border:0; border-radius:4px;
@@ -1422,7 +1483,11 @@ PAGE = """<!doctype html>
   .live { flex-direction:column; gap:12px; }
   .live .hint { color:var(--dim); font-size:14px; margin:0;
                 text-align:center; padding:0 20px; line-height:1.4; }
-  .live .hint.overlay { position:absolute; }
+  /* Sans décalage, l'astuce se centre au même endroit que le bouton
+     « Réessayer » (seul enfant en flux dans .live) et capte ses clics :
+     on la remonte au-dessus et on la rend transparente aux événements. */
+  .live .hint.overlay { position:absolute; bottom:56px; left:0; right:0;
+                         pointer-events:none; }
   dialog { background:var(--card); color:var(--text); border:1px solid var(--line);
            border-radius:12px; padding:24px; width:min(380px, 92vw); }
   dialog::backdrop { background:rgba(0,0,0,.6); }
@@ -1813,7 +1878,12 @@ function renderClips() {
     return;
   }
   const days = [...new Set(clips.map((c) => c.day))];
-  $("list").innerHTML = days.map((day) => `
+  const fenetre = data.window_days
+    ? `<p class="window">${data.window_days} derniers jours affichés
+         (${data.clips.length} sur ${data.total_known} clip(s) connus) ·
+         <a href="#" onclick="afficherTout(); return false;">afficher tout l'historique</a></p>`
+    : "";
+  $("list").innerHTML = fenetre + days.map((day) => `
     <h2>${day}</h2>
     <div class="grid">${clips.filter((c) => c.day === day).map(card).join("")}</div>
   `).join("");
@@ -1873,9 +1943,15 @@ function card(c) {
   </div>`;
 }
 
+// Le stock de clips grossit chaque jour : /api/clips ne renvoie par défaut
+// que les DEFAULT_WINDOW_DAYS derniers jours (voir serve.py). Ce drapeau
+// mémorise un choix explicite d'afficher tout l'historique le temps de la
+// session ; il repart à faux au prochain chargement de la page.
+let verToutHistorique = false;
+
 async function load() {
   const [answer, videoAnswer] = await Promise.all([
-    fetch("/api/clips"), fetch("/api/videos"),
+    fetch(`/api/clips${verToutHistorique ? "?all=1" : ""}`), fetch("/api/videos"),
   ]);
   data = await answer.json();
   videos = await videoAnswer.json();
@@ -1885,6 +1961,12 @@ async function load() {
        (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
   fill($("day"), data.days, "tous les jours");
   render();
+}
+
+async function afficherTout() {
+  verToutHistorique = true;
+  $("list").innerHTML = `<p class="empty">Chargement de l'historique complet…</p>`;
+  await load();
 }
 
 async function toggle(identity, excluded) {
@@ -2040,6 +2122,10 @@ $("auto").onchange = () => {
 };
 $("view").value = "clips";   // au démarrage on montre les clips, pas d'appel réseau
 load();
+// E-01 : blink2video ouvre cette page avec ?login=1 quand aucune session
+// valide n'a été trouvée, pour que la fenêtre de connexion soit le premier
+// écran utile plutôt qu'un bouton à découvrir.
+if (new URLSearchParams(location.search).get("login") === "1") authenticate();
 </script>
 </body>
 </html>

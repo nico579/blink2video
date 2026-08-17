@@ -36,6 +36,11 @@ ROOT = Path(__file__).resolve().parent
 os.environ["BLINK_BOOTSTRAP"] = "none"
 
 import blink2video as b2v  # noqa: E402 - bootstrap neutralisé avant import
+import blink_auth  # noqa: E402
+import blink_cli  # noqa: E402
+import blink_engine  # noqa: E402
+import blink_models  # noqa: E402
+import blink_registre  # noqa: E402
 import runtime  # noqa: E402 - bootstrap neutralisé avant import
 
 
@@ -154,14 +159,14 @@ class TestsGardes(BacASable):
             "username": "personne@example.invalid",
             "password": "ne-doit-pas-sortir",
         }), encoding="utf-8")
-        with mock.patch.object(b2v, "CONFIG", session):
-            chargee = b2v.load_saved_session()
+        with mock.patch.object(blink_auth, "CONFIG", session):
+            chargee = blink_auth.load_saved_session()
         self.assertEqual(chargee["password"], "")
         self.assertEqual(chargee["refresh_token"], "jeton-factice")
 
     def test_G03_etat_absent_est_un_registre_vide(self):
         self.assertEqual(
-            b2v.load_download_state(self.home / "clips"),
+            blink_registre.load_download_state(self.home / "clips"),
             {"version": 1, "clips": {}},
         )
 
@@ -178,7 +183,7 @@ class TestsGardes(BacASable):
                                                  tzinfo=dt.timezone.utc))
         loin = FauxClip(3, instant=dt.datetime(2026, 8, 13, 12, 0, 3,
                                                tzinfo=dt.timezone.utc))
-        inedits, doublons = b2v.rapprocher([local], [proche, loin], tolerance=2)
+        inedits, doublons = blink_models.rapprocher([local], [proche, loin], tolerance=2)
         self.assertEqual([clip.id for clip in doublons], [2])
         self.assertEqual([clip.id for clip in inedits], [3])
 
@@ -192,8 +197,47 @@ class TestsGardes(BacASable):
                 raise RuntimeError("panne simulée")
 
         with self.assertRaises(RuntimeError):
-            asyncio.run(b2v.download_clip(object(), ClipEnErreur(), cible, False))
+            asyncio.run(blink_engine.download_clip(object(), ClipEnErreur(), cible, False))
         self.assertFalse(cible.with_suffix(".mp4.part").exists())
+
+    def test_I15_usb_fichier_non_mp4_n_est_pas_acquis(self):
+        """I-15 : un .part non vide mais sans boîte ftyp n'est pas un succès
+        (un octet suffisait auparavant à passer pour un téléchargement)."""
+        cible = self.home / "clips" / "invalide.mp4"
+
+        class ClipCorrompu(FauxClip):
+            async def prepare_download(self, _blink):
+                return True
+
+            async def download_video(self, _blink, chemin):
+                Path(chemin).parent.mkdir(parents=True, exist_ok=True)
+                Path(chemin).write_bytes(b"\x00")  # un octet, pas un MP4
+                return True
+
+        resultat = asyncio.run(
+            blink_engine.download_clip(object(), ClipCorrompu(), cible, False))
+        self.assertEqual(resultat, "failed")
+        self.assertFalse(cible.exists())
+        self.assertFalse(cible.with_suffix(".mp4.part").exists())
+
+    def test_I15_usb_fichier_mp4_valide_est_acquis(self):
+        """Non-régression : une boîte ftyp réelle reste acceptée."""
+        cible = self.home / "clips" / "valide.mp4"
+
+        class ClipValide(FauxClip):
+            async def prepare_download(self, _blink):
+                return True
+
+            async def download_video(self, _blink, chemin):
+                Path(chemin).parent.mkdir(parents=True, exist_ok=True)
+                Path(chemin).write_bytes(
+                    b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 100)
+                return True
+
+        resultat = asyncio.run(
+            blink_engine.download_clip(object(), ClipValide(), cible, False))
+        self.assertEqual(resultat, "downloaded")
+        self.assertTrue(cible.is_file())
 
     def test_G07_unexpected_success_met_la_suite_en_echec(self):
         """Le retrait oublié d'un expectedFailure doit rendre la CI rouge."""
@@ -209,12 +253,12 @@ class TestsGardes(BacASable):
 
 
 class TestsDefautsSynchrones(BacASable):
-    @unittest.expectedFailure
     def test_I01_BLINK_HOME_est_la_racine_de_config_et_sortie(self):
         """I-01 : CONFIG et OUTPUT ne doivent jamais dépendre du CWD."""
         code = (
-            "import json, blink2video as b; "
-            "print(json.dumps([str(b.CONFIG.resolve()), str(b.OUTPUT.resolve())]))"
+            "import json, blink_auth, blink_registre; "
+            "print(json.dumps([str(blink_auth.CONFIG.resolve()), "
+            "str(blink_registre.OUTPUT.resolve())]))"
         )
         env = dict(os.environ, BLINK_HOME=str(self.home), BLINK_BOOTSTRAP="none",
                    PYTHONPATH=str(ROOT))
@@ -229,42 +273,213 @@ class TestsDefautsSynchrones(BacASable):
         self.assertEqual(config.parent, self.home.resolve())
         self.assertEqual(output.parent, self.home.resolve())
 
+    def _sans_blinkpy_ni_aiohttp(self, code: str) -> subprocess.CompletedProcess:
+        """Exécute `code` dans un sous-processus où aiohttp et blinkpy ne
+        peuvent jamais être importés (O-06/8.7/8.8) : un import accidentel se
+        traduit par un ImportError immédiat et net plutôt que par un succès
+        muet qui ne prouverait rien."""
+        # sys.modules[nom] = None est le mécanisme documenté de l'import
+        # système : le prochain « import nom » lève ImportError tout de
+        # suite, sans passer par un faux Loader dont l'API (find_module/
+        # load_module) est justement celle que Python 3.12 a cessé d'appeler.
+        garde = (
+            "import sys\n"
+            "for _nom in ('aiohttp', 'blinkpy', 'blinkpy.auth', 'blinkpy.blinkpy'):\n"
+            "    sys.modules[_nom] = None\n"
+        )
+        env = dict(os.environ, BLINK_HOME=str(self.home), BLINK_BOOTSTRAP="none",
+                   PYTHONPATH=str(ROOT), PYTHONIOENCODING="utf-8")
+        return subprocess.run(
+            [sys.executable, "-B", "-c", garde + code], cwd=self.cwd, env=env,
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, encoding="utf-8", check=False,
+            timeout=15,
+        )
+
+    def test_O06_stop_fonctionne_sans_aiohttp_ni_blinkpy(self):
+        """O-06/8.7/8.8 : « stop » n'a besoin ni de Blink ni du réseau."""
+        resultat = self._sans_blinkpy_ni_aiohttp(
+            "import blink2video; print(blink2video.route(['stop']))"
+        )
+        self.assertEqual(resultat.returncode, 0, resultat.stderr)
+        self.assertIn("Rien ne tourne.", resultat.stdout)
+
+    def test_O06_aide_fonctionne_sans_aiohttp_ni_blinkpy(self):
+        """O-06/8.7/8.8 : --help ne doit jamais tirer Blink derrière lui."""
+        resultat = self._sans_blinkpy_ni_aiohttp(
+            "import blink2video; blink2video.route(['--help'])"
+        )
+        self.assertEqual(resultat.returncode, 0, resultat.stderr)
+        self.assertIn("Verbes :", resultat.stdout)
+
+    def test_O06_open_fonctionne_sans_aiohttp_ni_blinkpy(self):
+        """O-06/8.7/8.8 : « open » ne parle qu'à une socket locale."""
+        resultat = self._sans_blinkpy_ni_aiohttp(
+            "import blink2video; print(blink2video.route(['open', '--port', '1']))"
+        )
+        self.assertEqual(resultat.returncode, 0, resultat.stderr)
+        self.assertIn("Personne n'écoute", resultat.stdout)
+
+    def test_O06_update_delegue_fonctionne_sans_aiohttp_ni_blinkpy(self):
+        """O-06/8.7/8.8 : « update --help » ne doit pas non plus les tirer."""
+        resultat = self._sans_blinkpy_ni_aiohttp(
+            "import blink2video; blink2video.route(['update', '--help'])"
+        )
+        self.assertEqual(resultat.returncode, 0, resultat.stderr)
+
+    def test_O06_download_a_bien_besoin_de_blinkpy(self):
+        """Contre-épreuve : un verbe qui parle à Blink échoue proprement
+        quand blinkpy est absent, au lieu de planter plus tard sans message
+        clair. Prouve aussi que la garde du test bloque réellement l'import :
+        runtime.bootstrap(), appelé au bon moment par main(), détecte
+        l'absence via importlib.util.find_spec et l'annonce proprement,
+        plutôt que de laisser un ImportError remonter sans contexte."""
+        resultat = self._sans_blinkpy_ni_aiohttp(
+            "import blink2video; blink2video.route(['login'])"
+        )
+        self.assertNotEqual(resultat.returncode, 0)
+        self.assertIn("Dépendances absentes", resultat.stdout)
+        self.assertIn("aiohttp", resultat.stdout)
+        self.assertIn("blinkpy", resultat.stdout)
+
+    def test_I02_mot_de_passe_absent_meme_present_dans_login_attributes(self):
+        """I-02/4.5 : liste blanche, le mot de passe ne sort jamais."""
+        session = self.home / "blink_auth.json"
+
+        class AuthFactice:
+            login_attributes = {
+                "username": "personne@example.invalid",
+                "password": "ne-doit-jamais-etre-ecrit",
+                "token": "abc", "refresh_token": "def",
+                "champ_futur_inconnu": "ne-doit-pas-sortir-non-plus",
+            }
+
+        blink = SimpleNamespace(auth=AuthFactice())
+        with mock.patch.object(blink_auth, "CONFIG", session):
+            blink_auth.save_session(blink)
+            ecrit = json.loads(session.read_text(encoding="utf-8"))
+        self.assertNotIn("password", ecrit)
+        self.assertNotIn("champ_futur_inconnu", ecrit)
+        self.assertEqual(ecrit["token"], "abc")
+
+    def test_I02_temporaire_propre_a_ce_processus_puis_efface(self):
+        """I-02 : plus de blink_auth.tmp partagé entre processus concurrents."""
+        session = self.home / "blink_auth.json"
+        blink = SimpleNamespace(auth=SimpleNamespace(
+            login_attributes={"username": "x", "token": "y"}))
+        with mock.patch.object(blink_auth, "CONFIG", session):
+            blink_auth.save_session(blink)
+        restants = list(self.home.glob("*.tmp"))
+        self.assertEqual(restants, [], "aucun temporaire ne doit survivre à l'écriture")
+        ancien_partage = self.home / "blink_auth.tmp"
+        self.assertFalse(ancien_partage.exists())
+
+    def test_I02_sauvegarde_en_retard_n_ecrase_pas_la_plus_recente(self):
+        """I-02 : un rafraîchissement arrivé en désordre ne régresse pas."""
+        session = self.home / "blink_auth.json"
+        session.write_text(json.dumps({
+            "token": "le-plus-recent", "updated_at": time.time() + 3600,
+        }), encoding="utf-8")
+        blink = SimpleNamespace(auth=SimpleNamespace(
+            login_attributes={"token": "en-retard"}))
+        with mock.patch.object(blink_auth, "CONFIG", session), \
+             mock.patch.object(b2v.time, "time", return_value=1_000.0):
+            blink_auth.save_session(blink)
+        self.assertEqual(
+            json.loads(session.read_text(encoding="utf-8"))["token"],
+            "le-plus-recent",
+        )
+
+    def test_I03_make_blink_fournit_un_callback_de_persistance(self):
+        """I-03 : le rafraîchissement automatique de blinkpy doit être persisté."""
+        session = self.home / "blink_auth.json"
+        with mock.patch.object(blink_auth, "CONFIG", session):
+            blink = blink_auth.make_blink(
+                FauxSessionHTTP(), {"username": "x", "password": "y"},
+            )
+            self.assertIsNotNone(blink.auth.callback)
+            blink.auth.refresh_token = "frais"
+            blink.auth.callback()
+            ecrit = json.loads(session.read_text(encoding="utf-8"))
+        self.assertEqual(ecrit.get("refresh_token"), "frais")
+        self.assertNotIn("password", ecrit)
+
     def test_I10_session_json_tableau_est_refusee_sans_exception(self):
         """I-10 : une racine JSON valide mais non objet doit être tolérée."""
         session = self.home / "blink_auth.json"
         session.write_text("[]", encoding="utf-8")
-        with mock.patch.object(b2v, "CONFIG", session):
-            self.assertIsNone(b2v.load_saved_session())
+        with mock.patch.object(blink_auth, "CONFIG", session):
+            self.assertIsNone(blink_auth.load_saved_session())
 
     def test_I10_session_json_null_est_refusee_sans_exception(self):
         """I-10 : la racine JSON ``null`` ne doit pas atteindre ``.get``."""
         session = self.home / "blink_auth.json"
         session.write_text("null", encoding="utf-8")
-        with mock.patch.object(b2v, "CONFIG", session):
-            self.assertIsNone(b2v.load_saved_session())
+        with mock.patch.object(blink_auth, "CONFIG", session):
+            self.assertIsNone(blink_auth.load_saved_session())
 
     def test_I10_registre_json_tableau_est_refuse_sans_exception(self):
         """I-10 : le chargeur d'état valide le type avant .get()."""
         sortie = self.home / "clips"
         sortie.mkdir()
-        (sortie / b2v.STATE_FILENAME).write_text("[]", encoding="utf-8")
-        self.assertEqual(b2v.load_download_state(sortie),
+        (sortie / blink_registre.STATE_FILENAME).write_text("[]", encoding="utf-8")
+        self.assertEqual(blink_registre.load_download_state(sortie),
                          {"version": 1, "clips": {}})
 
     def test_I10_registre_json_null_est_refuse_sans_exception(self):
         """I-10 : un registre ``null`` suit la stratégie du registre vide."""
         sortie = self.home / "clips"
         sortie.mkdir()
-        (sortie / b2v.STATE_FILENAME).write_text("null", encoding="utf-8")
-        self.assertEqual(b2v.load_download_state(sortie),
+        (sortie / blink_registre.STATE_FILENAME).write_text("null", encoding="utf-8")
+        self.assertEqual(blink_registre.load_download_state(sortie),
                          {"version": 1, "clips": {}})
 
-    @unittest.expectedFailure
     def test_I11_valeur_de_camera_egale_a_un_verbe_reste_une_valeur(self):
         """I-11 : `download --camera watch` forme une seule commande."""
         self.assertEqual(
             runtime.decouper_verbes(["download", "--camera", "watch"]),
             [["download", "--camera", "watch"]],
+        )
+
+    def test_I11_camera_update_ne_declenche_pas_une_mise_a_jour(self):
+        """I-11 : `download --camera update` ne doit pas ouvrir « update »,
+        qui arrêterait tout le reste de la composition en cours de route."""
+        self.assertEqual(
+            runtime.decouper_verbes(["download", "--camera", "update"]),
+            [["download", "--camera", "update"]],
+        )
+
+    def test_I11_ignore_a_valeurs_multiples_avale_un_nom_de_verbe(self):
+        """I-11 : `watch --ignore serve jardin` cible deux caméras, dont une
+        nommée comme un verbe ; ni « serve » ni « jardin » n'ouvrent un
+        nouveau groupe."""
+        self.assertEqual(
+            runtime.decouper_verbes(["watch", "--ignore", "serve", "jardin"]),
+            [["watch", "--ignore", "serve", "jardin"]],
+        )
+
+    def test_I11_ignore_s_arrete_au_prochain_verbe_reel(self):
+        """La consommation multiple de --ignore doit s'arrêter dès qu'un
+        second groupe est réellement voulu, pas avaler toute la ligne."""
+        self.assertEqual(
+            runtime.decouper_verbes(
+                ["watch", "--ignore", "jardin", "--loop", "10", "merge"]),
+            [["watch", "--ignore", "jardin", "--loop", "10"], ["merge"]],
+        )
+
+    def test_I11_loop_seul_n_avale_pas_le_verbe_suivant(self):
+        """--loop est nargs='?' : sans nombre après lui, le mot suivant reste
+        un verbe à part entière."""
+        self.assertEqual(
+            runtime.decouper_verbes(["watch", "--loop", "download"]),
+            [["watch", "--loop"], ["download"]],
+        )
+
+    def test_I11_loop_suivi_d_un_nombre_reste_sa_valeur(self):
+        """Non-régression : --loop 10 continue de fonctionner normalement."""
+        self.assertEqual(
+            runtime.decouper_verbes(["watch", "--loop", "10", "merge", "--loop", "5"]),
+            [["watch", "--loop", "10"], ["merge", "--loop", "5"]],
         )
 
     def test_I12_boucle_nulle_est_rejetee(self):
@@ -287,7 +502,7 @@ class TestsDefautsSynchrones(BacASable):
              contextlib.redirect_stdout(io.StringIO()), \
              contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
-                b2v.ouvrir(["--port", "0"])
+                blink_cli.ouvrir(["--port", "0"])
         creer_socket.assert_not_called()
 
     def test_I22_open_refuse_le_port_65536_avant_la_socket(self):
@@ -296,10 +511,9 @@ class TestsDefautsSynchrones(BacASable):
              contextlib.redirect_stdout(io.StringIO()), \
              contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
-                b2v.ouvrir(["--port", "65536"])
+                blink_cli.ouvrir(["--port", "65536"])
         creer_socket.assert_not_called()
 
-    @unittest.expectedFailure
     def test_I13_parent_mort_ne_fait_pas_oublier_un_enfant_vivant(self):
         """I-13 : une fiche reste utile tant qu'un de ses membres vit."""
         dossier = self.home / runtime.INSTANCES
@@ -315,7 +529,6 @@ class TestsDefautsSynchrones(BacASable):
         self.assertEqual(len(instances), 1)
         self.assertTrue(fiche.exists())
 
-    @unittest.expectedFailure
     def test_I14_echec_arret_conserve_la_fiche(self):
         """I-14 : stop ne doit pas perdre la seule piste d'un survivant."""
         fiche = self.home / "instance.json"
@@ -326,17 +539,27 @@ class TestsDefautsSynchrones(BacASable):
              mock.patch.object(runtime, "arreter_processus"), \
              mock.patch.object(runtime, "processus_vivant", return_value=True), \
              contextlib.redirect_stdout(io.StringIO()):
-            code = b2v.arreter([])
+            code = blink_cli.arreter([])
         self.assertEqual(code, 1)
         self.assertTrue(fiche.exists())
 
-    @unittest.expectedFailure
     def test_E01_sans_argument_selectionne_start(self):
-        """E-01 : l'absence d'argument doit emprunter le parcours start."""
-        with mock.patch.object(sys, "argv", ["blink2video"]), \
+        """E-01/5.1 : l'absence d'argument emprunte le même dispatch que
+        « start », préflight compris (blink2video.route, pas parse_args)."""
+        with mock.patch.object(blink_cli, "executer") as executer_simule:
+            blink_cli.route([])
+        executer_simule.assert_called_once_with(
+            runtime.decouper_verbes(["start"]))
+
+    def test_E01_aide_et_version_ne_passent_pas_par_start(self):
+        """5.2 : --help et --version gardent leur sens, aucun préflight."""
+        with mock.patch.object(blink_cli, "executer") as executer_simule, \
+             mock.patch.object(sys, "argv", ["blink2video", "--help"]), \
              contextlib.redirect_stdout(io.StringIO()):
-            arguments = b2v.parse_args()
-        self.assertEqual(arguments.command, "start")
+            with self.assertRaises(SystemExit) as capture:
+                blink_cli.route(["--help"])
+        executer_simule.assert_not_called()
+        self.assertEqual(capture.exception.code, 0)
 
     def test_B03_renumerotation_utilise_le_chemin_memorise(self):
         """B-03 : un ID distant nouveau ne retélécharge pas le même événement."""
@@ -344,34 +567,38 @@ class TestsDefautsSynchrones(BacASable):
         sync = FauxSync()
         ancien = FauxClip(42)
         nouveau = FauxClip(99)
-        ancienne_cible = b2v.target_path(sortie, ancien)
+        ancienne_cible = blink_models.target_path(sortie, ancien)
         ancienne_cible.parent.mkdir(parents=True)
         ancienne_cible.write_bytes(b"video-originale")
         etat = {"version": 1, "clips": {}}
-        b2v.remember_download(etat, sync, "Test", ancien, sortie, ancienne_cible)
-        nouvelle_cible = b2v.target_path(sortie, nouveau)
-        self.assertEqual(b2v.state_key(sync, ancien), b2v.state_key(sync, nouveau))
-        self.assertTrue(b2v.is_downloaded(etat, sync, nouveau, nouvelle_cible))
+        blink_registre.remember_download(etat, sync, "Test", ancien, sortie, ancienne_cible)
+        nouvelle_cible = blink_models.target_path(sortie, nouveau)
+        self.assertEqual(blink_registre.state_key(sync, ancien), blink_registre.state_key(sync, nouveau))
+        self.assertTrue(blink_registre.is_downloaded(etat, sync, nouveau, nouvelle_cible))
 
-    @unittest.expectedFailure
     def test_B04_fusion_perimee_preserve_une_exclusion_plus_recente(self):
         """B-04 : une copie périmée ne peut retirer une tombstone."""
         sortie = self.home / "clips"
         sortie.mkdir()
-        fichier = sortie / b2v.STATE_FILENAME
+        fichier = sortie / blink_registre.STATE_FILENAME
+        # created_at valide requis : sans lui, load_download_state() écarte
+        # l'entrée « commun » avant même la fusion, ce qui faisait échouer ce
+        # test pour une raison étrangère à B-04 (fixture invalide).
         fichier.write_text(json.dumps({
             "version": 1,
-            "clips": {"commun": {"path": "x.mp4", "excluded": True}},
+            "clips": {"commun": {
+                "path": "x.mp4", "excluded": True,
+                "created_at": "2026-08-13T12:00:00+00:00",
+            }},
         }), encoding="utf-8")
         perime = {"version": 1, "clips": {
-            "commun": {"path": "x.mp4"},
-            "nouveau": {"path": "y.mp4"},
+            "commun": {"path": "x.mp4", "created_at": "2026-08-13T12:00:00+00:00"},
+            "nouveau": {"path": "y.mp4", "created_at": "2026-08-13T12:05:00+00:00"},
         }}
-        b2v._ecrire_registre(fichier, perime)
+        blink_registre._ecrire_registre(fichier, perime)
         fusion = json.loads(fichier.read_text(encoding="utf-8"))
         self.assertIs(fusion["clips"]["commun"].get("excluded"), True)
 
-    @unittest.expectedFailure
     def test_B05_un_verrou_vivant_ne_perime_pas_sur_le_seul_ttl(self):
         """B-05 : le TTL ne permet pas de voler un propriétaire vivant."""
         verrou = self.home / ".blink_ttl.lock"
@@ -382,7 +609,6 @@ class TestsDefautsSynchrones(BacASable):
             with runtime.verrou("ttl", "challenger", stale_after=60):
                 pass
 
-    @unittest.expectedFailure
     def test_B05_acquisition_concurrente_n_a_qu_un_gagnant(self):
         """B-05 : deux check-then-write synchronisés ne doivent pas entrer."""
         contexte = multiprocessing.get_context("spawn")
@@ -453,32 +679,32 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
     async def verifier_http_refuse(self, statut: int) -> None:
         """Exerce le chemin cloud complet, jusqu'au registre incrémental."""
         sortie = self.home / f"clips-{statut}"
-        clip = b2v.CloudClip({
+        clip = blink_models.CloudClip({
             "id": statut,
             "device_name": "jardin",
             "created_at": "2026-08-13T12:00:00+00:00",
             "media": f"https://example.invalid/{statut}",
             "network_id": 7,
         })
-        cible = b2v.target_path(sortie, clip)
+        cible = blink_models.target_path(sortie, clip)
         blink = FauxBlinkHTTP(FauxReponse(statut, b"<html>erreur</html>"))
         with mock.patch.object(
-            b2v, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip]),
+            blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip]),
         ), contextlib.redirect_stdout(io.StringIO()):
-            await b2v.traiter_cloud(
+            await blink_engine.traiter_cloud(
                 blink,
                 self.arguments(command="download", source="cloud", output=sortie),
                 [],
             )
         self.assertFalse(cible.exists())
         self.assertFalse(cible.with_suffix(cible.suffix + ".part").exists())
-        self.assertFalse((sortie / b2v.STATE_FILENAME).exists())
+        self.assertFalse((sortie / blink_registre.STATE_FILENAME).exists())
 
     async def test_B01_cloud_vide_retourne_un_tuple(self):
         """B-01 : un inventaire vide renvoie les quatre compteurs à zéro."""
-        with mock.patch.object(b2v, "read_cloud_manifest",
+        with mock.patch.object(blink_models, "read_cloud_manifest",
                                new=mock.AsyncMock(return_value=[])):
-            resultat = await b2v.traiter_cloud(object(), self.arguments(), [])
+            resultat = await blink_engine.traiter_cloud(object(), self.arguments(), [])
         self.assertIsInstance(resultat, tuple)
         self.assertEqual(
             (resultat.downloaded, resultat.adopted, resultat.skipped, resultat.failed),
@@ -487,9 +713,9 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
 
     async def test_B01_filtre_camera_vide_retourne_un_tuple(self):
         """B-01 : un filtre sans résultat conserve les quatre compteurs."""
-        with mock.patch.object(b2v, "read_cloud_manifest",
+        with mock.patch.object(blink_models, "read_cloud_manifest",
                                new=mock.AsyncMock(return_value=[FauxClip()] )):
-            resultat = await b2v.traiter_cloud(
+            resultat = await blink_engine.traiter_cloud(
                 object(), self.arguments(camera="absente"), [],
             )
         self.assertIsInstance(resultat, tuple)
@@ -501,9 +727,9 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
     async def test_B01_cloud_vide_un_passage_retourne_code_zero(self):
         """B-01 : l'appelant peut déballer le succès vide sans ``TypeError``."""
         with mock.patch.object(
-            b2v, "read_cloud_manifest", new=mock.AsyncMock(return_value=[]),
+            blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[]),
         ), contextlib.redirect_stdout(io.StringIO()):
-            code = await b2v.un_passage(
+            code = await blink_engine.un_passage(
                 object(), self.arguments(command="list", source="cloud"), [],
             )
         self.assertEqual(code, 0)
@@ -511,9 +737,9 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
     async def test_B01_filtre_vide_un_passage_retourne_code_zero(self):
         """B-01 : le filtre vide garde le code de succès de ``list``."""
         with mock.patch.object(
-            b2v, "read_cloud_manifest", new=mock.AsyncMock(return_value=[FauxClip()]),
+            blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[FauxClip()]),
         ), contextlib.redirect_stdout(io.StringIO()):
-            code = await b2v.un_passage(
+            code = await blink_engine.un_passage(
                 object(),
                 self.arguments(command="list", source="cloud", camera="absente"),
                 [],
@@ -531,6 +757,49 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
     async def test_B02_http_500_non_vide_ne_cree_ni_cible_ni_registre(self):
         """B-02 : une erreur serveur non vide n'est pas enregistrée."""
         await self.verifier_http_refuse(500)
+
+    async def test_I15_http_200_corps_non_mp4_ne_cree_pas_de_cible(self):
+        """I-15 : un statut 2xx ne suffit pas, le corps doit être un MP4
+        réel (boîte ftyp) ; un octet non nul ne l'est pas forcément."""
+        sortie = self.home / "clips-200-invalide"
+        clip = blink_models.CloudClip({
+            "id": 1, "device_name": "jardin",
+            "created_at": "2026-08-13T12:00:00+00:00",
+            "media": "https://example.invalid/200", "network_id": 7,
+        })
+        cible = blink_models.target_path(sortie, clip)
+        blink = FauxBlinkHTTP(FauxReponse(200, b"<html>pas un mp4</html>"))
+        with mock.patch.object(
+            blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip]),
+        ), contextlib.redirect_stdout(io.StringIO()):
+            await blink_engine.traiter_cloud(
+                blink,
+                self.arguments(command="download", source="cloud", output=sortie),
+                [],
+            )
+        self.assertFalse(cible.exists())
+        self.assertFalse((sortie / blink_registre.STATE_FILENAME).exists())
+
+    async def test_I15_http_200_corps_mp4_valide_est_acquis(self):
+        """Non-régression : un vrai MP4 (boîte ftyp) reste accepté."""
+        sortie = self.home / "clips-200-valide"
+        clip = blink_models.CloudClip({
+            "id": 2, "device_name": "jardin",
+            "created_at": "2026-08-13T12:00:00+00:00",
+            "media": "https://example.invalid/200-ok", "network_id": 7,
+        })
+        cible = blink_models.target_path(sortie, clip)
+        corps = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 100
+        blink = FauxBlinkHTTP(FauxReponse(200, corps))
+        with mock.patch.object(
+            blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip]),
+        ), contextlib.redirect_stdout(io.StringIO()):
+            await blink_engine.traiter_cloud(
+                blink,
+                self.arguments(command="download", source="cloud", output=sortie),
+                [],
+            )
+        self.assertTrue(cible.is_file())
 
     async def test_I18_compteurs_cloud_separent_les_quatre_issues(self):
         """I-18 : téléchargé, adopté, ignoré et échoué restent distinguables."""
@@ -558,26 +827,26 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         telecharge.download_to = telecharger
         echoue.download_to = refuser
 
-        cible_sautee = b2v.target_path(sortie, saute)
+        cible_sautee = blink_models.target_path(sortie, saute)
         cible_sautee.parent.mkdir(parents=True)
         cible_sautee.write_bytes(b"video-connue")
-        cible_adoptee = b2v.target_path(sortie, adopte)
+        cible_adoptee = blink_models.target_path(sortie, adopte)
         cible_adoptee.parent.mkdir(parents=True)
         cible_adoptee.write_bytes(b"video-existante")
 
         etat = {"version": 1, "clips": {}}
-        b2v.remember_download(etat, FauxSync(10), "cloud", saute, sortie, cible_sautee,
+        blink_registre.remember_download(etat, FauxSync(10), "cloud", saute, sortie, cible_sautee,
                               source="cloud")
-        (sortie / b2v.STATE_FILENAME).write_text(
+        (sortie / blink_registre.STATE_FILENAME).write_text(
             json.dumps(etat), encoding="utf-8",
         )
 
         with mock.patch.object(
-            b2v,
+            blink_models,
             "read_cloud_manifest",
             new=mock.AsyncMock(return_value=[saute, adopte, telecharge, echoue]),
         ), contextlib.redirect_stdout(io.StringIO()):
-            resultat = await b2v.traiter_cloud(
+            resultat = await blink_engine.traiter_cloud(
                 object(),
                 self.arguments(command="download", source="cloud", output=sortie),
                 [("Maison", FauxSync(10))],
@@ -587,12 +856,12 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
             (resultat.downloaded, resultat.adopted, resultat.skipped, resultat.failed),
             (1, 1, 1, 1),
         )
-        self.assertTrue(b2v.target_path(sortie, telecharge).exists())
-        self.assertFalse(b2v.target_path(sortie, echoue).exists())
+        self.assertTrue(blink_models.target_path(sortie, telecharge).exists())
+        self.assertFalse(blink_models.target_path(sortie, echoue).exists())
         self.assertFalse(
-            b2v.target_path(sortie, echoue).with_suffix(".mp4.part").exists(),
+            blink_models.target_path(sortie, echoue).with_suffix(".mp4.part").exists(),
         )
-        registre = b2v.load_download_state(sortie)
+        registre = blink_registre.load_download_state(sortie)
         self.assertEqual(len(registre["clips"]), 3)
 
     async def test_I05_fichier_cloud_absent_est_repare(self):
@@ -607,7 +876,7 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
             return True
 
         clip.download_to = telecharger
-        (sortie / b2v.STATE_FILENAME).write_text(json.dumps({
+        (sortie / blink_registre.STATE_FILENAME).write_text(json.dumps({
             "version": 1,
             "clips": {"ancien": {
                 "camera": clip.name,
@@ -616,21 +885,21 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 "source": "cloud",
             }},
         }), encoding="utf-8")
-        with mock.patch.object(b2v, "read_cloud_manifest",
+        with mock.patch.object(blink_models, "read_cloud_manifest",
                                new=mock.AsyncMock(return_value=[clip])):
             with contextlib.redirect_stdout(io.StringIO()):
-                resultat = await b2v.traiter_cloud(
+                resultat = await blink_engine.traiter_cloud(
                     object(), self.arguments(command="download", output=sortie), [],
                 )
-        self.assertEqual(resultat, b2v.CloudResult(1, 0, 0, 0))
+        self.assertEqual(resultat, blink_engine.CloudResult(1, 0, 0, 0))
 
     async def test_I09_compte_cloud_only_accepte_login(self):
         """I-09 : login ne dépend pas de la présence d'un Sync Module."""
         blink = SimpleNamespace(sync={})
-        with mock.patch.object(b2v, "ClientSession", FauxSessionHTTP), \
-             mock.patch.object(b2v, "connect", new=mock.AsyncMock(return_value=blink)), \
+        with mock.patch("aiohttp.ClientSession", FauxSessionHTTP), \
+             mock.patch.object(blink_auth, "connect", new=mock.AsyncMock(return_value=blink)), \
              contextlib.redirect_stdout(io.StringIO()):
-            code = await b2v.main(self.arguments(command="login"))
+            code = await blink_cli.main(self.arguments(command="login"))
         self.assertEqual(code, 0)
 
     async def test_I09_compte_sans_hub_accepte_la_source_cloud(self):
@@ -638,11 +907,11 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         blink = SimpleNamespace(sync={})
         arguments = self.arguments(command="list", source="cloud")
         boucle = mock.AsyncMock(return_value=0)
-        with mock.patch.object(b2v, "ClientSession", FauxSessionHTTP), \
-             mock.patch.object(b2v, "connect", new=mock.AsyncMock(return_value=blink)), \
-             mock.patch.object(b2v, "boucler", new=boucle), \
+        with mock.patch("aiohttp.ClientSession", FauxSessionHTTP), \
+             mock.patch.object(blink_auth, "connect", new=mock.AsyncMock(return_value=blink)), \
+             mock.patch.object(blink_engine, "boucler", new=boucle), \
              contextlib.redirect_stdout(io.StringIO()):
-            code = await b2v.main(arguments)
+            code = await blink_cli.main(arguments)
         self.assertEqual(code, 0)
         boucle.assert_awaited_once_with(blink, arguments, [])
 
@@ -650,11 +919,10 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         """I-16 : safe_name sert au chemin, jamais à l'identité métier."""
         local = FauxClip(1, nom="Entrée/jardin")
         cloud = FauxClip(2, nom="Entrée_jardin")
-        inedits, doublons = b2v.rapprocher([local], [cloud])
+        inedits, doublons = blink_models.rapprocher([local], [cloud])
         self.assertEqual([clip.id for clip in inedits], [2])
         self.assertEqual(doublons, [])
 
-    @unittest.expectedFailure
     async def test_B06_usb_prend_le_verrou_du_hub(self):
         """B-06 : manifeste et téléchargement USB réservent le Sync Module."""
         noms = []
@@ -666,24 +934,62 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
 
         sync = FauxSync()
         with mock.patch.object(runtime, "verrou", side_effect=verrou_trace), \
-             mock.patch.object(b2v, "read_local_manifest",
+             mock.patch.object(blink_models, "read_local_manifest",
                                new=mock.AsyncMock(return_value=[FauxClip()])), \
-             mock.patch.object(b2v, "download_clip",
+             mock.patch.object(blink_engine, "download_clip",
                                new=mock.AsyncMock(return_value="failed")), \
-             mock.patch.object(b2v, "save_download_state"), \
+             mock.patch.object(blink_registre, "save_download_state"), \
              mock.patch.object(runtime, "travail"), \
              contextlib.redirect_stdout(io.StringIO()):
-            await b2v.un_passage(
+            await blink_engine.un_passage(
                 object(), self.arguments(command="download", source="usb"),
                 [("Test", sync)],
             )
         self.assertIn("hub", noms)
 
+    async def test_B06_module_occupe_par_le_direct_n_abat_pas_le_passage(self):
+        """B-06 : le direct détient déjà le verrou hub (serve.py) ; le tour
+        USB doit le signaler et continuer, jamais planter la boucle (I-17)."""
+        sync = FauxSync()
+        with mock.patch.object(
+            runtime, "verrou",
+            side_effect=runtime.BusyError("détenu par « direct » depuis 12 s"),
+        ), mock.patch.object(
+            blink_models, "read_local_manifest",
+            new=mock.AsyncMock(return_value=[FauxClip()]),
+        ), contextlib.redirect_stdout(io.StringIO()) as sortie:
+            code = await blink_engine.un_passage(
+                object(), self.arguments(command="download", source="usb"),
+                [("Test", sync)],
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("occupé", sortie.getvalue())
+
+    async def test_B06_cloud_n_est_jamais_verrouille_par_le_hub(self):
+        """Le cloud répond depuis le compte, pas le module : aucune réserve
+        du hub ne doit lui être appliquée (indépendance de 6.5)."""
+        noms = []
+
+        @contextlib.contextmanager
+        def verrou_trace(nom, *_args, **_kwargs):
+            noms.append(nom)
+            yield
+
+        with mock.patch.object(runtime, "verrou", side_effect=verrou_trace), \
+             mock.patch.object(blink_models, "read_cloud_manifest",
+                               new=mock.AsyncMock(return_value=[])), \
+             contextlib.redirect_stdout(io.StringIO()):
+            await blink_engine.un_passage(
+                object(), self.arguments(command="download", source="cloud"),
+                [],
+            )
+        self.assertNotIn("hub", noms)
+
     async def test_I10_entree_de_registre_non_objet_n_abat_pas_le_cloud(self):
         """I-10 : une entrée corrompue est isolée du reste du registre."""
         sortie = self.home / "clips"
         sortie.mkdir()
-        (sortie / b2v.STATE_FILENAME).write_text(json.dumps({
+        (sortie / blink_registre.STATE_FILENAME).write_text(json.dumps({
             "version": 1,
             "clips": {
                 "nombre": 17,
@@ -693,10 +999,10 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 "date_invalide": {"camera": "jardin", "created_at": "jamais"},
             },
         }), encoding="utf-8")
-        with mock.patch.object(b2v, "read_cloud_manifest",
+        with mock.patch.object(blink_models, "read_cloud_manifest",
                                new=mock.AsyncMock(return_value=[FauxClip()])), \
              contextlib.redirect_stdout(io.StringIO()):
-            resultat = await b2v.traiter_cloud(
+            resultat = await blink_engine.traiter_cloud(
                 object(), self.arguments(output=sortie), [],
             )
         self.assertEqual(
@@ -713,8 +1019,8 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 appels.append(options)
                 return []
 
-        with mock.patch.object(b2v.dt, "datetime", DateHeureFigee):
-            await b2v.read_cloud_manifest(Blink(), 0)
+        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee):
+            await blink_models.read_cloud_manifest(Blink(), 0)
         self.assertEqual(appels[0]["since"], "2026/08/13 12:34:56")
 
     async def test_I07_depuis_none_utilise_la_fenetre_par_defaut(self):
@@ -726,8 +1032,8 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 appels.append(options)
                 return []
 
-        with mock.patch.object(b2v.dt, "datetime", DateHeureFigee):
-            await b2v.read_cloud_manifest(Blink(), None)
+        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee):
+            await blink_models.read_cloud_manifest(Blink(), None)
         self.assertEqual(appels[0]["since"], "2026/07/14 12:34:56")
 
     async def test_I07_depuis_n_utilise_exactement_n_jours(self):
@@ -739,24 +1045,219 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 appels.append(options)
                 return []
 
-        with mock.patch.object(b2v.dt, "datetime", DateHeureFigee):
-            await b2v.read_cloud_manifest(Blink(), 7)
+        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee):
+            await blink_models.read_cloud_manifest(Blink(), 7)
         self.assertEqual(appels[0]["since"], "2026/08/06 12:34:56")
 
+    async def test_I17_boucler_survit_a_une_erreur_de_tour(self):
+        """I-17 : seul BusyError était intercepté ; toute autre erreur (HTTP,
+        auth, schéma) tuait définitivement le worker de fond."""
+        appels = []
 
-@unittest.skip("E-01 : serveur d'onboarding prévu à l'étape 5, API absente à l'étape 0")
-class TestsOnboardingFutur(unittest.TestCase):
-    def test_E01_login_web_simple(self):
-        pass
+        async def un_passage_instable(blink, args, modules):
+            appels.append(len(appels))
+            if len(appels) == 1:
+                raise ConnectionError("panne réseau simulée")
+            args.loop = None  # deuxième tour : on arrête proprement la boucle
+            return 0
 
-    def test_E01_login_web_2fa(self):
-        pass
+        with mock.patch.object(blink_engine, "un_passage", new=un_passage_instable), \
+             mock.patch.object(b2v.asyncio, "sleep", new=mock.AsyncMock()), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = await blink_engine.boucler(object(), self.arguments(loop=1), [])
 
-    def test_E01_annulation_timeout_et_navigateur_absent(self):
-        pass
+        self.assertEqual(code, 0)
+        self.assertEqual(len(appels), 2)
+
+    async def test_O05_boucler_calcule_l_echeance_depuis_le_debut_du_tour(self):
+        """O-05 : la pause du prochain tour doit tenir compte du temps déjà
+        passé dans le tour courant, pas repartir de zéro après le travail."""
+        horloge = {"t": 1_000.0}
+        durees = []
+        appels = []
+
+        async def un_passage_lent(blink, args, modules):
+            appels.append(None)
+            horloge["t"] += 15.0  # le tour "dure" 15 s
+            if len(appels) >= 2:
+                args.loop = None  # on arrête après avoir observé une pause
+            return 0
+
+        async def faux_sommeil(duree):
+            durees.append(duree)
+
+        with mock.patch.object(blink_engine, "un_passage", new=un_passage_lent), \
+             mock.patch.object(b2v.time, "monotonic", side_effect=lambda: horloge["t"]), \
+             mock.patch.object(b2v.asyncio, "sleep", new=faux_sommeil), \
+             contextlib.redirect_stdout(io.StringIO()):
+            await blink_engine.boucler(object(), self.arguments(loop=1), [])
+
+        self.assertEqual(durees, [45.0])
+
+    async def test_E01_preflight_sans_session_ne_touche_pas_le_reseau(self):
+        """5.3/5.4 : sans fichier de session, aucun appel Blink n'est tenté.
+
+        blink_auth.CONFIG doit être explicitement patché ici : sinon ce test lit et
+        tente de rafraîchir le blink_auth.json réel de la machine, exactement
+        ce que la section 12.5 interdit."""
+        with mock.patch.object(blink_auth, "CONFIG", self.home / "blink_auth.json"):
+            etat = await blink_auth.preflight()
+        self.assertEqual(etat, {
+            "authenticated": False, "networks": 0, "sync_modules": 0,
+            "cameras": 0, "cloud_only": False, "error": None,
+        })
+
+    async def test_E01_preflight_mini_smoke_compte_cameras_et_reseaux(self):
+        """5.12/5.13/5.14 : synthèse read-only, compte cloud-only accepté."""
+        camera_a, camera_b = object(), object()
+        sync_avec_module = SimpleNamespace(
+            network_id=1, cameras={"jardin": camera_a, "terrasse": camera_b})
+        blink = SimpleNamespace(sync={"Sync1": sync_avec_module})
+        with mock.patch.object(blink_auth, "connect_saved",
+                               new=mock.AsyncMock(return_value=blink)):
+            etat = await blink_auth.preflight()
+        self.assertEqual(etat["authenticated"], True)
+        self.assertEqual(etat["cameras"], 2)
+        self.assertEqual(etat["networks"], 1)
+        self.assertEqual(etat["sync_modules"], 1)
+        self.assertFalse(etat["cloud_only"])
+
+    async def test_E01_preflight_compte_cloud_only_est_accepte(self):
+        """5.14 : un compte valide sans Sync Module n'est pas une erreur."""
+        blink = SimpleNamespace(sync={})
+        with mock.patch.object(blink_auth, "connect_saved",
+                               new=mock.AsyncMock(return_value=blink)):
+            etat = await blink_auth.preflight()
+        self.assertTrue(etat["authenticated"])
+        self.assertTrue(etat["cloud_only"])
+        self.assertEqual(etat["cameras"], 0)
+
+    async def test_E01_preflight_capture_les_pannes_reseau(self):
+        """Une panne réseau au préflight ne doit jamais faire planter start."""
+        with mock.patch.object(blink_auth, "connect_saved",
+                               new=mock.AsyncMock(side_effect=ConnectionError("hs"))):
+            etat = await blink_auth.preflight()
+        self.assertFalse(etat["authenticated"])
+        self.assertIn("ConnectionError", etat["error"])
+
+
+class FauxProcessusServe:
+    """Simule le subprocess.Popen de « serve » lancé par accueillir()."""
+
+    def __init__(self, vivant_pendant=None, code=1):
+        self._tours = 0
+        self.vivant_pendant = vivant_pendant
+        self.returncode = None
+        self._code = code
+        self.pid = 4242
+        self.terminated = False
+
+    def poll(self):
+        self._tours += 1
+        if self.vivant_pendant is not None and self._tours > self.vivant_pendant:
+            self.returncode = self._code
+        return self.returncode
+
+
+class TestsE01Onboarding(unittest.TestCase):
+    """5.6 à 5.16 : onboarding minimal (version resserrée, sans CSRF ni
+    rotation de port dédiées, voir AUDIT-2026-08-13.md section 28, étape 5)."""
+
+    def setUp(self):
+        self.etat_non_authentifie = {
+            "authenticated": False, "networks": 0, "sync_modules": 0,
+            "cameras": 0, "cloud_only": False, "error": None,
+        }
+
+    def test_E01_port_repond_puis_connexion_reussie(self):
+        """5.10/5.12 : succès dès que le préflight redevient positif."""
+        processus = FauxProcessusServe(vivant_pendant=None)
+        succes = {"authenticated": True, "cameras": 3, "cloud_only": False}
+        with mock.patch.object(b2v.runtime, "demarrer", return_value=processus), \
+             mock.patch.object(blink_cli, "_port_ouvert", return_value=True), \
+             mock.patch("webbrowser.open", return_value=True) as ouverture, \
+             mock.patch.object(blink_auth, "preflight",
+                               new=mock.AsyncMock(return_value=succes)), \
+             mock.patch.dict(os.environ, {"BLINK_NO_BROWSER": "0"}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = blink_cli.accueillir(self.etat_non_authentifie, [], delai=5)
+        self.assertEqual(code, 0)
+        ouverture.assert_called_once()
+        self.assertTrue(str(ouverture.call_args[0][0]).endswith("/?login=1"))
+
+    def test_E01_navigateur_absent_n_empeche_pas_le_flux(self):
+        """5.9 : navigateur indisponible, le polling continue quand même."""
+        processus = FauxProcessusServe(vivant_pendant=None)
+        succes = {"authenticated": True, "cameras": 0, "cloud_only": True}
+        with mock.patch.object(b2v.runtime, "demarrer", return_value=processus), \
+             mock.patch.object(blink_cli, "_port_ouvert", return_value=True), \
+             mock.patch("webbrowser.open", return_value=False), \
+             mock.patch.object(blink_auth, "preflight",
+                               new=mock.AsyncMock(return_value=succes)), \
+             mock.patch.dict(os.environ, {"BLINK_NO_BROWSER": "0"}), \
+             contextlib.redirect_stdout(io.StringIO()) as sortie:
+            code = blink_cli.accueillir(self.etat_non_authentifie, [], delai=5)
+        self.assertEqual(code, 0)
+        self.assertIn("Navigateur indisponible", sortie.getvalue())
+
+    def test_E01_delai_depasse_nettoie_le_serveur_temporaire(self):
+        """5.11/5.16 : timeout, rien ne doit rester actif (Ctrl+C simulé par
+        l'écoulement du délai plutôt qu'une vraie annulation manuelle)."""
+        processus = FauxProcessusServe(vivant_pendant=None)
+        jamais = mock.AsyncMock(return_value=self.etat_non_authentifie)
+        with mock.patch.object(b2v.runtime, "demarrer", return_value=processus), \
+             mock.patch.object(b2v.runtime, "arreter_processus") as arret, \
+             mock.patch.object(blink_cli, "_port_ouvert", return_value=True), \
+             mock.patch.object(blink_auth, "preflight", new=jamais), \
+             mock.patch.dict(os.environ, {"BLINK_NO_BROWSER": "1"}), \
+             contextlib.redirect_stdout(io.StringIO()) as sortie:
+            code = blink_cli.accueillir(self.etat_non_authentifie, [], delai=0.05)
+        self.assertEqual(code, 1)
+        self.assertIn("Délai de connexion dépassé", sortie.getvalue())
+        arret.assert_called_once_with(processus.pid, avec_descendance=True)
+
+    def test_E01_serveur_mort_avant_le_port_est_signale(self):
+        """Le processus « serve » temporaire meurt tout de suite (port pris
+        par une autre application, par exemple) : abandon propre, sans
+        attendre le délai complet."""
+        processus = FauxProcessusServe(vivant_pendant=0, code=1)
+        with mock.patch.object(b2v.runtime, "demarrer", return_value=processus), \
+             mock.patch.object(b2v.runtime, "arreter_processus") as arret, \
+             mock.patch.dict(os.environ, {"BLINK_NO_BROWSER": "1"}), \
+             contextlib.redirect_stdout(io.StringIO()) as sortie:
+            code = blink_cli.accueillir(self.etat_non_authentifie, [], delai=5)
+        self.assertEqual(code, 1)
+        self.assertIn("s'est arrêtée avant la connexion", sortie.getvalue())
+        arret.assert_not_called()  # déjà mort : rien à arrêter en plus
 
     def test_E01_mini_smoke_precede_les_workers(self):
-        pass
+        """5.15/5.16 : échec de l'onboarding, aucune boucle de fond lancée."""
+        with mock.patch.object(blink_auth, "preflight",
+                               new=mock.AsyncMock(return_value=self.etat_non_authentifie)), \
+             mock.patch.object(blink_cli, "accueillir", return_value=1) as accueil, \
+             mock.patch.object(b2v.runtime, "decouper_verbes") as decouper, \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = blink_cli.executer([["start"]])
+        self.assertEqual(code, 1)
+        accueil.assert_called_once()
+        decouper.assert_not_called()  # jamais atteint : pas de composition lancée
+
+    def test_E01_session_valide_saute_l_onboarding(self):
+        """Session déjà valide : accueillir() n'est jamais appelé (5.5)."""
+        authentifie = dict(self.etat_non_authentifie, authenticated=True, cameras=2)
+        with mock.patch.object(blink_auth, "preflight",
+                               new=mock.AsyncMock(return_value=authentifie)), \
+             mock.patch.object(blink_cli, "accueillir") as accueil, \
+             mock.patch.object(blink_cli, "executer",
+                               wraps=blink_cli.executer) as executer_espionne, \
+             mock.patch.object(b2v.runtime, "demarrer") as demarrer, \
+             contextlib.redirect_stdout(io.StringIO()):
+            demarrer.return_value.pid = 4242
+            blink_cli.executer([["start"]])
+        accueil.assert_not_called()
+        # La composition complète est bien tentée (au moins un appel demarrer).
+        self.assertTrue(demarrer.called)
+        self.assertGreaterEqual(executer_espionne.call_count, 1)
 
 
 if __name__ == "__main__":

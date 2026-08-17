@@ -136,12 +136,19 @@ def installation_fictive(racine: Path, ffmpeg: str) -> dict:
 
 
 def environnement_test(racine: Path) -> dict:
-    """Environnement hermétique commun à chaque processus enfant."""
+    """Environnement hermétique commun à chaque processus enfant.
+
+    BLINK_NO_BROWSER et BLINK_ONBOARDING_TIMEOUT bornent l'onboarding E-01
+    (blink2video.accueillir) : sans eux, un « blink2video » sans session
+    enregistrée ouvrirait un vrai navigateur et attendrait jusqu'à dix
+    minutes une connexion qu'aucun test automatisé ne peut fournir."""
     return dict(
         os.environ,
         BLINK_HOME=str(racine.resolve()),
         BLINK_BOOTSTRAP="none",
         PYTHONIOENCODING="utf-8",
+        BLINK_NO_BROWSER="1",
+        BLINK_ONBOARDING_TIMEOUT="3",
     )
 
 
@@ -256,15 +263,45 @@ def test_verbes() -> None:
         verifier(resultat.returncode == 0, f"blink2video {verbe} --help",
                  (resultat.stderr or "").strip()[:160])
 
+    # E-01 : sans argument, blink2video n'affiche plus l'aide, il emprunte le
+    # même chemin que « start » (préflight puis onboarding). Sans session
+    # enregistrée dans SUITE_HOME, l'onboarding attend une connexion qui ne
+    # viendra pas ; BLINK_ONBOARDING_TIMEOUT (3 s dans environnement_test)
+    # borne cette attente pour que le test reste rapide et déterministe.
     sans = subprocess.run(
         commande_blink(),
         cwd=str(SUITE_CWD), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+        env=environnement_test(SUITE_HOME), check=False, timeout=30,
+    )
+    verifier(
+        sans.returncode != 0 and "Aucune session Blink valide" in sans.stdout,
+        "sans argument, l'onboarding démarre", sans.stdout[-200:],
+    )
+
+    # Port dynamique ici : le port par défaut peut être occupé par une vraie
+    # instance sur la machine qui fait tourner ce test, ce qui abrégerait
+    # l'onboarding par un échec de port plutôt que par le délai qu'on veut
+    # précisément vérifier. « start » suit le même chemin que « sans
+    # argument » (blink2video.route), donc l'équivalence reste couverte.
+    avec_start = subprocess.run(
+        commande_blink("start", "--port", str(port_dynamique())),
+        cwd=str(SUITE_CWD), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+        env=environnement_test(SUITE_HOME), check=False, timeout=30,
+    )
+    verifier("Délai de connexion dépassé" in avec_start.stdout,
+             "start respecte le délai d'onboarding", avec_start.stdout[-200:])
+
+    aide = subprocess.run(
+        commande_blink("--help"),
+        cwd=str(SUITE_CWD), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
         env=environnement_test(SUITE_HOME), check=False,
     )
-    verifier(sans.returncode == 0 and "Verbes :" in sans.stdout,
-             "sans argument, l'aide s'affiche", sans.stdout[-200:])
-    manquants = [v for v in runtime.VERBES if v not in sans.stdout]
+    verifier(aide.returncode == 0 and "Verbes :" in aide.stdout,
+             "--help affiche l'aide sans onboarding", aide.stdout[-200:])
+    manquants = [v for v in runtime.VERBES if v not in aide.stdout]
     verifier(not manquants, "l'aide cite tous les verbes", ", ".join(manquants))
 
 
@@ -724,8 +761,11 @@ def main() -> int:
             )
             verifier(page is not None,
                      "la page répond avec la version attendue")
+            # ?all=1 : ce test vérifie l'inventaire complet, or les clips
+            # synthétiques du test d'horodatage sont répartis sur plusieurs
+            # mois, hors de la fenêtre par défaut de /api/clips (serve.py).
             clips_bruts = attendre(
-                adresse + "/api/clips", processus=serveur,
+                adresse + "/api/clips?all=1", processus=serveur,
                 attendu=lambda corps: identite_témoin.encode("utf-8") in corps,
             )
             verifier(clips_bruts is not None,

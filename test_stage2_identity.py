@@ -27,6 +27,9 @@ from unittest import mock
 os.environ["BLINK_BOOTSTRAP"] = "none"
 
 import blink2video as b2v  # noqa: E402 - bootstrap neutralisé avant import
+import blink_engine  # noqa: E402
+import blink_models  # noqa: E402
+import blink_registre  # noqa: E402
 
 
 INSTANT = dt.datetime(2026, 8, 13, 12, 0, tzinfo=dt.timezone.utc)
@@ -101,12 +104,12 @@ class BacASable(unittest.TestCase):
         source="usb",
         contenu=b"video",
     ) -> Path:
-        cible = b2v.target_path(
+        cible = blink_models.target_path(
             self.sortie, clip, sync=sync or Sync(), source=source,
         )
         cible.parent.mkdir(parents=True, exist_ok=True)
         cible.write_bytes(contenu)
-        b2v.remember_download(
+        blink_registre.remember_download(
             etat,
             sync or Sync(),
             "Maison",
@@ -126,16 +129,16 @@ class TestsIdentiteEtMatching(BacASable):
         nouveau = Clip(99)
         ancienne_cible = self.memoriser(etat, ancien)
 
-        nouvelle_cible = b2v.target_path(self.sortie, nouveau)
+        nouvelle_cible = blink_models.target_path(self.sortie, nouveau)
         self.assertNotEqual(ancienne_cible, nouvelle_cible)
-        self.assertTrue(b2v.is_downloaded(etat, Sync(), nouveau, nouvelle_cible))
+        self.assertTrue(blink_registre.is_downloaded(etat, Sync(), nouveau, nouvelle_cible))
         self.assertFalse(nouvelle_cible.exists())
 
     def test_T_I04_USB_puis_cloud_ne_produit_qu_un_evenement(self):
         usb = Clip(42, device_id="camera-stable")
         cloud = Clip(900, device_id="camera-stable")
 
-        inedits, doublons = b2v.rapprocher([usb], [cloud])
+        inedits, doublons = blink_models.rapprocher([usb], [cloud])
 
         self.assertEqual(inedits, [])
         self.assertEqual(doublons, [cloud])
@@ -148,11 +151,11 @@ class TestsIdentiteEtMatching(BacASable):
         self.memoriser(etat, cloud, sync=Sync("cloud", "reseau-1"), source="cloud")
 
         self.assertTrue(
-            b2v.is_downloaded(
+            blink_registre.is_downloaded(
                 etat,
                 Sync("hub-1", "reseau-1"),
                 usb,
-                b2v.target_path(self.sortie, usb),
+                blink_models.target_path(self.sortie, usb),
             )
         )
 
@@ -165,11 +168,11 @@ class TestsIdentiteEtMatching(BacASable):
         )
 
         self.assertNotEqual(
-            b2v.state_key(Sync(), premier), b2v.state_key(Sync(), second)
+            blink_registre.state_key(Sync(), premier), blink_registre.state_key(Sync(), second)
         )
         self.assertNotEqual(
-            b2v.target_path(self.sortie, premier),
-            b2v.target_path(self.sortie, second),
+            blink_models.target_path(self.sortie, premier),
+            blink_models.target_path(self.sortie, second),
         )
 
     def test_T_I21_un_match_local_n_est_consomme_qu_une_fois(self):
@@ -181,14 +184,14 @@ class TestsIdentiteEtMatching(BacASable):
             device_id="camera-stable",
         )
 
-        inedits, doublons = b2v.rapprocher(
+        inedits, doublons = blink_models.rapprocher(
             [local], [cloud_proche, cloud_exact], tolerance=2
         )
 
         self.assertEqual(doublons, [cloud_exact])
         self.assertEqual(inedits, [cloud_proche])
         self.assertEqual(
-            b2v._apparier_evenements([local], [cloud_proche, cloud_exact], 2),
+            blink_models._apparier_evenements([local], [cloud_proche, cloud_exact], 2),
             [(0, 1)],
         )
 
@@ -214,17 +217,17 @@ class TestsIdentiteEtMatching(BacASable):
             ),
         ]
 
-        inedits, doublons = b2v.rapprocher(locaux, cloud, tolerance=2)
+        inedits, doublons = blink_models.rapprocher(locaux, cloud, tolerance=2)
 
         self.assertEqual(inedits, [])
         self.assertEqual(doublons, cloud)
-        self.assertEqual(b2v._apparier_evenements(locaux, cloud, 2), [(0, 0), (1, 1)])
+        self.assertEqual(blink_models._apparier_evenements(locaux, cloud, 2), [(0, 0), (1, 1)])
 
     def test_T_I16_camera_renommee_device_id_stable_ne_duplique_pas(self):
         ancien_nom = Clip(1, nom="Jardin", device_id="camera-stable")
         nouveau_nom = Clip(2, nom="Terrasse", device_id="camera-stable")
 
-        inedits, doublons = b2v.rapprocher([ancien_nom], [nouveau_nom])
+        inedits, doublons = blink_models.rapprocher([ancien_nom], [nouveau_nom])
 
         self.assertEqual(inedits, [])
         self.assertEqual(doublons, [nouveau_nom])
@@ -233,11 +236,11 @@ class TestsIdentiteEtMatching(BacASable):
         slash = Clip(1, nom="A/B", device_id="camera-slash")
         underscore = Clip(2, nom="A_B", device_id="camera-underscore")
 
-        self.assertEqual(b2v.safe_name(slash.name), b2v.safe_name(underscore.name))
+        self.assertEqual(blink_models.safe_name(slash.name), blink_models.safe_name(underscore.name))
         self.assertNotEqual(
-            b2v.state_key(Sync(), slash), b2v.state_key(Sync(), underscore)
+            blink_registre.state_key(Sync(), slash), blink_registre.state_key(Sync(), underscore)
         )
-        inedits, doublons = b2v.rapprocher([slash], [underscore])
+        inedits, doublons = blink_models.rapprocher([slash], [underscore])
         self.assertEqual(inedits, [underscore])
         self.assertEqual(doublons, [])
 
@@ -246,10 +249,10 @@ class TestsIdentiteEtMatching(BacASable):
         second = Clip(2, network_id="reseau-2")
 
         self.assertNotEqual(
-            b2v.state_key(Sync("cloud", "reseau-1"), premier),
-            b2v.state_key(Sync("cloud", "reseau-2"), second),
+            blink_registre.state_key(Sync("cloud", "reseau-1"), premier),
+            blink_registre.state_key(Sync("cloud", "reseau-2"), second),
         )
-        inedits, doublons = b2v.rapprocher([premier], [second])
+        inedits, doublons = blink_models.rapprocher([premier], [second])
         self.assertEqual(inedits, [second])
         self.assertEqual(doublons, [])
 
@@ -259,12 +262,12 @@ class TestsIdentiteEtMatching(BacASable):
         hub_b = Sync("hub-B", "reseau-commun")
 
         self.assertNotEqual(
-            b2v.state_key(hub_a, clip),
-            b2v.state_key(hub_b, clip),
+            blink_registre.state_key(hub_a, clip),
+            blink_registre.state_key(hub_b, clip),
         )
         self.assertNotEqual(
-            b2v.target_path(self.sortie, clip, sync=hub_a, source="usb"),
-            b2v.target_path(self.sortie, clip, sync=hub_b, source="usb"),
+            blink_models.target_path(self.sortie, clip, sync=hub_a, source="usb"),
+            blink_models.target_path(self.sortie, clip, sync=hub_b, source="usb"),
         )
 
 
@@ -282,7 +285,7 @@ class TestsRegistreRobuste(BacASable):
 
     def test_T_B03_entry_path_hostile_n_est_jamais_acquis(self):
         clip = Clip()
-        cible = b2v.target_path(self.sortie, clip)
+        cible = blink_models.target_path(self.sortie, clip)
         hors_racine = self.racine / "hors-racine.mp4"
         hors_racine.write_bytes(b"x")
         (self.sortie / "un-dossier").mkdir()
@@ -298,10 +301,10 @@ class TestsRegistreRobuste(BacASable):
                 etat = {
                     "version": 2,
                     "clips": {
-                        b2v.state_key(Sync(), clip): self._entry(clip, chemin),
+                        blink_registre.state_key(Sync(), clip): self._entry(clip, chemin),
                     },
                 }
-                self.assertFalse(b2v.is_downloaded(etat, Sync(), clip, cible))
+                self.assertFalse(blink_registre.is_downloaded(etat, Sync(), clip, cible))
 
     def test_T_I21_fallback_registre_est_consomme_une_seule_fois(self):
         archive = self.sortie / "archive.mp4"
@@ -321,20 +324,20 @@ class TestsRegistreRobuste(BacASable):
         consommees = set()
 
         self.assertTrue(
-            b2v.is_downloaded(
+            blink_registre.is_downloaded(
                 etat,
                 Sync(),
                 premier,
-                b2v.target_path(self.sortie, premier),
+                blink_models.target_path(self.sortie, premier),
                 consommees,
             )
         )
         self.assertFalse(
-            b2v.is_downloaded(
+            blink_registre.is_downloaded(
                 etat,
                 Sync(),
                 second,
-                b2v.target_path(self.sortie, second),
+                blink_models.target_path(self.sortie, second),
                 consommees,
             )
         )
@@ -347,7 +350,7 @@ class TestsRegistreRobuste(BacASable):
         etat = {
             "version": 2,
             "clips": {
-                b2v.state_key(Sync(), clip): self._entry(
+                blink_registre.state_key(Sync(), clip): self._entry(
                     clip,
                     archive.relative_to(self.sortie).as_posix(),
                     bytes_=archive.stat().st_size,
@@ -358,29 +361,29 @@ class TestsRegistreRobuste(BacASable):
             },
         }
 
-        correspondance = b2v._apparier_registre(etat, Sync(), [clip])[0]
+        correspondance = blink_registre._apparier_registre(etat, Sync(), [clip])[0]
 
         self.assertEqual(correspondance[0], "ancienne-tombstone")
         self.assertIs(correspondance[1]["excluded"], True)
 
     def test_T_I20_lookup_cloud_utilise_source_et_remote_id(self):
         etat = {"version": 2, "clips": {}}
-        sync = b2v._HubCloud("reseau-1")
+        sync = blink_engine._HubCloud("reseau-1")
         premier = Clip(101)
         second = Clip(202)
         self.memoriser(etat, premier, sync=sync, source="cloud")
         self.memoriser(etat, second, sync=sync, source="cloud")
 
-        cle, entree = b2v._trouver_entree(
+        cle, entree = blink_registre._trouver_entree(
             etat, sync, second, source="cloud",
         )
 
-        self.assertEqual(cle, b2v.state_key(sync, second, "cloud"))
+        self.assertEqual(cle, blink_registre.state_key(sync, second, "cloud"))
         self.assertEqual(entree["remote_id"], "202")
 
     def test_T_B04_merge_v2_est_monotone_et_preserve_tombstone_disque(self):
         clip = Clip()
-        registre = self.sortie / b2v.STATE_FILENAME
+        registre = self.sortie / blink_registre.STATE_FILENAME
         registre.write_text(
             json.dumps(
                 {
@@ -403,7 +406,7 @@ class TestsRegistreRobuste(BacASable):
             },
         }
 
-        b2v._ecrire_registre(registre, etat_perime)
+        blink_registre._ecrire_registre(registre, etat_perime)
         fusion = json.loads(registre.read_text(encoding="utf-8"))
 
         self.assertEqual(fusion["version"], 2)
@@ -443,7 +446,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
         }
 
     async def _executer(self, clip, entree):
-        (self.sortie / b2v.STATE_FILENAME).write_text(
+        (self.sortie / blink_registre.STATE_FILENAME).write_text(
             json.dumps({"version": 1, "clips": {"ancienne-cle": entree}}),
             encoding="utf-8",
         )
@@ -457,9 +460,9 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
 
         clip.download_to = telecharger
         with mock.patch.object(
-            b2v, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip])
+            blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip])
         ), contextlib.redirect_stdout(io.StringIO()):
-            resultat = await b2v.traiter_cloud(
+            resultat = await blink_engine.traiter_cloud(
                 object(), arguments(self.sortie), []
             )
         return resultat, appels
@@ -471,7 +474,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(resultat.downloaded, 1)
         self.assertEqual(len(appels), 1)
-        self.assertTrue(b2v.target_path(self.sortie, clip).is_file())
+        self.assertTrue(blink_models.target_path(self.sortie, clip).is_file())
 
     async def test_T_B03_EXCLUDED_fichier_absent_exclu_est_ignore(self):
         clip = Clip()
@@ -483,7 +486,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resultat.downloaded, 0)
         self.assertEqual(resultat.skipped, 1)
         self.assertEqual(appels, [])
-        self.assertFalse(b2v.target_path(self.sortie, clip).exists())
+        self.assertFalse(blink_models.target_path(self.sortie, clip).exists())
 
     async def test_T_B03_EXCLUDED_overwrite_cloud_reste_ignore(self):
         clip = Clip()
@@ -493,7 +496,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
             return True
 
         clip.download_to = ne_doit_pas_telecharger
-        (self.sortie / b2v.STATE_FILENAME).write_text(
+        (self.sortie / blink_registre.STATE_FILENAME).write_text(
             json.dumps(
                 {
                     "version": 1,
@@ -505,20 +508,20 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
             encoding="utf-8",
         )
         with mock.patch.object(
-            b2v, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip])
+            blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip])
         ), contextlib.redirect_stdout(io.StringIO()):
-            resultat = await b2v.traiter_cloud(
+            resultat = await blink_engine.traiter_cloud(
                 object(), arguments(self.sortie, overwrite=True), []
             )
 
         self.assertEqual(resultat.downloaded, 0)
         self.assertEqual(resultat.skipped, 1)
-        self.assertFalse(b2v.target_path(self.sortie, clip).exists())
+        self.assertFalse(blink_models.target_path(self.sortie, clip).exists())
 
     async def test_T_I05_taille_divergente_n_est_pas_readoptee(self):
         clip = Clip()
         sync_cloud = Sync(clip.network_id, clip.network_id)
-        cible = b2v.target_path(
+        cible = blink_models.target_path(
             self.sortie, clip, sync=sync_cloud, source="cloud"
         )
         cible.parent.mkdir(parents=True)
@@ -528,7 +531,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
             cible.relative_to(self.sortie).as_posix(),
         )
         entree["bytes"] = 1000
-        (self.sortie / b2v.STATE_FILENAME).write_text(
+        (self.sortie / blink_registre.STATE_FILENAME).write_text(
             json.dumps({"version": 2, "clips": {"incomplet": entree}}),
             encoding="utf-8",
         )
@@ -541,9 +544,9 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
 
         clip.download_to = reparer
         with mock.patch.object(
-            b2v, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip])
+            blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip])
         ), contextlib.redirect_stdout(io.StringIO()):
-            resultat = await b2v.traiter_cloud(
+            resultat = await blink_engine.traiter_cloud(
                 object(), arguments(self.sortie), []
             )
 
@@ -556,19 +559,19 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
         slash = Clip(1, nom="A/B", device_id="camera-slash")
         underscore = Clip(2, nom="A_B", device_id="camera-underscore")
         appels = []
-        original = b2v.rapprocher
+        original = blink_models.rapprocher
 
         def rapprocher_trace(locaux, cloud, tolerance=2):
             appels.append(list(cloud))
             return original(locaux, cloud, tolerance)
 
         with mock.patch.object(
-            b2v,
+            blink_models,
             "read_cloud_manifest",
             new=mock.AsyncMock(return_value=[slash, underscore]),
-        ), mock.patch.object(b2v, "rapprocher", side_effect=rapprocher_trace), \
+        ), mock.patch.object(blink_models, "rapprocher", side_effect=rapprocher_trace), \
              contextlib.redirect_stdout(io.StringIO()):
-            await b2v.traiter_cloud(
+            await blink_engine.traiter_cloud(
                 object(),
                 arguments(self.sortie, command="list", camera="A/B"),
                 [],
@@ -579,7 +582,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
 
     async def test_T_B03_EXCLUDED_overwrite_USB_reste_ignore(self):
         clip = Clip()
-        (self.sortie / b2v.STATE_FILENAME).write_text(
+        (self.sortie / blink_registre.STATE_FILENAME).write_text(
             json.dumps(
                 {
                     "version": 1,
@@ -592,13 +595,13 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
         )
         telecharger = mock.AsyncMock(return_value="failed")
         with mock.patch.object(
-            b2v, "read_local_manifest", new=mock.AsyncMock(return_value=[clip])
-        ), mock.patch.object(b2v, "download_clip", new=telecharger), \
+            blink_models, "read_local_manifest", new=mock.AsyncMock(return_value=[clip])
+        ), mock.patch.object(blink_engine, "download_clip", new=telecharger), \
              mock.patch.object(b2v.runtime, "travail"), \
              mock.patch.object(b2v.runtime, "marquer"), \
              mock.patch.object(b2v.runtime, "toast"), \
              contextlib.redirect_stdout(io.StringIO()):
-            code = await b2v.un_passage(
+            code = await blink_engine.un_passage(
                 object(),
                 arguments(self.sortie, source="usb", overwrite=True),
                 [("Maison", Sync())],
@@ -622,16 +625,16 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
         premier.download_to = telecharger
         second.download_to = telecharger
         with mock.patch.object(
-            b2v,
+            blink_models,
             "read_cloud_manifest",
             new=mock.AsyncMock(return_value=[premier, second]),
         ), contextlib.redirect_stdout(io.StringIO()):
-            resultat = await b2v.traiter_cloud(
+            resultat = await blink_engine.traiter_cloud(
                 object(), arguments(self.sortie), [("Maison", Sync("hub-1", "X"))]
             )
 
         self.assertEqual(resultat.downloaded, 2)
-        registre = b2v.load_download_state(self.sortie)
+        registre = blink_registre.load_download_state(self.sortie)
         reseaux = {entree.get("network_id") for entree in registre["clips"].values()}
         self.assertEqual(reseaux, {"reseau-A", "reseau-B"})
 
@@ -639,7 +642,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
 class TestsMigrationV1(BacASable):
     def _etat_v1(self, archive: Path):
         clip = Clip(42, nom="Ancien nom", device_id="camera-stable")
-        cle = f"hub-1:{b2v.safe_name(clip.name)}:{clip.created_at.isoformat()}"
+        cle = f"hub-1:{blink_models.safe_name(clip.name)}:{clip.created_at.isoformat()}"
         return {
             "version": 1,
             "clips": {
@@ -659,25 +662,25 @@ class TestsMigrationV1(BacASable):
         archive.parent.mkdir(parents=True)
         archive.write_bytes(b"archive-intacte")
         etat_v1 = self._etat_v1(archive)
-        registre = self.sortie / b2v.STATE_FILENAME
+        registre = self.sortie / blink_registre.STATE_FILENAME
         original = json.dumps(etat_v1).encode("utf-8")
         registre.write_bytes(original)
 
-        premier = b2v.load_download_state(self.sortie)
-        b2v.save_download_state(self.sortie, premier)
+        premier = blink_registre.load_download_state(self.sortie)
+        blink_registre.save_download_state(self.sortie, premier)
         apres_premier = registre.read_bytes()
-        second = b2v.load_download_state(self.sortie)
-        b2v.save_download_state(self.sortie, second)
+        second = blink_registre.load_download_state(self.sortie)
+        blink_registre.save_download_state(self.sortie, second)
         apres_second = registre.read_bytes()
 
         self.assertEqual(premier["version"], 2)
         self.assertEqual(second, premier)
         self.assertEqual(apres_second, apres_premier)
         self.assertEqual(archive.read_bytes(), b"archive-intacte")
-        sauvegarde = self.sortie / b2v.STATE_V1_BACKUP_FILENAME
+        sauvegarde = self.sortie / blink_registre.STATE_V1_BACKUP_FILENAME
         self.assertEqual(sauvegarde.read_bytes(), original)
         registre.write_bytes(sauvegarde.read_bytes())
-        restaure = b2v.load_download_state(self.sortie)
+        restaure = blink_registre.load_download_state(self.sortie)
         self.assertEqual(restaure["version"], 2)
         self.assertEqual(set(restaure["clips"]), set(etat_v1["clips"]))
         self.assertEqual(
@@ -688,18 +691,18 @@ class TestsMigrationV1(BacASable):
     def test_T_MIGRATION_V1_echec_backup_annule_ecriture_v2(self):
         archive = self.sortie / "archive.mp4"
         archive.write_bytes(b"archive")
-        registre = self.sortie / b2v.STATE_FILENAME
+        registre = self.sortie / blink_registre.STATE_FILENAME
         original = json.dumps(self._etat_v1(archive)).encode("utf-8")
         registre.write_bytes(original)
-        etat = b2v.load_download_state(self.sortie)
+        etat = blink_registre.load_download_state(self.sortie)
 
         with mock.patch.object(Path, "write_bytes", side_effect=OSError("disque")):
             with self.assertRaisesRegex(OSError, "migration v2 annulée"):
-                b2v.save_download_state(self.sortie, etat)
+                blink_registre.save_download_state(self.sortie, etat)
 
         self.assertEqual(registre.read_bytes(), original)
         self.assertFalse(
-            (self.sortie / b2v.STATE_V1_BACKUP_FILENAME).exists()
+            (self.sortie / blink_registre.STATE_V1_BACKUP_FILENAME).exists()
         )
 
 
@@ -709,7 +712,7 @@ class TestsNomsDeFichiers(BacASable):
 
         for nom in reserves:
             with self.subTest(nom=nom):
-                composant = b2v.safe_name(nom)
+                composant = blink_models.safe_name(nom)
                 racine = composant.split(".", 1)[0].casefold()
                 self.assertNotIn(
                     racine,
@@ -722,13 +725,13 @@ class TestsNomsDeFichiers(BacASable):
         for position, nom in enumerate(noms):
             with self.subTest(nom=nom):
                 clip = Clip(position, nom=nom, device_id=f"camera-{position}")
-                cible = b2v.target_path(self.sortie, clip)
+                cible = blink_models.target_path(self.sortie, clip)
                 cible.resolve().relative_to(self.sortie.resolve())
                 relatif = cible.relative_to(self.sortie)
                 self.assertEqual(len(relatif.parts), 3)
                 self.assertNotIn("..", relatif.parts)
-                self.assertNotIn("/", b2v.safe_name(nom))
-                self.assertNotIn("\\", b2v.safe_name(nom))
+                self.assertNotIn("/", blink_models.safe_name(nom))
+                self.assertNotIn("\\", blink_models.safe_name(nom))
 
     def test_T_I16_composants_et_chemin_total_sont_bornes(self):
         clip = Clip(
@@ -737,7 +740,7 @@ class TestsNomsDeFichiers(BacASable):
             device_id="device-" + "x" * 500,
         )
 
-        cible = b2v.target_path(self.sortie, clip)
+        cible = blink_models.target_path(self.sortie, clip)
 
         self.assertTrue(all(len(part.encode("utf-8")) <= 255 for part in cible.parts))
         self.assertLessEqual(len(str(cible)), 240)

@@ -287,7 +287,13 @@ def inscrire_instance(entrees: list, enfants=None) -> Path:
 
 
 def lire_instances() -> list:
-    """Fiches des instances réellement en cours, les périmées étant effacées."""
+    """Fiches des instances réellement en cours, les périmées étant effacées.
+
+    I-13 : un parent mort ne suffit pas à dire l'instance terminée. Un enfant
+    persistant peut lui survivre (le parent supervise, mais ne fait pas
+    partie du même groupe de processus que ses enfants sous POSIX), et
+    « stop » a besoin de la fiche pour retrouver ce survivant. On n'efface
+    donc que les fiches dont ni le parent, ni aucun enfant, ne vivent plus."""
     dossier = app_dir() / INSTANCES
     vivantes = []
     for fiche in sorted(dossier.glob("*.json")) if dossier.is_dir() else []:
@@ -296,7 +302,8 @@ def lire_instances() -> list:
         except (OSError, json.JSONDecodeError):
             fiche.unlink(missing_ok=True)
             continue
-        if processus_vivant(int(donnees.get("pid") or 0)):
+        membres = [donnees.get("pid"), *(donnees.get("enfants") or [])]
+        if any(processus_vivant(int(membre or 0)) for membre in membres):
             donnees["fiche"] = fiche
             vivantes.append(donnees)
         else:
@@ -488,6 +495,19 @@ class BusyError(RuntimeError):
     """La ressource est déjà réservée par une autre opération."""
 
 
+def _lire_verrou(fichier: Path):
+    """Contenu du fichier de verrou, ou None s'il est absent/illisible.
+
+    Illisible couvre aussi bien la corruption que la fenêtre, très brève, où un
+    autre processus vient de créer le fichier sans avoir fini d'y écrire : dans
+    les deux cas on ne peut rien affirmer sur son propriétaire, donc on
+    retente plutôt que de trancher à tort."""
+    try:
+        return json.loads(fichier.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 @contextlib.contextmanager
 def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
     """Réserve une ressource entre processus, le temps d'une opération.
@@ -498,48 +518,76 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
     dans des processus séparés, un verrou mémoire ne suffit pas : il faut une
     marque sur disque.
 
-    Deux garde-fous contre une marque oubliée après un plantage : on ignore
-    celle dont le processus n'existe plus, et toute marque plus vieille que
-    `stale_after`. Mieux vaut un conflit rare qu'un outil bloqué par un
-    fichier.
+    L'acquisition passe par une création exclusive du fichier
+    (``O_CREAT | O_EXCL``) : deux processus qui la tentent en même temps ne
+    peuvent pas réussir tous les deux, l'OS le garantit. L'ancien protocole
+    lisait le fichier, concluait qu'il était libre, puis l'écrivait : rien
+    n'empêchait deux processus de franchir les deux premières étapes ensemble
+    (B-05). Un jeton d'acquisition propre à cet appel accompagne owner/pid : il
+    sert à ne jamais libérer, à la sortie, un verrou qu'un autre processus
+    aurait entre-temps re-acquis sous le même PID recyclé.
+
+    Un seul garde-fou reste appliqué contre une marque oubliée après un
+    plantage : on ignore celle dont le processus n'existe plus. `stale_after`
+    ne vole en revanche jamais le verrou d'un processus vivant sur le seul
+    critère de son âge (B-05) : un passage de téléchargement peut légitimement
+    dépasser dix minutes sur un gros clip, et un âge à lui seul ne prouve rien.
+    Reste ouvert le cas d'un PID recyclé par un processus non lié pendant que
+    le vrai propriétaire est mort : sans l'heure de création du processus,
+    non disponible ici sans dépendance supplémentaire, ce cas ne peut être
+    tranché automatiquement et n'est donc pas couvert (limite documentée,
+    voir AUDIT-2026-08-13.md).
 
     `attente` donne le temps pendant lequel on réessaie avant de renoncer. Un
     direct dure quelques minutes ; sans attente, une boucle qui tombe dessus
     perdrait son tour entier, alors que la ressource se libère souvent en
     quelques secondes."""
-    import datetime as dt
+    import uuid
 
     fichier = app_dir() / f".blink_{nom}.lock"
+    jeton = uuid.uuid4().hex
     limite = time.time() + max(attente, 0)
-    while True:
-        maintenant = time.time()
-        try:
-            presente = json.loads(fichier.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            presente = None
+    contenu = json.dumps(
+        {"owner": owner, "pid": os.getpid(), "jeton": jeton, "at": time.time()}
+    ).encode("utf-8")
 
-        if not presente:
+    while True:
+        try:
+            descripteur = os.open(fichier, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            pass
+        else:
+            # La création a réussi : le verrou nous appartient, personne
+            # d'autre n'a pu obtenir le même fichier au même instant.
+            with os.fdopen(descripteur, "wb") as flux:
+                flux.write(contenu)
             break
-        age = maintenant - float(presente.get("at") or 0)
-        if age >= stale_after or not processus_vivant(int(presente.get("pid") or 0)):
-            break
-        if maintenant >= limite:
+
+        presente = _lire_verrou(fichier)
+        if presente is None:
+            # Fichier disparu entre l'échec de la création et la lecture (son
+            # propriétaire vient de le libérer), ou création concurrente pas
+            # encore écrite : dans les deux cas, retenter tout de suite.
+            continue
+        if not processus_vivant(int(presente.get("pid") or 0)):
+            # Propriétaire mort : on retire sa marque puis on retente la
+            # création exclusive. Si un autre processus arrive au même verdict
+            # en même temps, un seul des deux gagnera la prochaine création.
+            fichier.unlink(missing_ok=True)
+            continue
+
+        if time.time() >= limite:
+            age = time.time() - float(presente.get("at") or 0)
             raise BusyError(f"déjà réservé par « {presente.get('owner')} » "
                             f"depuis {int(age)} s")
         time.sleep(1)
 
-    maintenant = time.time()
-    fichier.write_text(json.dumps({"owner": owner, "pid": os.getpid(),
-                                   "at": maintenant}), encoding="utf-8")
     try:
         yield
     finally:
-        try:
-            courante = json.loads(fichier.read_text(encoding="utf-8"))
-            if int(courante.get("pid") or 0) == os.getpid():
-                fichier.unlink(missing_ok=True)
-        except (OSError, json.JSONDecodeError):
-            pass
+        courante = _lire_verrou(fichier)
+        if courante is not None and courante.get("jeton") == jeton:
+            fichier.unlink(missing_ok=True)
 
 
 # Identité applicative sous laquelle les notifications Windows sont émises.
@@ -650,6 +698,25 @@ def travail_en_cours() -> dict:
     return etat
 
 
+# I-11 : liste des options qui attendent une valeur, pour ne jamais confondre
+# cette valeur avec le début d'un nouveau groupe même si elle porte le même
+# texte qu'un verbe (« download --camera watch », « download --camera
+# update »...). Tenue ici plutôt que déduite des analyseurs de chaque
+# programme : ceux-ci vivent dans des fichiers séparés (blink2video.py,
+# merge_daily.py, serve.py, watch.py), que ce découpage précède et ne peut
+# pas encore interroger.
+_OPTIONS_VALEUR_UNIQUE = frozenset((
+    "--hub", "--camera", "--since", "--output", "--from", "--port",
+    "--input", "--weekly-output", "--monthly-output", "--normalized-output",
+    "--excluded-output", "--timezone", "--date", "--font", "--preset",
+    "--crf", "--thumbs",
+))
+# Options « nargs=+ » : consomment tous les mots qui suivent tant qu'aucun
+# ne ressemble à une option (« watch --ignore serve jardin » cible deux
+# caméras, dont une nommée comme un verbe).
+_OPTIONS_VALEURS_MULTIPLES = frozenset(("--exclude", "--include", "--ignore", "--unignore"))
+
+
 def decouper_verbes(arguments) -> list:
     """Découpe « watch --loop download --loop merge » en groupes.
 
@@ -664,14 +731,32 @@ def decouper_verbes(arguments) -> list:
 
     Lève ValueError si le premier élément n'est pas un verbe, faute de quoi on
     ne saurait pas à qui rattacher les premières options."""
+    arguments = list(arguments)
     groupes = []
-    for element in arguments:
+    indice, total = 0, len(arguments)
+    while indice < total:
+        element = arguments[indice]
         if element in VERBES:
             groupes.append([element])
-        elif groupes:
-            groupes[-1].append(element)
-        else:
+            indice += 1
+            continue
+        if not groupes:
             raise ValueError(f"« {element} » n'est pas un verbe")
+        groupes[-1].append(element)
+        indice += 1
+        if element in _OPTIONS_VALEUR_UNIQUE and indice < total:
+            groupes[-1].append(arguments[indice])
+            indice += 1
+        elif element in _OPTIONS_VALEURS_MULTIPLES:
+            while indice < total and not arguments[indice].startswith("-"):
+                groupes[-1].append(arguments[indice])
+                indice += 1
+        elif (element == "--loop" and indice < total
+              and arguments[indice].lstrip("-").isdigit()):
+            # nargs="?" : --loop seul est valide (cadence par défaut), donc sa
+            # valeur n'est consommée que si le mot suivant est bien un nombre.
+            groupes[-1].append(arguments[indice])
+            indice += 1
     return groupes
 
 
@@ -734,7 +819,17 @@ def ajouter_boucle(parser) -> None:
 
 
 def repeter(travail, minutes, journal=None) -> int:
-    """Exécute `travail` une fois, ou indéfiniment si `minutes` est donné."""
+    """Exécute `travail` une fois, ou indéfiniment si `minutes` est donné.
+
+    Deux défauts de la boucle de fond sont corrigés ici, pour tous les verbes
+    qui partagent cette fonction :
+
+    - une erreur transitoire (réseau, ffmpeg, JSON) ne doit pas tuer
+      définitivement le worker : seul Ctrl+C doit l'arrêter (I-17) ;
+    - l'échéance du prochain tour se calcule depuis l'heure de départ du tour
+      courant, sur time.monotonic(), plutôt que de dormir après le travail :
+      un tour qui dure plus longtemps que la cadence ne doit pas décaler tous
+      les suivants d'autant (O-05)."""
     import time
 
     if not minutes:
@@ -742,10 +837,18 @@ def repeter(travail, minutes, journal=None) -> int:
     print(f"Répétition toutes les {minutes} min. Ctrl+C pour arrêter.")
     if journal:
         journal(f"repetition toutes les {minutes} min")
+    periode = minutes * 60
     try:
         while True:
-            travail()
-            time.sleep(minutes * 60)
+            echeance = time.monotonic() + periode
+            try:
+                travail()
+            except Exception as erreur:
+                message = f"tour interrompu par une erreur, on reessaie au prochain : {erreur}"
+                print(message)
+                if journal:
+                    journal(message)
+            time.sleep(max(0.0, echeance - time.monotonic()))
     except KeyboardInterrupt:
         if journal:
             journal("arret de la repetition")
