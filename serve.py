@@ -359,6 +359,72 @@ def read_with_deadline(pipe, seconds: float) -> bytes:
     return result[0] if result else b""
 
 
+_MOOV_CONTAINERS = {b"moov", b"trak", b"mdia", b"minf", b"stbl"}
+
+
+def h264_mime_codec_from_moov(segment: bytes) -> str:
+    """Cherche avcC dans un segment d'initialisation MP4 (ftyp+moov) pour en
+    tirer la chaîne de codec MSE exacte (avc1.PPCCLL : profil, contraintes,
+    niveau). Deviner cette chaîne plante addSourceBuffer dès que la caméra
+    encode dans un profil ou un niveau différent de celui supposé ; la lire
+    dans le flux réel est le seul moyen fiable.
+
+    Ne suit que le chemin utile : moov > trak > mdia > minf > stbl > stsd >
+    avc1 > avcC. avcC porte déjà profil/contraintes/niveau en clair
+    (AVCDecoderConfigurationRecord), pas besoin de redescendre jusqu'au
+    SPS qu'il contient lui-même."""
+    def walk(buf: bytes) -> bytes | None:
+        i, n = 0, len(buf)
+        while i + 8 <= n:
+            size = int.from_bytes(buf[i:i + 4], "big")
+            kind = buf[i + 4:i + 8]
+            if size < 8 or i + size > n:
+                break
+            payload = buf[i + 8:i + size]
+            if kind == b"avcC":
+                return payload
+            if kind in _MOOV_CONTAINERS:
+                found = walk(payload)
+            elif kind == b"stsd":
+                found = walk(payload[8:])  # version+flags+entry_count
+            elif kind == b"avc1":
+                # SampleEntry (8) + champs fixes VisualSampleEntry (70) avant
+                # les boîtes filles (avcC, ...).
+                found = walk(payload[78:])
+            else:
+                found = None
+            if found is not None:
+                return found
+            i += size
+        return None
+
+    avcc = walk(segment)
+    if avcc is None or len(avcc) < 4:
+        raise RuntimeError(
+            "avcC introuvable dans le segment d'initialisation MP4 (profil illisible).")
+    profile_idc, constraint, level_idc = avcc[1], avcc[2], avcc[3]
+    return f"avc1.{profile_idc:02x}{constraint:02x}{level_idc:02x}"
+
+
+def read_mp4_init_segment(pipe, seconds: float) -> bytes:
+    """Accumule la sortie d'ffmpeg jusqu'à pouvoir y lire un avcC complet, ou
+    renonce au bout de `seconds`. Un seul bloc de 4096 octets (comme pour le
+    MJPEG) ne suffit pas toujours : le moov peut déborder du premier bloc."""
+    deadline = time.monotonic() + seconds
+    buf = bytearray()
+    while time.monotonic() < deadline and len(buf) < 65536:
+        chunk = read_with_deadline(pipe, max(0.1, deadline - time.monotonic()))
+        if not chunk:
+            break
+        buf += chunk
+        try:
+            h264_mime_codec_from_moov(bytes(buf))
+            break  # trouvé : pas la peine de lire plus avant d'envoyer les en-têtes
+        except RuntimeError:
+            continue
+    return bytes(buf)
+
+
 # Dernier échec de direct, relu par la page : une balise <img> ne peut pas lire
 # le corps d'une réponse en erreur, elle ne voit qu'un échec de chargement.
 LAST_LIVE_ERROR: dict = {}
@@ -917,11 +983,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 [self.ffmpeg, "-hide_banner", "-loglevel", "error",
                  # Le flux arrive au fil de l'eau : on ne veut ni analyse
                  # préalable longue ni mise en tampon, sinon l'image affichée
-                 # aurait plusieurs secondes de retard.
+                 # aurait plusieurs secondes de retard. La caméra reste, elle,
+                 # le vrai goulot (réveil, négociation côté Blink) : ces deux
+                 # bornes ne raccourcissent que la part qui nous revient.
                  "-fflags", "nobuffer", "-flags", "low_delay",
-                 "-analyzeduration", "1000000", "-probesize", "500000",
+                 "-analyzeduration", "500000", "-probesize", "300000",
                  "-i", url,
-                 "-f", "mpjpeg", "-q:v", "6", "-r", "10",
+                 # La fluidité perçue tenait plus à 10 im/s qu'à la définition :
+                 # un flux caméra dépasse rarement ce qu'un cadre de vidéo-
+                 # surveillance a besoin d'afficher. Écrêter la largeur avant
+                 # d'encoder laisse la place à 15 im/s pour un débit local
+                 # comparable ; min(1280,iw) ne réduit jamais un flux déjà
+                 # plus étroit.
+                 "-vf", "scale='min(1280,iw)':-2",
+                 "-f", "mpjpeg", "-q:v", "6", "-r", "15",
                  "-boundary_tag", LIVE_BOUNDARY, "-"],
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -1014,6 +1089,150 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 verrou.__exit__(None, None, None)
             MODULE_SLOT.release()
 
+    def send_live_mse(self, name: str) -> None:
+        """Diffuse le direct d'une caméra en fMP4 fragmenté, pour MediaSource.
+
+        Face à /live (MJPEG) : au lieu de faire réencoder chaque image en
+        JPEG par ffmpeg puis redécoder par un <img>, on ne fait que changer
+        de conteneur (Annexe B -> boîtes MP4 fragmentées), sans toucher à
+        l'image. Un sous-processus ffmpeg fait le remux, exactement comme
+        /live : une première version passait par PyAV en lecture directe du
+        flux Blink, plus simple pour lire le codec exact, mais nettement
+        moins fiable sur ce flux précis (essais réels sur caméra) que le
+        sous-processus ffmpeg qu'utilise /live avec succès depuis le début.
+        Le prix : lire le codec exige de parcourir les boîtes du segment
+        d'initialisation MP4 (moov > trak > mdia > minf > stbl > stsd >
+        avc1 > avcC) plutôt que de le lire via une API."""
+        if not MODULE_SLOT.acquire(blocking=False):
+            self.send_error(409, "Le module est deja occupe (direct ou actualisation)")
+            return
+
+        holder: dict = {}
+        try:
+            holder["lock"] = blink_engine.hub_lock("direct")
+            holder["lock"].__enter__()
+
+            def start(blink):
+                async def run(_blink=blink):
+                    sync, camera = BLINK.find_camera(_blink, name)
+                    try:
+                        stream = await camera.init_livestream()
+                    except KeyError as error:
+                        raise RuntimeError(
+                            f"Blink n'a fourni aucune adresse de flux pour "
+                            f"« {name} ». La caméra est probablement hors de "
+                            f"portée du module de synchronisation, éteinte, ou "
+                            f"sa batterie est vide."
+                        ) from error
+                    except NotImplementedError as error:
+                        raise RuntimeError(
+                            f"Cette caméra diffuse dans un format non pris en "
+                            f"charge ({error})."
+                        ) from error
+                    await stream.start()
+                    holder["stream"] = stream
+                    holder["feed"] = asyncio.ensure_future(stream.feed())
+                    return stream.url
+                return run()
+
+            url = BLINK.call(start, timeout=45)
+            print(f"[direct-mse] {name} : flux Blink ouvert sur {url}", flush=True)
+
+            process = runtime.demarrer(
+                [self.ffmpeg, "-hide_banner", "-loglevel", "error",
+                 "-fflags", "nobuffer", "-flags", "low_delay",
+                 "-analyzeduration", "500000", "-probesize", "300000",
+                 "-i", url,
+                 # copy : remux sans réencodage, coût CPU quasi nul.
+                 "-c:v", "copy", "-an",
+                 "-f", "mp4",
+                 "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                 "-"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            holder["process"] = process
+            errors: list = []
+            holder["drain"] = threading.Thread(
+                target=lambda: errors.append(process.stderr.read()), daemon=True
+            )
+            holder["drain"].start()
+
+            first = read_mp4_init_segment(process.stdout, LIVE_FIRST_FRAME_SECONDS)
+            print(f"[direct-mse] {name} : segment initial {len(first)} octets", flush=True)
+            if not first:
+                reason = self.live_failure_reason(holder.get("stream"))
+                raise RuntimeError(reason)
+            codec_str = h264_mime_codec_from_moov(first)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Codec", codec_str)
+            self.send_header("Connection", "close")
+            self.close_connection = True
+            self.end_headers()
+            print(f"[direct-mse] {name} : en-tetes envoyes, codec {codec_str}", flush=True)
+
+            self.wfile.write(first)
+            sent = len(first)
+            deadline = time.monotonic() + LIVE_MAX_SECONDS
+            while time.monotonic() < deadline:
+                chunk = process.stdout.read(16384)
+                if not chunk:
+                    break
+                try:
+                    self.wfile.write(chunk)
+                    sent += len(chunk)
+                except (BrokenPipeError, ConnectionResetError,
+                        ConnectionAbortedError):
+                    break  # onglet fermé : c'est la fin normale d'un direct
+            holder["sent"] = sent
+        except Exception as error:
+            message = str(error) if isinstance(error, RuntimeError) \
+                else f"{type(error).__name__}: {error}"
+            LAST_LIVE_ERROR.clear()
+            LAST_LIVE_ERROR.update({"camera": name, "message": message})
+            print(f"[direct-mse] {name} : echec, {message}", flush=True)
+            try:
+                self.send_error(503, message[:200])
+            except Exception:
+                pass  # en-tetes deja envoyes : le flux s'arrete, c'est tout
+        finally:
+            process = holder.get("process")
+            if process is not None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            stream = holder.get("stream")
+            if stream is not None:
+                try:
+                    verdict = BLINK.call(
+                        lambda _b: _stop_stream(stream, holder.get("feed")),
+                        timeout=45,
+                    )
+                except Exception as error:
+                    verdict = f"echec de fermeture, {type(error).__name__}: {error}"
+                print(f"[direct-mse] {name} : {verdict}", flush=True)
+            sent = holder.get("sent")
+            if sent is not None:
+                detail = ""
+                if not sent:
+                    drain = holder.get("drain")
+                    if drain is not None:
+                        drain.join(timeout=3)
+                    detail = " | ffmpeg : " + (
+                        (errors[0] or "").strip()[:300] if errors else "rien"
+                    )
+                print(f"[direct-mse] {name} : termine, {sent} octets transmis{detail}",
+                      flush=True)
+            verrou = holder.get("lock")
+            if verrou is not None:
+                verrou.__exit__(None, None, None)
+            MODULE_SLOT.release()
+
     def resolve_media(self, route: str) -> Path | None:
         """Traduit « clip/… » ou « daily/… » en fichier réel, ou rien.
 
@@ -1067,6 +1286,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if route.startswith("/live/"):
             self.send_live(unquote(route[len("/live/"):]))
+            return
+
+        if route.startswith("/live-mse/"):
+            self.send_live_mse(unquote(route[len("/live-mse/"):]))
             return
 
         if route == "/api/live-error":
@@ -1474,7 +1697,7 @@ PAGE = """<!doctype html>
   h2 .act { margin-left:auto; font-size:13px; }
   .live { position:relative; aspect-ratio:16/9; background:#000; display:flex;
           align-items:center; justify-content:center; }
-  .live img { width:100%; height:100%; object-fit:contain; }
+  .live img, .live video { width:100%; height:100%; object-fit:contain; }
   /* La vignette reste en fond, le bouton se pose dessus. */
   .live img.still { position:absolute; inset:0; opacity:.55; }
   .live .watch { position:relative; }
@@ -1835,7 +2058,84 @@ function failWatch(name, message) {
 }
 
 function stopWatch(name) {
-  $("live-" + cssId(name)).innerHTML = repos(name, "Voir en direct");
+  // La case peut avoir disparu sous nos pieds (actualisation de la vue
+  // pendant le direct) : la remise au repos est cosmétique, mais couper les
+  // flux ci-dessous ne doit jamais en dépendre.
+  const box = $("live-" + cssId(name));
+  if (box) box.innerHTML = repos(name, "Voir en direct");
+  const controller = MSE_ABORT[name];
+  if (controller) { controller.abort(); delete MSE_ABORT[name]; }
+}
+
+// --- MSE/fMP4 : remux sans réencodage, <video> décodé par le navigateur ---
+// Contrairement à <img>, un fetch() ne s'arrête pas tout seul quand on jette
+// la balise : il faut son propre AbortController, gardé ici par caméra pour
+// que stopWatch() puisse le couper.
+const MSE_ABORT = {};
+
+async function watchMse(name) {
+  const box = $("live-" + cssId(name));
+  box.innerHTML =
+    `<video autoplay muted playsinline></video>
+     <p class="hint overlay" id="hint-${cssId(name)}">Réveil de la caméra… (MSE)</p>
+     <button class="watch stop" onclick="stopWatch('${name}')">Arrêter</button>`;
+  const video = box.querySelector("video");
+  const hint = $("hint-" + cssId(name));
+  const t0 = performance.now();
+
+  const controller = new AbortController();
+  MSE_ABORT[name] = controller;
+  const mediaSource = new MediaSource();
+  video.src = URL.createObjectURL(mediaSource);
+
+  mediaSource.addEventListener("sourceopen", async () => {
+    try {
+      const response = await fetch(`/live-mse/${encodeURIComponent(name)}`,
+                                    { signal: controller.signal });
+      if (!response.ok) {
+        let message = `Le flux a été refusé par le serveur (${response.status}).`;
+        try {
+          const info = await (await fetch("/api/live-error")).json();
+          if (info.camera === name && info.message) message = info.message;
+        } catch (error) { /* on garde le message générique */ }
+        throw new Error(message);
+      }
+      const codec = response.headers.get("X-Codec") || "avc1.42E01E";
+      const mimeType = `video/mp4; codecs="${codec}"`;
+      if (!MediaSource.isTypeSupported(mimeType)) {
+        throw new Error(`Codec non supporté par ce navigateur : ${codec}`);
+      }
+      const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+      sourceBuffer.mode = "sequence";
+      const reader = response.body.getReader();
+      let premiere = true;
+      window.__mseMetric = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await new Promise((resolve, reject) => {
+          sourceBuffer.addEventListener("updateend", resolve, { once: true });
+          sourceBuffer.addEventListener("error", reject, { once: true });
+          sourceBuffer.appendBuffer(value);
+        });
+        if (premiere) {
+          hint.remove();
+          window.__mseMetric = performance.now() - t0;
+          premiere = false;
+          // L'attribut autoplay seul ne suffit pas toujours à démarrer la
+          // lecture sur une balise <video> insérée via innerHTML : on le
+          // force dès qu'assez de données sont arrivées.
+          video.play().catch(() => {});
+        }
+      }
+      if (mediaSource.readyState === "open") mediaSource.endOfStream();
+    } catch (error) {
+      if (error.name === "AbortError") return;  // stopWatch : fin normale
+      failWatch(name, String(error.message || error));
+    } finally {
+      delete MSE_ABORT[name];
+    }
+  });
 }
 
 // L'état de repos d'un cadre : la dernière image connue de la caméra, et le
@@ -1843,7 +2143,7 @@ function stopWatch(name) {
 // lieu de laisser un rectangle noir jusqu'au rechargement de la page.
 function repos(name, libelle) {
   return `<img class="still" src="/camthumb/${encodeURIComponent(name)}" alt="">
-     <button class="watch" onclick="watch('${name}')">${libelle}</button>`;
+     <button class="watch" onclick="watchMse('${name}')">${libelle}</button>`;
 }
 
 async function setArmed(scope, name, armed) {
