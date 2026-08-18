@@ -257,7 +257,9 @@ assembles, while `serve`, or any verb given `--loop`, holds its own process unti
 | `--date YYYY-MM-DD` | limit to one day |
 | `--camera NAME` | limit to one camera |
 | `--force` | rebuild everything even if nothing changed |
-| `--no-periods` | do not rebuild the weekly and monthly aggregates |
+| `--no-weekly` | do not rebuild the weekly aggregates |
+| `--no-monthly` | do not rebuild the monthly aggregates |
+| `--no-timestamp` | do not burn the date and time into the image |
 | `--preset NAME` | libx264 preset, from `ultrafast` to `veryslow` (default `veryfast`) |
 | `--crf N` | quality, 0 to 51, lower is better (default 21) |
 | `--font FILE` | .ttf font for the timestamp |

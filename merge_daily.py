@@ -1085,8 +1085,12 @@ def parse_args() -> argparse.Namespace:
              "assemblées sont issues",
     )
     parser.add_argument(
-        "--no-periods", action="store_true",
-        help="ne pas (re)construire les agrégats hebdomadaires et mensuels",
+        "--no-weekly", action="store_true",
+        help="ne pas (re)construire les agrégats hebdomadaires",
+    )
+    parser.add_argument(
+        "--no-monthly", action="store_true",
+        help="ne pas (re)construire les agrégats mensuels",
     )
     parser.add_argument(
         "--no-timestamp", action="store_true",
@@ -1336,22 +1340,23 @@ def _executer(args) -> int:
 
     print(f"Journalières : {built} créée(s), {skipped} déjà à jour, {failed} échec(s).")
 
-    if not args.no_periods:
-        for period, period_dir in (
-            ("weekly", args.weekly_output.resolve()),
-            ("monthly", args.monthly_output.resolve()),
-        ):
-            label = "Hebdomadaires" if period == "weekly" else "Mensuelles"
-            print(f"\n{label} :")
-            p_built, p_skipped, p_failed = build_periods(
-                ffmpeg, timezone, output_dir, period_dir, period,
-                args.force, args.preset, args.crf,
-            )
-            failed += p_failed
-            print(
-                f"{label} : {p_built} créée(s), {p_skipped} déjà à jour, "
-                f"{p_failed} échec(s)."
-            )
+    for period, period_dir, desactive in (
+        ("weekly", args.weekly_output.resolve(), args.no_weekly),
+        ("monthly", args.monthly_output.resolve(), args.no_monthly),
+    ):
+        if desactive:
+            continue
+        label = "Hebdomadaires" if period == "weekly" else "Mensuelles"
+        print(f"\n{label} :")
+        p_built, p_skipped, p_failed = build_periods(
+            ffmpeg, timezone, output_dir, period_dir, period,
+            args.force, args.preset, args.crf,
+        )
+        failed += p_failed
+        print(
+            f"{label} : {p_built} créée(s), {p_skipped} déjà à jour, "
+            f"{p_failed} échec(s)."
+        )
 
     return 1 if failed else 0
 

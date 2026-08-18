@@ -275,7 +275,9 @@ occupe son propre processus jusqu'à `blink2video stop`.
 | `--date AAAA-MM-JJ` | limiter à une journée |
 | `--camera NOM` | limiter à une caméra |
 | `--force` | tout reconstruire même si rien n'a changé |
-| `--no-periods` | ne pas reconstruire les agrégats hebdomadaires et mensuels |
+| `--no-weekly` | ne pas reconstruire les agrégats hebdomadaires |
+| `--no-monthly` | ne pas reconstruire les agrégats mensuels |
+| `--no-timestamp` | ne pas incruster la date et l'heure dans l'image |
 | `--preset NOM` | preset libx264, d'`ultrafast` à `veryslow` (défaut `veryfast`) |
 | `--crf N` | qualité, 0 à 51, plus bas est meilleur (défaut 21) |
 | `--font FICHIER` | police .ttf pour l'horodatage |

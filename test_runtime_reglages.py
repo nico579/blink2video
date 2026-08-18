@@ -1,11 +1,12 @@
 """Non-régression de runtime.lire_reglages / ecrire_reglages / standard
-(AUDIT-2026-08-13.md, section 28.32/28.34/28.36/28.37) : cadences
-USB/cloud, port, horodatage et fuseau réglables depuis la page web plutôt
-que figés dans la constante STANDARD.
+(AUDIT-2026-08-13.md, section 28.32/28.34/28.36/28.37/28.39) : cadences
+USB/cloud, port, horodatage, fuseau et activation jour/semaine/mois du
+merge réglables depuis la page web plutôt que figés dans la constante
+STANDARD.
 
 Anciennement test_runtime_cadences.py : renommé avec les fonctions, le
-port, l'horodatage puis le fuseau ayant rejoint les cadences dans le même
-fichier de réglages."""
+port, l'horodatage, le fuseau puis les coches de merge ayant rejoint les
+cadences dans le même fichier de réglages."""
 
 from __future__ import annotations
 
@@ -37,11 +38,13 @@ class TestsReglages(unittest.TestCase):
 
     def test_ecrire_puis_lire_conserve_les_valeurs(self):
         runtime.ecrire_reglages(usb_minutes=7, cloud_minutes=2, port=8899, timestamp=False,
-                                timezone="America/New_York")
+                                timezone="America/New_York", merge_jour=True,
+                                merge_semaine=False, merge_mois=False)
         self.assertEqual(
             runtime.lire_reglages(),
             {"usb_minutes": 7, "cloud_minutes": 2, "port": 8899, "timestamp": False,
-             "timezone": "America/New_York"})
+             "timezone": "America/New_York", "merge_jour": True, "merge_semaine": False,
+             "merge_mois": False})
 
     def test_valeurs_partielles_completees_par_les_defauts(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -52,7 +55,10 @@ class TestsReglages(unittest.TestCase):
              "cloud_minutes": runtime.REGLAGES_DEFAUT["cloud_minutes"],
              "port": runtime.REGLAGES_DEFAUT["port"],
              "timestamp": runtime.REGLAGES_DEFAUT["timestamp"],
-             "timezone": runtime.REGLAGES_DEFAUT["timezone"]})
+             "timezone": runtime.REGLAGES_DEFAUT["timezone"],
+             "merge_jour": runtime.REGLAGES_DEFAUT["merge_jour"],
+             "merge_semaine": runtime.REGLAGES_DEFAUT["merge_semaine"],
+             "merge_mois": runtime.REGLAGES_DEFAUT["merge_mois"]})
 
     def test_fuseau_vide_dans_le_fichier_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -70,7 +76,8 @@ class TestsReglages(unittest.TestCase):
 
     def test_standard_reflete_les_reglages_enregistres(self):
         runtime.ecrire_reglages(usb_minutes=20, cloud_minutes=3, port=9090, timestamp=True,
-                                timezone="Asia/Tokyo")
+                                timezone="Asia/Tokyo", merge_jour=True, merge_semaine=True,
+                                merge_mois=True)
         composition = runtime.standard()
         self.assertEqual(
             composition,
@@ -82,11 +89,31 @@ class TestsReglages(unittest.TestCase):
 
     def test_standard_ajoute_no_timestamp_quand_desactive(self):
         runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=False,
-                                timezone="Europe/Paris")
+                                timezone="Europe/Paris", merge_jour=True, merge_semaine=True,
+                                merge_mois=True)
         composition = runtime.standard()
         self.assertEqual(composition[-6:],
                          ("merge", "--loop", "5", "--timezone", "Europe/Paris",
                           "--no-timestamp"))
+
+    def test_standard_omet_merge_quand_journaliere_desactivee(self):
+        # Semaine et mois derivent des videos journalieres : les couper
+        # toutes les trois revient a ne plus lancer merge du tout, plutot
+        # que de le lancer pour rien.
+        runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
+                                timezone="Europe/Paris", merge_jour=False, merge_semaine=True,
+                                merge_mois=True)
+        composition = runtime.standard()
+        self.assertNotIn("merge", composition)
+
+    def test_standard_ajoute_no_weekly_et_no_monthly_selon_les_reglages(self):
+        runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
+                                timezone="Europe/Paris", merge_jour=True, merge_semaine=False,
+                                merge_mois=False)
+        composition = runtime.standard()
+        self.assertEqual(composition[-7:],
+                         ("merge", "--loop", "5", "--timezone", "Europe/Paris",
+                          "--no-weekly", "--no-monthly"))
 
     def test_les_elements_du_bloc_serve_sont_fixes(self):
         # blink_cli.py greffe le supplément de « start » juste après ce bloc

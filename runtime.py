@@ -62,7 +62,8 @@ ENTREE = "blink2video"
 # rien quand rien n'a changé. Verbeux à lire, jamais à taper.
 REGLAGES = "blink_reglages.json"
 REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": True,
-                   "timezone": "Europe/Paris"}
+                   "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": True,
+                   "merge_mois": True}
 # Nombre d'éléments du bloc fixe en tête de standard() : serve, --port,
 # valeur, --timezone, valeur. blink_cli.route() s'appuie sur cette longueur
 # pour greffer le supplément de « start » juste après (voir standard()).
@@ -86,15 +87,20 @@ def lire_reglages() -> dict:
         "timestamp": bool(valeurs.get("timestamp", REGLAGES_DEFAUT["timestamp"])),
         "timezone": str(valeurs.get("timezone", REGLAGES_DEFAUT["timezone"])) or
         REGLAGES_DEFAUT["timezone"],
+        "merge_jour": bool(valeurs.get("merge_jour", REGLAGES_DEFAUT["merge_jour"])),
+        "merge_semaine": bool(valeurs.get("merge_semaine", REGLAGES_DEFAUT["merge_semaine"])),
+        "merge_mois": bool(valeurs.get("merge_mois", REGLAGES_DEFAUT["merge_mois"])),
     }
 
 
 def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool,
-                    timezone: str) -> None:
+                    timezone: str, merge_jour: bool, merge_semaine: bool,
+                    merge_mois: bool) -> None:
     (app_dir() / REGLAGES).write_text(
         json.dumps({"usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
                     "port": int(port), "timestamp": bool(timestamp),
-                    "timezone": str(timezone)}),
+                    "timezone": str(timezone), "merge_jour": bool(merge_jour),
+                    "merge_semaine": bool(merge_semaine), "merge_mois": bool(merge_mois)}),
         encoding="utf-8")
 
 
@@ -111,9 +117,15 @@ def standard() -> tuple:
     explicite l'emporte toujours sur la valeur enregistrée (argparse
     retient la dernière occurrence d'une option)."""
     c = lire_reglages()
-    merge = ["merge", "--loop", "5", "--timezone", c["timezone"]]
-    if not c["timestamp"]:
-        merge.append("--no-timestamp")
+    merge = []
+    if c["merge_jour"]:
+        merge = ["merge", "--loop", "5", "--timezone", c["timezone"]]
+        if not c["timestamp"]:
+            merge.append("--no-timestamp")
+        if not c["merge_semaine"]:
+            merge.append("--no-weekly")
+        if not c["merge_mois"]:
+            merge.append("--no-monthly")
     return ("serve", "--port", str(c["port"]), "--timezone", c["timezone"],
             "watch", "--loop", "10",
             "download", "--from", "usb", "--loop", str(c["usb_minutes"]),

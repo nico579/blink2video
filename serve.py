@@ -1823,7 +1823,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"error": f"Fuseau horaire inconnu : « {timezone_str} »."}, 400)
                 return
             timestamp = bool(payload.get("timestamp", True))
-            runtime.ecrire_reglages(usb_minutes, cloud_minutes, port, timestamp, timezone_str)
+            merge_jour = bool(payload.get("merge_jour", True))
+            merge_semaine = bool(payload.get("merge_semaine", True))
+            merge_mois = bool(payload.get("merge_mois", True))
+            runtime.ecrire_reglages(usb_minutes, cloud_minutes, port, timestamp, timezone_str,
+                                    merge_jour, merge_semaine, merge_mois)
             runtime.ecrire_dossier_stockage(storage_dir)
             # Détaché, comme /api/update : ce processus fait partie de ce que
             # « restart » va arrêter. Le verbe diffère de « update » puisqu'aucune
@@ -2149,6 +2153,20 @@ PAGE = """<!doctype html>
       <option value="Australia/Sydney">
       <option value="UTC">
     </datalist>
+  </fieldset>
+  <fieldset>
+    <legend>Archivage</legend>
+    <label id="mergeJourLabel">
+      <input type="checkbox" id="mergeJour"> Vidéo par jour
+    </label>
+    <label id="mergeSemaineLabel">
+      <input type="checkbox" id="mergeSemaine"> Agrégat hebdomadaire
+    </label>
+    <label id="mergeMoisLabel">
+      <input type="checkbox" id="mergeMois"> Agrégat mensuel
+    </label>
+    <p class="sub tiny">Semaine et mois sont assemblés à partir des vidéos
+       journalières : décocher « jour » désactive aussi les deux autres.</p>
   </fieldset>
   <fieldset>
     <legend>Alertes</legend>
@@ -2953,11 +2971,29 @@ $("reglagesButton").onclick = async () => {
     $("storageDir").value = reglages.storage_dir;
     $("timestamp").checked = reglages.timestamp;
     $("timezone").value = reglages.timezone;
+    $("mergeJour").checked = reglages.merge_jour;
+    $("mergeSemaine").checked = reglages.merge_semaine;
+    $("mergeMois").checked = reglages.merge_mois;
+    appliquerDependanceMergeJour();
   } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
   chargerSourdine();
   $("reglages").showModal();
 };
 $("reglagesClose").onclick = () => $("reglages").close();
+
+// Semaine et mois n'ont de sens que si la journalière tourne : décocher
+// « jour » les grise et les décoche, plutôt que de laisser espérer un
+// agrégat qui ne sera jamais construit faute de base.
+function appliquerDependanceMergeJour() {
+  const actif = $("mergeJour").checked;
+  $("mergeSemaine").disabled = !actif;
+  $("mergeMois").disabled = !actif;
+  if (!actif) {
+    $("mergeSemaine").checked = false;
+    $("mergeMois").checked = false;
+  }
+}
+$("mergeJour").onchange = appliquerDependanceMergeJour;
 
 // Séparé du reste du panneau : contrairement aux cadences, au port ou au
 // fuseau, la sourdine n'exige pas de redémarrage (watch relit son état à
@@ -3036,10 +3072,15 @@ $("reglagesApply").onclick = async () => {
   try {
     const storageDir = $("storageDir").value.trim();
     const timestamp = $("timestamp").checked;
+    const mergeJour = $("mergeJour").checked;
+    const mergeSemaine = $("mergeSemaine").checked;
+    const mergeMois = $("mergeMois").checked;
     const reponse = await fetch("/api/reglages", { method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud, port,
-                             storage_dir: storageDir, timestamp, timezone }) });
+                             storage_dir: storageDir, timestamp, timezone,
+                             merge_jour: mergeJour, merge_semaine: mergeSemaine,
+                             merge_mois: mergeMois }) });
     const resultat = await reponse.json();
     if (resultat.error) {
       alert(resultat.error);
