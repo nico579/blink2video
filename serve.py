@@ -1854,7 +1854,7 @@ PAGE = """<!doctype html>
   button.primary { background:#3a5a86; border-color:#48699a; }
   label { color:var(--dim); display:flex; align-items:center; gap:7px; cursor:pointer; }
   /* Un display explicite l'emporte sur l'attribut hidden : sans cette règle,
-     « voir les écartés » restait affiché dans le Direct et les vidéos
+     « voir les clips écartés » restait affiché dans le Direct et les vidéos
      assemblées, où il ne veut rien dire. */
   [hidden] { display:none !important; }
   .count { color:var(--dim); margin-left:auto; font-variant-numeric:tabular-nums; }
@@ -2019,7 +2019,7 @@ PAGE = """<!doctype html>
     <input type="checkbox" id="auto"> Actualisation automatique de la page
   </label>
   <label id="outLabel">
-    <input type="checkbox" id="showOut"> voir les écartés
+    <input type="checkbox" id="showOut"> Voir les clips écartés
   </label>
   <fieldset>
     <legend>Cadence de lecture des caméras</legend>
