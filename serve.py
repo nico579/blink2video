@@ -1185,7 +1185,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             process = runtime.demarrer(
                 [self.ffmpeg, "-hide_banner", "-loglevel", "error",
                  "-fflags", "nobuffer", "-flags", "low_delay",
-                 "-analyzeduration", "500000", "-probesize", "300000",
+                 # Plus généreux qu'en MJPEG (500000/300000) : un moov figé
+                 # (empty_moov) doit connaître les dimensions *avant*
+                 # d'écrire son en-tête, alors que le décodage MJPEG les
+                 # apprend au fil de l'eau sans jamais avoir à s'engager
+                 # d'avance. Vu en vrai sur une caméra plus lente à livrer
+                 # son SPS (jardin) : « dimensions not set / Could not
+                 # write header » côté ffmpeg, jamais côté MJPEG avec les
+                 # mêmes réglages sur la même caméra. Toujours largement
+                 # sous LIVE_FIRST_FRAME_SECONDS (40 s) : une caméra qui
+                 # répond vite n'attend pas plus longtemps pour autant, ce
+                 # ne sont que des plafonds.
+                 "-analyzeduration", "5000000", "-probesize", "5000000",
                  "-i", url,
                  # copy : remux sans réencodage, coût CPU quasi nul.
                  "-c:v", "copy", "-an",
