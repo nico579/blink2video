@@ -78,6 +78,30 @@ THUMB_SLOTS = threading.Semaphore(2)
 # exemple : là seul le refus renseigne, d'où la reprise avec attente croissante
 # côté blink2video.py.
 MODULE_SLOT = threading.Semaphore(1)
+# Diagnostic seul : dit qui tient MODULE_SLOT et depuis quand, pour qu'un 409
+# distingue « occupé, ça va se libérer » d'« occupé depuis 20 minutes, ça sent
+# la fuite » sans avoir à redémarrer le serveur pour le savoir.
+MODULE_SLOT_INFO: dict = {}
+
+
+def _slot_pris(quoi: str, name: str = "") -> None:
+    MODULE_SLOT_INFO.clear()
+    MODULE_SLOT_INFO.update({"quoi": quoi, "camera": name, "depuis": time.monotonic()})
+
+
+def _slot_rendu() -> None:
+    MODULE_SLOT_INFO.clear()
+
+
+def _slot_occupe_message() -> str:
+    quoi = MODULE_SLOT_INFO.get("quoi")
+    if not quoi:
+        return "Le module est deja occupe (direct ou actualisation)."
+    depuis = time.monotonic() - MODULE_SLOT_INFO.get("depuis", time.monotonic())
+    camera = MODULE_SLOT_INFO.get("camera") or ""
+    cible = f" ({camera})" if camera else ""
+    return (f"Le module est deja occupe : {quoi}{cible}, depuis "
+            f"{depuis:.0f}s.")
 LIVE_MAX_SECONDS = 300
 # Délai accordé à la première image. Une caméra sur batterie doit se réveiller,
 # donc on est patient ; au-delà on considère qu'elle ne répondra pas.
@@ -964,8 +988,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ferme l'onglet, la connexion tombe, on arrête ffmpeg et on rend la
         session à la caméra. Rien à révoquer, rien à oublier de fermer."""
         if not MODULE_SLOT.acquire(blocking=False):
-            self.send_error(409, "Le module est deja occupe (direct ou actualisation)")
+            self.send_error(409, _slot_occupe_message())
             return
+        _slot_pris("direct MJPEG", name)
 
         holder: dict = {}
         try:
@@ -1131,6 +1156,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             verrou = holder.get("lock")
             if verrou is not None:
                 verrou.__exit__(None, None, None)
+            _slot_rendu()
             MODULE_SLOT.release()
 
     def send_live_mse(self, name: str) -> None:
@@ -1148,8 +1174,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         d'initialisation MP4 (moov > trak > mdia > minf > stbl > stsd >
         avc1 > avcC) plutôt que de le lire via une API."""
         if not MODULE_SLOT.acquire(blocking=False):
-            self.send_error(409, "Le module est deja occupe (direct ou actualisation)")
+            self.send_error(409, _slot_occupe_message())
             return
+        _slot_pris("direct MSE", name)
 
         holder: dict = {}
         try:
@@ -1309,6 +1336,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             verrou = holder.get("lock")
             if verrou is not None:
                 verrou.__exit__(None, None, None)
+            _slot_rendu()
             MODULE_SLOT.release()
 
     def resolve_media(self, route: str) -> Path | None:
@@ -1495,12 +1523,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # laisser se chevaucher garantirait un « System is busy » : mieux
             # vaut le dire tout de suite que d'échouer au milieu.
             if not MODULE_SLOT.acquire(blocking=False):
-                self.send_event({"line": (
-                    "Un direct est en cours. Arrêtez-le avant d'actualiser : le "
-                    "module de synchronisation ne traite qu'une commande à la fois."
-                )})
+                self.send_event({"line": _slot_occupe_message()})
                 self.send_event({"done": True, "ok": False})
                 return
+            _slot_pris("actualisation")
             try:
                 # Même verrou de fichier que la surveillance : le téléchargement
                 # lancé ici est exactement celui qu'elle fait de son côté, et
@@ -1512,6 +1538,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_event({"line": f"Module occupé : {error}."})
                 self.send_event({"done": True, "ok": False})
             finally:
+                _slot_rendu()
                 MODULE_SLOT.release()
         finally:
             self.lock.release()
