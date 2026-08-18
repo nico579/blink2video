@@ -1469,6 +1469,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"actif": autostart.est_installe()})
             return
 
+        if route == "/api/reglages":
+            self.send_json(runtime.lire_cadences())
+            return
+
         if route == "/api/clips":
             # ?all=1 lève explicitement la fenêtre par défaut : l'historique
             # complet reste à un clic, jamais perdu, seulement pas chargé
@@ -1758,6 +1762,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"actif": autostart.est_installe()})
             return
 
+        if route == "/api/reglages":
+            try:
+                usb_minutes = int(payload.get("usb_minutes"))
+                cloud_minutes = int(payload.get("cloud_minutes"))
+                if usb_minutes < 1 or cloud_minutes < 1:
+                    raise ValueError
+            except (TypeError, ValueError):
+                self.send_json(
+                    {"error": "Les cadences doivent être des nombres de minutes d'au "
+                              "moins 1."}, 400)
+                return
+            runtime.ecrire_cadences(usb_minutes, cloud_minutes)
+            # Détaché, comme /api/update : ce processus fait partie de ce que
+            # « restart » va arrêter. Le verbe diffère de « update » puisqu'aucune
+            # nouvelle version n'est en jeu, seuls les réglages ont changé — mais
+            # « restart » relance « start » à neuf, donc les relit.
+            runtime.demarrer(
+                runtime.self_command("restart"), cwd=str(runtime.app_dir()),
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
+                start_new_session=(os.name != "nt"))
+            self.send_json({"ok": True})
+            return
+
+        if route == "/api/stop":
+            # Même détachement que /api/reglages : --sans-relance pour que
+            # « restart » s'arrête sans revenir, exactement ce qu'un bouton Stop
+            # doit faire.
+            runtime.demarrer(
+                runtime.self_command("restart", "--sans-relance"),
+                cwd=str(runtime.app_dir()),
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
+                start_new_session=(os.name != "nt"))
+            self.send_json({"ok": True})
+            return
+
         self.send_error(404)
 
     def reassembler(self, identity: str) -> None:
@@ -1894,6 +1935,13 @@ PAGE = """<!doctype html>
   .champMdp button { flex:none; padding:0 12px; }
   dialog .row { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
   #authError { color:var(--out); font-size:13px; min-height:18px; margin:0 0 6px; }
+  #reglages label { margin-bottom:14px; }
+  #reglages label:last-of-type { margin-bottom:18px; }
+  .champCadence { display:flex; align-items:center; justify-content:space-between;
+                  gap:10px; margin-bottom:12px; color:var(--dim); font-size:14px; }
+  .champCadence input { width:70px; margin-bottom:0; text-align:right; }
+  #reglages .row { justify-content:space-between; }
+  #stopButton { border-color:var(--out); color:#ffb3ab; }
 </style>
 </head>
 <body>
@@ -1915,14 +1963,7 @@ PAGE = """<!doctype html>
   <div class="maj">
     <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
-    <label id="autostartLabel"
-           title="Démarre le serveur web et le traitement des clips à l'ouverture
-                   de session, en arrière-plan — n'ouvre pas cette page toute seule">
-      <input type="checkbox" id="autostart"> démarrage auto
-    </label>
-    <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
-      <input type="checkbox" id="auto"> actualisation automatique
-    </label>
+    <button id="reglagesButton" aria-label="Réglages" title="Réglages">⚙</button>
     <button class="primary" id="refresh">Actualiser</button>
   </div>
   <div id="work"><span id="phase"></span><progress id="bar"></progress></div>
@@ -1949,6 +1990,34 @@ PAGE = """<!doctype html>
   <div class="row">
     <button id="authCancel">Annuler</button>
     <button class="primary" id="authOk">Se connecter</button>
+  </div>
+</dialog>
+
+<dialog id="reglages">
+  <h3>Réglages</h3>
+  <label id="autostartLabel"
+         title="Démarre le serveur web et le traitement des clips à l'ouverture
+                 de session, en arrière-plan — n'ouvre pas cette page toute seule">
+    <input type="checkbox" id="autostart"> démarrage auto
+  </label>
+  <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
+    <input type="checkbox" id="auto"> actualisation automatique
+  </label>
+  <div class="champCadence">
+    <label for="usbMinutes">Cadence USB (minutes)</label>
+    <input type="number" id="usbMinutes" min="1" step="1">
+  </div>
+  <div class="champCadence">
+    <label for="cloudMinutes">Cadence cloud (minutes)</label>
+    <input type="number" id="cloudMinutes" min="1" step="1">
+  </div>
+  <p id="reglagesHint" class="sub tiny">Les cadences ne prennent effet
+     qu'au redémarrage : « Appliquer » enregistre et redémarre.</p>
+  <div class="row">
+    <button id="stopButton">Arrêter</button>
+    <span style="flex:1"></span>
+    <button id="reglagesClose">Fermer</button>
+    <button class="primary" id="reglagesApply">Appliquer et redémarrer</button>
   </div>
 </dialog>
 <script>
@@ -2728,6 +2797,79 @@ $("autostart").onchange = async () => {
     $("autostart").disabled = false;
   }
 };
+
+$("reglagesButton").onclick = async () => {
+  try {
+    const cadences = await (await fetch("/api/reglages")).json();
+    $("usbMinutes").value = cadences.usb_minutes;
+    $("cloudMinutes").value = cadences.cloud_minutes;
+  } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
+  $("reglages").showModal();
+};
+$("reglagesClose").onclick = () => $("reglages").close();
+
+// Même déroulé que le bouton de mise à jour : enregistrer, attendre que le
+// serveur disparaisse puis revienne, recharger. Le verbe diffère (« restart »
+// au lieu de « update ») puisqu'aucune nouvelle version n'est en jeu, mais
+// c'est le même arrêt-puis-relance vu de la page.
+$("reglagesApply").onclick = async () => {
+  const usb = parseInt($("usbMinutes").value, 10);
+  const cloud = parseInt($("cloudMinutes").value, 10);
+  if (!(usb >= 1) || !(cloud >= 1)) {
+    alert("Les cadences doivent valoir au moins 1 minute.");
+    return;
+  }
+  const bouton = $("reglagesApply");
+  bouton.disabled = true;
+  bouton.textContent = "Redémarrage…";
+  try {
+    const reponse = await fetch("/api/reglages", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud }) });
+    const resultat = await reponse.json();
+    if (resultat.error) {
+      alert(resultat.error);
+      bouton.disabled = false;
+      bouton.textContent = "Appliquer et redémarrer";
+      return;
+    }
+  } catch (erreur) {
+    alert(String(erreur));
+    bouton.disabled = false;
+    bouton.textContent = "Appliquer et redémarrer";
+    return;
+  }
+  bouton.disabled = false;
+  bouton.textContent = "Appliquer et redémarrer";
+  $("reglages").close();
+  $("phase").textContent = "Redémarrage avec les nouvelles cadences…";
+  $("bar").removeAttribute("value");
+  $("work").classList.add("on");
+  $("refresh").disabled = true;
+  let parti = false;
+  const attente = setInterval(async () => {
+    try {
+      await fetch("/api/status", { cache: "no-store" });
+      if (parti) location.reload();
+    } catch (erreur) {
+      parti = true;      // il s'est arrêté : la relance suit
+    }
+  }, 2000);
+  setTimeout(() => clearInterval(attente), 900000);
+};
+
+$("stopButton").onclick = async () => {
+  const bouton = $("stopButton");
+  bouton.disabled = true;
+  bouton.textContent = "Arrêt…";
+  try {
+    await fetch("/api/stop", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: "{}" });
+  } catch (erreur) { /* la réponse peut ne pas arriver, l'arrêt est déjà lancé */ }
+  document.body.innerHTML =
+    `<p class="empty">blink2video est arrêté. Relancez l'application pour reprendre.</p>`;
+};
+
 $("view").value = "clips";   // au démarrage on montre les clips, pas d'appel réseau
 load();
 // E-01 : blink2video ouvre cette page avec ?login=1 quand aucune session

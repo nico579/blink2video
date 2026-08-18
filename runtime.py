@@ -60,12 +60,42 @@ ENTREE = "blink2video"
 # n'ont pas le même coût : l'inventaire cloud est un appel de 0,13 s au compte,
 # le manifeste USB réveille le module de synchronisation, l'assemblage ne fait
 # rien quand rien n'a changé. Verbeux à lire, jamais à taper.
-STANDARD = ("serve",
-            "watch", "--loop", "10",
-            "download", "--from", "usb", "--loop", "10",
-            "download", "--from", "cloud", "--loop", "1",
-            "merge", "--loop", "5")
+REGLAGES = "blink_reglages.json"
+CADENCES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1}
 
+
+def lire_cadences() -> dict:
+    """Fréquences USB/cloud actuelles, modifiables depuis la page web.
+
+    Fichier absent ou illisible : les valeurs par défaut, identiques à
+    celles qui étaient figées en dur ici avant que ce réglage existe."""
+    try:
+        valeurs = json.loads((app_dir() / REGLAGES).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return dict(CADENCES_DEFAUT)
+    return {
+        "usb_minutes": int(valeurs.get("usb_minutes", CADENCES_DEFAUT["usb_minutes"])),
+        "cloud_minutes": int(valeurs.get("cloud_minutes", CADENCES_DEFAUT["cloud_minutes"])),
+    }
+
+
+def ecrire_cadences(usb_minutes: int, cloud_minutes: int) -> None:
+    (app_dir() / REGLAGES).write_text(
+        json.dumps({"usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes)}),
+        encoding="utf-8")
+
+
+def standard() -> tuple:
+    """Composition recommandée : mêmes verbes que l'ancienne constante
+    STANDARD, mais les cadences USB/cloud viennent de `lire_cadences()`
+    plutôt que d'être figées ici, pour que le réglage depuis la page web
+    prenne effet au prochain démarrage."""
+    c = lire_cadences()
+    return ("serve",
+            "watch", "--loop", "10",
+            "download", "--from", "usb", "--loop", str(c["usb_minutes"]),
+            "download", "--from", "cloud", "--loop", str(c["cloud_minutes"]),
+            "merge", "--loop", "5")
 
 
 class Verbe(NamedTuple):
@@ -109,6 +139,9 @@ VERBES = {
     "stop": Verbe(ENTREE,
             "arrêter l'instance qui tourne en fond",
             "stop the instance running in the background"),
+    "restart": Verbe(ENTREE,
+               "arrêter puis relancer avec les réglages actuels",
+               "stop then relaunch with the current settings"),
     "update": Verbe("maj",
               "installer la dernière version publiée",
               "install the latest published release"),

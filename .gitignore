@@ -6,6 +6,7 @@ blink_auth.json.*
 # maintenant pid+jeton pour ne jamais être partagé entre processus.
 blink_auth.*.tmp
 watch_config.json
+blink_reglages.json
 
 # Registres d'état : contiennent identifiants de compte, numéros de série,
 # noms de caméras et horaires de présence.

@@ -272,6 +272,58 @@ def arreter(arguments: list = ()) -> int:
     return 0
 
 
+def redemarrer(arguments: list = ()) -> int:
+    """Arrête l'instance en cours, puis relance « start » à neuf.
+
+    À la différence de « update », qui restaure exactement la composition
+    d'avant (mêmes --loop, relus dans la fiche), ce verbe relance « start »
+    en clair : les cadences USB/cloud et tout ce qui a changé dans le
+    fichier de réglages depuis sont donc repris, pas rejoués. Sert le
+    panneau de réglages de la page web : --sans-relance pour son bouton
+    Stop, sans option pour son bouton Appliquer.
+
+    --finaliser est un détail d'implémentation, jamais tapé à la main :
+    appelé depuis « serve », ce verbe est l'enfant du processus que « stop »
+    va abattre, branche entière comprise sous Windows (taskkill /T). Comme
+    maj.installer/finaliser, un premier temps se contente de lancer le
+    second puis rend la main aussitôt : le temps que « stop » commence à
+    chercher son arbre, ce premier temps a déjà disparu, et le second, déjà
+    détaché, lui échappe."""
+    parser = argparse.ArgumentParser(
+        prog="blink2video restart",
+        description=redemarrer.__doc__.splitlines()[0],
+    )
+    parser.add_argument("--finaliser", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--sans-relance", action="store_true",
+                        help="s'arrêter sans relancer ensuite")
+    args = parser.parse_args(list(arguments))
+    installe = runtime.app_dir()
+
+    if not args.finaliser:
+        suite = ["--finaliser"] + (["--sans-relance"] if args.sans_relance else [])
+        runtime.demarrer(runtime.self_command("restart", *suite),
+                         cwd=str(installe), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=(sys.platform != "win32"))
+        return 0
+
+    runtime.lancer(runtime.self_command("stop"), cwd=str(installe),
+                   stdin=subprocess.DEVNULL, check=False)
+    # Les fichiers restent tenus quelques instants après la mort du processus,
+    # le temps que le système referme ses poignées (même attente que
+    # maj.finaliser).
+    for _ in range(20):
+        if not runtime.lire_instances():
+            break
+        time.sleep(1)
+    if not args.sans_relance:
+        runtime.demarrer(runtime.self_command("start"), cwd=str(installe),
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL,
+                         start_new_session=(sys.platform != "win32"))
+    return 0
+
+
 def _port_ouvert(port: int) -> bool:
     """Une fonction à elle seule pour rester mockable sans toucher au module
     socket global, dont asyncio se sert aussi pour sa propre boucle."""
@@ -391,7 +443,7 @@ def executer(groupes: list) -> int:
             print()
             print("Lance la configuration recommandée :")
             print()
-            print("  blink2video " + " ".join(runtime.STANDARD))
+            print("  blink2video " + " ".join(runtime.standard()))
             print()
             print("Les options données ici vont à l'interface, --port par exemple.")
             print("« blink2video stop » arrête l'ensemble.")
@@ -413,11 +465,15 @@ def executer(groupes: list) -> int:
             code = accueillir(etat, supplement)
             if code != 0:
                 return code
+        composition = runtime.standard()
         return executer(runtime.decouper_verbes(
-            [runtime.STANDARD[0], *supplement, *runtime.STANDARD[1:]]))
+            [composition[0], *supplement, *composition[1:]]))
 
     if len(groupes) == 1 and groupes[0][0] == "open":
         return ouvrir(groupes[0][1:])
+
+    if len(groupes) == 1 and groupes[0][0] == "restart":
+        return redemarrer(groupes[0][1:])
 
     if any(groupe[0] == "stop" for groupe in groupes):
         if len(groupes) > 1:
