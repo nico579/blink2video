@@ -8,9 +8,9 @@ Blink is built for the phone: one clip at a time, no archive, no desktop
 counterpart. Recordings live on a USB stick plugged into the Sync Module, erased
 as it fills up, or in the subscription cloud, which keeps them for a few weeks.
 
-blink2video is the missing side. A local interface to watch cameras live, arm
-detection and follow the state of the installation. And what the phone cannot do
-at all: fetch clips before rotation erases them, burn the time into the picture,
+blink2video is the missing side. A local interface to watch cameras live and arm
+detection. And what the phone cannot do at all: fetch clips before rotation
+erases them, burn the time into the picture,
 and assemble them into one video per day, per week and per month.
 
 Everything runs on your machine. Nothing is sent anywhere.
@@ -433,9 +433,6 @@ downloaded would come back as new.
 
 ## Limits
 
-- Blink Mini cameras do not write to the module's USB stick: unless a
-  subscription covers them, their detections leave only a notification, with no
-  recording to archive.
 - A camera out of range of the module accepts the live request but never sends a
   picture; the interface says so.
 - On Linux, the imageio-ffmpeg binary is built without libfreetype and cannot

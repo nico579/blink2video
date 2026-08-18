@@ -205,9 +205,8 @@ def remember_download(state: dict, sync, hub_name: str, clip, output: Path,
     """Marque un clip comme acquis uniquement lorsque son fichier existe.
 
     La provenance est notée : une caméra couverte par un abonnement enregistre
-    dans le cloud, une autre sur la clé du module, et une Blink Mini n'écrit
-    jamais sur la clé. L'interface le montre par caméra, ce qui évite de
-    chercher pourquoi telle caméra ne produit rien."""
+    dans le cloud, une autre sur la clé du module. L'interface le montre par
+    caméra, ce qui évite de chercher pourquoi telle caméra ne produit rien."""
     _invalider_index_registre(state)
     state["version"] = 2
     state.setdefault("clips", {})[state_key(sync, clip, source)] = {

@@ -10,7 +10,7 @@ au module de synchronisation, effacés à mesure qu'elle se remplit, ou dans le
 cloud de l'abonnement, qui les garde quelques semaines.
 
 blink2video est le versant manquant. Une interface locale pour voir les caméras
-en direct, armer la détection et suivre l'état de l'installation. Et ce que le
+en direct et armer la détection. Et ce que le
 téléphone ne sait pas faire : récupérer les clips avant que la rotation ne les
 efface, incruster l'heure dans l'image, et les assembler en une vidéo par jour,
 par semaine et par mois.
@@ -449,9 +449,6 @@ récupérés reviendraient comme neufs.
 
 ## Limites
 
-- Les caméras Blink Mini n'écrivent pas sur la clé USB du module : sans
-  abonnement les couvrant, leurs détections ne laissent qu'une notification,
-  sans enregistrement à archiver.
 - Une caméra hors de portée du module accepte la demande de direct mais n'envoie
   jamais d'image ; l'interface le dit.
 - Sous Linux, le ffmpeg d'imageio-ffmpeg est compilé sans libfreetype et ne sait
