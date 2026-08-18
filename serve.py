@@ -43,6 +43,7 @@ runtime.bootstrap()
 
 from aiohttp import ClientSession
 
+import autostart
 import blink_auth
 import blink_engine
 import maj
@@ -1464,6 +1465,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"authenticated": (BASE_DIR / "blink_auth.json").is_file()})
             return
 
+        if route == "/api/autostart":
+            self.send_json({"actif": autostart.est_installe()})
+            return
+
         if route == "/api/clips":
             # ?all=1 lève explicitement la fenêtre par défaut : l'historique
             # complet reste à un clic, jamais perdu, seulement pas chargé
@@ -1741,6 +1746,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"ok": True})
             return
 
+        if route == "/api/autostart":
+            code = autostart.appliquer("on" if payload.get("actif") else "off")
+            if code != 0:
+                self.send_json(
+                    {"error": "Échec de la modification du démarrage automatique."}, 500)
+                return
+            # Relu plutôt que renvoyé tel quel : si le mécanisme de la
+            # plateforme n'a pas vraiment pris (droits, service absent...),
+            # l'interface montre l'état réel, pas ce qui a juste été demandé.
+            self.send_json({"actif": autostart.est_installe()})
+            return
+
         self.send_error(404)
 
     def reassembler(self, identity: str) -> None:
@@ -1898,6 +1915,10 @@ PAGE = """<!doctype html>
   <div class="maj">
     <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
+    <label id="autostartLabel"
+           title="Lancer blink2video automatiquement à l'ouverture de session">
+      <input type="checkbox" id="autostart"> démarrage auto
+    </label>
     <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
       <input type="checkbox" id="auto"> auto
     </label>
@@ -2681,6 +2702,30 @@ $("auto").checked = localStorage.getItem("auto") === "1";
 $("auto").onchange = () => {
   localStorage.setItem("auto", $("auto").checked ? "1" : "0");
   heuresDePassage();
+};
+// Reflète l'état réel du système (fichier de démarrage présent ou non), pas
+// une préférence mémorisée côté page : deux installations d'un même profil
+// navigateur ne doivent pas se faire croire l'état de l'autre.
+fetch("/api/autostart").then((r) => r.json()).then((etat) => {
+  $("autostart").checked = !!etat.actif;
+}).catch(() => {});
+$("autostart").onchange = async () => {
+  const voulu = $("autostart").checked;
+  $("autostart").disabled = true;
+  try {
+    const reponse = await fetch("/api/autostart", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actif: voulu }),
+    });
+    const etat = await reponse.json();
+    if (etat.error) alert(etat.error);
+    $("autostart").checked = !!etat.actif;
+  } catch (error) {
+    alert(String(error));
+    $("autostart").checked = !voulu;
+  } finally {
+    $("autostart").disabled = false;
+  }
 };
 $("view").value = "clips";   // au démarrage on montre les clips, pas d'appel réseau
 load();

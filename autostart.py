@@ -114,6 +114,23 @@ def appliquer(etat: str, simulation: bool = False, quoi: tuple = DEFAUT) -> int:
     return 1
 
 
+def est_installe(quoi: tuple = DEFAUT) -> bool:
+    """Vrai si le démarrage automatique est actuellement installé.
+
+    `appliquer("status", ...)` imprime et rend un code de sortie qui ne dit
+    jamais si c'est actif (0 dans tous les cas, y compris « aucun ») : bon
+    pour une CLI, inutilisable tel quel par un appelant programmatique comme
+    l'interface web. Même condition que chaque branche `status`, sans rien
+    imprimer ni modifier."""
+    if sys.platform == "win32":
+        return any(_dossier_demarrage().glob(f"{NOM}*.lnk"))
+    if sys.platform == "darwin":
+        return any((Path.home() / "Library/LaunchAgents").glob(f"com.nico579.{NOM}*.plist"))
+    if sys.platform.startswith("linux"):
+        return any((Path.home() / ".config/systemd/user").glob(f"{NOM}*.service"))
+    return False
+
+
 # ------------------------------------------------------------------- Windows
 
 def _dossier_demarrage() -> Path:
