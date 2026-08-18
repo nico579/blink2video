@@ -1031,19 +1031,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
             self.end_headers()
 
-            self.wfile.write(first)
+            def _ecrire(data: bytes) -> bool:
+                # Le premier envoi mérite la même tolérance que les suivants :
+                # un onglet déjà fermé quand ce premier bloc part ne doit pas
+                # remonter comme un échec (vu en vrai : ConnectionAbortedError
+                # sur ce tout premier write, alors que c'est une fin normale).
+                try:
+                    self.wfile.write(data)
+                    return True
+                except (BrokenPipeError, ConnectionResetError,
+                        ConnectionAbortedError):
+                    return False
+
+            if not _ecrire(first):
+                holder["sent"] = 0
+                return
             sent = len(first)
             deadline = time.monotonic() + LIVE_MAX_SECONDS
             while time.monotonic() < deadline:
                 chunk = process.stdout.read(16384)
                 if not chunk:
                     break
-                try:
-                    self.wfile.write(chunk)
-                    sent += len(chunk)
-                except (BrokenPipeError, ConnectionResetError,
-                        ConnectionAbortedError):
+                if not _ecrire(chunk):
                     break  # onglet fermé : c'est la fin normale d'un direct
+                sent += len(chunk)
             holder["sent"] = sent
         except Exception as error:
             message = str(error) if isinstance(error, RuntimeError)                 else f"{type(error).__name__}: {error}"
@@ -1174,19 +1185,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             print(f"[direct-mse] {name} : en-tetes envoyes, codec {codec_str}", flush=True)
 
-            self.wfile.write(first)
+            def _ecrire(data: bytes) -> bool:
+                # Même tolérance sur ce premier envoi que sur les suivants :
+                # un onglet déjà fermé quand ce bloc part ne doit pas remonter
+                # comme un échec (vu en vrai : ConnectionAbortedError sur ce
+                # tout premier write, alors que c'est une fin normale).
+                try:
+                    self.wfile.write(data)
+                    return True
+                except (BrokenPipeError, ConnectionResetError,
+                        ConnectionAbortedError):
+                    return False
+
+            if not _ecrire(first):
+                holder["sent"] = 0
+                return
             sent = len(first)
             deadline = time.monotonic() + LIVE_MAX_SECONDS
             while time.monotonic() < deadline:
                 chunk = process.stdout.read(16384)
                 if not chunk:
                     break
-                try:
-                    self.wfile.write(chunk)
-                    sent += len(chunk)
-                except (BrokenPipeError, ConnectionResetError,
-                        ConnectionAbortedError):
+                if not _ecrire(chunk):
                     break  # onglet fermé : c'est la fin normale d'un direct
+                sent += len(chunk)
             holder["sent"] = sent
         except Exception as error:
             message = str(error) if isinstance(error, RuntimeError) \
@@ -2072,70 +2094,142 @@ function stopWatch(name) {
 // la balise : il faut son propre AbortController, gardé ici par caméra pour
 // que stopWatch() puisse le couper.
 const MSE_ABORT = {};
+// Blink referme parfois la session en cours de route, sans rapport avec ce
+// projet (vu en vrai : entre quelques images et ~1 Mo transmis, puis la
+// connexion vers son relais s'interrompt en plein paquet). Une reprise
+// manuelle marche presque toujours : on l'automatise. Le compteur d'échecs
+// ne grimpe que sur une reprise qui n'aura livré aucune image ; dès qu'une
+// image arrive, il retombe à zéro, pour ne pas abandonner un direct qui
+// fonctionne juste par à-coups. MSE_BUDGET_TOTAL_MS borne quand même la
+// durée totale : un onglet oublié ouvert ne doit pas relancer la caméra
+// indéfiniment.
+const MSE_MAX_ECHECS_A_VIDE = 5;
+const MSE_DELAI_RECONNEXION_MS = 1500;
+const MSE_BUDGET_TOTAL_MS = 10 * 60 * 1000;
+
+function attendreOuAbandon(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
+    const id = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(id);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  });
+}
+
+// Un cycle connexion -> flux -> fin. Renvoie si au moins une image est
+// arrivée (utilisé par watchMse pour décider de réessayer ou d'abandonner).
+async function connecterMse(name, video, signal, texteAttente, t0) {
+  const box = $("live-" + cssId(name));
+  if (box && !$("hint-" + cssId(name))) {
+    box.insertAdjacentHTML(
+      "beforeend",
+      `<p class="hint overlay" id="hint-${cssId(name)}">${texteAttente}</p>`
+    );
+  }
+  const hint = $("hint-" + cssId(name));
+
+  const mediaSource = new MediaSource();
+  const url = URL.createObjectURL(mediaSource);
+  video.src = url;
+  let recu = false;
+  try {
+    await new Promise((resolve, reject) => {
+      mediaSource.addEventListener("sourceopen", async () => {
+        try {
+          const response = await fetch(`/live-mse/${encodeURIComponent(name)}`,
+                                        { signal });
+          if (!response.ok) {
+            let message = `Le flux a été refusé par le serveur (${response.status}).`;
+            try {
+              const info = await (await fetch("/api/live-error")).json();
+              if (info.camera === name && info.message) message = info.message;
+            } catch (error) { /* on garde le message générique */ }
+            throw new Error(message);
+          }
+          const codec = response.headers.get("X-Codec") || "avc1.42E01E";
+          const mimeType = `video/mp4; codecs="${codec}"`;
+          if (!MediaSource.isTypeSupported(mimeType)) {
+            throw new Error(`Codec non supporté par ce navigateur : ${codec}`);
+          }
+          const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+          sourceBuffer.mode = "sequence";
+          const reader = response.body.getReader();
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            await new Promise((res, rej) => {
+              sourceBuffer.addEventListener("updateend", res, { once: true });
+              sourceBuffer.addEventListener("error", rej, { once: true });
+              sourceBuffer.appendBuffer(value);
+            });
+            if (!recu) {
+              recu = true;
+              if (hint) hint.remove();
+              if (window.__mseMetric == null) window.__mseMetric = performance.now() - t0;
+              // L'attribut autoplay seul ne suffit pas toujours à démarrer
+              // la lecture sur une balise <video> dont on change juste le
+              // src : on le force dès qu'assez de données sont arrivées.
+              video.play().catch(() => {});
+            }
+          }
+          if (mediaSource.readyState === "open") mediaSource.endOfStream();
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      }, { once: true });
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  return recu;
+}
 
 async function watchMse(name) {
   const box = $("live-" + cssId(name));
   box.innerHTML =
     `<video autoplay muted playsinline></video>
-     <p class="hint overlay" id="hint-${cssId(name)}">Réveil de la caméra… (MSE)</p>
      <button class="watch stop" onclick="stopWatch('${name}')">Arrêter</button>`;
   const video = box.querySelector("video");
-  const hint = $("hint-" + cssId(name));
   const t0 = performance.now();
+  window.__mseMetric = null;
 
   const controller = new AbortController();
   MSE_ABORT[name] = controller;
-  const mediaSource = new MediaSource();
-  video.src = URL.createObjectURL(mediaSource);
 
-  mediaSource.addEventListener("sourceopen", async () => {
+  let echecsAVide = 0;
+  let derniereErreur = null;
+  while (echecsAVide < MSE_MAX_ECHECS_A_VIDE
+         && performance.now() - t0 < MSE_BUDGET_TOTAL_MS) {
+    const texte = echecsAVide === 0 && derniereErreur === null
+      ? "Réveil de la caméra… (MSE)" : "Reconnexion…";
     try {
-      const response = await fetch(`/live-mse/${encodeURIComponent(name)}`,
-                                    { signal: controller.signal });
-      if (!response.ok) {
-        let message = `Le flux a été refusé par le serveur (${response.status}).`;
-        try {
-          const info = await (await fetch("/api/live-error")).json();
-          if (info.camera === name && info.message) message = info.message;
-        } catch (error) { /* on garde le message générique */ }
-        throw new Error(message);
-      }
-      const codec = response.headers.get("X-Codec") || "avc1.42E01E";
-      const mimeType = `video/mp4; codecs="${codec}"`;
-      if (!MediaSource.isTypeSupported(mimeType)) {
-        throw new Error(`Codec non supporté par ce navigateur : ${codec}`);
-      }
-      const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
-      sourceBuffer.mode = "sequence";
-      const reader = response.body.getReader();
-      let premiere = true;
-      window.__mseMetric = null;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        await new Promise((resolve, reject) => {
-          sourceBuffer.addEventListener("updateend", resolve, { once: true });
-          sourceBuffer.addEventListener("error", reject, { once: true });
-          sourceBuffer.appendBuffer(value);
-        });
-        if (premiere) {
-          hint.remove();
-          window.__mseMetric = performance.now() - t0;
-          premiere = false;
-          // L'attribut autoplay seul ne suffit pas toujours à démarrer la
-          // lecture sur une balise <video> insérée via innerHTML : on le
-          // force dès qu'assez de données sont arrivées.
-          video.play().catch(() => {});
-        }
-      }
-      if (mediaSource.readyState === "open") mediaSource.endOfStream();
+      const recu = await connecterMse(name, video, controller.signal, texte, t0);
+      derniereErreur = null;
+      echecsAVide = recu ? 0 : echecsAVide + 1;
     } catch (error) {
-      if (error.name === "AbortError") return;  // stopWatch : fin normale
-      failWatch(name, String(error.message || error));
-    } finally {
-      delete MSE_ABORT[name];
+      if (error.name === "AbortError") { delete MSE_ABORT[name]; return; }
+      derniereErreur = error;
+      echecsAVide++;
     }
-  });
+    if (controller.signal.aborted || echecsAVide >= MSE_MAX_ECHECS_A_VIDE) break;
+    try {
+      await attendreOuAbandon(MSE_DELAI_RECONNEXION_MS, controller.signal);
+    } catch (error) {
+      break;  // arrêt demandé pendant l'attente
+    }
+  }
+  delete MSE_ABORT[name];
+  if (controller.signal.aborted) return;
+  if (derniereErreur) {
+    failWatch(name, String(derniereErreur.message || derniereErreur));
+  } else {
+    // Budget total écoulé pendant que ça fonctionnait : pas un échec, on
+    // ramène juste au repos plutôt que d'afficher une erreur trompeuse.
+    stopWatch(name);
+  }
 }
 
 // L'état de repos d'un cadre : la dernière image connue de la caméra, et le
