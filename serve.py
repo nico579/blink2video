@@ -24,6 +24,7 @@ import http.server
 import json
 import mimetypes
 import os
+import queue
 import re
 import subprocess
 import sys
@@ -409,14 +410,39 @@ def h264_mime_codec_from_moov(segment: bytes) -> str:
 def read_mp4_init_segment(pipe, seconds: float) -> bytes:
     """Accumule la sortie d'ffmpeg jusqu'à pouvoir y lire un avcC complet, ou
     renonce au bout de `seconds`. Un seul bloc de 4096 octets (comme pour le
-    MJPEG) ne suffit pas toujours : le moov peut déborder du premier bloc."""
+    MJPEG) ne suffit pas toujours : le moov peut déborder du premier bloc.
+
+    Un seul fil lit le tube, en continu, du début à la fin de cette fonction.
+    Appeler `read_with_deadline` (qui lance son propre fil à chaque appel) en
+    boucle sur le même tube laissait, à chaque dépassement de délai, un fil
+    orphelin toujours bloqué dessus ; l'appel suivant en lançait un second,
+    concurrent du premier sur le même tube. La donnée qui arrivait ensuite
+    pouvait atterrir chez le fil orphelin, invisible d'ici, et cette boucle
+    abandonnait alors qu'ffmpeg produisait pourtant des données. Vu en vrai :
+    fiable sur une caméra qui répond vite (un seul bloc suffit, jamais de
+    second appel), en échec quasi systématique sur une caméra plus lente à
+    répondre (moov étalé sur plusieurs blocs, donc plusieurs appels)."""
+    sortie: queue.Queue = queue.Queue()
+
+    def lire_en_continu():
+        while True:
+            morceau = pipe.read(4096)
+            sortie.put(morceau)
+            if not morceau:
+                return
+
+    threading.Thread(target=lire_en_continu, daemon=True).start()
+
     deadline = time.monotonic() + seconds
     buf = bytearray()
     while time.monotonic() < deadline and len(buf) < 65536:
-        chunk = read_with_deadline(pipe, max(0.1, deadline - time.monotonic()))
-        if not chunk:
+        try:
+            morceau = sortie.get(timeout=max(0.1, deadline - time.monotonic()))
+        except queue.Empty:
             break
-        buf += chunk
+        if not morceau:
+            break
+        buf += morceau
         try:
             h264_mime_codec_from_moov(bytes(buf))
             break  # trouvé : pas la peine de lire plus avant d'envoyer les en-têtes
