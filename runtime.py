@@ -61,12 +61,17 @@ ENTREE = "blink2video"
 # le manifeste USB réveille le module de synchronisation, l'assemblage ne fait
 # rien quand rien n'a changé. Verbeux à lire, jamais à taper.
 REGLAGES = "blink_reglages.json"
-REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": True}
+REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": True,
+                   "timezone": "Europe/Paris"}
+# Nombre d'éléments du bloc fixe en tête de standard() : serve, --port,
+# valeur, --timezone, valeur. blink_cli.route() s'appuie sur cette longueur
+# pour greffer le supplément de « start » juste après (voir standard()).
+LONGUEUR_BLOC_SERVE = 5
 
 
 def lire_reglages() -> dict:
-    """Cadences USB/cloud, port et horodatage actuels, modifiables depuis
-    la page web.
+    """Cadences USB/cloud, port, horodatage et fuseau actuels, modifiables
+    depuis la page web.
 
     Fichier absent ou illisible : les valeurs par défaut, identiques à
     celles qui étaient figées en dur ici avant que ce réglage existe."""
@@ -79,30 +84,37 @@ def lire_reglages() -> dict:
         "cloud_minutes": int(valeurs.get("cloud_minutes", REGLAGES_DEFAUT["cloud_minutes"])),
         "port": int(valeurs.get("port", REGLAGES_DEFAUT["port"])),
         "timestamp": bool(valeurs.get("timestamp", REGLAGES_DEFAUT["timestamp"])),
+        "timezone": str(valeurs.get("timezone", REGLAGES_DEFAUT["timezone"])) or
+        REGLAGES_DEFAUT["timezone"],
     }
 
 
-def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool) -> None:
+def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool,
+                    timezone: str) -> None:
     (app_dir() / REGLAGES).write_text(
         json.dumps({"usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
-                    "port": int(port), "timestamp": bool(timestamp)}),
+                    "port": int(port), "timestamp": bool(timestamp),
+                    "timezone": str(timezone)}),
         encoding="utf-8")
 
 
 def standard() -> tuple:
     """Composition recommandée : mêmes verbes que l'ancienne constante
-    STANDARD, mais les cadences USB/cloud, le port et l'horodatage viennent
-    de `lire_reglages()` plutôt que d'être figés ici, pour que le réglage
-    depuis la page web prenne effet au prochain démarrage.
+    STANDARD, mais les cadences USB/cloud, le port, l'horodatage et le
+    fuseau viennent de `lire_reglages()` plutôt que d'être figés ici, pour
+    que le réglage depuis la page web prenne effet au prochain démarrage.
 
-    Les trois premiers éléments (serve, --port, valeur) sont un bloc fixe :
-    blink_cli.route() les traite comme la partie « verbe » sur laquelle un
-    supplément tapé à la main (« start --port 8899 ») se greffe, afin qu'un
-    --port explicite l'emporte toujours sur la valeur enregistrée."""
+    Les LONGUEUR_BLOC_SERVE premiers éléments (serve, --port, valeur,
+    --timezone, valeur) sont un bloc fixe : blink_cli.route() les traite
+    comme la partie « verbe » sur laquelle un supplément tapé à la main
+    (« start --port 8899 ») se greffe, afin qu'un --port ou --timezone
+    explicite l'emporte toujours sur la valeur enregistrée (argparse
+    retient la dernière occurrence d'une option)."""
     c = lire_reglages()
-    merge = ("merge", "--loop", "5") if c["timestamp"] else (
-        "merge", "--loop", "5", "--no-timestamp")
-    return ("serve", "--port", str(c["port"]),
+    merge = ["merge", "--loop", "5", "--timezone", c["timezone"]]
+    if not c["timestamp"]:
+        merge.append("--no-timestamp")
+    return ("serve", "--port", str(c["port"]), "--timezone", c["timezone"],
             "watch", "--loop", "10",
             "download", "--from", "usb", "--loop", str(c["usb_minutes"]),
             "download", "--from", "cloud", "--loop", str(c["cloud_minutes"]),

@@ -1802,8 +1802,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.send_json({"error": f"Dossier de stockage inaccessible : {error}"},
                                     400)
                     return
+            timezone_str = str(payload.get("timezone", "")).strip()
+            try:
+                ZoneInfo(timezone_str)
+            except (ZoneInfoNotFoundError, ValueError):
+                self.send_json({"error": f"Fuseau horaire inconnu : « {timezone_str} »."}, 400)
+                return
             timestamp = bool(payload.get("timestamp", True))
-            runtime.ecrire_reglages(usb_minutes, cloud_minutes, port, timestamp)
+            runtime.ecrire_reglages(usb_minutes, cloud_minutes, port, timestamp, timezone_str)
             runtime.ecrire_dossier_stockage(storage_dir)
             # Détaché, comme /api/update : ce processus fait partie de ce que
             # « restart » va arrêter. Le verbe diffère de « update » puisqu'aucune
@@ -1984,7 +1990,7 @@ PAGE = """<!doctype html>
   .champCadence { display:flex; align-items:center; justify-content:space-between;
                   gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
   #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
-  .etiquetteChamp { display:block; font-size:14px; margin-bottom:6px; }
+  .etiquetteChamp { display:block; font-size:14px; margin:4px 0 6px; }
   #reglages fieldset p.sub { margin:0; }
   #reglagesHint { margin:0 0 14px; }
   #reglagesApply { width:100%; margin-bottom:14px; }
@@ -2086,6 +2092,24 @@ PAGE = """<!doctype html>
       <input type="checkbox" id="timestamp"> Incruster la date et l'heure
       dans l'image
     </label>
+    <label for="timezone" class="etiquetteChamp">Fuseau horaire</label>
+    <input type="text" id="timezone" list="fuseauxCourants" placeholder="Europe/Paris">
+    <datalist id="fuseauxCourants">
+      <option value="Europe/Paris">
+      <option value="Europe/London">
+      <option value="Europe/Brussels">
+      <option value="Europe/Madrid">
+      <option value="Europe/Berlin">
+      <option value="America/Montreal">
+      <option value="America/New_York">
+      <option value="America/Los_Angeles">
+      <option value="Africa/Casablanca">
+      <option value="Africa/Abidjan">
+      <option value="Indian/Reunion">
+      <option value="Asia/Tokyo">
+      <option value="Australia/Sydney">
+      <option value="UTC">
+    </datalist>
   </fieldset>
   <p id="reglagesHint" class="sub tiny">Les réglages ne prennent effet
      qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le
@@ -2885,6 +2909,7 @@ $("reglagesButton").onclick = async () => {
     portActuel = reglages.port;
     $("storageDir").value = reglages.storage_dir;
     $("timestamp").checked = reglages.timestamp;
+    $("timezone").value = reglages.timezone;
   } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
   $("reglages").showModal();
 };
@@ -2908,6 +2933,11 @@ $("reglagesApply").onclick = async () => {
     alert("Le port doit être compris entre 1 et 65535.");
     return;
   }
+  const timezone = $("timezone").value.trim();
+  if (!timezone) {
+    alert("Le fuseau horaire ne peut pas être vide.");
+    return;
+  }
   const bouton = $("reglagesApply");
   bouton.disabled = true;
   bouton.textContent = "Redémarrage…";
@@ -2917,7 +2947,7 @@ $("reglagesApply").onclick = async () => {
     const reponse = await fetch("/api/reglages", { method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud, port,
-                             storage_dir: storageDir, timestamp }) });
+                             storage_dir: storageDir, timestamp, timezone }) });
     const resultat = await reponse.json();
     if (resultat.error) {
       alert(resultat.error);

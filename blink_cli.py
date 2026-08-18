@@ -466,12 +466,14 @@ def executer(groupes: list) -> int:
             if code != 0:
                 return code
         composition = runtime.standard()
-        # Les 3 premiers éléments (serve, --port, valeur) précèdent toujours
-        # le supplément : un « --port » tapé à la main arrive donc après
-        # celui, déjà présent, de la configuration enregistrée, et
-        # l'emporte (argparse retient la dernière occurrence d'une option).
+        # Le bloc fixe (serve, --port, valeur, --timezone, valeur) précède
+        # toujours le supplément : un « --port »/« --timezone » tapé à la
+        # main arrive donc après celui, déjà présent, de la configuration
+        # enregistrée, et l'emporte (argparse retient la dernière
+        # occurrence d'une option).
+        n = runtime.LONGUEUR_BLOC_SERVE
         return executer(runtime.decouper_verbes(
-            [*composition[:3], *supplement, *composition[3:]]))
+            [*composition[:n], *supplement, *composition[n:]]))
 
     if len(groupes) == 1 and groupes[0][0] == "open":
         return ouvrir(groupes[0][1:])
