@@ -61,41 +61,34 @@ système.
 | Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, puis `./blink2video` |
 | macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, puis `./blink2video` |
 
-**2. Se connecter, une fois pour toutes.**
+**2. Le lancer.** Double-clic sur l'exécutable (ou `./blink2video` depuis un
+terminal). Aucun argument nécessaire : sans session valide, un onglet s'ouvre
+tout seul sur une page de connexion — votre adresse, votre mot de passe (un
+bouton affiche/masque permet de vérifier ce qui a été tapé), puis le code que
+Blink envoie. Seul un jeton de session est conservé, jamais le mot de passe.
+Une fois connecté, tout démarre seul : l'interface, la surveillance, le
+rapatriement des clips et l'assemblage des vidéos, chacun à son rythme.
+
+Si l'onglet ne s'est pas ouvert, ou que vous l'avez fermé, `blink2video open`
+le rouvre. `blink2video stop` arrête tout.
+
+**3. Le faire au démarrage de la session.** Cochez la case « démarrage auto »
+dans l'en-tête de la page — aucun terminal nécessaire. `blink2video autostart on`
+fait la même chose une fois, depuis un terminal, si vous préférez.
+
+<details>
+<summary>Tout faire depuis le terminal ?</summary>
 
 ```bash
-blink2video login
+blink2video login       # se connecter, une fois
+blink2video list         # verifier que ca repond : clips presents sur le module
+blink2video start         # meme composition que ce que lance le double-clic
 ```
 
-Votre adresse, votre mot de passe, puis le code que Blink envoie. Seul un jeton
-de session est conservé, jamais le mot de passe.
+Même résultat, étape par étape. Utile sur une machine sans écran, ou pour
+scripter autour.
 
-**3. Vérifier que ça répond.**
-
-```bash
-blink2video list
-```
-
-La liste des clips présents sur le module s'affiche. Si elle apparaît, tout le
-reste fonctionnera.
-
-**4. Tout lancer.**
-
-```bash
-blink2video start
-```
-
-L'interface, la surveillance, le rapatriement des clips et l'assemblage des
-vidéos, chacun à son rythme. Puis `blink2video open` pour ouvrir la page, et
-`blink2video stop` pour tout arrêter.
-
-**5. Le faire au démarrage de la session.**
-
-```bash
-blink2video autostart on
-```
-
-Une seule fois : à chaque ouverture de session, tout redémarre seul.
+</details>
 
 <details>
 <summary>Depuis les sources, avec Python 3.11 ou plus récent</summary>

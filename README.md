@@ -56,41 +56,33 @@ unpack it. ffmpeg travels inside the bundle; nothing is installed system-wide.
 | Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, then `./blink2video` |
 | macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, then `./blink2video` |
 
-**2. Sign in, once and for all.**
+**2. Run it.** Double-click the executable (or `./blink2video` from a terminal).
+No arguments needed: with no valid session yet, a browser tab opens by itself on
+a sign-in page — your address, your password (a show/hide toggle is there if you
+want to check what you typed), then the code Blink sends. Only a session token is
+kept, never the password. Once signed in, everything starts on its own: the
+interface, monitoring, clip downloading and video assembly, each at its own pace.
+
+If the tab didn't open, or you closed it, `blink2video open` brings it back.
+`blink2video stop` stops everything.
+
+**3. Have it start when you log in.** Tick the "démarrage auto" box in the page's
+header — no terminal needed. `blink2video autostart on` does the same thing once,
+from a terminal, if you'd rather.
+
+<details>
+<summary>Prefer the terminal for everything?</summary>
 
 ```bash
-blink2video login
+blink2video login       # sign in, once
+blink2video list         # check that it answers: clips held by the module
+blink2video start        # same composition the double-click starts
 ```
 
-Your address, your password, then the code Blink sends. Only a session token is
-kept, never the password.
+Same result, one step at a time. Useful on a headless machine, or to script
+around.
 
-**3. Check that it answers.**
-
-```bash
-blink2video list
-```
-
-The clips held by the module are listed. If that shows up, everything else will
-work.
-
-**4. Start everything.**
-
-```bash
-blink2video start
-```
-
-The interface, monitoring, clip downloading and video assembly, each at its own
-pace. Then `blink2video open` to open the page, and `blink2video stop` to stop it
-all.
-
-**5. Have it start when you log in.**
-
-```bash
-blink2video autostart on
-```
-
-Once only: from then on, everything restarts by itself at each logon.
+</details>
 
 <details>
 <summary>From source, with Python 3.11 or newer</summary>
@@ -143,7 +135,8 @@ automates the alerts only. No administrator rights are needed, and `--dry-run`
 shows what would happen.
 
 With no verb, `blink2video start` is registered, that is the recommended
-setup.
+setup — the same one the "démarrage auto" checkbox in the page's header
+toggles, for the common case with no terminal at all.
 
 <details>
 <summary>Doing it yourself, without <code>autostart</code></summary>

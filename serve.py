@@ -1920,7 +1920,7 @@ PAGE = """<!doctype html>
       <input type="checkbox" id="autostart"> démarrage auto
     </label>
     <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
-      <input type="checkbox" id="auto"> auto
+      <input type="checkbox" id="auto"> actualisation automatique
     </label>
     <button class="primary" id="refresh">Actualiser</button>
   </div>
