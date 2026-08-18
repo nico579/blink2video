@@ -61,11 +61,12 @@ ENTREE = "blink2video"
 # le manifeste USB réveille le module de synchronisation, l'assemblage ne fait
 # rien quand rien n'a changé. Verbeux à lire, jamais à taper.
 REGLAGES = "blink_reglages.json"
-REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765}
+REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": True}
 
 
 def lire_reglages() -> dict:
-    """Cadences USB/cloud et port actuels, modifiables depuis la page web.
+    """Cadences USB/cloud, port et horodatage actuels, modifiables depuis
+    la page web.
 
     Fichier absent ou illisible : les valeurs par défaut, identiques à
     celles qui étaient figées en dur ici avant que ce réglage existe."""
@@ -77,20 +78,21 @@ def lire_reglages() -> dict:
         "usb_minutes": int(valeurs.get("usb_minutes", REGLAGES_DEFAUT["usb_minutes"])),
         "cloud_minutes": int(valeurs.get("cloud_minutes", REGLAGES_DEFAUT["cloud_minutes"])),
         "port": int(valeurs.get("port", REGLAGES_DEFAUT["port"])),
+        "timestamp": bool(valeurs.get("timestamp", REGLAGES_DEFAUT["timestamp"])),
     }
 
 
-def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int) -> None:
+def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool) -> None:
     (app_dir() / REGLAGES).write_text(
         json.dumps({"usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
-                    "port": int(port)}),
+                    "port": int(port), "timestamp": bool(timestamp)}),
         encoding="utf-8")
 
 
 def standard() -> tuple:
     """Composition recommandée : mêmes verbes que l'ancienne constante
-    STANDARD, mais les cadences USB/cloud et le port viennent de
-    `lire_reglages()` plutôt que d'être figés ici, pour que le réglage
+    STANDARD, mais les cadences USB/cloud, le port et l'horodatage viennent
+    de `lire_reglages()` plutôt que d'être figés ici, pour que le réglage
     depuis la page web prenne effet au prochain démarrage.
 
     Les trois premiers éléments (serve, --port, valeur) sont un bloc fixe :
@@ -98,11 +100,13 @@ def standard() -> tuple:
     supplément tapé à la main (« start --port 8899 ») se greffe, afin qu'un
     --port explicite l'emporte toujours sur la valeur enregistrée."""
     c = lire_reglages()
+    merge = ("merge", "--loop", "5") if c["timestamp"] else (
+        "merge", "--loop", "5", "--no-timestamp")
     return ("serve", "--port", str(c["port"]),
             "watch", "--loop", "10",
             "download", "--from", "usb", "--loop", str(c["usb_minutes"]),
             "download", "--from", "cloud", "--loop", str(c["cloud_minutes"]),
-            "merge", "--loop", "5")
+            *merge)
 
 
 class Verbe(NamedTuple):

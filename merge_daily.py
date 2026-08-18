@@ -623,7 +623,7 @@ def run_ffmpeg_batch(
     target_h: int,
     target_fps: float,
     timezone: ZoneInfo,
-    font_value: str,
+    font_value: str | None,
     preset: str,
     crf: int,
     output_path: Path,
@@ -776,13 +776,15 @@ def render_key(
     clip: ClipInfo,
     target: tuple,
     epoch: int,
-    font_path: Path,
+    font_path: Path | None,
     preset: str,
     crf: int,
 ) -> str:
     """Empreinte de rendu d'un segment normalisé : tout ce qui change son
     contenu doit figurer ici, sinon un segment périmé serait réutilisé
-    silencieusement."""
+    silencieusement. Bascule avec/sans horodatage comprise : sans elle, un
+    segment déjà encodé horodaté resterait tel quel après désactivation du
+    réglage, l'horodatage figé dedans plutôt que réellement retiré."""
     target_w, target_h, target_fps = target
     payload = "|".join(
         [
@@ -791,7 +793,7 @@ def render_key(
             stat_tag(clip.source),
             f"{target_w}x{target_h}@{target_fps}",
             str(epoch),
-            font_path.as_posix(),
+            font_path.as_posix() if font_path is not None else "sans-horodatage",
             preset,
             str(crf),
         ]
@@ -808,13 +810,14 @@ def normalize_clip(
     clip: ClipInfo,
     target: tuple,
     key: str,
-    font_path: Path,
+    font_path: Path | None,
     preset: str,
     crf: int,
     force: bool,
     on_progress=None,
 ) -> tuple[bool, str, bool]:
-    """Produit la version normalisée et horodatée d'un clip, si nécessaire.
+    """Produit la version normalisée (et horodatée si `font_path` est donné)
+    d'un clip, si nécessaire.
 
     Renvoie (ok, erreur, ré-encodé). Un segment déjà présent dont la clé de
     rendu correspond est laissé tel quel : c'est ce qui rend la fusion
@@ -830,9 +833,10 @@ def normalize_clip(
     pending = destination.with_name(destination.stem + ".tmp.mp4")
     pending.unlink(missing_ok=True)
     target_w, target_h, target_fps = target
+    font_value = quote_filter_path(font_path) if font_path is not None else None
     ok, error = run_ffmpeg_batch(
         ffmpeg, [clip], target_w, target_h, target_fps, timezone,
-        quote_filter_path(font_path), preset, crf, pending, on_progress,
+        font_value, preset, crf, pending, on_progress,
     )
     if not ok:
         pending.unlink(missing_ok=True)
@@ -1085,6 +1089,10 @@ def parse_args() -> argparse.Namespace:
         help="ne pas (re)construire les agrégats hebdomadaires et mensuels",
     )
     parser.add_argument(
+        "--no-timestamp", action="store_true",
+        help="ne pas incruster la date et l'heure dans l'image",
+    )
+    parser.add_argument(
         "--excluded-output", type=Path, default=DEFAULT_EXCLUDED,
         help="dossier où sont mis de côté les clips écartés",
     )
@@ -1164,9 +1172,11 @@ def _executer(args) -> int:
     try:
         timezone = ZoneInfo(args.timezone)
         ffmpeg = find_ffmpeg()
-        check_drawtext_available(ffmpeg)
-        font_path = find_font(args.font)
-        check_timestamp_rendering(ffmpeg, font_path)
+        font_path = None
+        if not args.no_timestamp:
+            check_drawtext_available(ffmpeg)
+            font_path = find_font(args.font)
+            check_timestamp_rendering(ffmpeg, font_path)
         groups = load_groups(input_dir, timezone)
     except (RuntimeError, ZoneInfoNotFoundError) as error:
         print(f"Erreur : {error}")

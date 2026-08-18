@@ -1802,7 +1802,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.send_json({"error": f"Dossier de stockage inaccessible : {error}"},
                                     400)
                     return
-            runtime.ecrire_reglages(usb_minutes, cloud_minutes, port)
+            timestamp = bool(payload.get("timestamp", True))
+            runtime.ecrire_reglages(usb_minutes, cloud_minutes, port, timestamp)
             runtime.ecrire_dossier_stockage(storage_dir)
             # Détaché, comme /api/update : ce processus fait partie de ce que
             # « restart » va arrêter. Le verbe diffère de « update » puisqu'aucune
@@ -2078,6 +2079,13 @@ PAGE = """<!doctype html>
       <label for="cloudMinutes">Cloud (minutes)</label>
       <input type="number" id="cloudMinutes" min="1" step="1">
     </div>
+  </fieldset>
+  <fieldset>
+    <legend>Vidéo</legend>
+    <label id="timestampLabel">
+      <input type="checkbox" id="timestamp"> Incruster la date et l'heure
+      dans l'image
+    </label>
   </fieldset>
   <p id="reglagesHint" class="sub tiny">Les réglages ne prennent effet
      qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le
@@ -2876,6 +2884,7 @@ $("reglagesButton").onclick = async () => {
     $("port").value = reglages.port;
     portActuel = reglages.port;
     $("storageDir").value = reglages.storage_dir;
+    $("timestamp").checked = reglages.timestamp;
   } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
   $("reglages").showModal();
 };
@@ -2904,10 +2913,11 @@ $("reglagesApply").onclick = async () => {
   bouton.textContent = "Redémarrage…";
   try {
     const storageDir = $("storageDir").value.trim();
+    const timestamp = $("timestamp").checked;
     const reponse = await fetch("/api/reglages", { method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud, port,
-                             storage_dir: storageDir }) });
+                             storage_dir: storageDir, timestamp }) });
     const resultat = await reponse.json();
     if (resultat.error) {
       alert(resultat.error);

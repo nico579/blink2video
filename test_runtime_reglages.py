@@ -1,9 +1,11 @@
 """Non-régression de runtime.lire_reglages / ecrire_reglages / standard
-(AUDIT-2026-08-13.md, section 28.32/28.34) : cadences USB/cloud et port
-réglables depuis la page web plutôt que figés dans la constante STANDARD.
+(AUDIT-2026-08-13.md, section 28.32/28.34/28.36) : cadences USB/cloud,
+port et horodatage réglables depuis la page web plutôt que figés dans la
+constante STANDARD.
 
-Anciennement test_runtime_cadences.py : renommé avec les fonctions, le port
-ayant rejoint les cadences dans le même fichier de réglages."""
+Anciennement test_runtime_cadences.py : renommé avec les fonctions, le
+port puis l'horodatage ayant rejoint les cadences dans le même fichier de
+réglages."""
 
 from __future__ import annotations
 
@@ -34,10 +36,10 @@ class TestsReglages(unittest.TestCase):
         self.assertEqual(runtime.lire_reglages(), dict(runtime.REGLAGES_DEFAUT))
 
     def test_ecrire_puis_lire_conserve_les_valeurs(self):
-        runtime.ecrire_reglages(usb_minutes=7, cloud_minutes=2, port=8899)
+        runtime.ecrire_reglages(usb_minutes=7, cloud_minutes=2, port=8899, timestamp=False)
         self.assertEqual(
             runtime.lire_reglages(),
-            {"usb_minutes": 7, "cloud_minutes": 2, "port": 8899})
+            {"usb_minutes": 7, "cloud_minutes": 2, "port": 8899, "timestamp": False})
 
     def test_valeurs_partielles_completees_par_les_defauts(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -46,7 +48,8 @@ class TestsReglages(unittest.TestCase):
             runtime.lire_reglages(),
             {"usb_minutes": 15,
              "cloud_minutes": runtime.REGLAGES_DEFAUT["cloud_minutes"],
-             "port": runtime.REGLAGES_DEFAUT["port"]})
+             "port": runtime.REGLAGES_DEFAUT["port"],
+             "timestamp": runtime.REGLAGES_DEFAUT["timestamp"]})
 
     def test_standard_reprend_les_verbes_historiques_avec_reglages_par_defaut(self):
         self.assertEqual(
@@ -58,7 +61,7 @@ class TestsReglages(unittest.TestCase):
              "merge", "--loop", "5"))
 
     def test_standard_reflete_les_reglages_enregistres(self):
-        runtime.ecrire_reglages(usb_minutes=20, cloud_minutes=3, port=9090)
+        runtime.ecrire_reglages(usb_minutes=20, cloud_minutes=3, port=9090, timestamp=True)
         composition = runtime.standard()
         self.assertEqual(
             composition,
@@ -67,6 +70,12 @@ class TestsReglages(unittest.TestCase):
              "download", "--from", "usb", "--loop", "20",
              "download", "--from", "cloud", "--loop", "3",
              "merge", "--loop", "5"))
+
+    def test_standard_ajoute_no_timestamp_quand_desactive(self):
+        runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=False)
+        composition = runtime.standard()
+        self.assertEqual(composition[-4:],
+                         ("merge", "--loop", "5", "--no-timestamp"))
 
     def test_les_trois_premiers_elements_sont_le_bloc_port_fixe(self):
         # blink_cli.py greffe le supplément de « start » juste après ce bloc
