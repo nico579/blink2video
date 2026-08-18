@@ -44,6 +44,12 @@ Clips newest first, filtered by camera and by day. Each card gives the camera,
 the duration, the date and the model, and the "Écarter" button removes the clip
 from every assembled video.
 
+![The Settings panel](Screenshots/settings.PNG)
+
+Settings, behind the gear icon: automatic startup with the session, automatic
+page refresh, USB and cloud camera reading cadence, and a button to stop the
+whole thing without touching the command line.
+
 ## Getting started
 
 **1. Install.** Download the archive for your system from the

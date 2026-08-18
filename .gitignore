@@ -12,7 +12,7 @@ blink_reglages.json
 # noms de caméras et horaires de présence.
 .blink_*.json
 .blink_*.json.*
-.blink_hub.lock
+.blink_*.lock
 watch.log
 maj.log
 

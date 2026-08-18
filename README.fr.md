@@ -48,6 +48,13 @@ Les clips du plus récent au plus ancien, filtrables par caméra et par jour.
 Chaque carte donne la caméra, la durée, la date et le modèle, et le bouton
 « Écarter » retire le clip de toutes les vidéos assemblées.
 
+![Le panneau de réglages](Screenshots/settings.PNG)
+
+Les réglages, derrière l'icône engrenage : démarrage automatique à
+l'ouverture de session, actualisation automatique de la page, cadence de
+lecture des caméras USB et cloud, et un bouton pour arrêter toute la
+surveillance sans passer par le mode CLI.
+
 ## Démarrer
 
 **1. Installer.** Téléchargez l'archive de votre système depuis la
