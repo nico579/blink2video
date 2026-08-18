@@ -66,15 +66,17 @@ unpack it. ffmpeg travels inside the bundle; nothing is installed system-wide.
 No arguments needed: with no valid session yet, a browser tab opens by itself on
 a sign-in page — your address, your password (a show/hide toggle is there if you
 want to check what you typed), then the code Blink sends. Only a session token is
-kept, never the password. Once signed in, everything starts on its own: the
-interface, monitoring, clip downloading and video assembly, each at its own pace.
+kept, never the password. Once signed in, everything starts on its own:
+monitoring, clip downloading and video assembly, each at its own pace, and clips
+start appearing in the Clips tab as they come in.
 
 If the tab didn't open, or you closed it, `blink2video open` brings it back.
-`blink2video stop` stops everything.
 
-**3. Have it start when you log in.** Tick the "démarrage auto" box in the page's
-header — no terminal needed. `blink2video autostart on` does the same thing once,
-from a terminal, if you'd rather.
+**3. Settings.** The gear icon, top right, opens a panel for what you'd
+otherwise need a terminal for: start automatically when you log in, refresh the
+page on its own as clips arrive, how often USB and cloud are checked, and a
+button to stop everything. `blink2video autostart on` and `blink2video stop` do
+the same from a terminal, if you'd rather.
 
 <details>
 <summary>Prefer the terminal for everything?</summary>
@@ -129,6 +131,11 @@ only, so a camera you knowingly leave offline warns you once, and
 
 ## Start the watcher automatically when you log in
 
+The gear icon in the page, top right, already has a checkbox for this: the
+common case, no terminal at all. This section covers the terminal
+alternative, for scripting, a headless machine, or a composition other than
+the recommended one.
+
 ```bash
 blink2video autostart on                    # registers « blink2video start »
 blink2video autostart status                # what is installed
@@ -140,9 +147,8 @@ you would have typed it without the prefix. So `blink2video autostart on watch -
 automates the alerts only. No administrator rights are needed, and `--dry-run`
 shows what would happen.
 
-With no verb, `blink2video start` is registered, that is the recommended
-setup — the same one the "démarrage auto" checkbox in the page's header
-toggles, for the common case with no terminal at all.
+With no verb, `blink2video start` is registered: the recommended setup, the
+same one the Settings checkbox toggles.
 
 <details>
 <summary>Doing it yourself, without <code>autostart</code></summary>

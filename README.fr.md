@@ -73,15 +73,19 @@ terminal). Aucun argument nécessaire : sans session valide, un onglet s'ouvre
 tout seul sur une page de connexion — votre adresse, votre mot de passe (un
 bouton affiche/masque permet de vérifier ce qui a été tapé), puis le code que
 Blink envoie. Seul un jeton de session est conservé, jamais le mot de passe.
-Une fois connecté, tout démarre seul : l'interface, la surveillance, le
-rapatriement des clips et l'assemblage des vidéos, chacun à son rythme.
+Une fois connecté, tout démarre seul : la surveillance, le rapatriement des
+clips et l'assemblage des vidéos, chacun à son rythme, et les clips
+apparaissent dans l'onglet Clips au fur et à mesure.
 
 Si l'onglet ne s'est pas ouvert, ou que vous l'avez fermé, `blink2video open`
-le rouvre. `blink2video stop` arrête tout.
+le rouvre.
 
-**3. Le faire au démarrage de la session.** Cochez la case « démarrage auto »
-dans l'en-tête de la page — aucun terminal nécessaire. `blink2video autostart on`
-fait la même chose une fois, depuis un terminal, si vous préférez.
+**3. Réglages.** L'icône engrenage, en haut à droite, ouvre un panneau pour
+tout ce qui demanderait sinon un terminal : démarrer automatiquement à
+l'ouverture de session, actualiser la page toute seule à l'arrivée des clips,
+la fréquence de lecture des caméras USB et cloud, et un bouton pour tout
+arrêter. `blink2video autostart on` et `blink2video stop` font la même chose
+depuis un terminal, si vous préférez.
 
 <details>
 <summary>Tout faire depuis le terminal ?</summary>
@@ -137,6 +141,11 @@ hors ligne ne prévient qu'une fois, et `--ignore "Portail"` la met en sourdine.
 
 ## Lancer la surveillance automatiquement à l'ouverture de la session
 
+L'icône engrenage de la page, en haut à droite, a déjà une case pour ça : le
+cas courant, sans terminal. Cette section couvre l'alternative terminal,
+pour scripter, une machine sans écran, ou une composition différente de
+celle recommandée.
+
 ```bash
 blink2video autostart on                    # inscrit « blink2video start »
 blink2video autostart status                # ce qui est installé
@@ -148,8 +157,8 @@ telle que vous l'auriez tapée sans lui. `blink2video autostart on watch --loop 
 n'automatise donc que les alertes. Aucun droit d'administrateur n'est nécessaire,
 et `--dry-run` montre ce qui serait fait.
 
-Sans verbe, c'est `blink2video start` qui est inscrit, c'est-à-dire la
-configuration recommandée.
+Sans verbe, c'est `blink2video start` qui est inscrit : la configuration
+recommandée, la même que la case du panneau de réglages.
 
 <details>
 <summary>Le faire soi-même, sans passer par <code>autostart</code></summary>
