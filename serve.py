@@ -1041,6 +1041,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             first = read_with_deadline(process.stdout, LIVE_FIRST_FRAME_SECONDS)
             if not first:
                 reason = self.live_failure_reason(holder.get("stream"))
+                drain = holder.get("drain")
+                if drain is not None:
+                    drain.join(timeout=2)
+                trace = (errors[0] or b"").decode("utf-8", "replace").strip()[:300] \
+                    if errors else ""
+                if trace:
+                    reason = f"{reason} | ffmpeg : {trace}"
                 raise RuntimeError(reason)
 
             self.send_response(200)
@@ -1199,6 +1206,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             print(f"[direct-mse] {name} : segment initial {len(first)} octets", flush=True)
             if not first:
                 reason = self.live_failure_reason(holder.get("stream"))
+                # ffmpeg peut s'être arrêté avant tout octet exploitable (pas
+                # forcément une caméra hors de portée) : son message, quand il
+                # y en a un, en dit souvent plus que le statut Blink seul. Le
+                # fil de lecture n'a que ça à faire depuis le lancement du
+                # sous-processus : s'il n'a pas fini, ffmpeg tourne encore.
+                drain = holder.get("drain")
+                if drain is not None:
+                    drain.join(timeout=2)
+                trace = (errors[0] or b"").decode("utf-8", "replace").strip()[:300] \
+                    if errors else ""
+                if trace:
+                    reason = f"{reason} | ffmpeg : {trace}"
                 raise RuntimeError(reason)
             codec_str = h264_mime_codec_from_moov(first)
 
