@@ -1947,11 +1947,14 @@ PAGE = """<!doctype html>
     flex:none; margin:3px 0 0; width:16px; height:16px;
   }
   #autoLabel { margin-bottom:20px; }
-  #reglagesButton { font-size:19px; line-height:1; padding:5px 11px; }
-  .champCadence { margin-bottom:14px; color:var(--dim); font-size:14px; }
-  .champCadence label { display:block; margin-bottom:6px; }
-  .champCadence input { width:90px; margin-bottom:0; }
-  #reglages .row.principal { justify-content:space-between; margin-top:18px; }
+  #reglages fieldset { border:1px solid var(--line); border-radius:10px;
+                        padding:14px 16px 16px; margin:0 0 16px; }
+  #reglages legend { padding:0 6px; font-size:13px; color:var(--dim); }
+  .champCadence { display:flex; align-items:center; justify-content:space-between;
+                  gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
+  #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
+  #reglagesHint { margin:0 0 14px; }
+  #reglages fieldset .primary { width:100%; }
   #stopButton { width:100%; border-color:var(--out); color:#ffb3ab;
                 margin-bottom:14px; }
 </style>
@@ -1975,8 +1978,8 @@ PAGE = """<!doctype html>
   <div class="maj">
     <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
-    <button id="reglagesButton" aria-label="Réglages" title="Réglages">⚙</button>
     <button class="primary" id="refresh">Actualiser</button>
+    <button id="reglagesButton" title="Réglages">⚙ Réglages</button>
   </div>
   <div id="work"><span id="phase"></span><progress id="bar"></progress></div>
 </header>
@@ -2016,20 +2019,23 @@ PAGE = """<!doctype html>
   <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
     <input type="checkbox" id="auto"> Actualisation automatique de la page
   </label>
-  <div class="champCadence">
-    <label for="usbMinutes">Cadence de lecture des caméras USB (minutes)</label>
-    <input type="number" id="usbMinutes" min="1" step="1">
-  </div>
-  <div class="champCadence">
-    <label for="cloudMinutes">Cadence de lecture des caméras cloud (minutes)</label>
-    <input type="number" id="cloudMinutes" min="1" step="1">
-  </div>
-  <p id="reglagesHint" class="sub tiny">Les cadences ne prennent effet
-     qu'au redémarrage : « Appliquer » enregistre et redémarre.</p>
-  <button id="stopButton">Arrêter la surveillance des caméras</button>
-  <div class="row principal">
-    <button id="reglagesClose">Fermer</button>
+  <fieldset>
+    <legend>Cadence de lecture des caméras</legend>
+    <div class="champCadence">
+      <label for="usbMinutes">USB (minutes)</label>
+      <input type="number" id="usbMinutes" min="1" step="1">
+    </div>
+    <div class="champCadence">
+      <label for="cloudMinutes">Cloud (minutes)</label>
+      <input type="number" id="cloudMinutes" min="1" step="1">
+    </div>
+    <p id="reglagesHint" class="sub tiny">Les cadences ne prennent effet
+       qu'au redémarrage : « Appliquer » enregistre et redémarre.</p>
     <button class="primary" id="reglagesApply">Appliquer et redémarrer</button>
+  </fieldset>
+  <button id="stopButton">Arrêter la surveillance des caméras</button>
+  <div class="row">
+    <button id="reglagesClose">Fermer</button>
   </div>
 </dialog>
 <script>
