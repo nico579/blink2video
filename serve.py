@@ -48,6 +48,7 @@ import blink_auth
 import blink_engine
 import maj
 import merge_daily as md
+import watch
 
 
 BASE_DIR = runtime.app_dir()
@@ -1474,6 +1475,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 {**runtime.lire_reglages(), "storage_dir": runtime.lire_dossier_stockage()})
             return
 
+        if route == "/api/sourdine":
+            # Les caméras connues viennent du registre des clips ET du
+            # dernier état de watch.py (fichier local, aucun appel réseau à
+            # Blink ici) : une caméra durablement hors de portée peut n'avoir
+            # jamais produit de clip et resterait sinon absente de la liste,
+            # donc impossible à mettre en sourdine depuis cette page (cas
+            # vécu : « Portail »).
+            etat = md.load_json(watch.WATCH_STATE, {})
+            cameras = sorted(set(provenances(read_entries(self.paths)))
+                              | set(etat.get("cameras") or {}))
+            self.send_json({"cameras": cameras, "ignored": sorted(etat.get("ignored") or [])})
+            return
+
         if route == "/api/clips":
             # ?all=1 lève explicitement la fenêtre par défaut : l'historique
             # complet reste à un clic, jamais perdu, seulement pas chargé
@@ -1823,6 +1837,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"ok": True})
             return
 
+        if route == "/api/sourdine":
+            camera = str(payload.get("camera", "")).strip()
+            ignored = bool(payload.get("ignored"))
+            if not camera:
+                self.send_json({"error": "Nom de caméra manquant."}, 400)
+                return
+            # watch relit son état à chaque passage de sa propre boucle
+            # (voir _controler) : contrairement aux autres réglages, la
+            # sourdine n'a pas besoin de redémarrage, seulement de laisser
+            # « watch --ignore/--unignore » écrire le fichier partagé. Fait
+            # ici en tâche de fond pour que le clic reste immédiat, sur le
+            # même principe que le bouton Écarter (28.33).
+            option = "--ignore" if ignored else "--unignore"
+
+            def travailler():
+                runtime.lancer(
+                    runtime.self_command("watch", option, camera),
+                    cwd=str(runtime.app_dir()), stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+                )
+
+            threading.Thread(target=travailler, daemon=True).start()
+            self.send_json({"ok": True})
+            return
+
         if route == "/api/stop":
             # Même détachement que /api/reglages : --sans-relance pour que
             # « restart » s'arrête sans revenir, exactement ce qu'un bouton Stop
@@ -2110,6 +2149,10 @@ PAGE = """<!doctype html>
       <option value="Australia/Sydney">
       <option value="UTC">
     </datalist>
+  </fieldset>
+  <fieldset>
+    <legend>Alertes</legend>
+    <div id="sourdineListe" class="sub tiny">Chargement…</div>
   </fieldset>
   <p id="reglagesHint" class="sub tiny">Les réglages ne prennent effet
      qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le
@@ -2911,9 +2954,58 @@ $("reglagesButton").onclick = async () => {
     $("timestamp").checked = reglages.timestamp;
     $("timezone").value = reglages.timezone;
   } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
+  chargerSourdine();
   $("reglages").showModal();
 };
 $("reglagesClose").onclick = () => $("reglages").close();
+
+// Séparé du reste du panneau : contrairement aux cadences, au port ou au
+// fuseau, la sourdine n'exige pas de redémarrage (watch relit son état à
+// chaque passage), donc chaque case s'applique tout de suite, comme le
+// bouton Écarter d'un clip.
+async function chargerSourdine() {
+  const conteneur = $("sourdineListe");
+  conteneur.textContent = "Chargement…";
+  let etat;
+  try {
+    etat = await (await fetch("/api/sourdine")).json();
+  } catch (erreur) {
+    conteneur.textContent = "Liste des caméras indisponible.";
+    return;
+  }
+  if (!etat.cameras.length) {
+    conteneur.textContent = "Aucune caméra connue pour l'instant.";
+    return;
+  }
+  conteneur.innerHTML = "";
+  for (const camera of etat.cameras) {
+    const label = document.createElement("label");
+    const case_ = document.createElement("input");
+    case_.type = "checkbox";
+    case_.checked = etat.ignored.includes(camera);
+    case_.onchange = async () => {
+      case_.disabled = true;
+      try {
+        const reponse = await fetch("/api/sourdine", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ camera, ignored: case_.checked }) });
+        const resultat = await reponse.json();
+        if (resultat.error) {
+          alert(resultat.error);
+          case_.checked = !case_.checked;
+        }
+      } catch (erreur) {
+        alert(String(erreur));
+        case_.checked = !case_.checked;
+      } finally {
+        case_.disabled = false;
+      }
+    };
+    label.appendChild(case_);
+    label.append(` ${camera} en sourdine`);
+    conteneur.appendChild(label);
+  }
+}
 
 // Même déroulé que le bouton de mise à jour : enregistrer, attendre que le
 // serveur disparaisse puis revienne, recharger. Le verbe diffère (« restart »
