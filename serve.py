@@ -1729,24 +1729,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not IDENTITY.match(identity):
                 self.send_json({"error": "identifiant invalide"}, 400)
                 return
-            # Une seule décision à la fois : le registre est un fichier, deux
-            # écritures concurrentes en perdraient une.
-            with REGISTRE:
-                try:
-                    md.set_excluded(
-                        self.paths["input"], self.paths["normalized"],
-                        self.paths["excluded"], [str(self.paths["input"] / identity)],
-                        excluded,
-                    )
-                except RuntimeError as error:
-                    self.send_json({"error": str(error)}, 500)
-                    return
-            # Écarter un clip change la liste des segments d'une journée, donc
-            # son empreinte : sans reconstruction, la journalière, la semaine et
-            # le mois continuent de le montrer jusqu'au prochain assemblage. La
-            # ligne de commande enchaîne déjà ; l'interface le fait maintenant
-            # aussi, en tâche de fond pour que le clic reste immédiat.
-            self.reassembler(identity)
+
+            def travailler():
+                # Une seule décision à la fois : le registre est un fichier,
+                # deux écritures concurrentes en perdraient une. set_excluded
+                # attend au besoin jusqu'à 10s ce même verrou côté fichier
+                # (partagé avec le téléchargement) : fait ici, en tâche de
+                # fond, pour que ce délai ne bloque plus la réponse HTTP —
+                # jusque-là, un clic pouvait sembler ne rien faire pendant que
+                # le téléchargement écrivait le registre au même instant.
+                with REGISTRE:
+                    try:
+                        md.set_excluded(
+                            self.paths["input"], self.paths["normalized"],
+                            self.paths["excluded"], [str(self.paths["input"] / identity)],
+                            excluded,
+                        )
+                    except RuntimeError as error:
+                        print(f"Écarter {identity} : {error}")
+                        return
+                # Écarter un clip change la liste des segments d'une journée,
+                # donc son empreinte : sans reconstruction, la journalière, la
+                # semaine et le mois continuent de le montrer jusqu'au
+                # prochain assemblage.
+                self.reassembler(identity)
+
+            threading.Thread(target=travailler, daemon=True).start()
             self.send_json({"ok": True})
             return
 
