@@ -1855,6 +1855,9 @@ PAGE = """<!doctype html>
   dialog input { width:100%; font:inherit; color:var(--text); background:var(--bg);
                  border:1px solid var(--line); border-radius:7px;
                  padding:9px 11px; margin-bottom:12px; }
+  .champMdp { display:flex; gap:8px; margin-bottom:12px; }
+  .champMdp input { margin-bottom:0; }
+  .champMdp button { flex:none; padding:0 12px; }
   dialog .row { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
   #authError { color:var(--out); font-size:13px; min-height:18px; margin:0 0 6px; }
 </style>
@@ -1894,8 +1897,11 @@ PAGE = """<!doctype html>
   <p id="authError"></p>
   <div id="authCreds">
     <input id="user" type="email" placeholder="Adresse e-mail" autocomplete="username">
-    <input id="pass" type="password" placeholder="Mot de passe"
-           autocomplete="current-password">
+    <div class="champMdp">
+      <input id="pass" type="password" placeholder="Mot de passe"
+             autocomplete="current-password">
+      <button type="button" id="passToggle" aria-label="Afficher le mot de passe">Afficher</button>
+    </div>
   </div>
   <div id="authCode" hidden>
     <input id="code" inputmode="numeric" placeholder="Code reçu par SMS ou e-mail"
@@ -2535,6 +2541,14 @@ function authenticate() {
   });
 }
 
+$("passToggle").onclick = () => {
+  const masque = $("pass").type === "password";
+  $("pass").type = masque ? "text" : "password";
+  $("passToggle").textContent = masque ? "Masquer" : "Afficher";
+  $("passToggle").setAttribute(
+    "aria-label", masque ? "Masquer le mot de passe" : "Afficher le mot de passe");
+};
+
 $("authCancel").onclick = () => {
   $("auth").close();
   if (authResolve) { authResolve(false); authResolve = null; }
@@ -2562,6 +2576,12 @@ $("authOk").onclick = async () => {
   if (result.status === "ok") {
     $("auth").close();
     $("code").value = "";
+    // ?login=1 n'a servi qu'à ouvrir ce dialogue au premier lancement ; le
+    // laisser dans l'adresse referait apparaître la connexion à chaque
+    // actualisation ou depuis un signet, alors que la session est valide.
+    if (new URLSearchParams(location.search).get("login") === "1") {
+      history.replaceState(null, "", location.pathname);
+    }
     if (authResolve) { authResolve(true); authResolve = null; }
   } else if (result.status === "2fa") {
     $("code").value = "";
