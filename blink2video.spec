@@ -8,7 +8,13 @@
 # dossier se compresse tout aussi bien pour la diffusion, et démarre
 # instantanément.
 
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_data_files
+
+
+SRC = Path(SPECPATH)
+APP_ICON = SRC / "assets" / "blink2video.png"
 
 # ffmpeg est propre à la plateforme : on demande le binaire à imageio_ffmpeg,
 # installé dans l'environnement de construction, qui fournit celui de l'hôte.
@@ -59,7 +65,8 @@ analysis = Analysis(
     binaries=[(FFMPEG, ".")],
     # Windows n'a pas de base de fuseaux horaires système : sans ces données,
     # ZoneInfo("Europe/Paris") échoue et tout l'horodatage avec.
-    datas=collect_data_files("tzdata", include_py_files=False),
+    datas=(collect_data_files("tzdata", include_py_files=False)
+           + ([(str(APP_ICON), ".")] if APP_ICON.exists() else [])),
     # Les verbes sont résolus par importlib au moment de l'appel : l'analyse
     # statique de PyInstaller ne peut pas les voir, il faut les nommer.
     # Déduits de runtime.VERBES : les verbes sont résolus par importlib au
@@ -89,6 +96,9 @@ executable = EXE(
     strip=False,
     upx=False,
     console=True,
+    # Même mécanisme que lidar2map : PNG source portable, converti par
+    # PyInstaller en ressource native sur la plateforme de construction.
+    icon=str(APP_ICON),
 )
 
 COLLECT(
