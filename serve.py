@@ -1470,7 +1470,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/reglages":
-            self.send_json(runtime.lire_reglages())
+            self.send_json(
+                {**runtime.lire_reglages(), "storage_dir": runtime.lire_dossier_stockage()})
             return
 
         if route == "/api/clips":
@@ -1784,7 +1785,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     {"error": "Les cadences doivent être des nombres de minutes d'au "
                               "moins 1, et le port un nombre entre 1 et 65535."}, 400)
                 return
+            storage_dir = str(payload.get("storage_dir", "")).strip()
+            if storage_dir:
+                # Vérifié en écrivant pour de vrai plutôt que par simple
+                # inspection : un chemin qui a l'air valide peut être en
+                # lecture seule, sur un disque non monté, etc. Mieux vaut le
+                # découvrir ici, avant d'enregistrer quoi que ce soit, qu'au
+                # prochain démarrage, en cascade et sans page pour le dire.
+                try:
+                    candidat = Path(storage_dir).expanduser()
+                    candidat.mkdir(parents=True, exist_ok=True)
+                    sonde = candidat / ".blink_ecriture_test"
+                    sonde.write_text("", encoding="utf-8")
+                    sonde.unlink()
+                except OSError as error:
+                    self.send_json({"error": f"Dossier de stockage inaccessible : {error}"},
+                                    400)
+                    return
             runtime.ecrire_reglages(usb_minutes, cloud_minutes, port)
+            runtime.ecrire_dossier_stockage(storage_dir)
             # Détaché, comme /api/update : ce processus fait partie de ce que
             # « restart » va arrêter. Le verbe diffère de « update » puisqu'aucune
             # nouvelle version n'est en jeu, seuls les réglages ont changé — mais
@@ -1964,6 +1983,8 @@ PAGE = """<!doctype html>
   .champCadence { display:flex; align-items:center; justify-content:space-between;
                   gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
   #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
+  .etiquetteChamp { display:block; font-size:14px; margin-bottom:6px; }
+  #reglages fieldset p.sub { margin:0; }
   #reglagesHint { margin:0 0 14px; }
   #reglagesApply { width:100%; margin-bottom:14px; }
   #stopButton { width:100%; border-color:var(--out); color:#ffb3ab;
@@ -2038,6 +2059,14 @@ PAGE = """<!doctype html>
       <label for="port">Port</label>
       <input type="number" id="port" min="1" max="65535" step="1">
     </div>
+  </fieldset>
+  <fieldset>
+    <legend>Stockage</legend>
+    <label for="storageDir" class="etiquetteChamp">Dossier des données</label>
+    <input type="text" id="storageDir" placeholder="C:/chemin/vers/le/dossier">
+    <p class="sub tiny">Ne déplace pas les clips ni la session Blink déjà
+       présents à l'ancien emplacement : à faire vous-même si vous changez
+       ce chemin. Vide = emplacement par défaut, celui de l'exécutable.</p>
   </fieldset>
   <fieldset>
     <legend>Cadence de lecture des caméras</legend>
@@ -2846,6 +2875,7 @@ $("reglagesButton").onclick = async () => {
     $("cloudMinutes").value = reglages.cloud_minutes;
     $("port").value = reglages.port;
     portActuel = reglages.port;
+    $("storageDir").value = reglages.storage_dir;
   } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
   $("reglages").showModal();
 };
@@ -2873,9 +2903,11 @@ $("reglagesApply").onclick = async () => {
   bouton.disabled = true;
   bouton.textContent = "Redémarrage…";
   try {
+    const storageDir = $("storageDir").value.trim();
     const reponse = await fetch("/api/reglages", { method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud, port }) });
+      body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud, port,
+                             storage_dir: storageDir }) });
     const resultat = await reponse.json();
     if (resultat.error) {
       alert(resultat.error);

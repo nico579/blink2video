@@ -244,17 +244,63 @@ def frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
-def app_dir() -> Path:
-    """Dossier des données : clips, vidéos, registres, journaux.
+POINTEUR_STOCKAGE = "blink_home.txt"
 
-    On accepte une redéfinition par variable d'environnement pour permettre une
-    installation où le programme est en lecture seule et les données ailleurs."""
-    forced = os.environ.get("BLINK_HOME")
-    if forced:
-        return Path(forced).expanduser().resolve()
+
+def _dossier_ancre() -> Path:
+    """Emplacement par défaut, celui d'avant tout réglage : à côté de
+    l'exécutable (figé) ou des sources. Fixe, jamais lui-même redirigé -
+    c'est justement ce qui permet d'y chercher `POINTEUR_STOCKAGE` sans
+    dépendre de la valeur qu'il contient (sinon, pour savoir où lire le
+    réglage, il faudrait déjà connaître ce que le réglage doit dire)."""
     if frozen():
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
+
+
+def app_dir() -> Path:
+    """Dossier des données : clips, vidéos, registres, journaux.
+
+    Trois façons de le déplacer, dans cet ordre : la variable d'environnement
+    BLINK_HOME (utile pour une installation en lecture seule), le fichier
+    `blink_home.txt` à côté de l'exécutable (réglable depuis la page web,
+    voir `lire_dossier_stockage`/`ecrire_dossier_stockage`), et à défaut
+    l'emplacement historique, celui de l'exécutable lui-même."""
+    forced = os.environ.get("BLINK_HOME")
+    if forced:
+        return Path(forced).expanduser().resolve()
+    pointeur = _dossier_ancre() / POINTEUR_STOCKAGE
+    try:
+        cible = pointeur.read_text(encoding="utf-8").strip()
+    except OSError:
+        cible = ""
+    if cible:
+        return Path(cible).expanduser().resolve()
+    return _dossier_ancre()
+
+
+def lire_dossier_stockage() -> str:
+    """Dossier de données effectif, tel qu'affiché dans le panneau de
+    réglages : la valeur réelle (app_dir()), pas le contenu brut du
+    pointeur, absent tant que personne n'a rien changé."""
+    return str(app_dir())
+
+
+def ecrire_dossier_stockage(chemin: str) -> None:
+    """Enregistre le nouveau dossier, ou efface le réglage si `chemin` est
+    vide (retour à l'emplacement par défaut).
+
+    Ne déplace rien : les fichiers déjà présents à l'ancien emplacement y
+    restent, à charge de qui change ce réglage de les reprendre lui-même -
+    choix délibéré, un déplacement automatique engageant bien plus (espace
+    disque, fichiers ouverts, échec à mi-chemin) pour un réglage qui change
+    rarement."""
+    pointeur = _dossier_ancre() / POINTEUR_STOCKAGE
+    chemin = chemin.strip()
+    if not chemin:
+        pointeur.unlink(missing_ok=True)
+        return
+    pointeur.write_text(chemin, encoding="utf-8")
 
 
 def resource_dir() -> Path:

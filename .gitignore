@@ -7,6 +7,7 @@ blink_auth.json.*
 blink_auth.*.tmp
 watch_config.json
 blink_reglages.json
+blink_home.txt
 
 # Registres d'état : contiennent identifiants de compte, numéros de série,
 # noms de caméras et horaires de présence.
