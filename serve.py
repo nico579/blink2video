@@ -1946,7 +1946,7 @@ PAGE = """<!doctype html>
   #reglages label input[type="checkbox"] {
     flex:none; margin:3px 0 0; width:16px; height:16px;
   }
-  #autoLabel { margin-bottom:20px; }
+  #outLabel { margin-bottom:20px; }
   #reglages fieldset { border:1px solid var(--line); border-radius:10px;
                         padding:14px 16px 16px; margin:0 0 16px; }
   #reglages legend { padding:0 6px; font-size:13px; color:var(--dim); }
@@ -1971,7 +1971,6 @@ PAGE = """<!doctype html>
   </select>
   <select id="camera"></select>
   <select id="day"></select>
-  <label id="outLabel"><input type="checkbox" id="showOut"> voir les écartés</label>
   <span class="count" id="count"></span>
   <!-- Tout ce qui concerne la mise à jour tient ensemble, à droite : l'heure du
        dernier passage, la coche qui recharge seule, et le bouton. -->
@@ -2018,6 +2017,9 @@ PAGE = """<!doctype html>
   </label>
   <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
     <input type="checkbox" id="auto"> Actualisation automatique de la page
+  </label>
+  <label id="outLabel">
+    <input type="checkbox" id="showOut"> voir les écartés
   </label>
   <fieldset>
     <legend>Cadence de lecture des caméras</legend>
