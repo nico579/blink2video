@@ -205,6 +205,125 @@ Everything above already works from the page. This chapter is for the terminal
 alternative: scripting, a headless machine, a custom composition, or the full
 list of options.
 
+<details>
+<summary>All options</summary>
+
+<!-- verbes:début -->
+One command, one verb per action. `blink2video <verb> --help` gives each one's options.
+
+```bash
+blink2video login       # sign in to the Blink account, two-step verification handled
+blink2video list        # what the Sync Module currently holds
+blink2video download    # fetch new clips before rotation erases them
+blink2video merge       # normalize, stamp and assemble day, week and month
+blink2video watch       # check the installation and alert when it degrades
+blink2video serve       # serve the web interface, to watch, discard, see live
+blink2video start       # start everything with the recommended settings
+blink2video open        # open the web interface in the browser
+blink2video stop        # stop the instance running in the background
+blink2video restart     # stop then relaunch with the current settings
+blink2video update      # install the latest published release
+blink2video autostart   # register the command that follows with your session
+blink2video smoketest   # check that the installation works on this machine
+```
+<!-- verbes:fin -->
+
+Options follow the verb: `blink2video serve --port 8899`. Several verbs can be
+named in a row, each with its own options. What finishes runs in sequence, what
+does not finish runs alongside: `blink2video download merge` downloads **then**
+assembles, while `serve`, or any verb given `--loop`, holds its own process until
+`blink2video stop`.
+
+`blink2video <verb> --help` is always authoritative; this table summarizes.
+
+**Root**: `login`, `list`, `download`. With no verb, the help is shown.
+
+| Option | Effect |
+|---|---|
+| `--hub NAME` | Sync Module to use |
+| `--camera NAME` | keep only this camera |
+| `--since DAYS` | keep only clips from the last N days |
+| `--output FOLDER` | destination of raw clips (default `Blink_Clips`) |
+| `--overwrite` | replace existing files of a different size |
+| `--from usb\|cloud\|all` | where to look for clips: the module's stick, the subscription cloud, or both (default) |
+| `--loop [MINUTES]` | repeat instead of acting once (default 10) |
+
+**`blink2video merge`**: normalization and assembly.
+
+| Option | Effect |
+|---|---|
+| `--exclude CLIP…` | discard clips: the raw file moves to `Blink_Excluded`, the segment is deleted, the clip is never downloaded again |
+| `--include CLIP…` | undo a discard: the raw file comes back and the clip is re-normalized |
+| `--date YYYY-MM-DD` | limit to one day |
+| `--camera NAME` | limit to one camera |
+| `--force` | rebuild everything even if nothing changed |
+| `--no-periods` | do not rebuild the weekly and monthly aggregates |
+| `--preset NAME` | libx264 preset, from `ultrafast` to `veryslow` (default `veryfast`) |
+| `--crf N` | quality, 0 to 51, lower is better (default 21) |
+| `--font FILE` | .ttf font for the timestamp |
+| `--timezone ZONE` | time zone of the timestamp (default `Europe/Paris`) |
+| `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | location of each folder |
+
+**`blink2video watch`**: check the state, alert when it degrades. `--ignore
+CAMERA…` mutes a camera, then carries on checking; `--unignore CAMERA…` undoes
+it.
+
+| Option | Effect |
+|---|---|
+| `--loop [MINUTES]` | repeat instead of acting once (default 10) |
+| `--ignore CAMERA…` | mute a camera, then carry on checking |
+| `--unignore CAMERA…` | unmute |
+| `--test` | fire a verification notification |
+| `--dry-run` | show without notifying or saving state |
+
+**`blink2video start`**: the recommended setup in one command. It is exactly
+equivalent to:
+
+```bash
+blink2video serve  watch --loop 10  download --from usb --loop 10  download --from cloud --loop 1  merge --loop 5
+```
+
+Options given after `start` go to the interface, `--port` for instance.
+
+**`blink2video serve`**: serve the web interface.
+
+| Option | Effect |
+|---|---|
+| `--port N` | listening port (default 8765) |
+| `--open-browser` | open the page in the browser on startup |
+| `--hub NAME` | Sync Module |
+| `--thumbs FOLDER` | thumbnail cache, disposable |
+| `--timezone ZONE` | display time zone |
+| the same folder options as `merge` | |
+
+**`blink2video open`**: open the interface in the browser, and say so when
+nobody is listening. `--port` if you moved it.
+
+**`blink2video stop`**: stop the running instance and all its verbs. No options.
+
+**`blink2video autostart`**: what will start when you log in.
+
+| Command | Effect |
+|---|---|
+| `autostart on` | register `blink2video start` |
+| `autostart on <verbs…>` | register that command instead of the default |
+| `autostart status` | what is registered, and what is running |
+| `autostart off` | remove the entry |
+
+`--dry-run` shows without changing anything.
+
+**`blink2video smoketest`**: installation check. `--keep` keeps the working folder,
+`--timezone` picks the time zone of the demonstration video.
+
+**Environment variables**
+
+| Variable | Effect |
+|---|---|
+| `BLINK_HOME` | data folder, defaulting to the executable's own |
+| `BLINK_BOOTSTRAP` | `auto`, `pip` or `none`: how the Python environment is handled |
+
+</details>
+
 **First run**, one step at a time instead of the double-click:
 
 ```bash
@@ -339,125 +458,6 @@ blink2video` on Linux. The next logon does it anyway.
 running. In a terminal, Ctrl+C is enough: `stop` exists for instances without a
 console, which Ctrl+C cannot reach and whose verbs were left orphaned when only
 the parent process was killed.
-
-<details>
-<summary>All options</summary>
-
-<!-- verbes:début -->
-One command, one verb per action. `blink2video <verb> --help` gives each one's options.
-
-```bash
-blink2video login       # sign in to the Blink account, two-step verification handled
-blink2video list        # what the Sync Module currently holds
-blink2video download    # fetch new clips before rotation erases them
-blink2video merge       # normalize, stamp and assemble day, week and month
-blink2video watch       # check the installation and alert when it degrades
-blink2video serve       # serve the web interface, to watch, discard, see live
-blink2video start       # start everything with the recommended settings
-blink2video open        # open the web interface in the browser
-blink2video stop        # stop the instance running in the background
-blink2video restart     # stop then relaunch with the current settings
-blink2video update      # install the latest published release
-blink2video autostart   # register the command that follows with your session
-blink2video smoketest   # check that the installation works on this machine
-```
-<!-- verbes:fin -->
-
-Options follow the verb: `blink2video serve --port 8899`. Several verbs can be
-named in a row, each with its own options. What finishes runs in sequence, what
-does not finish runs alongside: `blink2video download merge` downloads **then**
-assembles, while `serve`, or any verb given `--loop`, holds its own process until
-`blink2video stop`.
-
-`blink2video <verb> --help` is always authoritative; this table summarizes.
-
-**Root**: `login`, `list`, `download`. With no verb, the help is shown.
-
-| Option | Effect |
-|---|---|
-| `--hub NAME` | Sync Module to use |
-| `--camera NAME` | keep only this camera |
-| `--since DAYS` | keep only clips from the last N days |
-| `--output FOLDER` | destination of raw clips (default `Blink_Clips`) |
-| `--overwrite` | replace existing files of a different size |
-| `--from usb\|cloud\|all` | where to look for clips: the module's stick, the subscription cloud, or both (default) |
-| `--loop [MINUTES]` | repeat instead of acting once (default 10) |
-
-**`blink2video merge`**: normalization and assembly.
-
-| Option | Effect |
-|---|---|
-| `--exclude CLIP…` | discard clips: the raw file moves to `Blink_Excluded`, the segment is deleted, the clip is never downloaded again |
-| `--include CLIP…` | undo a discard: the raw file comes back and the clip is re-normalized |
-| `--date YYYY-MM-DD` | limit to one day |
-| `--camera NAME` | limit to one camera |
-| `--force` | rebuild everything even if nothing changed |
-| `--no-periods` | do not rebuild the weekly and monthly aggregates |
-| `--preset NAME` | libx264 preset, from `ultrafast` to `veryslow` (default `veryfast`) |
-| `--crf N` | quality, 0 to 51, lower is better (default 21) |
-| `--font FILE` | .ttf font for the timestamp |
-| `--timezone ZONE` | time zone of the timestamp (default `Europe/Paris`) |
-| `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | location of each folder |
-
-**`blink2video watch`**: check the state, alert when it degrades. `--ignore
-CAMERA…` mutes a camera, then carries on checking; `--unignore CAMERA…` undoes
-it.
-
-| Option | Effect |
-|---|---|
-| `--loop [MINUTES]` | repeat instead of acting once (default 10) |
-| `--ignore CAMERA…` | mute a camera, then carry on checking |
-| `--unignore CAMERA…` | unmute |
-| `--test` | fire a verification notification |
-| `--dry-run` | show without notifying or saving state |
-
-**`blink2video start`**: the recommended setup in one command. It is exactly
-equivalent to:
-
-```bash
-blink2video serve  watch --loop 10  download --from usb --loop 10  download --from cloud --loop 1  merge --loop 5
-```
-
-Options given after `start` go to the interface, `--port` for instance.
-
-**`blink2video serve`**: serve the web interface.
-
-| Option | Effect |
-|---|---|
-| `--port N` | listening port (default 8765) |
-| `--open-browser` | open the page in the browser on startup |
-| `--hub NAME` | Sync Module |
-| `--thumbs FOLDER` | thumbnail cache, disposable |
-| `--timezone ZONE` | display time zone |
-| the same folder options as `merge` | |
-
-**`blink2video open`**: open the interface in the browser, and say so when
-nobody is listening. `--port` if you moved it.
-
-**`blink2video stop`**: stop the running instance and all its verbs. No options.
-
-**`blink2video autostart`**: what will start when you log in.
-
-| Command | Effect |
-|---|---|
-| `autostart on` | register `blink2video start` |
-| `autostart on <verbs…>` | register that command instead of the default |
-| `autostart status` | what is registered, and what is running |
-| `autostart off` | remove the entry |
-
-`--dry-run` shows without changing anything.
-
-**`blink2video smoketest`**: installation check. `--keep` keeps the working folder,
-`--timezone` picks the time zone of the demonstration video.
-
-**Environment variables**
-
-| Variable | Effect |
-|---|---|
-| `BLINK_HOME` | data folder, defaulting to the executable's own |
-| `BLINK_BOOTSTRAP` | `auto`, `pip` or `none`: how the Python environment is handled |
-
-</details>
 
 ## Building
 

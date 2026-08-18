@@ -223,6 +223,125 @@ Tout ce qui précède fonctionne déjà depuis la page web. Ce chapitre couvre
 l'alternative terminal : scripter, une machine sans écran, une composition sur
 mesure, ou la liste complète des options.
 
+<details>
+<summary>Toutes les options</summary>
+
+<!-- verbes:début -->
+Une commande, un verbe par action. `blink2video <verbe> --help` donne les options de chacun.
+
+```bash
+blink2video login       # se connecter au compte Blink, vérification en deux étapes gérée
+blink2video list        # ce que contient le module de synchronisation en ce moment
+blink2video download    # récupérer les nouveaux clips avant que la rotation ne les efface
+blink2video merge       # normaliser, horodater et assembler jour, semaine et mois
+blink2video watch       # contrôler l'état de l'installation et alerter s'il se dégrade
+blink2video serve       # servir l'interface web, pour regarder, écarter, voir en direct
+blink2video start       # tout lancer avec les réglages recommandés
+blink2video open        # ouvrir l'interface web dans le navigateur
+blink2video stop        # arrêter l'instance qui tourne en fond
+blink2video restart     # arrêter puis relancer avec les réglages actuels
+blink2video update      # installer la dernière version publiée
+blink2video autostart   # inscrire à l'ouverture de session la commande qui suit
+blink2video smoketest   # vérifier que l'installation fonctionne sur cette machine
+```
+<!-- verbes:fin -->
+
+Les options suivent le verbe : `blink2video serve --port 8899`. Plusieurs verbes
+se citent d'affilée, chacun avec les siennes. Ce qui se termine s'enchaîne dans
+l'ordre cité, ce qui ne se termine pas tourne à côté : `blink2video download merge`
+télécharge **puis** assemble, tandis que `serve`, ou tout verbe muni de `--loop`,
+occupe son propre processus jusqu'à `blink2video stop`.
+
+`blink2video <verbe> --help` fait toujours foi ; ce tableau récapitule.
+
+**Racine** : `login`, `list`, `download`. Sans verbe, l'aide s'affiche.
+
+| Option | Effet |
+|---|---|
+| `--hub NOM` | module de synchronisation à utiliser |
+| `--camera NOM` | ne garder que cette caméra |
+| `--since JOURS` | ne garder que les clips des N derniers jours |
+| `--output DOSSIER` | destination des clips bruts (défaut `Blink_Clips`) |
+| `--overwrite` | remplacer les fichiers existants de taille différente |
+| `--from usb\|cloud\|all` | où chercher les clips : la clé du module, le cloud de l'abonnement, ou les deux (défaut) |
+| `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
+
+**`blink2video merge`** : normalisation et assemblage.
+
+| Option | Effet |
+|---|---|
+| `--exclude CLIP…` | écarter des clips : le brut part dans `Blink_Excluded`, le segment est effacé, le clip n'est plus retéléchargé |
+| `--include CLIP…` | annuler une exclusion : le brut revient et le clip est re-normalisé |
+| `--date AAAA-MM-JJ` | limiter à une journée |
+| `--camera NOM` | limiter à une caméra |
+| `--force` | tout reconstruire même si rien n'a changé |
+| `--no-periods` | ne pas reconstruire les agrégats hebdomadaires et mensuels |
+| `--preset NOM` | preset libx264, d'`ultrafast` à `veryslow` (défaut `veryfast`) |
+| `--crf N` | qualité, 0 à 51, plus bas est meilleur (défaut 21) |
+| `--font FICHIER` | police .ttf pour l'horodatage |
+| `--timezone ZONE` | fuseau de l'horodatage (défaut `Europe/Paris`) |
+| `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | emplacements de chaque dossier |
+
+**`blink2video watch`** : contrôler l'état, alerter s'il se dégrade. `--ignore
+CAMERA…` met une caméra en sourdine, puis poursuit le contrôle ;
+`--unignore CAMERA…` lève la sourdine.
+
+| Option | Effet |
+|---|---|
+| `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
+| `--ignore CAMERA…` | mettre une caméra en sourdine, puis poursuivre le contrôle |
+| `--unignore CAMERA…` | lever la sourdine |
+| `--test` | déclencher une notification de vérification |
+| `--dry-run` | montrer sans notifier ni enregistrer l'état |
+
+**`blink2video start`** : la configuration recommandée, en une commande. Elle
+équivaut exactement à :
+
+```bash
+blink2video serve  watch --loop 10  download --from usb --loop 10  download --from cloud --loop 1  merge --loop 5
+```
+
+Les options données après `start` vont à l'interface, `--port` par exemple.
+
+**`blink2video serve`** : servir l'interface web.
+
+| Option | Effet |
+|---|---|
+| `--port N` | port d'écoute (défaut 8765) |
+| `--open-browser` | ouvrir la page dans le navigateur au démarrage |
+| `--hub NOM` | module de synchronisation |
+| `--thumbs DOSSIER` | cache des vignettes, jetable |
+| `--timezone ZONE` | fuseau d'affichage |
+| les mêmes options de dossiers que `merge` | |
+
+**`blink2video open`** : ouvrir l'interface dans le navigateur, et dire si
+personne n'écoute. `--port` si vous l'avez déplacée.
+
+**`blink2video stop`** : arrêter l'instance en cours et tous ses verbes. Sans option.
+
+**`blink2video autostart`** : ce qui se lancera à l'ouverture de session.
+
+| Commande | Effet |
+|---|---|
+| `autostart on` | inscrire `blink2video start` |
+| `autostart on <verbes…>` | inscrire cette commande-là plutôt que le défaut |
+| `autostart status` | ce qui est inscrit, et ce qui tourne |
+| `autostart off` | retirer l'entrée |
+
+`--dry-run` montre sans rien modifier.
+
+**`blink2video smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
+de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
+
+**Variables d'environnement**
+
+| Variable | Effet |
+|---|---|
+| `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
+| `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
+
+</details>
+
 **Premier lancement**, étape par étape plutôt qu'un double-clic :
 
 ```bash
@@ -362,125 +481,6 @@ toute façon.
 un terminal, Ctrl+C suffit : c'est `stop` qui existe pour les instances sans
 console, qu'un Ctrl+C ne peut pas atteindre et dont tuer le seul processus
 parent laissait les verbes orphelins.
-
-<details>
-<summary>Toutes les options</summary>
-
-<!-- verbes:début -->
-Une commande, un verbe par action. `blink2video <verbe> --help` donne les options de chacun.
-
-```bash
-blink2video login       # se connecter au compte Blink, vérification en deux étapes gérée
-blink2video list        # ce que contient le module de synchronisation en ce moment
-blink2video download    # récupérer les nouveaux clips avant que la rotation ne les efface
-blink2video merge       # normaliser, horodater et assembler jour, semaine et mois
-blink2video watch       # contrôler l'état de l'installation et alerter s'il se dégrade
-blink2video serve       # servir l'interface web, pour regarder, écarter, voir en direct
-blink2video start       # tout lancer avec les réglages recommandés
-blink2video open        # ouvrir l'interface web dans le navigateur
-blink2video stop        # arrêter l'instance qui tourne en fond
-blink2video restart     # arrêter puis relancer avec les réglages actuels
-blink2video update      # installer la dernière version publiée
-blink2video autostart   # inscrire à l'ouverture de session la commande qui suit
-blink2video smoketest   # vérifier que l'installation fonctionne sur cette machine
-```
-<!-- verbes:fin -->
-
-Les options suivent le verbe : `blink2video serve --port 8899`. Plusieurs verbes
-se citent d'affilée, chacun avec les siennes. Ce qui se termine s'enchaîne dans
-l'ordre cité, ce qui ne se termine pas tourne à côté : `blink2video download merge`
-télécharge **puis** assemble, tandis que `serve`, ou tout verbe muni de `--loop`,
-occupe son propre processus jusqu'à `blink2video stop`.
-
-`blink2video <verbe> --help` fait toujours foi ; ce tableau récapitule.
-
-**Racine** : `login`, `list`, `download`. Sans verbe, l'aide s'affiche.
-
-| Option | Effet |
-|---|---|
-| `--hub NOM` | module de synchronisation à utiliser |
-| `--camera NOM` | ne garder que cette caméra |
-| `--since JOURS` | ne garder que les clips des N derniers jours |
-| `--output DOSSIER` | destination des clips bruts (défaut `Blink_Clips`) |
-| `--overwrite` | remplacer les fichiers existants de taille différente |
-| `--from usb\|cloud\|all` | où chercher les clips : la clé du module, le cloud de l'abonnement, ou les deux (défaut) |
-| `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
-
-**`blink2video merge`** : normalisation et assemblage.
-
-| Option | Effet |
-|---|---|
-| `--exclude CLIP…` | écarter des clips : le brut part dans `Blink_Excluded`, le segment est effacé, le clip n'est plus retéléchargé |
-| `--include CLIP…` | annuler une exclusion : le brut revient et le clip est re-normalisé |
-| `--date AAAA-MM-JJ` | limiter à une journée |
-| `--camera NOM` | limiter à une caméra |
-| `--force` | tout reconstruire même si rien n'a changé |
-| `--no-periods` | ne pas reconstruire les agrégats hebdomadaires et mensuels |
-| `--preset NOM` | preset libx264, d'`ultrafast` à `veryslow` (défaut `veryfast`) |
-| `--crf N` | qualité, 0 à 51, plus bas est meilleur (défaut 21) |
-| `--font FICHIER` | police .ttf pour l'horodatage |
-| `--timezone ZONE` | fuseau de l'horodatage (défaut `Europe/Paris`) |
-| `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | emplacements de chaque dossier |
-
-**`blink2video watch`** : contrôler l'état, alerter s'il se dégrade. `--ignore
-CAMERA…` met une caméra en sourdine, puis poursuit le contrôle ;
-`--unignore CAMERA…` lève la sourdine.
-
-| Option | Effet |
-|---|---|
-| `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
-| `--ignore CAMERA…` | mettre une caméra en sourdine, puis poursuivre le contrôle |
-| `--unignore CAMERA…` | lever la sourdine |
-| `--test` | déclencher une notification de vérification |
-| `--dry-run` | montrer sans notifier ni enregistrer l'état |
-
-**`blink2video start`** : la configuration recommandée, en une commande. Elle
-équivaut exactement à :
-
-```bash
-blink2video serve  watch --loop 10  download --from usb --loop 10  download --from cloud --loop 1  merge --loop 5
-```
-
-Les options données après `start` vont à l'interface, `--port` par exemple.
-
-**`blink2video serve`** : servir l'interface web.
-
-| Option | Effet |
-|---|---|
-| `--port N` | port d'écoute (défaut 8765) |
-| `--open-browser` | ouvrir la page dans le navigateur au démarrage |
-| `--hub NOM` | module de synchronisation |
-| `--thumbs DOSSIER` | cache des vignettes, jetable |
-| `--timezone ZONE` | fuseau d'affichage |
-| les mêmes options de dossiers que `merge` | |
-
-**`blink2video open`** : ouvrir l'interface dans le navigateur, et dire si
-personne n'écoute. `--port` si vous l'avez déplacée.
-
-**`blink2video stop`** : arrêter l'instance en cours et tous ses verbes. Sans option.
-
-**`blink2video autostart`** : ce qui se lancera à l'ouverture de session.
-
-| Commande | Effet |
-|---|---|
-| `autostart on` | inscrire `blink2video start` |
-| `autostart on <verbes…>` | inscrire cette commande-là plutôt que le défaut |
-| `autostart status` | ce qui est inscrit, et ce qui tourne |
-| `autostart off` | retirer l'entrée |
-
-`--dry-run` montre sans rien modifier.
-
-**`blink2video smoketest`** : contrôle de l'installation. `--keep` conserve le dossier
-de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
-
-**Variables d'environnement**
-
-| Variable | Effet |
-|---|---|
-| `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
-| `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
-
-</details>
 
 ## Construction
 
