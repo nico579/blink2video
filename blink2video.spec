@@ -15,6 +15,10 @@ from PyInstaller.utils.hooks import collect_data_files
 
 SRC = Path(SPECPATH)
 APP_ICON = SRC / "assets" / "blink2video.png"
+# Favicon de l'interface web (serve.py, route /favicon.ico) : embarqué sous
+# assets/ pour que le chemin lu au démarrage (runtime.resource_dir() /
+# "assets" / ...) soit le même, figé ou depuis les sources.
+FAVICON = SRC / "assets" / "blink2video.ico"
 
 # ffmpeg est propre à la plateforme : on demande le binaire à imageio_ffmpeg,
 # installé dans l'environnement de construction, qui fournit celui de l'hôte.
@@ -66,7 +70,8 @@ analysis = Analysis(
     # Windows n'a pas de base de fuseaux horaires système : sans ces données,
     # ZoneInfo("Europe/Paris") échoue et tout l'horodatage avec.
     datas=(collect_data_files("tzdata", include_py_files=False)
-           + ([(str(APP_ICON), ".")] if APP_ICON.exists() else [])),
+           + ([(str(APP_ICON), ".")] if APP_ICON.exists() else [])
+           + ([(str(FAVICON), "assets")] if FAVICON.exists() else [])),
     # Les verbes sont résolus par importlib au moment de l'appel : l'analyse
     # statique de PyInstaller ne peut pas les voir, il faut les nommer.
     # Déduits de runtime.VERBES : les verbes sont résolus par importlib au

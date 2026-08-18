@@ -1413,6 +1413,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
+        if route == "/favicon.ico":
+            chemin = runtime.resource_dir() / "assets" / "blink2video.ico"
+            if not chemin.is_file():
+                self.send_error(404)
+                return
+            corps = chemin.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/x-icon")
+            # Statique, ne change jamais en cours de route : autant laisser le
+            # navigateur cesser de le redemander à chaque page.
+            self.send_header("Cache-Control", "public, max-age=604800")
+            self.send_header("Content-Length", str(len(corps)))
+            self.end_headers()
+            self.wfile.write(corps)
+            return
+
         if route.startswith("/camthumb/"):
             # Pas de contrôle du nom ici : il coûterait un rafraîchissement
             # complet du compte à chaque vignette. C'est find_camera, plus bas,
@@ -1761,6 +1777,7 @@ PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>blink2video</title>
+<link rel="icon" href="/favicon.ico">
 <style>
   :root { color-scheme: dark; --bg:#16181d; --card:#1e2128; --line:#2c313b;
           --text:#e6e8ec; --dim:#9aa2b1; --out:#e0574a; --in:#4aa96c; }
