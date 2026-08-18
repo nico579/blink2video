@@ -1957,6 +1957,13 @@ async function heuresDePassage() {
 }
 
 function renderLive() {
+  // Reconstruire la grille remplace tout son HTML, direct en cours compris :
+  // la balise <video> et son AbortController survivraient, orphelins, sous
+  // un DOM tout neuf qui ne les référence plus (vu en vrai : un clip qui
+  // arrive en tâche de fond suffit à déclencher ce rafraîchissement pendant
+  // qu'un direct tourne, qui semble alors s'arrêter sans jamais reprendre).
+  // Un direct actif gèle donc la grille jusqu'à ce qu'il s'arrête.
+  if (Object.keys(MSE_ABORT).length) return;
   if (!system) return loadSystem(false);
   if (system.error) {
     $("list").innerHTML = `<p class="empty">${system.error}</p>`;
