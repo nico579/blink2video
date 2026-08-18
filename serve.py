@@ -371,17 +371,50 @@ def probe_duration(ffmpeg: str, path: Path) -> float:
     return probe_facts(ffmpeg, path)[0]
 
 
-def read_with_deadline(pipe, seconds: float) -> bytes:
-    """Lit un premier bloc sur un tube, ou renonce au bout de `seconds`.
+class LecteurTube:
+    """Lit un tube bloquant en continu dans un fil unique, pour donner à
+    chaque lecture un vrai délai sans jamais créer de second lecteur
+    concurrent sur le même tube.
 
-    Une lecture sur tube est bloquante et ne se laisse pas interrompre : on la
-    confie donc à un fil, et c'est l'attente de ce fil qui porte le délai."""
-    result: list = []
-    reader = threading.Thread(target=lambda: result.append(pipe.read(4096)),
-                              daemon=True)
-    reader.start()
-    reader.join(timeout=seconds)
-    return result[0] if result else b""
+    `pipe.read(n)` est bloquant et ne se laisse pas interrompre. Le lancer
+    dans un fil à *chaque* appel (comme le faisait l'ancien
+    `read_with_deadline`, réutilisé en boucle par le direct) laisse un fil
+    orphelin dès qu'un appel dépasse son délai : `pipe.read()` continue
+    d'attendre en arrière-plan, et l'appel suivant en lance un second,
+    concurrent du premier sur le même tube. Le prochain octet qui arrive
+    peut alors atterrir chez le fil orphelin, invisible pour l'appelant
+    (bug réel, voir AUDIT-2026-08-13.md section 28.22 pour `/live-mse`, et
+    28.26 pour la boucle d'envoi principale des deux directs — un délai
+    global vérifié seulement *entre* deux lectures ne borne rien si une
+    lecture individuelle peut, elle, bloquer indéfiniment)."""
+
+    def __init__(self, pipe, taille_bloc: int = 16384):
+        self._file: queue.Queue = queue.Queue()
+        self._fin = False
+
+        def lire_en_continu():
+            while True:
+                morceau = pipe.read(taille_bloc)
+                self._file.put(morceau)
+                if not morceau:
+                    return
+
+        threading.Thread(target=lire_en_continu, daemon=True).start()
+
+    def lire(self, delai: float):
+        """Un bloc de données ; ``b""`` si le tube est à sa vraie fin (EOF) ;
+        ``None`` si rien n'est arrivé avant `delai` (le flux est
+        probablement juste lent — le fil, lui, continue d'attendre, un
+        appel suivant peut encore recevoir quelque chose)."""
+        if self._fin:
+            return b""
+        try:
+            morceau = self._file.get(timeout=max(0.01, delai))
+        except queue.Empty:
+            return None
+        if not morceau:
+            self._fin = True
+        return morceau
 
 
 _MOOV_CONTAINERS = {b"moov", b"trak", b"mdia", b"minf", b"stbl"}
@@ -431,41 +464,21 @@ def h264_mime_codec_from_moov(segment: bytes) -> str:
     return f"avc1.{profile_idc:02x}{constraint:02x}{level_idc:02x}"
 
 
-def read_mp4_init_segment(pipe, seconds: float) -> bytes:
+def read_mp4_init_segment(lecteur: LecteurTube, seconds: float) -> bytes:
     """Accumule la sortie d'ffmpeg jusqu'à pouvoir y lire un avcC complet, ou
     renonce au bout de `seconds`. Un seul bloc de 4096 octets (comme pour le
     MJPEG) ne suffit pas toujours : le moov peut déborder du premier bloc.
 
-    Un seul fil lit le tube, en continu, du début à la fin de cette fonction.
-    Appeler `read_with_deadline` (qui lance son propre fil à chaque appel) en
-    boucle sur le même tube laissait, à chaque dépassement de délai, un fil
-    orphelin toujours bloqué dessus ; l'appel suivant en lançait un second,
-    concurrent du premier sur le même tube. La donnée qui arrivait ensuite
-    pouvait atterrir chez le fil orphelin, invisible d'ici, et cette boucle
-    abandonnait alors qu'ffmpeg produisait pourtant des données. Vu en vrai :
-    fiable sur une caméra qui répond vite (un seul bloc suffit, jamais de
-    second appel), en échec quasi systématique sur une caméra plus lente à
-    répondre (moov étalé sur plusieurs blocs, donc plusieurs appels)."""
-    sortie: queue.Queue = queue.Queue()
-
-    def lire_en_continu():
-        while True:
-            morceau = pipe.read(4096)
-            sortie.put(morceau)
-            if not morceau:
-                return
-
-    threading.Thread(target=lire_en_continu, daemon=True).start()
-
+    Prend un `LecteurTube` déjà créé, pas un tube brut : le même doit
+    ensuite servir à la boucle d'envoi principale de l'appelant. En créer
+    un second sur le même tube réintroduirait le bug des lecteurs
+    concurrents que `LecteurTube` existe justement pour éviter."""
     deadline = time.monotonic() + seconds
     buf = bytearray()
     while time.monotonic() < deadline and len(buf) < 65536:
-        try:
-            morceau = sortie.get(timeout=max(0.1, deadline - time.monotonic()))
-        except queue.Empty:
-            break
+        morceau = lecteur.lire(deadline - time.monotonic())
         if not morceau:
-            break
+            break  # b"" (EOF) ou None (délai global épuisé) : rien de plus à tenter
         buf += morceau
         try:
             h264_mime_codec_from_moov(bytes(buf))
@@ -1063,7 +1076,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # les en-têtes tout de suite condamnerait à ne plus rien pouvoir
             # signaler ensuite : une caméra hors de portée laisserait le
             # navigateur devant un cadre vide sans explication.
-            first = read_with_deadline(process.stdout, LIVE_FIRST_FRAME_SECONDS)
+            lecteur = LecteurTube(process.stdout)
+            first = lecteur.lire(LIVE_FIRST_FRAME_SECONDS)
             if not first:
                 reason = self.live_failure_reason(holder.get("stream"))
                 drain = holder.get("drain")
@@ -1105,9 +1119,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 holder["sent"] = 0
                 return
             sent = len(first)
+            # deadline n'était vérifiée qu'entre deux lectures : une lecture
+            # individuelle bloquée (ffmpeg qui se tait sans jamais fermer
+            # stdout) ne rendait jamais la main, et LIVE_MAX_SECONDS ne
+            # bornait donc rien dans ce cas précis (vu en vrai : un direct
+            # resté ouvert plus de 600 s, MODULE_SLOT jamais rendu). lire()
+            # porte maintenant elle-même un délai réel sur chaque lecture.
             deadline = time.monotonic() + LIVE_MAX_SECONDS
             while time.monotonic() < deadline:
-                chunk = process.stdout.read(16384)
+                chunk = lecteur.lire(deadline - time.monotonic())
+                if chunk is None:
+                    continue  # juste lent : le délai global n'est pas encore écoulé
                 if not chunk:
                     break
                 if not _ecrire(chunk):
@@ -1240,7 +1262,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             )
             holder["drain"].start()
 
-            first = read_mp4_init_segment(process.stdout, LIVE_FIRST_FRAME_SECONDS)
+            lecteur = LecteurTube(process.stdout)
+            first = read_mp4_init_segment(lecteur, LIVE_FIRST_FRAME_SECONDS)
             print(f"[direct-mse] {name} : segment initial {len(first)} octets", flush=True)
             if not first:
                 reason = self.live_failure_reason(holder.get("stream"))
@@ -1284,9 +1307,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 holder["sent"] = 0
                 return
             sent = len(first)
+            # deadline n'était vérifiée qu'entre deux lectures : une lecture
+            # individuelle bloquée (ffmpeg qui se tait sans jamais fermer
+            # stdout) ne rendait jamais la main, et LIVE_MAX_SECONDS ne
+            # bornait donc rien dans ce cas précis (vu en vrai : un direct
+            # resté ouvert plus de 600 s, MODULE_SLOT jamais rendu). lire()
+            # porte maintenant elle-même un délai réel sur chaque lecture.
             deadline = time.monotonic() + LIVE_MAX_SECONDS
             while time.monotonic() < deadline:
-                chunk = process.stdout.read(16384)
+                chunk = lecteur.lire(deadline - time.monotonic())
+                if chunk is None:
+                    continue  # juste lent : le délai global n'est pas encore écoulé
                 if not chunk:
                     break
                 if not _ecrire(chunk):
