@@ -2096,15 +2096,19 @@ function stopWatch(name) {
 const MSE_ABORT = {};
 // Blink referme parfois la session en cours de route, sans rapport avec ce
 // projet (vu en vrai : entre quelques images et ~1 Mo transmis, puis la
-// connexion vers son relais s'interrompt en plein paquet). Une reprise
-// manuelle marche presque toujours : on l'automatise. Le compteur d'échecs
-// ne grimpe que sur une reprise qui n'aura livré aucune image ; dès qu'une
-// image arrive, il retombe à zéro, pour ne pas abandonner un direct qui
-// fonctionne juste par à-coups. MSE_BUDGET_TOTAL_MS borne quand même la
-// durée totale : un onglet oublié ouvert ne doit pas relancer la caméra
-// indéfiniment.
+// connexion vers son relais s'interrompt en plein paquet - cause identifiée
+// côté blinkpy, voir blink_engine.py). Une reprise manuelle marche presque
+// toujours : on l'automatise. Le compteur d'échecs ne grimpe que sur une
+// reprise qui n'aura livré aucune image ; dès qu'une image arrive, il
+// retombe à zéro, pour ne pas abandonner un direct qui fonctionne juste par
+// à-coups. MSE_BUDGET_TOTAL_MS borne quand même la durée totale : un onglet
+// oublié ouvert ne doit pas relancer la caméra indéfiniment. Le délai entre
+// deux tentatives n'est pas cosmétique : Blink n'accepte qu'une seule
+// session de direct par compte à la fois et met du temps à libérer la
+// précédente côté serveur ; une reprise trop rapide se heurte à cette
+// session pas encore relâchée, pas à un vrai problème.
 const MSE_MAX_ECHECS_A_VIDE = 5;
-const MSE_DELAI_RECONNEXION_MS = 1500;
+const MSE_DELAI_RECONNEXION_MS = 3000;
 const MSE_BUDGET_TOTAL_MS = 10 * 60 * 1000;
 
 function attendreOuAbandon(ms, signal) {

@@ -1167,6 +1167,39 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(etat["authenticated"])
         self.assertIn("ConnectionError", etat["error"])
 
+    async def test_livestream_readexactly_reassemble_payload_fragmente(self):
+        """blinkpy #1232 (correctif amont pas encore publié) : un paquet
+        coupé entre deux segments TCP ne doit pas être pris pour une
+        connexion morte. ``read()`` rend dès la moindre miette disponible,
+        ``readexactly()`` attend la taille annoncée par l'en-tête."""
+        stream = blink_engine._blinkpy_livestream.BlinkLiveStream.__new__(
+            blink_engine._blinkpy_livestream.BlinkLiveStream
+        )
+        entete = bytes([0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xBC])
+        charge = bytes([0x47] + [0x00] * 187)  # 188 octets, comme l'en-tête l'annonce
+
+        lecteur = asyncio.StreamReader()
+        lecteur.feed_data(entete)
+        lecteur.feed_data(charge[:100])  # segment coupé : le reste arrive plus tard
+
+        client = mock.Mock()
+        client.is_closing.return_value = False
+        client.write = mock.Mock()
+        client.drain = mock.AsyncMock()
+
+        stream.target_reader = lecteur
+        stream.target_writer = mock.Mock()
+        stream.clients = [client]
+
+        tache = asyncio.ensure_future(stream.recv())
+        await asyncio.sleep(0)  # laisse recv() vider le tampon et bloquer sur le reste
+
+        lecteur.feed_data(charge[100:])
+        lecteur.feed_eof()
+        await tache
+
+        client.write.assert_called_once_with(charge)
+
 
 class FauxProcessusServe:
     """Simule le subprocess.Popen de « serve » lancé par accueillir()."""

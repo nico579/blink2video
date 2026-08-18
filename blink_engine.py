@@ -13,11 +13,94 @@ import runtime
 
 from aiohttp import ClientError
 from blinkpy.blinkpy import Blink
+from blinkpy import livestream as _blinkpy_livestream
 
 import merge_daily as md
 
 import blink_models
 import blink_registre
+
+
+async def _recv_corrige(self):
+    """Remplace BlinkLiveStream.recv (blinkpy/livestream.py) : lit les trames
+    avec `readexactly` plutôt que `read`.
+
+    `StreamReader.read(n)` rend dès que la moindre donnée est disponible, pas
+    forcément les `n` octets demandés. Un paquet vidéo coupé entre deux
+    segments TCP (fréquent, surtout sur les gros paquets) se lit alors en
+    plusieurs morceaux ; le code amont traite le premier morceau incomplet
+    comme une connexion morte et referme une session parfaitement saine,
+    d'où les directs qui s'arrêtent après une poignée de secondes sans
+    aucune erreur réseau réelle. `readexactly` attend la taille demandée et
+    ne lève que sur une vraie fin de connexion.
+
+    Correctif amont proposé mais pas encore publié sur PyPI :
+    https://github.com/fronzbot/blinkpy/pull/1232 (confirmé avec un test de
+    régression qui reproduit exactement ce symptôme). À retirer dès qu'une
+    version de blinkpy l'intègre."""
+    try:
+        _blinkpy_livestream._LOGGER.debug("Starting copy from target to clients")
+        while not self.target_reader.at_eof():
+            try:
+                data = await self.target_reader.readexactly(9)
+            except asyncio.IncompleteReadError:
+                _blinkpy_livestream._LOGGER.debug(
+                    "Target closed before a full 9-byte header"
+                )
+                break
+
+            msgtype = data[0]
+            sequence = int.from_bytes(data[1:5], byteorder="big")
+            payload_length = int.from_bytes(data[5:9], byteorder="big")
+            _blinkpy_livestream._LOGGER.debug(
+                "Received packet: msgtype=%d, sequence=%d, payload_length=%d",
+                msgtype, sequence, payload_length,
+            )
+
+            if payload_length <= 0:
+                _blinkpy_livestream._LOGGER.debug(
+                    "Invalid payload length: %d", payload_length
+                )
+                continue
+
+            try:
+                data = await self.target_reader.readexactly(payload_length)
+            except asyncio.IncompleteReadError:
+                _blinkpy_livestream._LOGGER.debug(
+                    "Target closed before a full payload"
+                )
+                break
+
+            if msgtype != 0x00:
+                _blinkpy_livestream._LOGGER.debug(
+                    "Skipping unsupported msgtype %d", msgtype
+                )
+                continue
+
+            if data[0] != 0x47:
+                _blinkpy_livestream._LOGGER.debug(
+                    "Skipping video payload missing 0x47 at start"
+                )
+                continue
+
+            _blinkpy_livestream._LOGGER.debug("Sending %d bytes to clients", len(data))
+            for writer in self.clients:
+                if not writer.is_closing():
+                    writer.write(data)
+                    await writer.drain()
+
+            await asyncio.sleep(0)
+    except _blinkpy_livestream.ssl.SSLError as e:
+        if e.reason != "APPLICATION_DATA_AFTER_CLOSE_NOTIFY":
+            _blinkpy_livestream._LOGGER.exception("SSL error while receiving data")
+    except Exception:
+        _blinkpy_livestream._LOGGER.exception("Error while receiving data")
+    finally:
+        self.target_writer.close()
+        _blinkpy_livestream._LOGGER.debug("Receiving was aborted, aborting sending")
+
+
+_blinkpy_livestream.BlinkLiveStream.recv = _recv_corrige
 
 
 class CloudResult(NamedTuple):
