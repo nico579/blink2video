@@ -100,7 +100,7 @@ refuses the first run of an archive downloaded through a browser, hence the
 
 ## The interface
 
-`blink2video open` opens the page served on `127.0.0.1:8765`. Five views:
+The page, at `127.0.0.1:8765`, has five views:
 
 - **Live**: one tile per camera, its state, and detection arming.
 - **Clips**: newest first, with a preview and an "Écarter" button that removes a
@@ -203,7 +203,7 @@ included.
 
 Everything above already works from the page. This chapter is for the terminal
 alternative: scripting, a headless machine, a custom composition, or the full
-list of options. Most people will never need it.
+list of options.
 
 **First run**, one step at a time instead of the double-click:
 

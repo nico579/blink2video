@@ -111,7 +111,7 @@ du tableau. Un clic droit puis « Ouvrir » fait la même chose.
 
 ## L'interface
 
-`blink2video open` ouvre la page servie sur `127.0.0.1:8765`. Cinq vues :
+La page, sur `127.0.0.1:8765`, a cinq vues :
 
 - **Direct** : une tuile par caméra, son état, et l'armement de la détection.
 - **Clips** : du plus récent au plus ancien, avec un aperçu et un bouton
@@ -219,9 +219,9 @@ autonome, ffmpeg compris.
 
 ## Ligne de commande
 
-Tout ce qui précède fonctionne déjà depuis la page. Ce chapitre couvre
+Tout ce qui précède fonctionne déjà depuis la page web. Ce chapitre couvre
 l'alternative terminal : scripter, une machine sans écran, une composition sur
-mesure, ou la liste complète des options. Peu de monde en aura besoin.
+mesure, ou la liste complète des options.
 
 **Premier lancement**, étape par étape plutôt qu'un double-clic :
 
