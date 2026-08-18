@@ -1945,6 +1945,10 @@ PAGE = """<!doctype html>
   .maj #passages { font-variant-numeric:tabular-nums; }
   /* Une version qui attend se remarque sans crier : la couleur suffit. */
   #update { background:#2f4a33; border-color:var(--in); color:#a8e6c0; }
+  .langGroup { display:flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .btn-lang { background:var(--card); color:var(--dim); border:none; border-radius:0;
+              padding:7px 10px; font:inherit; font-weight:600; cursor:pointer; }
+  .btn-lang.active { background:#3a5a86; color:#fff; }
   main { padding:20px; }
   h2 { font-size:14px; color:var(--dim); font-weight:600; margin:28px 0 12px;
        border-bottom:1px solid var(--line); padding-bottom:7px; }
@@ -2045,11 +2049,11 @@ PAGE = """<!doctype html>
 <header>
   <h1>blink2video<span class="v">__VERSION__</span></h1>
   <select id="view">
-    <option value="live">Direct</option>
-    <option value="clips">Clips</option>
-    <option value="daily">Journalières</option>
-    <option value="weekly">Hebdomadaires</option>
-    <option value="monthly">Mensuelles</option>
+    <option value="live" data-i18n="view.live">Direct</option>
+    <option value="clips" data-i18n="view.clips">Clips</option>
+    <option value="daily" data-i18n="view.daily">Journalières</option>
+    <option value="weekly" data-i18n="view.weekly">Hebdomadaires</option>
+    <option value="monthly" data-i18n="view.monthly">Mensuelles</option>
   </select>
   <select id="camera"></select>
   <select id="day"></select>
@@ -2059,83 +2063,90 @@ PAGE = """<!doctype html>
   <div class="maj">
     <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
-    <button class="primary" id="refresh">Actualiser</button>
-    <button id="reglagesButton" title="Réglages">⚙ Réglages</button>
+    <button class="primary" id="refresh" data-i18n="btn.refresh">Actualiser</button>
+    <button id="reglagesButton" data-i18n-title="btn.reglages.title" title="Réglages">⚙ Réglages</button>
   </div>
+  <span class="langGroup" title="Langue / Language">
+    <button class="btn-lang" data-lang-btn="fr" onclick="setLang('fr', true)">FR</button>
+    <button class="btn-lang" data-lang-btn="en" onclick="setLang('en', true)">EN</button>
+  </span>
   <div id="work"><span id="phase"></span><progress id="bar"></progress></div>
 </header>
 <main><div id="list"></div><pre id="log"></pre></main>
 
 <dialog id="auth">
-  <h3 id="authTitle">Connexion Blink</h3>
-  <p id="authHint">Le mot de passe sert uniquement à ouvrir la session ; seuls
+  <h3 id="authTitle" data-i18n="auth.title">Connexion Blink</h3>
+  <p id="authHint" data-i18n="auth.hint">Le mot de passe sert uniquement à ouvrir la session ; seuls
      les jetons sont enregistrés, jamais le mot de passe.</p>
   <p id="authError"></p>
   <div id="authCreds">
-    <input id="user" type="email" placeholder="Adresse e-mail" autocomplete="username">
+    <input id="user" type="email" data-i18n-placeholder="auth.email" placeholder="Adresse e-mail" autocomplete="username">
     <div class="champMdp">
-      <input id="pass" type="password" placeholder="Mot de passe"
+      <input id="pass" type="password" data-i18n-placeholder="auth.password" placeholder="Mot de passe"
              autocomplete="current-password">
-      <button type="button" id="passToggle" aria-label="Afficher le mot de passe">Afficher</button>
+      <button type="button" id="passToggle" data-i18n="auth.show"
+              aria-label="Afficher le mot de passe">Afficher</button>
     </div>
   </div>
   <div id="authCode" hidden>
-    <input id="code" inputmode="numeric" placeholder="Code reçu par SMS ou e-mail"
+    <input id="code" inputmode="numeric" data-i18n-placeholder="auth.code" placeholder="Code reçu par SMS ou e-mail"
            autocomplete="one-time-code">
   </div>
   <div class="row">
-    <button id="authCancel">Annuler</button>
-    <button class="primary" id="authOk">Se connecter</button>
+    <button id="authCancel" data-i18n="auth.cancel">Annuler</button>
+    <button class="primary" id="authOk" data-i18n="auth.ok">Se connecter</button>
   </div>
 </dialog>
 
 <dialog id="reglages">
-  <h3>Réglages</h3>
+  <h3 data-i18n="reglages.title">Réglages</h3>
   <label id="autostartLabel"
+         data-i18n-title="reglages.autostart.title"
          title="Démarre le serveur web et le traitement des clips à l'ouverture
                  de session, en arrière-plan — n'ouvre pas cette page toute seule">
-    <input type="checkbox" id="autostart"> Démarrage de la surveillance à
-    l'ouverture de session
+    <input type="checkbox" id="autostart"> <span data-i18n="reglages.autostart">Démarrage de la surveillance à
+    l'ouverture de session</span>
   </label>
-  <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
-    <input type="checkbox" id="auto"> Actualisation automatique de la page
+  <label id="autoLabel" data-i18n-title="reglages.auto.title" title="Recharger la liste dès que des clips arrivent">
+    <input type="checkbox" id="auto"> <span data-i18n="reglages.auto">Actualisation automatique de la page</span>
   </label>
   <label id="outLabel">
-    <input type="checkbox" id="showOut"> Voir les clips écartés
+    <input type="checkbox" id="showOut"> <span data-i18n="reglages.showOut">Voir les clips écartés</span>
   </label>
   <fieldset>
-    <legend>Serveur</legend>
+    <legend data-i18n="reglages.serveur">Serveur</legend>
     <div class="champCadence">
-      <label for="port">Port</label>
+      <label for="port" data-i18n="reglages.port">Port</label>
       <input type="number" id="port" min="1" max="65535" step="1">
     </div>
   </fieldset>
   <fieldset>
-    <legend>Stockage</legend>
-    <label for="storageDir" class="etiquetteChamp">Dossier des données</label>
-    <input type="text" id="storageDir" placeholder="C:/chemin/vers/le/dossier">
-    <p class="sub tiny">Ne déplace pas les clips ni la session Blink déjà
+    <legend data-i18n="reglages.stockage">Stockage</legend>
+    <label for="storageDir" class="etiquetteChamp" data-i18n="reglages.storageDir">Dossier des données</label>
+    <input type="text" id="storageDir" data-i18n-placeholder="reglages.storageDir.placeholder"
+           placeholder="C:/chemin/vers/le/dossier">
+    <p class="sub tiny" data-i18n="reglages.storageDir.hint">Ne déplace pas les clips ni la session Blink déjà
        présents à l'ancien emplacement : à faire vous-même si vous changez
        ce chemin. Vide = emplacement par défaut, celui de l'exécutable.</p>
   </fieldset>
   <fieldset>
-    <legend>Cadence de lecture des caméras</legend>
+    <legend data-i18n="reglages.cadence">Cadence de lecture des caméras</legend>
     <div class="champCadence">
-      <label for="usbMinutes">USB (minutes)</label>
+      <label for="usbMinutes" data-i18n="reglages.usb">USB (minutes)</label>
       <input type="number" id="usbMinutes" min="1" step="1">
     </div>
     <div class="champCadence">
-      <label for="cloudMinutes">Cloud (minutes)</label>
+      <label for="cloudMinutes" data-i18n="reglages.cloud">Cloud (minutes)</label>
       <input type="number" id="cloudMinutes" min="1" step="1">
     </div>
   </fieldset>
   <fieldset>
-    <legend>Vidéo</legend>
+    <legend data-i18n="reglages.video">Vidéo</legend>
     <label id="timestampLabel">
-      <input type="checkbox" id="timestamp"> Incruster la date et l'heure
-      dans l'image
+      <input type="checkbox" id="timestamp"> <span data-i18n="reglages.timestamp">Incruster la date et l'heure
+      dans l'image</span>
     </label>
-    <label for="timezone" class="etiquetteChamp">Fuseau horaire</label>
+    <label for="timezone" class="etiquetteChamp" data-i18n="reglages.timezone">Fuseau horaire</label>
     <input type="text" id="timezone" list="fuseauxCourants" placeholder="Europe/Paris">
     <datalist id="fuseauxCourants">
       <option value="Europe/Paris">
@@ -2155,36 +2166,262 @@ PAGE = """<!doctype html>
     </datalist>
   </fieldset>
   <fieldset>
-    <legend>Archivage</legend>
+    <legend data-i18n="reglages.archivage">Archivage</legend>
     <label id="mergeJourLabel">
-      <input type="checkbox" id="mergeJour"> Vidéo par jour
+      <input type="checkbox" id="mergeJour"> <span data-i18n="reglages.mergeJour">Vidéo par jour</span>
     </label>
     <label id="mergeSemaineLabel">
-      <input type="checkbox" id="mergeSemaine"> Agrégat hebdomadaire
+      <input type="checkbox" id="mergeSemaine"> <span data-i18n="reglages.mergeSemaine">Agrégat hebdomadaire</span>
     </label>
     <label id="mergeMoisLabel">
-      <input type="checkbox" id="mergeMois"> Agrégat mensuel
+      <input type="checkbox" id="mergeMois"> <span data-i18n="reglages.mergeMois">Agrégat mensuel</span>
     </label>
-    <p class="sub tiny">Semaine et mois sont assemblés à partir des vidéos
+    <p class="sub tiny" data-i18n="reglages.archivage.hint">Semaine et mois sont assemblés à partir des vidéos
        journalières : décocher « jour » désactive aussi les deux autres.</p>
   </fieldset>
   <fieldset>
-    <legend>Alertes</legend>
-    <div id="sourdineListe" class="sub tiny">Chargement…</div>
+    <legend data-i18n="reglages.alertes">Alertes</legend>
+    <div id="sourdineListe" class="sub tiny" data-i18n="sourdine.loading">Chargement…</div>
   </fieldset>
-  <p id="reglagesHint" class="sub tiny">Les réglages ne prennent effet
+  <p id="reglagesHint" class="sub tiny" data-i18n="reglages.hint">Les réglages ne prennent effet
      qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le
      port redirige cette page vers la nouvelle adresse.</p>
-  <button class="primary" id="reglagesApply">Appliquer et redémarrer</button>
-  <button id="stopButton">Arrêter la surveillance des caméras</button>
+  <button class="primary" id="reglagesApply" data-i18n="reglages.apply">Appliquer et redémarrer</button>
+  <button id="stopButton" data-i18n="reglages.stop">Arrêter la surveillance des caméras</button>
   <div class="row">
-    <button id="reglagesClose">Fermer</button>
+    <button id="reglagesClose" data-i18n="reglages.close">Fermer</button>
   </div>
 </dialog>
 <script>
 let data = { clips: [], cameras: [], days: [] };
 let videos = { daily: [], weekly: [], monthly: [] };
 const $ = (id) => document.getElementById(id);
+
+// ── i18n ─────────────────────────────────────────────────────────────────
+// Même pattern que gui/app.js de lidar2map : dico inline par locale + attribut
+// data-i18n sur les nœuds statiques, t()/tf() appelés directement dans le
+// texte généré en JS. Zéro dépendance. Le FR en dur dans le HTML reste le
+// repli si une clé manque : pas de page cassée. Détection : navigator.language
+// au premier chargement ; override manuel persisté en localStorage (page web
+// ordinaire servie par serve.py, pas de webview packagée à contourner ici).
+const I18N = {
+  fr: {
+    "view.live": "Direct", "view.clips": "Clips", "view.daily": "Journalières",
+    "view.weekly": "Hebdomadaires", "view.monthly": "Mensuelles",
+    "filter.allcameras": "toutes caméras", "filter.alldays": "tous les jours",
+    "btn.refresh": "Actualiser", "btn.reglages.title": "Réglages",
+    "update.installing": "Installer {version}",
+    "update.title": "Version {version} publiée. Le téléchargement, l'arrêt et la relance sont automatiques.",
+    "update.updating": "Mise à jour…",
+    "update.progress": "Mise à jour vers {version} : téléchargement, puis relance…",
+    "passages.updated": "actualisé {heure}",
+    "passages.new.one": " · {n} nouveau clip, cliquez sur Actualiser",
+    "passages.new.many": " · {n} nouveaux clips, cliquez sur Actualiser",
+    "auth.title": "Connexion Blink", "auth.title.2fa": "Vérification en deux étapes",
+    "auth.hint": "Le mot de passe sert uniquement à ouvrir la session ; seuls les jetons sont enregistrés, jamais le mot de passe.",
+    "auth.hint.2fa": "Blink vient d'envoyer un code. Saisissez-le pour terminer la connexion.",
+    "auth.email": "Adresse e-mail", "auth.password": "Mot de passe",
+    "auth.show": "Afficher", "auth.hide": "Masquer",
+    "auth.show.aria": "Afficher le mot de passe", "auth.hide.aria": "Masquer le mot de passe",
+    "auth.code": "Code reçu par SMS ou e-mail",
+    "auth.cancel": "Annuler", "auth.ok": "Se connecter", "auth.validate": "Valider",
+    "auth.connecting": "Connexion en cours…", "auth.failed": "Échec de la connexion.",
+    "reglages.title": "Réglages",
+    "reglages.autostart": "Démarrage de la surveillance à l'ouverture de session",
+    "reglages.autostart.title": "Démarre le serveur web et le traitement des clips à l'ouverture de session, en arrière-plan — n'ouvre pas cette page toute seule",
+    "reglages.auto": "Actualisation automatique de la page",
+    "reglages.auto.title": "Recharger la liste dès que des clips arrivent",
+    "reglages.showOut": "Voir les clips écartés",
+    "reglages.serveur": "Serveur", "reglages.port": "Port",
+    "reglages.stockage": "Stockage", "reglages.storageDir": "Dossier des données",
+    "reglages.storageDir.placeholder": "C:/chemin/vers/le/dossier",
+    "reglages.storageDir.hint": "Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.",
+    "reglages.cadence": "Cadence de lecture des caméras",
+    "reglages.usb": "USB (minutes)", "reglages.cloud": "Cloud (minutes)",
+    "reglages.video": "Vidéo", "reglages.timestamp": "Incruster la date et l'heure dans l'image",
+    "reglages.timezone": "Fuseau horaire",
+    "reglages.archivage": "Archivage", "reglages.mergeJour": "Vidéo par jour",
+    "reglages.mergeSemaine": "Agrégat hebdomadaire", "reglages.mergeMois": "Agrégat mensuel",
+    "reglages.archivage.hint": "Semaine et mois sont assemblés à partir des vidéos journalières : décocher « jour » désactive aussi les deux autres.",
+    "reglages.alertes": "Alertes",
+    "reglages.hint": "Les réglages ne prennent effet qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le port redirige cette page vers la nouvelle adresse.",
+    "reglages.apply": "Appliquer et redémarrer", "reglages.restarting": "Redémarrage…",
+    "reglages.restarting.settings": "Redémarrage avec les nouveaux réglages…",
+    "reglages.portchange": "Port changé : redirection vers {url} dès l'arrêt confirmé…",
+    "reglages.stop": "Arrêter la surveillance des caméras", "reglages.close": "Fermer",
+    "reglages.error.cadence": "Les cadences doivent valoir au moins 1 minute.",
+    "reglages.error.port": "Le port doit être compris entre 1 et 65535.",
+    "reglages.error.timezone": "Le fuseau horaire ne peut pas être vide.",
+    "stop.stopping": "Arrêt…",
+    "stop.stopped": "blink2video est arrêté. Relancez l'application pour reprendre.",
+    "sourdine.loading": "Chargement…", "sourdine.unavailable": "Liste des caméras indisponible.",
+    "sourdine.none": "Aucune caméra connue pour l'instant.", "sourdine.muted": " {camera} en sourdine",
+    "live.querying": "Interrogation du système Blink…",
+    "live.count": "{n} caméra(s) · {m} armée(s)",
+    "system.armed": "Système armé", "system.disarmed": "Système désarmé",
+    "camera.offline": "HORS LIGNE", "camera.noeffect": "sans effet, système désarmé",
+    "camera.detection.on": "Détection active", "camera.detection.off": "Détection coupée",
+    "camera.battery": "batterie {v}", "camera.wifi": "Wi-Fi {v} dBm",
+    "camera.lfr": "liaison module {v}", "camera.measured.at": "relevé à {v}",
+    "camera.measured.on": "relevé du {v}", "camera.firmware": "micrologiciel {v}",
+    "camera.noclips": "aucun clip récupéré", "camera.clipssource": "clips : {v}",
+    "camera.none": "—",
+    "watch.live": "Voir en direct", "watch.retry": "Réessayer", "watch.stop": "Arrêter",
+    "watch.waking": "Réveil de la caméra…", "watch.waking.seconds": "Réveil de la caméra… {s} s",
+    "watch.waking.slow": "Réveil de la caméra… {s} s (une caméra sur batterie est plus lente)",
+    "watch.waking.mse": "Réveil de la caméra… (MSE)", "watch.reconnecting": "Reconnexion…",
+    "watch.noimage": "Aucune image reçue. La caméra n'a pas répondu.",
+    "watch.refused": "Le flux a été refusé par le serveur.",
+    "watch.refused.code": "Le flux a été refusé par le serveur ({code}).",
+    "watch.refused.retry": "Flux refusé. Un direct précédent finit peut-être de se fermer : réessayez dans quelques secondes.",
+    "watch.codec.unsupported": "Codec non supporté par ce navigateur : {codec}",
+    "command.sending": "Envoi de la commande…",
+    "clips.none.filtered": "Aucun clip ne correspond à ce filtre.",
+    "clips.none.ever": "Aucun clip récupéré pour l'instant.<br>Le téléchargement tourne déjà en arrière-plan (clé USB toutes les 10 min, cloud toutes les minutes) : les clips apparaîtront ici sans rien faire. Vérifiez qu'une clé USB est branchée sur le module : sans elle, les enregistrements ne vont que dans le cloud de l'abonnement Blink, que cet outil ne lit pas.",
+    "clips.window": "{n} derniers jours affichés ({m} sur {total} clip(s) connus) · ",
+    "clips.showall": "afficher tout l'historique",
+    "clips.loadinghistory": "Chargement de l'historique complet…",
+    "videos.count": "{n} vidéo(s) · {duree} au total",
+    "videos.none": "Aucune vidéo assemblée. Lancez une actualisation.",
+    "videos.download": "Télécharger",
+    "clip.resume": "Reprendre", "clip.discard": "Écarter",
+    "refresh.starting": "Démarrage…", "refresh.errors": "Terminé avec des erreurs",
+    "refresh.disconnected": "\\nConnexion interrompue.\\n",
+  },
+  en: {
+    "view.live": "Live", "view.clips": "Clips", "view.daily": "Daily",
+    "view.weekly": "Weekly", "view.monthly": "Monthly",
+    "filter.allcameras": "all cameras", "filter.alldays": "all days",
+    "btn.refresh": "Refresh", "btn.reglages.title": "Settings",
+    "update.installing": "Install {version}",
+    "update.title": "Version {version} published. Download, stop and restart are automatic.",
+    "update.updating": "Updating…",
+    "update.progress": "Updating to {version}: downloading, then restarting…",
+    "passages.updated": "updated {heure}",
+    "passages.new.one": " · {n} new clip, click Refresh",
+    "passages.new.many": " · {n} new clips, click Refresh",
+    "auth.title": "Blink login", "auth.title.2fa": "Two-step verification",
+    "auth.hint": "The password is only used to open the session; only the tokens are stored, never the password.",
+    "auth.hint.2fa": "Blink just sent a code. Enter it to finish logging in.",
+    "auth.email": "Email address", "auth.password": "Password",
+    "auth.show": "Show", "auth.hide": "Hide",
+    "auth.show.aria": "Show password", "auth.hide.aria": "Hide password",
+    "auth.code": "Code received by SMS or email",
+    "auth.cancel": "Cancel", "auth.ok": "Log in", "auth.validate": "Confirm",
+    "auth.connecting": "Signing in…", "auth.failed": "Login failed.",
+    "reglages.title": "Settings",
+    "reglages.autostart": "Start monitoring at login",
+    "reglages.autostart.title": "Starts the web server and clip processing at login, in the background — does not open this page by itself",
+    "reglages.auto": "Automatic page refresh",
+    "reglages.auto.title": "Reload the list as soon as clips arrive",
+    "reglages.showOut": "Show discarded clips",
+    "reglages.serveur": "Server", "reglages.port": "Port",
+    "reglages.stockage": "Storage", "reglages.storageDir": "Data folder",
+    "reglages.storageDir.placeholder": "C:/path/to/the/folder",
+    "reglages.storageDir.hint": "Does not move clips or the Blink session already present at the old location: do it yourself if you change this path. Empty = default location, next to the executable.",
+    "reglages.cadence": "Camera polling interval",
+    "reglages.usb": "USB (minutes)", "reglages.cloud": "Cloud (minutes)",
+    "reglages.video": "Video", "reglages.timestamp": "Burn the date and time into the image",
+    "reglages.timezone": "Time zone",
+    "reglages.archivage": "Archiving", "reglages.mergeJour": "Daily video",
+    "reglages.mergeSemaine": "Weekly aggregate", "reglages.mergeMois": "Monthly aggregate",
+    "reglages.archivage.hint": "Weekly and monthly are assembled from the daily videos: unchecking \u201cdaily\u201d also disables the other two.",
+    "reglages.alertes": "Alerts",
+    "reglages.hint": "Settings only take effect on restart: \u201cApply\u201d saves and restarts. Changing the port redirects this page to the new address.",
+    "reglages.apply": "Apply and restart", "reglages.restarting": "Restarting…",
+    "reglages.restarting.settings": "Restarting with the new settings…",
+    "reglages.portchange": "Port changed: redirecting to {url} once the shutdown is confirmed…",
+    "reglages.stop": "Stop camera monitoring", "reglages.close": "Close",
+    "reglages.error.cadence": "Intervals must be at least 1 minute.",
+    "reglages.error.port": "The port must be between 1 and 65535.",
+    "reglages.error.timezone": "The time zone cannot be empty.",
+    "stop.stopping": "Stopping…",
+    "stop.stopped": "blink2video is stopped. Restart the application to resume.",
+    "sourdine.loading": "Loading…", "sourdine.unavailable": "Camera list unavailable.",
+    "sourdine.none": "No known camera yet.", "sourdine.muted": " {camera} muted",
+    "live.querying": "Querying the Blink system…",
+    "live.count": "{n} camera(s) · {m} armed",
+    "system.armed": "System armed", "system.disarmed": "System disarmed",
+    "camera.offline": "OFFLINE", "camera.noeffect": "no effect, system disarmed",
+    "camera.detection.on": "Detection on", "camera.detection.off": "Detection off",
+    "camera.battery": "battery {v}", "camera.wifi": "Wi-Fi {v} dBm",
+    "camera.lfr": "module link {v}", "camera.measured.at": "measured at {v}",
+    "camera.measured.on": "measured on {v}", "camera.firmware": "firmware {v}",
+    "camera.noclips": "no clip retrieved", "camera.clipssource": "clips: {v}",
+    "camera.none": "—",
+    "watch.live": "View live", "watch.retry": "Retry", "watch.stop": "Stop",
+    "watch.waking": "Waking the camera…", "watch.waking.seconds": "Waking the camera… {s} s",
+    "watch.waking.slow": "Waking the camera… {s} s (a battery camera is slower)",
+    "watch.waking.mse": "Waking the camera… (MSE)", "watch.reconnecting": "Reconnecting…",
+    "watch.noimage": "No image received. The camera did not respond.",
+    "watch.refused": "The stream was refused by the server.",
+    "watch.refused.code": "The stream was refused by the server ({code}).",
+    "watch.refused.retry": "Stream refused. A previous live view may still be closing: try again in a few seconds.",
+    "watch.codec.unsupported": "Codec not supported by this browser: {codec}",
+    "command.sending": "Sending command…",
+    "clips.none.filtered": "No clip matches this filter.",
+    "clips.none.ever": "No clip retrieved yet.<br>Download is already running in the background (USB every 10 min, cloud every minute): clips will appear here on their own. Check that a USB drive is plugged into the module: without it, recordings only go to the Blink subscription cloud, which this tool does not read.",
+    "clips.window": "last {n} days shown ({m} of {total} known clip(s)) · ",
+    "clips.showall": "show full history",
+    "clips.loadinghistory": "Loading full history…",
+    "videos.count": "{n} video(s) · {duree} total",
+    "videos.none": "No assembled video. Run a refresh.",
+    "videos.download": "Download",
+    "clip.resume": "Resume", "clip.discard": "Discard",
+    "refresh.starting": "Starting…", "refresh.errors": "Finished with errors",
+    "refresh.disconnected": "\\nConnection lost.\\n",
+  },
+};
+let _lang = "fr";
+function t(k) { return (I18N[_lang] && I18N[_lang][k]) || I18N.fr[k] || k; }
+function tf(k, v) {
+  let s = t(k);
+  for (const p in (v || {})) s = s.split("{" + p + "}").join(v[p]);
+  return s;
+}
+function detectLang() {
+  return (navigator.language || "en").toLowerCase().startsWith("fr") ? "fr" : "en";
+}
+function applyI18n() {
+  document.documentElement.lang = _lang;
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const v = t(el.dataset.i18n); if (v) el.textContent = v;
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    const v = t(el.dataset.i18nPlaceholder); if (v) el.placeholder = v;
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    const v = t(el.dataset.i18nTitle); if (v) el.title = v;
+  });
+  document.querySelectorAll("[data-lang-btn]").forEach((b) =>
+    b.classList.toggle("active", b.dataset.langBtn === _lang));
+}
+function setLang(code, persist) {
+  _lang = code === "en" ? "en" : "fr";
+  applyI18n();
+  // Le bouton « afficher/masquer » le mot de passe suit son propre état
+  // (masqué ou non), qu'applyI18n ne connaît pas : ré-appliqué ici plutôt
+  // que par data-i18n, qui écraserait « Masquer » par « Afficher » si le
+  // mot de passe était déjà visible au moment du changement de langue.
+  const pass = $("pass");
+  if (pass) {
+    const masque = pass.type === "password";
+    $("passToggle").textContent = t(masque ? "auth.show" : "auth.hide");
+    $("passToggle").setAttribute("aria-label", t(masque ? "auth.show.aria" : "auth.hide.aria"));
+  }
+  // Rendu par JS plutôt que par data-i18n : reconstruire pour que la langue
+  // s'applique immédiatement, sans attendre le prochain événement qui
+  // déclencherait normalement ce rendu. fill() gère un tableau vide sans
+  // problème (l'option « tout » reste posée), donc pas de garde ici.
+  if (typeof fill === "function") {
+    fill($("camera"), data.cameras || [], t("filter.allcameras"),
+         (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
+    fill($("day"), data.days || [], t("filter.alldays"));
+  }
+  if (typeof render === "function" && data.clips) render();
+  if (typeof renderLive === "function" && system) renderLive();
+  if (persist) localStorage.setItem("lang", _lang);
+}
 
 function fill(select, values, all, label) {
   const kept = select.value;
@@ -2223,7 +2460,7 @@ let system = null;
 
 async function loadSystem(force) {
   if (system && !force) return renderLive();
-  $("list").innerHTML = `<p class="empty">Interrogation du système Blink…</p>`;
+  $("list").innerHTML = `<p class="empty">${t("live.querying")}</p>`;
   $("count").textContent = "";
   try {
     system = await (await fetch("/api/system")).json();
@@ -2273,16 +2510,15 @@ function montrerMaj(neuve) {
   const bouton = $("update");
   bouton.hidden = !(neuve && neuve.version);
   if (bouton.hidden || bouton.dataset.encours) return;
-  bouton.textContent = `Installer ${neuve.version}`;
-  bouton.title = `Version ${neuve.version} publiée. Le téléchargement, `
-               + `l'arrêt et la relance sont automatiques.`;
+  bouton.textContent = tf("update.installing", { version: neuve.version });
+  bouton.title = tf("update.title", { version: neuve.version });
 }
 
 $("update").onclick = async () => {
   const bouton = $("update");
   bouton.dataset.encours = "1";
   bouton.disabled = true;
-  bouton.textContent = "Mise à jour…";
+  bouton.textContent = t("update.updating");
   const reponse = await fetch("/api/update", { method: "POST",
     headers: { "Content-Type": "application/json" }, body: "{}" });
   const resultat = await reponse.json();
@@ -2292,8 +2528,7 @@ $("update").onclick = async () => {
     delete bouton.dataset.encours;
     return;
   }
-  $("phase").textContent =
-    `Mise à jour vers ${resultat.version} : téléchargement, puis relance…`;
+  $("phase").textContent = tf("update.progress", { version: resultat.version });
   $("bar").removeAttribute("value");
   $("work").classList.add("on");
   $("refresh").disabled = true;
@@ -2339,10 +2574,10 @@ async function heuresDePassage() {
     return;
   }
   const nouveaux = arrives
-    ? ` · ${arrives} nouveau${arrives > 1 ? "x" : ""} clip${arrives > 1 ? "s" : ""}, cliquez sur Actualiser`
+    ? tf(arrives > 1 ? "passages.new.many" : "passages.new.one", { n: arrives })
     : "";
   $("passages").textContent =
-    `actualisé ${vus[plusRecent].slice(11, 16)}` + nouveaux;
+    tf("passages.updated", { heure: vus[plusRecent].slice(11, 16) }) + nouveaux;
 }
 
 function renderLive() {
@@ -2361,17 +2596,17 @@ function renderLive() {
   const cameras = system.systems.reduce((n, s) => n + s.cameras.length, 0);
   const armed = system.systems.reduce(
     (n, s) => n + s.cameras.filter((c) => c.armed).length, 0);
-  $("count").textContent = `${cameras} caméra(s) · ${armed} armée(s)`;
+  $("count").textContent = tf("live.count", { n: cameras, m: armed });
 
   $("list").innerHTML = system.systems.map((s) => `
     <h2>
       ${s.name}
       <span class="sub tiny">${[s.module,
-        s.module_firmware ? "micrologiciel " + s.module_firmware : null,
+        s.module_firmware ? tf("camera.firmware", { v: s.module_firmware }) : null,
         s.module_serial].filter(Boolean).join(" · ")}</span>
       <button class="act ${s.armed ? "in" : "out"}"
               onclick="setArmed('system', '${s.name}', ${!s.armed})">
-        ${s.armed ? "Système armé" : "Système désarmé"}
+        ${s.armed ? t("system.armed") : t("system.disarmed")}
       </button>
     </h2>
     <div class="grid wide">${s.cameras.map((c) => cameraCard(c, s.armed)).join("")}</div>
@@ -2385,35 +2620,35 @@ function cameraCard(c, systemArmed) {
   const vieille = c.age_seconds !== null && c.age_seconds > 3600;
   const num = (v) => v !== null && v !== undefined;
   const releve = [
-    c.battery ? `batterie ${c.battery}${num(c.battery_signal) ? ` (${c.battery_signal})` : ""}` : null,
+    c.battery ? tf("camera.battery", { v: c.battery }) + (num(c.battery_signal) ? ` (${c.battery_signal})` : "") : null,
     num(c.temperature) ? `${c.temperature.toFixed(1).replace(".", ",")} °C` : null,
-    num(c.wifi) ? `Wi-Fi ${c.wifi} dBm` : null,
-    num(c.lfr) ? `liaison module ${c.lfr}` : null,
+    num(c.wifi) ? tf("camera.wifi", { v: c.wifi }) : null,
+    num(c.lfr) ? tf("camera.lfr", { v: c.lfr }) : null,
   ].filter(Boolean).join(" · ");
   const date = c.measured_at
-    ? (c.measured_at.includes("à") ? `relevé du ${c.measured_at}`
-                                   : `relevé à ${c.measured_at}`)
+    ? (c.measured_at.includes("à") ? tf("camera.measured.on", { v: c.measured_at })
+                                   : tf("camera.measured.at", { v: c.measured_at }))
     : null;
   const details = [
-    c.offline ? "HORS LIGNE" : null,
+    c.offline ? t("camera.offline") : null,
     releve || null,
     date,
-    c.armed && !systemArmed ? "sans effet, système désarmé" : null,
+    c.armed && !systemArmed ? t("camera.noeffect") : null,
   ].filter(Boolean).join(" · ");
   return `<div class="card ${c.offline ? "out" : ""}">
-    <div class="live" id="live-${cssId(c.name)}">${repos(c.name, "Voir en direct")}</div>
+    <div class="live" id="live-${cssId(c.name)}">${repos(c.name, t("watch.live"))}</div>
     <div class="meta">
       <div>
         <div class="time">${c.name}</div>
-        <div class="sub">${details || "—"}</div>
+        <div class="sub">${details || t("camera.none")}</div>
         <div class="sub tiny">${[c.model,
-          c.firmware ? "micrologiciel " + c.firmware : null, c.serial,
-          c.clips_source ? "clips : " + c.clips_source : "aucun clip récupéré",
+          c.firmware ? tf("camera.firmware", { v: c.firmware }) : null, c.serial,
+          c.clips_source ? tf("camera.clipssource", { v: c.clips_source }) : t("camera.noclips"),
         ].filter(Boolean).join(" · ")}</div>
       </div>
       <button class="act ${c.armed ? "in" : "out"}"
               onclick="setArmed('camera', '${c.name}', ${!c.armed})">
-        ${c.armed ? "Détection active" : "Détection coupée"}
+        ${c.armed ? t("camera.detection.on") : t("camera.detection.off")}
       </button>
     </div>
   </div>`;
@@ -2427,8 +2662,8 @@ function watch(name) {
   // rend la caméra au bout de la chaîne. Rien d'autre à arrêter.
   box.innerHTML =
     `<img src="/live/${encodeURIComponent(name)}" alt="direct ${name}">
-     <p class="hint overlay" id="hint-${cssId(name)}">Réveil de la caméra…</p>
-     <button class="watch stop" onclick="stopWatch('${name}')">Arrêter</button>`;
+     <p class="hint overlay" id="hint-${cssId(name)}">${t("watch.waking")}</p>
+     <button class="watch stop" onclick="stopWatch('${name}')">${t("watch.stop")}</button>`;
 
   // La première image met une dizaine de secondes : la caméra doit se
   // réveiller, ouvrir sa session, puis ffmpeg doit identifier le flux. Sans
@@ -2445,22 +2680,19 @@ function watch(name) {
       clearInterval(timer);
     } else if (Date.now() - started > 75000) {
       clearInterval(timer);
-      failWatch(name, "Aucune image reçue. La caméra n'a pas répondu.");
+      failWatch(name, t("watch.noimage"));
     } else {
       const s = Math.round((Date.now() - started) / 1000);
-      hint.textContent = s > 20
-        ? `Réveil de la caméra… ${s} s (une caméra sur batterie est plus lente)`
-        : `Réveil de la caméra… ${s} s`;
+      hint.textContent = tf(s > 20 ? "watch.waking.slow" : "watch.waking.seconds", { s });
     }
   }, 500);
   img.onerror = async () => {
     clearInterval(timer);
-    let message = "Le flux a été refusé par le serveur.";
+    let message = t("watch.refused");
     try {
       const info = await (await fetch("/api/live-error")).json();
       if (info.camera === name && info.message) message = info.message;
-      else message = "Flux refusé. Un direct précédent finit peut-être de se "
-                   + "fermer : réessayez dans quelques secondes.";
+      else message = t("watch.refused.retry");
     } catch (error) { /* on garde le message générique */ }
     failWatch(name, message);
   };
@@ -2472,7 +2704,7 @@ function watch(name) {
 // ouverte côté serveur.
 function failWatch(name, message) {
   const box = $("live-" + cssId(name));
-  box.innerHTML = repos(name, "Réessayer") + `<p class="hint overlay">${message}</p>`;
+  box.innerHTML = repos(name, t("watch.retry")) + `<p class="hint overlay">${message}</p>`;
 }
 
 function stopWatch(name) {
@@ -2480,7 +2712,7 @@ function stopWatch(name) {
   // pendant le direct) : la remise au repos est cosmétique, mais couper les
   // flux ci-dessous ne doit jamais en dépendre.
   const box = $("live-" + cssId(name));
-  if (box) box.innerHTML = repos(name, "Voir en direct");
+  if (box) box.innerHTML = repos(name, t("watch.live"));
   const controller = MSE_ABORT[name];
   if (controller) { controller.abort(); delete MSE_ABORT[name]; }
 }
@@ -2541,7 +2773,7 @@ async function connecterMse(name, video, signal, texteAttente, t0) {
           const response = await fetch(`/live-mse/${encodeURIComponent(name)}`,
                                         { signal });
           if (!response.ok) {
-            let message = `Le flux a été refusé par le serveur (${response.status}).`;
+            let message = tf("watch.refused.code", { code: response.status });
             try {
               const info = await (await fetch("/api/live-error")).json();
               if (info.camera === name && info.message) message = info.message;
@@ -2551,7 +2783,7 @@ async function connecterMse(name, video, signal, texteAttente, t0) {
           const codec = response.headers.get("X-Codec") || "avc1.42E01E";
           const mimeType = `video/mp4; codecs="${codec}"`;
           if (!MediaSource.isTypeSupported(mimeType)) {
-            throw new Error(`Codec non supporté par ce navigateur : ${codec}`);
+            throw new Error(tf("watch.codec.unsupported", { codec }));
           }
           const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
           sourceBuffer.mode = "sequence";
@@ -2591,7 +2823,7 @@ async function watchMse(name) {
   const box = $("live-" + cssId(name));
   box.innerHTML =
     `<video autoplay muted playsinline></video>
-     <button class="watch stop" onclick="stopWatch('${name}')">Arrêter</button>`;
+     <button class="watch stop" onclick="stopWatch('${name}')">${t("watch.stop")}</button>`;
   const video = box.querySelector("video");
   const t0 = performance.now();
   window.__mseMetric = null;
@@ -2604,7 +2836,7 @@ async function watchMse(name) {
   while (echecsAVide < MSE_MAX_ECHECS_A_VIDE
          && performance.now() - t0 < MSE_BUDGET_TOTAL_MS) {
     const texte = echecsAVide === 0 && derniereErreur === null
-      ? "Réveil de la caméra… (MSE)" : "Reconnexion…";
+      ? t("watch.waking.mse") : t("watch.reconnecting");
     try {
       const recu = await connecterMse(name, video, controller.signal, texte, t0);
       derniereErreur = null;
@@ -2641,7 +2873,7 @@ function repos(name, libelle) {
 }
 
 async function setArmed(scope, name, armed) {
-  $("count").textContent = "Envoi de la commande…";
+  $("count").textContent = t("command.sending");
   const answer = await fetch("/api/arm", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scope, name, armed }),
@@ -2668,20 +2900,15 @@ function renderClips() {
     // dessus n'aidait qu'à confondre un premier utilisateur pile au moment
     // où la page est encore vide (vu en vrai, essai à froid).
     $("list").innerHTML = data.clips.length
-      ? `<p class="empty">Aucun clip ne correspond à ce filtre.</p>`
-      : `<p class="empty">Aucun clip récupéré pour l'instant.<br>
-           Le téléchargement tourne déjà en arrière-plan (clé USB toutes les
-           10 min, cloud toutes les minutes) : les clips apparaîtront ici
-           sans rien faire. Vérifiez qu'une clé USB est branchée sur le
-           module : sans elle, les enregistrements ne vont que dans le cloud
-           de l'abonnement Blink, que cet outil ne lit pas.</p>`;
+      ? `<p class="empty">${t("clips.none.filtered")}</p>`
+      : `<p class="empty">${t("clips.none.ever")}</p>`;
     return;
   }
   const days = [...new Set(clips.map((c) => c.day))];
   const fenetre = data.window_days
-    ? `<p class="window">${data.window_days} derniers jours affichés
-         (${data.clips.length} sur ${data.total_known} clip(s) connus) ·
-         <a href="#" onclick="afficherTout(); return false;">afficher tout l'historique</a></p>`
+    ? `<p class="window">${tf("clips.window",
+         { n: data.window_days, m: data.clips.length, total: data.total_known })}
+         <a href="#" onclick="afficherTout(); return false;">${t("clips.showall")}</a></p>`
     : "";
   $("list").innerHTML = fenetre + days.map((day) => `
     <h2>${day}</h2>
@@ -2694,11 +2921,10 @@ function renderVideos(kind) {
     .filter((v) => !$("camera").value || v.camera === $("camera").value);
   const total = items.reduce((sum, v) => sum + v.duration, 0);
   $("count").textContent = items.length
-    ? `${items.length} vidéo(s) · ${duration(total)} au total`
+    ? tf("videos.count", { n: items.length, duree: duration(total) })
     : "";
   if (!items.length) {
-    $("list").innerHTML =
-      `<p class="empty">Aucune vidéo assemblée. Lancez une actualisation.</p>`;
+    $("list").innerHTML = `<p class="empty">${t("videos.none")}</p>`;
     return;
   }
   const cameras = [...new Set(items.map((v) => v.camera))];
@@ -2720,7 +2946,7 @@ function videoCard(v) {
         <div class="time">${v.label}</div>
         <div class="sub">${duration(v.duration)}</div>
       </div>
-      <a class="act" href="/media/${url}" download>Télécharger</a>
+      <a class="act" href="/media/${url}" download>${t("videos.download")}</a>
     </div>
   </div>`;
 }
@@ -2737,7 +2963,7 @@ function card(c) {
       <div class="time line">${ligne}</div>
       <button class="act ${c.excluded ? "in" : "out"}"
               onclick="toggle('${c.identity}', ${!c.excluded})">
-        ${c.excluded ? "Reprendre" : "Écarter"}
+        ${c.excluded ? t("clip.resume") : t("clip.discard")}
       </button>
     </div>
   </div>`;
@@ -2757,15 +2983,15 @@ async function load() {
   videos = await videoAnswer.json();
   if (data.error) { $("log").style.display = "block"; $("log").textContent = data.error; return; }
   // Le modèle accompagne le nom ici, une fois, plutôt que sur chaque vignette.
-  fill($("camera"), data.cameras, "toutes caméras",
+  fill($("camera"), data.cameras, t("filter.allcameras"),
        (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
-  fill($("day"), data.days, "tous les jours");
+  fill($("day"), data.days, t("filter.alldays"));
   render();
 }
 
 async function afficherTout() {
   verToutHistorique = true;
-  $("list").innerHTML = `<p class="empty">Chargement de l'historique complet…</p>`;
+  $("list").innerHTML = `<p class="empty">${t("clips.loadinghistory")}</p>`;
   await load();
 }
 
@@ -2794,11 +3020,9 @@ function showAuth(stage, message) {
   const code = stage === "2fa";
   $("authCreds").hidden = code;
   $("authCode").hidden = !code;
-  $("authTitle").textContent = code ? "Vérification en deux étapes" : "Connexion Blink";
-  $("authHint").textContent = code
-    ? "Blink vient d'envoyer un code. Saisissez-le pour terminer la connexion."
-    : "Le mot de passe sert uniquement à ouvrir la session ; seuls les jetons sont enregistrés.";
-  $("authOk").textContent = code ? "Valider" : "Se connecter";
+  $("authTitle").textContent = code ? t("auth.title.2fa") : t("auth.title");
+  $("authHint").textContent = code ? t("auth.hint.2fa") : t("auth.hint");
+  $("authOk").textContent = code ? t("auth.validate") : t("auth.ok");
   if (!$("auth").open) $("auth").showModal();
   (code ? $("code") : $("user")).focus();
 }
@@ -2813,9 +3037,8 @@ function authenticate() {
 $("passToggle").onclick = () => {
   const masque = $("pass").type === "password";
   $("pass").type = masque ? "text" : "password";
-  $("passToggle").textContent = masque ? "Masquer" : "Afficher";
-  $("passToggle").setAttribute(
-    "aria-label", masque ? "Masquer le mot de passe" : "Afficher le mot de passe");
+  $("passToggle").textContent = t(masque ? "auth.hide" : "auth.show");
+  $("passToggle").setAttribute("aria-label", t(masque ? "auth.hide.aria" : "auth.show.aria"));
 };
 
 $("authCancel").onclick = () => {
@@ -2826,7 +3049,7 @@ $("authCancel").onclick = () => {
 $("authOk").onclick = async () => {
   const code = !$("authCode").hidden;
   $("authOk").disabled = true;
-  $("authError").textContent = "Connexion en cours…";
+  $("authError").textContent = t("auth.connecting");
   const body = code
     ? { code: $("code").value }
     : { username: $("user").value, password: $("pass").value };
@@ -2856,7 +3079,7 @@ $("authOk").onclick = async () => {
     $("code").value = "";
     showAuth("2fa", "");
   } else {
-    showAuth(code ? "2fa" : "creds", result.message || "Échec de la connexion.");
+    showAuth(code ? "2fa" : "creds", result.message || t("auth.failed"));
   }
 };
 
@@ -2870,7 +3093,7 @@ $("refresh").onclick = async () => {
   $("log").style.display = "block";
   $("log").textContent = "";
   $("work").classList.add("on");
-  let label = "Démarrage…";
+  let label = t("refresh.starting");
   $("phase").textContent = label;
   $("bar").removeAttribute("value");   // barre indéterminée tant qu'on ne sait pas
 
@@ -2904,7 +3127,7 @@ $("refresh").onclick = async () => {
       $("work").classList.remove("on");
       button.disabled = false;
       actualisationLocale = false;
-      if (!event.ok) $("phase").textContent = "Terminé avec des erreurs";
+      if (!event.ok) $("phase").textContent = t("refresh.errors");
       load();
     }
   };
@@ -2913,7 +3136,7 @@ $("refresh").onclick = async () => {
     $("work").classList.remove("on");
     button.disabled = false;
     actualisationLocale = false;
-    $("log").textContent += "\\nConnexion interrompue.\\n";
+    $("log").textContent += t("refresh.disconnected");
   };
 };
 
@@ -3001,16 +3224,16 @@ $("mergeJour").onchange = appliquerDependanceMergeJour;
 // bouton Écarter d'un clip.
 async function chargerSourdine() {
   const conteneur = $("sourdineListe");
-  conteneur.textContent = "Chargement…";
+  conteneur.textContent = t("sourdine.loading");
   let etat;
   try {
     etat = await (await fetch("/api/sourdine")).json();
   } catch (erreur) {
-    conteneur.textContent = "Liste des caméras indisponible.";
+    conteneur.textContent = t("sourdine.unavailable");
     return;
   }
   if (!etat.cameras.length) {
-    conteneur.textContent = "Aucune caméra connue pour l'instant.";
+    conteneur.textContent = t("sourdine.none");
     return;
   }
   conteneur.innerHTML = "";
@@ -3038,7 +3261,7 @@ async function chargerSourdine() {
       }
     };
     label.appendChild(case_);
-    label.append(` ${camera} en sourdine`);
+    label.append(tf("sourdine.muted", { camera }));
     conteneur.appendChild(label);
   }
 }
@@ -3054,21 +3277,21 @@ $("reglagesApply").onclick = async () => {
   const cloud = parseInt($("cloudMinutes").value, 10);
   const port = parseInt($("port").value, 10);
   if (!(usb >= 1) || !(cloud >= 1)) {
-    alert("Les cadences doivent valoir au moins 1 minute.");
+    alert(t("reglages.error.cadence"));
     return;
   }
   if (!(port >= 1 && port <= 65535)) {
-    alert("Le port doit être compris entre 1 et 65535.");
+    alert(t("reglages.error.port"));
     return;
   }
   const timezone = $("timezone").value.trim();
   if (!timezone) {
-    alert("Le fuseau horaire ne peut pas être vide.");
+    alert(t("reglages.error.timezone"));
     return;
   }
   const bouton = $("reglagesApply");
   bouton.disabled = true;
-  bouton.textContent = "Redémarrage…";
+  bouton.textContent = t("reglages.restarting");
   try {
     const storageDir = $("storageDir").value.trim();
     const timestamp = $("timestamp").checked;
@@ -3085,17 +3308,17 @@ $("reglagesApply").onclick = async () => {
     if (resultat.error) {
       alert(resultat.error);
       bouton.disabled = false;
-      bouton.textContent = "Appliquer et redémarrer";
+      bouton.textContent = t("reglages.apply");
       return;
     }
   } catch (erreur) {
     alert(String(erreur));
     bouton.disabled = false;
-    bouton.textContent = "Appliquer et redémarrer";
+    bouton.textContent = t("reglages.apply");
     return;
   }
   bouton.disabled = false;
-  bouton.textContent = "Appliquer et redémarrer";
+  bouton.textContent = t("reglages.apply");
   $("reglages").close();
 
   if (port !== portActuel) {
@@ -3104,7 +3327,7 @@ $("reglagesApply").onclick = async () => {
     // serveur (cette origine) a bien disparu, comme pour un redémarrage
     // ordinaire, avant de viser la nouvelle adresse.
     const nouvelleAdresse = `http://${location.hostname}:${port}/`;
-    $("phase").textContent = `Port changé : redirection vers ${nouvelleAdresse} dès l'arrêt confirmé…`;
+    $("phase").textContent = tf("reglages.portchange", { url: nouvelleAdresse });
     $("bar").removeAttribute("value");
     $("work").classList.add("on");
     $("refresh").disabled = true;
@@ -3126,7 +3349,7 @@ $("reglagesApply").onclick = async () => {
     return;
   }
 
-  $("phase").textContent = "Redémarrage avec les nouveaux réglages…";
+  $("phase").textContent = t("reglages.restarting.settings");
   $("bar").removeAttribute("value");
   $("work").classList.add("on");
   $("refresh").disabled = true;
@@ -3145,14 +3368,21 @@ $("reglagesApply").onclick = async () => {
 $("stopButton").onclick = async () => {
   const bouton = $("stopButton");
   bouton.disabled = true;
-  bouton.textContent = "Arrêt…";
+  bouton.textContent = t("stop.stopping");
   try {
     await fetch("/api/stop", { method: "POST",
       headers: { "Content-Type": "application/json" }, body: "{}" });
   } catch (erreur) { /* la réponse peut ne pas arriver, l'arrêt est déjà lancé */ }
-  document.body.innerHTML =
-    `<p class="empty">blink2video est arrêté. Relancez l'application pour reprendre.</p>`;
+  document.body.innerHTML = `<p class="empty">${t("stop.stopped")}</p>`;
 };
+
+// Override manuel mémorisé prioritaire ; sinon la langue du navigateur, comme
+// au premier lancement de lidar2map. Placé ici, en fin de script : setLang()
+// appelle render()/renderLive(), qui référencent des `let` déclarés plus haut
+// (MSE_ABORT, actualisationLocale...) — appelé trop tôt, avant l'exécution de
+// ces déclarations, ça lève ReferenceError (zone morte temporelle), comme vu
+// en testant réellement au navigateur.
+setLang(localStorage.getItem("lang") || detectLang(), false);
 
 $("view").value = "clips";   // au démarrage on montre les clips, pas d'appel réseau
 load();
