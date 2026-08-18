@@ -1927,21 +1927,33 @@ PAGE = """<!doctype html>
   dialog::backdrop { background:rgba(0,0,0,.6); }
   dialog h3 { margin:0 0 6px; font-size:16px; }
   dialog p { margin:0 0 18px; color:var(--dim); font-size:13px; }
-  dialog input { width:100%; font:inherit; color:var(--text); background:var(--bg);
-                 border:1px solid var(--line); border-radius:7px;
-                 padding:9px 11px; margin-bottom:12px; }
+  /* :not([type=checkbox]) : la meme regle stretchait aussi les cases a
+     cocher a 100% de large (visible seulement sur leur zone cliquable, pas
+     sur le dessin de la case), ce qui repoussait leur texte tres loin a
+     droite avec un retour a la ligne au milieu des mots. */
+  dialog input:not([type="checkbox"]) {
+    width:100%; font:inherit; color:var(--text); background:var(--bg);
+    border:1px solid var(--line); border-radius:7px;
+    padding:9px 11px; margin-bottom:12px;
+  }
   .champMdp { display:flex; gap:8px; margin-bottom:12px; }
   .champMdp input { margin-bottom:0; }
   .champMdp button { flex:none; padding:0 12px; }
   dialog .row { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
   #authError { color:var(--out); font-size:13px; min-height:18px; margin:0 0 6px; }
-  #reglages label { margin-bottom:14px; }
-  #reglages label:last-of-type { margin-bottom:18px; }
-  .champCadence { display:flex; align-items:center; justify-content:space-between;
-                  gap:10px; margin-bottom:12px; color:var(--dim); font-size:14px; }
-  .champCadence input { width:70px; margin-bottom:0; text-align:right; }
-  #reglages .row { justify-content:space-between; }
-  #stopButton { border-color:var(--out); color:#ffb3ab; }
+  #reglages { width:min(420px, 92vw); }
+  #reglages label { align-items:flex-start; margin-bottom:14px; }
+  #reglages label input[type="checkbox"] {
+    flex:none; margin:3px 0 0; width:16px; height:16px;
+  }
+  #autoLabel { margin-bottom:20px; }
+  #reglagesButton { font-size:19px; line-height:1; padding:5px 11px; }
+  .champCadence { margin-bottom:14px; color:var(--dim); font-size:14px; }
+  .champCadence label { display:block; margin-bottom:6px; }
+  .champCadence input { width:90px; margin-bottom:0; }
+  #reglages .row.principal { justify-content:space-between; margin-top:18px; }
+  #stopButton { width:100%; border-color:var(--out); color:#ffb3ab;
+                margin-bottom:14px; }
 </style>
 </head>
 <body>
@@ -1998,24 +2010,24 @@ PAGE = """<!doctype html>
   <label id="autostartLabel"
          title="Démarre le serveur web et le traitement des clips à l'ouverture
                  de session, en arrière-plan — n'ouvre pas cette page toute seule">
-    <input type="checkbox" id="autostart"> démarrage auto
+    <input type="checkbox" id="autostart"> Démarrage de la surveillance à
+    l'ouverture de session
   </label>
   <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
-    <input type="checkbox" id="auto"> actualisation automatique
+    <input type="checkbox" id="auto"> Actualisation automatique de la page
   </label>
   <div class="champCadence">
-    <label for="usbMinutes">Cadence USB (minutes)</label>
+    <label for="usbMinutes">Cadence de lecture des caméras USB (minutes)</label>
     <input type="number" id="usbMinutes" min="1" step="1">
   </div>
   <div class="champCadence">
-    <label for="cloudMinutes">Cadence cloud (minutes)</label>
+    <label for="cloudMinutes">Cadence de lecture des caméras cloud (minutes)</label>
     <input type="number" id="cloudMinutes" min="1" step="1">
   </div>
   <p id="reglagesHint" class="sub tiny">Les cadences ne prennent effet
      qu'au redémarrage : « Appliquer » enregistre et redémarre.</p>
-  <div class="row">
-    <button id="stopButton">Arrêter</button>
-    <span style="flex:1"></span>
+  <button id="stopButton">Arrêter la surveillance des caméras</button>
+  <div class="row principal">
     <button id="reglagesClose">Fermer</button>
     <button class="primary" id="reglagesApply">Appliquer et redémarrer</button>
   </div>
