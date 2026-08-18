@@ -2387,13 +2387,19 @@ function renderClips() {
     // Distinguer « rien ne correspond au filtre » de « rien n'a jamais été
     // récupéré » : dans le second cas, la cause la plus fréquente est l'absence
     // de clé USB sur le module, les enregistrements partant alors dans le cloud
-    // de l'abonnement Blink, que cet outil ne lit pas.
+    // de l'abonnement Blink, que cet outil ne lit pas. « Lancez blink2video
+    // download » n'a plus sa place ici : avec la composition par défaut
+    // (start), le téléchargement tourne déjà en arrière-plan, et le dire
+    // dessus n'aidait qu'à confondre un premier utilisateur pile au moment
+    // où la page est encore vide (vu en vrai, essai à froid).
     $("list").innerHTML = data.clips.length
       ? `<p class="empty">Aucun clip ne correspond à ce filtre.</p>`
       : `<p class="empty">Aucun clip récupéré pour l'instant.<br>
-           Lancez « blink2video download », ou vérifiez qu'une clé USB est
-           branchée sur le module : sans elle, les enregistrements ne vont que
-           dans le cloud de l'abonnement Blink, que cet outil ne lit pas.</p>`;
+           Le téléchargement tourne déjà en arrière-plan (clé USB toutes les
+           10 min, cloud toutes les minutes) : les clips apparaîtront ici
+           sans rien faire. Vérifiez qu'une clé USB est branchée sur le
+           module : sans elle, les enregistrements ne vont que dans le cloud
+           de l'abonnement Blink, que cet outil ne lit pas.</p>`;
     return;
   }
   const days = [...new Set(clips.map((c) => c.day))];
