@@ -1916,7 +1916,8 @@ PAGE = """<!doctype html>
     <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
     <label id="autostartLabel"
-           title="Lancer blink2video automatiquement à l'ouverture de session">
+           title="Démarre le serveur web et le traitement des clips à l'ouverture
+                   de session, en arrière-plan — n'ouvre pas cette page toute seule">
       <input type="checkbox" id="autostart"> démarrage auto
     </label>
     <label id="autoLabel" title="Recharger la liste dès que des clips arrivent">
