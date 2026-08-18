@@ -69,8 +69,20 @@ def safe_name(value: str) -> str:
 
 
 def valid_mp4(path: Path) -> bool:
+    """Vrai si le fichier porte une boîte ftyp dans ses 64 premiers octets.
+
+    Lecture bornée (``read(64)``), pas ``read_bytes()[:64]`` : ce dernier
+    charge le fichier entier avant de ne garder que le début, coût
+    invisible sur un clip mais réel sur une vidéo assemblée de plusieurs
+    centaines de Mo à quelques Go (vu en vrai : /api/videos mettait
+    plusieurs dizaines de secondes à répondre, dominé par cette relecture
+    complète répétée à chaque appel, sur chaque fichier, sans cache)."""
     try:
-        return path.stat().st_size > 0 and b"ftyp" in path.read_bytes()[:64]
+        if path.stat().st_size <= 0:
+            return False
+        with path.open("rb") as f:
+            en_tete = f.read(64)
+        return b"ftyp" in en_tete
     except OSError:
         return False
 
