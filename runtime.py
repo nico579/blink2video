@@ -61,37 +61,44 @@ ENTREE = "blink2video"
 # le manifeste USB réveille le module de synchronisation, l'assemblage ne fait
 # rien quand rien n'a changé. Verbeux à lire, jamais à taper.
 REGLAGES = "blink_reglages.json"
-CADENCES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1}
+REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765}
 
 
-def lire_cadences() -> dict:
-    """Fréquences USB/cloud actuelles, modifiables depuis la page web.
+def lire_reglages() -> dict:
+    """Cadences USB/cloud et port actuels, modifiables depuis la page web.
 
     Fichier absent ou illisible : les valeurs par défaut, identiques à
     celles qui étaient figées en dur ici avant que ce réglage existe."""
     try:
         valeurs = json.loads((app_dir() / REGLAGES).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return dict(CADENCES_DEFAUT)
+        return dict(REGLAGES_DEFAUT)
     return {
-        "usb_minutes": int(valeurs.get("usb_minutes", CADENCES_DEFAUT["usb_minutes"])),
-        "cloud_minutes": int(valeurs.get("cloud_minutes", CADENCES_DEFAUT["cloud_minutes"])),
+        "usb_minutes": int(valeurs.get("usb_minutes", REGLAGES_DEFAUT["usb_minutes"])),
+        "cloud_minutes": int(valeurs.get("cloud_minutes", REGLAGES_DEFAUT["cloud_minutes"])),
+        "port": int(valeurs.get("port", REGLAGES_DEFAUT["port"])),
     }
 
 
-def ecrire_cadences(usb_minutes: int, cloud_minutes: int) -> None:
+def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int) -> None:
     (app_dir() / REGLAGES).write_text(
-        json.dumps({"usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes)}),
+        json.dumps({"usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
+                    "port": int(port)}),
         encoding="utf-8")
 
 
 def standard() -> tuple:
     """Composition recommandée : mêmes verbes que l'ancienne constante
-    STANDARD, mais les cadences USB/cloud viennent de `lire_cadences()`
-    plutôt que d'être figées ici, pour que le réglage depuis la page web
-    prenne effet au prochain démarrage."""
-    c = lire_cadences()
-    return ("serve",
+    STANDARD, mais les cadences USB/cloud et le port viennent de
+    `lire_reglages()` plutôt que d'être figés ici, pour que le réglage
+    depuis la page web prenne effet au prochain démarrage.
+
+    Les trois premiers éléments (serve, --port, valeur) sont un bloc fixe :
+    blink_cli.route() les traite comme la partie « verbe » sur laquelle un
+    supplément tapé à la main (« start --port 8899 ») se greffe, afin qu'un
+    --port explicite l'emporte toujours sur la valeur enregistrée."""
+    c = lire_reglages()
+    return ("serve", "--port", str(c["port"]),
             "watch", "--loop", "10",
             "download", "--from", "usb", "--loop", str(c["usb_minutes"]),
             "download", "--from", "cloud", "--loop", str(c["cloud_minutes"]),

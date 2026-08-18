@@ -1470,7 +1470,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/reglages":
-            self.send_json(runtime.lire_cadences())
+            self.send_json(runtime.lire_reglages())
             return
 
         if route == "/api/clips":
@@ -1774,14 +1774,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 usb_minutes = int(payload.get("usb_minutes"))
                 cloud_minutes = int(payload.get("cloud_minutes"))
+                port = int(payload.get("port"))
                 if usb_minutes < 1 or cloud_minutes < 1:
+                    raise ValueError
+                if not 1 <= port <= 65535:
                     raise ValueError
             except (TypeError, ValueError):
                 self.send_json(
                     {"error": "Les cadences doivent être des nombres de minutes d'au "
-                              "moins 1."}, 400)
+                              "moins 1, et le port un nombre entre 1 et 65535."}, 400)
                 return
-            runtime.ecrire_cadences(usb_minutes, cloud_minutes)
+            runtime.ecrire_reglages(usb_minutes, cloud_minutes, port)
             # Détaché, comme /api/update : ce processus fait partie de ce que
             # « restart » va arrêter. Le verbe diffère de « update » puisqu'aucune
             # nouvelle version n'est en jeu, seuls les réglages ont changé — mais
@@ -1962,7 +1965,7 @@ PAGE = """<!doctype html>
                   gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
   #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
   #reglagesHint { margin:0 0 14px; }
-  #reglages fieldset .primary { width:100%; }
+  #reglagesApply { width:100%; margin-bottom:14px; }
   #stopButton { width:100%; border-color:var(--out); color:#ffb3ab;
                 margin-bottom:14px; }
 </style>
@@ -2030,6 +2033,13 @@ PAGE = """<!doctype html>
     <input type="checkbox" id="showOut"> Voir les clips écartés
   </label>
   <fieldset>
+    <legend>Serveur</legend>
+    <div class="champCadence">
+      <label for="port">Port</label>
+      <input type="number" id="port" min="1" max="65535" step="1">
+    </div>
+  </fieldset>
+  <fieldset>
     <legend>Cadence de lecture des caméras</legend>
     <div class="champCadence">
       <label for="usbMinutes">USB (minutes)</label>
@@ -2039,10 +2049,11 @@ PAGE = """<!doctype html>
       <label for="cloudMinutes">Cloud (minutes)</label>
       <input type="number" id="cloudMinutes" min="1" step="1">
     </div>
-    <p id="reglagesHint" class="sub tiny">Les cadences ne prennent effet
-       qu'au redémarrage : « Appliquer » enregistre et redémarre.</p>
-    <button class="primary" id="reglagesApply">Appliquer et redémarrer</button>
   </fieldset>
+  <p id="reglagesHint" class="sub tiny">Les réglages ne prennent effet
+     qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le
+     port redirige cette page vers la nouvelle adresse.</p>
+  <button class="primary" id="reglagesApply">Appliquer et redémarrer</button>
   <button id="stopButton">Arrêter la surveillance des caméras</button>
   <div class="row">
     <button id="reglagesClose">Fermer</button>
@@ -2826,11 +2837,15 @@ $("autostart").onchange = async () => {
   }
 };
 
+let portActuel = null;   // relu à chaque ouverture, comparé à l'envoi
+
 $("reglagesButton").onclick = async () => {
   try {
-    const cadences = await (await fetch("/api/reglages")).json();
-    $("usbMinutes").value = cadences.usb_minutes;
-    $("cloudMinutes").value = cadences.cloud_minutes;
+    const reglages = await (await fetch("/api/reglages")).json();
+    $("usbMinutes").value = reglages.usb_minutes;
+    $("cloudMinutes").value = reglages.cloud_minutes;
+    $("port").value = reglages.port;
+    portActuel = reglages.port;
   } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
   $("reglages").showModal();
 };
@@ -2839,12 +2854,19 @@ $("reglagesClose").onclick = () => $("reglages").close();
 // Même déroulé que le bouton de mise à jour : enregistrer, attendre que le
 // serveur disparaisse puis revienne, recharger. Le verbe diffère (« restart »
 // au lieu de « update ») puisqu'aucune nouvelle version n'est en jeu, mais
-// c'est le même arrêt-puis-relance vu de la page.
+// c'est le même arrêt-puis-relance vu de la page. Si le port change, la page
+// qui redémarre n'écoute plus à la même adresse : le sondage habituel (même
+// origine) ne verrait jamais le retour, il faut viser la nouvelle adresse.
 $("reglagesApply").onclick = async () => {
   const usb = parseInt($("usbMinutes").value, 10);
   const cloud = parseInt($("cloudMinutes").value, 10);
+  const port = parseInt($("port").value, 10);
   if (!(usb >= 1) || !(cloud >= 1)) {
     alert("Les cadences doivent valoir au moins 1 minute.");
+    return;
+  }
+  if (!(port >= 1 && port <= 65535)) {
+    alert("Le port doit être compris entre 1 et 65535.");
     return;
   }
   const bouton = $("reglagesApply");
@@ -2853,7 +2875,7 @@ $("reglagesApply").onclick = async () => {
   try {
     const reponse = await fetch("/api/reglages", { method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud }) });
+      body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud, port }) });
     const resultat = await reponse.json();
     if (resultat.error) {
       alert(resultat.error);
@@ -2870,7 +2892,36 @@ $("reglagesApply").onclick = async () => {
   bouton.disabled = false;
   bouton.textContent = "Appliquer et redémarrer";
   $("reglages").close();
-  $("phase").textContent = "Redémarrage avec les nouvelles cadences…";
+
+  if (port !== portActuel) {
+    // Un délai fixe se serait trompé de quelques secondes selon la charge
+    // de la machine : on attend plutôt la confirmation que l'ancien
+    // serveur (cette origine) a bien disparu, comme pour un redémarrage
+    // ordinaire, avant de viser la nouvelle adresse.
+    const nouvelleAdresse = `http://${location.hostname}:${port}/`;
+    $("phase").textContent = `Port changé : redirection vers ${nouvelleAdresse} dès l'arrêt confirmé…`;
+    $("bar").removeAttribute("value");
+    $("work").classList.add("on");
+    $("refresh").disabled = true;
+    let parti = false;
+    const attentePort = setInterval(async () => {
+      try {
+        await fetch("/api/status", { cache: "no-store" });
+      } catch (erreur) {
+        parti = true;
+      }
+      if (parti) {
+        clearInterval(attentePort);
+        // L'ancien a disparu ; le nouveau, déjà en cours de lancement,
+        // a besoin d'un instant de plus pour se lier au port.
+        setTimeout(() => { location.href = nouvelleAdresse; }, 3000);
+      }
+    }, 1000);
+    setTimeout(() => clearInterval(attentePort), 900000);
+    return;
+  }
+
+  $("phase").textContent = "Redémarrage avec les nouveaux réglages…";
   $("bar").removeAttribute("value");
   $("work").classList.add("on");
   $("refresh").disabled = true;
