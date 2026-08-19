@@ -55,9 +55,12 @@ Chaque carte donne la caméra, la durée, la date et le modèle, et le bouton
 ![Le panneau de réglages](Screenshots/settings.fr.PNG)
 
 Les réglages, derrière l'icône engrenage : démarrage automatique à
-l'ouverture de session, actualisation automatique de la page, cadence de
-lecture des caméras USB et cloud, et un bouton pour arrêter toute la
-surveillance sans passer par le mode CLI.
+l'ouverture de session, actualisation automatique de la page, port du
+serveur, dossier des données avec un sélecteur natif, et cadence de lecture
+des caméras USB et cloud. Aussi l'horodatage incrusté dans l'image, le
+fuseau horaire, l'archivage quotidien/hebdomadaire/mensuel activable
+indépendamment, la mise en sourdine des alertes par caméra, et un bouton
+pour arrêter toute la surveillance sans passer par le mode CLI.
 
 ## Démarrer
 

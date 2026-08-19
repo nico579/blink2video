@@ -49,8 +49,11 @@ from every assembled video.
 ![The Settings panel](Screenshots/settings.PNG)
 
 Settings, behind the gear icon: automatic startup with the session, automatic
-page refresh, USB and cloud camera reading cadence, and a button to stop the
-whole thing without touching the command line.
+page refresh, server port, data folder with a native folder picker, and USB
+and cloud camera reading cadence. Also timestamp burned into the picture,
+time zone, daily/weekly/monthly archiving toggled independently per period,
+per-camera alert muting, and a button to stop the whole thing without
+touching the command line.
 
 ## Getting started
 
