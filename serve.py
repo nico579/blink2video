@@ -2029,8 +2029,9 @@ PAGE = """<!doctype html>
   .live .hint.overlay { position:absolute; bottom:56px; left:0; right:0;
                          pointer-events:none; }
   dialog { background:var(--card); color:var(--text); border:1px solid var(--line);
-           border-radius:12px; padding:24px; width:min(380px, 92vw); }
+           border-radius:12px; padding:24px; width:min(380px, 92vw); position:relative; }
   dialog::backdrop { background:rgba(0,0,0,.6); }
+  .langGroupAuth { position:absolute; top:16px; right:16px; }
   dialog h3 { margin:0 0 6px; font-size:16px; }
   dialog p { margin:0 0 18px; color:var(--dim); font-size:13px; }
   /* :not([type=checkbox]) : la meme regle stretchait aussi les cases a
@@ -2119,6 +2120,14 @@ PAGE = """<!doctype html>
 <main><div id="list"></div><pre id="log"></pre></main>
 
 <dialog id="auth">
+  <!-- Boîte modale : le fond assombri masque et rend inatteignables les
+       boutons FR/EN de l'en-tête tant qu'elle est ouverte (showModal()).
+       Doublon minimal ici, seul moyen de changer de langue avant de se
+       connecter. -->
+  <span class="langGroup langGroupAuth" title="Langue / Language">
+    <button class="btn-lang" data-lang-btn="fr" onclick="setLang('fr', true)">FR</button>
+    <button class="btn-lang" data-lang-btn="en" onclick="setLang('en', true)">EN</button>
+  </span>
   <h3 id="authTitle" data-i18n="auth.title">Connexion Blink</h3>
   <p id="authHint" data-i18n="auth.hint">Le mot de passe sert uniquement à ouvrir la session ; seuls
      les jetons sont enregistrés, jamais le mot de passe.</p>
