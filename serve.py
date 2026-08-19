@@ -2055,24 +2055,31 @@ PAGE = """<!doctype html>
   #outLabel { margin-bottom:20px; }
   #reglages fieldset { border:1px solid var(--line); border-radius:10px;
                         padding:14px 16px 16px; margin:0 0 16px; }
-  /* Port et dossier de stockage sont des reglages ponctuels, pas des
-     groupes de plusieurs champs : un cadre autour de chacun alourdissait
-     la page sans rien regrouper. */
-  #reglages fieldset.sansCadre { border:none; padding:0; margin:0 0 16px; }
-  #reglages legend { padding:0 6px; font-size:13px; color:var(--dim); }
-  #reglages fieldset.sansCadre legend { padding:0 0 6px; }
+  #reglages legend { padding:0 6px; font-size:13px; color:var(--dim); cursor:default; }
   .champCadence { display:flex; align-items:center; justify-content:space-between;
                   gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
   #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
   .etiquetteChamp { display:block; font-size:14px; margin:4px 0 6px; }
   #reglages fieldset p.sub { margin:0; }
-  .champDossier { display:flex; gap:8px; }
+  /* Dossier de stockage : tout sur une ligne, l'aide (déplacement des clips,
+     valeur vide) en infobulle plutôt qu'en paragraphe pour tenir sans
+     ascenseur. cursor:default : ce n'est pas un contrôle cliquable, juste un
+     porteur de title. */
+  .champDossier { display:flex; align-items:center; gap:8px; margin-bottom:10px;
+                   cursor:default; }
+  .champDossier label { flex:none; color:var(--dim); font-size:14px; }
   .champDossier input { flex:1; margin-bottom:0; }
   .champDossier button { flex:none; padding:0 14px; }
+  /* Coches d'une même famille (quotidienne/hebdo/mensuelle, sourdine par
+     caméra) : en ligne plutôt qu'empilées, repli à la ligne si trop
+     nombreuses (nombre de caméras variable, contrairement aux trois cases
+     d'archivage). */
+  .ligneCoches { display:flex; flex-wrap:wrap; gap:6px 20px; }
+  .ligneCoches label { margin-bottom:0; }
   #reglagesHint { margin:0 0 14px; }
-  #reglagesApply { width:100%; margin-bottom:14px; }
-  #stopButton { width:100%; border-color:var(--out); color:#ffb3ab;
-                margin-bottom:14px; }
+  #reglages .row-boutons { margin-top:0; justify-content:space-between; }
+  #reglages .row-boutons button { flex:none; white-space:nowrap; padding:9px 12px; }
+  #stopButton { border-color:var(--out); color:#ffb3ab; }
 </style>
 </head>
 <body>
@@ -2147,18 +2154,13 @@ PAGE = """<!doctype html>
     <label for="port" data-i18n="reglages.serveur">Serveur</label>
     <input type="number" id="port" min="1" max="65535" step="1">
   </div>
-  <fieldset class="sansCadre">
-    <legend data-i18n="reglages.stockage">Stockage</legend>
-    <label for="storageDir" class="etiquetteChamp" data-i18n="reglages.storageDir">Dossier des données</label>
-    <div class="champDossier">
-      <input type="text" id="storageDir" data-i18n-placeholder="reglages.storageDir.placeholder"
-             placeholder="C:/chemin/vers/le/dossier">
-      <button type="button" id="storageDirBrowse" data-i18n="reglages.storageDir.browse">Parcourir…</button>
-    </div>
-    <p class="sub tiny" data-i18n="reglages.storageDir.hint">Ne déplace pas les clips ni la session Blink déjà
-       présents à l'ancien emplacement : à faire vous-même si vous changez
-       ce chemin. Vide = emplacement par défaut, celui de l'exécutable.</p>
-  </fieldset>
+  <div class="champDossier" data-i18n-title="reglages.storageDir.hint"
+       title="Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.">
+    <label for="storageDir" data-i18n="reglages.storageDir">Dossier des données</label>
+    <input type="text" id="storageDir" data-i18n-placeholder="reglages.storageDir.placeholder"
+           placeholder="C:/chemin/vers/le/dossier">
+    <button type="button" id="storageDirBrowse" data-i18n="reglages.storageDir.browse">Parcourir…</button>
+  </div>
   <fieldset>
     <legend data-i18n="reglages.cadence">Cadence de lecture des caméras</legend>
     <div class="champCadence">
@@ -2196,29 +2198,31 @@ PAGE = """<!doctype html>
     </datalist>
   </fieldset>
   <fieldset>
-    <legend data-i18n="reglages.archivage">Archivage</legend>
-    <label id="mergeJourLabel">
-      <input type="checkbox" id="mergeJour"> <span data-i18n="reglages.mergeJour">Vidéo par jour</span>
-    </label>
-    <label id="mergeSemaineLabel">
-      <input type="checkbox" id="mergeSemaine"> <span data-i18n="reglages.mergeSemaine">Agrégat hebdomadaire</span>
-    </label>
-    <label id="mergeMoisLabel">
-      <input type="checkbox" id="mergeMois"> <span data-i18n="reglages.mergeMois">Agrégat mensuel</span>
-    </label>
-    <p class="sub tiny" data-i18n="reglages.archivage.hint">Semaine et mois sont assemblés à partir des vidéos
-       journalières : décocher « jour » désactive aussi les deux autres.</p>
+    <legend data-i18n="reglages.archivage"
+            data-i18n-title="reglages.archivage.hint"
+            title="Hebdomadaire et mensuelle sont assemblées à partir de la quotidienne : décocher « Quotidienne » désactive aussi les deux autres.">Création des vidéos temporelles par caméra</legend>
+    <div class="ligneCoches">
+      <label id="mergeJourLabel">
+        <input type="checkbox" id="mergeJour"> <span data-i18n="reglages.mergeJour">Quotidienne</span>
+      </label>
+      <label id="mergeSemaineLabel">
+        <input type="checkbox" id="mergeSemaine"> <span data-i18n="reglages.mergeSemaine">Hebdomadaire</span>
+      </label>
+      <label id="mergeMoisLabel">
+        <input type="checkbox" id="mergeMois"> <span data-i18n="reglages.mergeMois">Mensuelle</span>
+      </label>
+    </div>
   </fieldset>
   <fieldset>
-    <legend data-i18n="reglages.alertes">Alertes</legend>
-    <div id="sourdineListe" class="sub tiny" data-i18n="sourdine.loading">Chargement…</div>
+    <legend data-i18n="reglages.alertes">Mise en sourdine des alertes</legend>
+    <div id="sourdineListe" class="ligneCoches sub tiny" data-i18n="sourdine.loading">Chargement…</div>
   </fieldset>
   <p id="reglagesHint" class="sub tiny" data-i18n="reglages.hint">Les réglages ne prennent effet
      qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le
      port redirige cette page vers la nouvelle adresse.</p>
-  <button class="primary" id="reglagesApply" data-i18n="reglages.apply">Appliquer</button>
-  <button id="stopButton" data-i18n="reglages.stop">Arrêter la surveillance des caméras</button>
-  <div class="row">
+  <div class="row row-boutons">
+    <button class="primary" id="reglagesApply" data-i18n="reglages.apply">Appliquer</button>
+    <button id="stopButton" data-i18n="reglages.stop">Arrêter la surveillance des caméras</button>
     <button id="reglagesClose" data-i18n="reglages.close">Fermer</button>
   </div>
 </dialog>
@@ -2263,7 +2267,7 @@ const I18N = {
     "reglages.auto.title": "Recharger la liste dès que des clips arrivent",
     "reglages.showOut": "Voir les clips écartés",
     "reglages.serveur": "Serveur",
-    "reglages.stockage": "Stockage", "reglages.storageDir": "Dossier des données",
+    "reglages.storageDir": "Dossier des données",
     "reglages.storageDir.placeholder": "C:/chemin/vers/le/dossier",
     "reglages.storageDir.hint": "Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.",
     "reglages.storageDir.browse": "Parcourir…",
@@ -2349,7 +2353,7 @@ const I18N = {
     "reglages.auto.title": "Reload the list as soon as clips arrive",
     "reglages.showOut": "Show discarded clips",
     "reglages.serveur": "Server",
-    "reglages.stockage": "Storage", "reglages.storageDir": "Data folder",
+    "reglages.storageDir": "Data folder",
     "reglages.storageDir.placeholder": "C:/path/to/the/folder",
     "reglages.storageDir.hint": "Does not move clips or the Blink session already present at the old location: do it yourself if you change this path. Empty = default location, next to the executable.",
     "reglages.storageDir.browse": "Browse…",
@@ -2456,6 +2460,12 @@ function setLang(code, persist) {
   }
   if (typeof render === "function" && data.clips) render();
   if (typeof renderLive === "function" && system) renderLive();
+  // #sourdineListe porte data-i18n="sourdine.loading" en repli HTML :
+  // applyI18n() vient d'écraser ses cases à cocher réelles par ce texte de
+  // chargement si le panneau est ouvert pendant la bascule de langue.
+  // Reconstruire immédiatement plutôt que de laisser la liste figée ainsi
+  // jusqu'à la prochaine ouverture du panneau.
+  if (typeof chargerSourdine === "function" && $("reglages")?.open) chargerSourdine();
   if (persist) localStorage.setItem("lang", _lang);
 }
 
