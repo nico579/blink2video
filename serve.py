@@ -2047,7 +2047,8 @@ PAGE = """<!doctype html>
   .champMdp { display:flex; gap:8px; margin-bottom:12px; }
   .champMdp input { margin-bottom:0; }
   .champMdp button { flex:none; padding:0 12px; }
-  dialog .row { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
+  dialog .row { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end;
+                margin-top:6px; }
   #authError { color:var(--out); font-size:13px; min-height:18px; margin:0 0 6px; }
   #reglages { width:min(560px, 92vw); }
   #reglages label { align-items:flex-start; margin-bottom:14px; }
@@ -2058,7 +2059,8 @@ PAGE = """<!doctype html>
   #reglages fieldset { border:1px solid var(--line); border-radius:10px;
                         padding:14px 16px 16px; margin:0 0 16px; }
   #reglages legend { padding:0 6px; font-size:13px; color:var(--dim); cursor:default; }
-  .champCadence { display:flex; align-items:center; justify-content:space-between;
+  .champCadence { display:flex; align-items:center; flex-wrap:wrap;
+                  justify-content:space-between;
                   gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
   #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
   /* Le fuseau ("Europe/Paris", "America/Los_Angeles"...) ne tient pas dans
