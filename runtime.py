@@ -34,7 +34,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.8.1"
+VERSION = "0.8.2"
 
 
 # Source unique des verbes : leur ordre d'apparition dans l'aide, le programme
