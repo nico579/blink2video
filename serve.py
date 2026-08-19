@@ -3243,6 +3243,16 @@ $("refresh").onclick = async () => {
       actualisationLocale = false;
       if (!event.ok) $("phase").textContent = t("refresh.errors");
       load();
+      // « Actualiser » ne rapatriait que les clips : la batterie, la
+      // température et le signal de chaque caméra restaient sur leur
+      // dernière lecture, parfois vieille de plusieurs jours, tant qu'on
+      // n'ouvrait pas soi-même l'onglet Direct (bug vécu en vrai : une
+      // caméra affichait une mesure ancienne jusqu'à un rafraîchissement
+      // manuel depuis l'appli officielle). loadSystem(true) force le même
+      // passage que cette appli fait de son côté (blink.refresh(force=True),
+      // qui relit vraiment chaque caméra, pas seulement le résumé du
+      // compte - voir system_state() côté serveur).
+      loadSystem(true);
     }
   };
   source.onerror = () => {
