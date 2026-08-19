@@ -59,7 +59,7 @@ BASE_DIR = runtime.app_dir()
 IDENTITY = re.compile(r"^[\w.\- ]+(/[\w.\- ]+)*\.mp4$")
 
 # Avancement annoncé par blink2video.py et merge_daily.py, et titres de phase émis
-# par daily.py (« === TÉLÉCHARGEMENT INCRÉMENTAL === »).
+# par blink_engine.py (« === STOCKAGE LOCAL === », « === CLOUD DE L'ABONNEMENT === »).
 PROGRESS = re.compile(r"\[(\d+)/(\d+)\]")
 # Ligne d'avancement à l'intérieur d'un clip : « [3/24] 45% », rien d'autre.
 INNER = re.compile(r"^\s*\[\d+/\d+\]\s+(\d+)%\s*$")
@@ -1582,9 +1582,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         rien à installer côté page. Le sens du flux est unique, du serveur vers
         la page, ce qui suffit ici : la page n'a rien à répondre.
 
-        On lance daily.py, pas blink2video.py puis merge_daily.py : daily.py *est*
-        cet enchaînement, le dupliquer ici téléchargerait et fusionnerait deux
-        fois."""
+        Deux self_command distincts (« download » puis « merge »), pas un
+        verbe unique qui les enchaînerait : ce sont les deux seules mains de
+        l'outil, et les appeler l'un après l'autre dit exactement ce qui se
+        passe. Voir run_refresh()."""
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
