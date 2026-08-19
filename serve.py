@@ -1470,6 +1470,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"actif": autostart.est_installe()})
             return
 
+        if route == "/api/choisir-dossier":
+            # Le navigateur ne peut pas rendre un chemin absolu (File System
+            # Access API : juste un handle, par conception, pour la vie
+            # privée du web). Serveur et page étant sur la même machine ici
+            # (outil local, pas un service distant), la boîte de dialogue
+            # native tkinter comble ce manque - importée localement pour ne
+            # jamais peser sur les environnements sans affichage (CI Linux
+            # headless), qui n'empruntent jamais cette route.
+            try:
+                import tkinter
+                from tkinter import filedialog
+                racine = tkinter.Tk()
+                racine.withdraw()
+                racine.attributes("-topmost", True)
+                choisi = filedialog.askdirectory(initialdir=runtime.lire_dossier_stockage())
+                racine.destroy()
+            except Exception as error:
+                self.send_json({"error": str(error)}, 500)
+                return
+            self.send_json({"path": choisi or ""})
+            return
+
         if route == "/api/reglages":
             self.send_json(
                 {**runtime.lire_reglages(), "storage_dir": runtime.lire_dossier_stockage()})
@@ -2025,7 +2047,7 @@ PAGE = """<!doctype html>
   .champMdp button { flex:none; padding:0 12px; }
   dialog .row { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
   #authError { color:var(--out); font-size:13px; min-height:18px; margin:0 0 6px; }
-  #reglages { width:min(420px, 92vw); }
+  #reglages { width:min(560px, 92vw); }
   #reglages label { align-items:flex-start; margin-bottom:14px; }
   #reglages label input[type="checkbox"] {
     flex:none; margin:3px 0 0; width:16px; height:16px;
@@ -2033,12 +2055,20 @@ PAGE = """<!doctype html>
   #outLabel { margin-bottom:20px; }
   #reglages fieldset { border:1px solid var(--line); border-radius:10px;
                         padding:14px 16px 16px; margin:0 0 16px; }
+  /* Port et dossier de stockage sont des reglages ponctuels, pas des
+     groupes de plusieurs champs : un cadre autour de chacun alourdissait
+     la page sans rien regrouper. */
+  #reglages fieldset.sansCadre { border:none; padding:0; margin:0 0 16px; }
   #reglages legend { padding:0 6px; font-size:13px; color:var(--dim); }
+  #reglages fieldset.sansCadre legend { padding:0 0 6px; }
   .champCadence { display:flex; align-items:center; justify-content:space-between;
                   gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
   #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
   .etiquetteChamp { display:block; font-size:14px; margin:4px 0 6px; }
   #reglages fieldset p.sub { margin:0; }
+  .champDossier { display:flex; gap:8px; }
+  .champDossier input { flex:1; margin-bottom:0; }
+  .champDossier button { flex:none; padding:0 14px; }
   #reglagesHint { margin:0 0 14px; }
   #reglagesApply { width:100%; margin-bottom:14px; }
   #stopButton { width:100%; border-color:var(--out); color:#ffb3ab;
@@ -2064,7 +2094,7 @@ PAGE = """<!doctype html>
     <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
     <button class="primary" id="refresh" data-i18n="btn.refresh">Actualiser</button>
-    <button id="reglagesButton" data-i18n-title="btn.reglages.title" title="Réglages">⚙ Réglages</button>
+    <button id="reglagesButton" data-i18n="btn.reglages" data-i18n-title="btn.reglages.title" title="Réglages">⚙ Réglages</button>
   </div>
   <span class="langGroup" title="Langue / Language">
     <button class="btn-lang" data-lang-btn="fr" onclick="setLang('fr', true)">FR</button>
@@ -2113,18 +2143,21 @@ PAGE = """<!doctype html>
   <label id="outLabel">
     <input type="checkbox" id="showOut"> <span data-i18n="reglages.showOut">Voir les clips écartés</span>
   </label>
-  <fieldset>
+  <fieldset class="sansCadre">
     <legend data-i18n="reglages.serveur">Serveur</legend>
     <div class="champCadence">
       <label for="port" data-i18n="reglages.port">Port</label>
       <input type="number" id="port" min="1" max="65535" step="1">
     </div>
   </fieldset>
-  <fieldset>
+  <fieldset class="sansCadre">
     <legend data-i18n="reglages.stockage">Stockage</legend>
     <label for="storageDir" class="etiquetteChamp" data-i18n="reglages.storageDir">Dossier des données</label>
-    <input type="text" id="storageDir" data-i18n-placeholder="reglages.storageDir.placeholder"
-           placeholder="C:/chemin/vers/le/dossier">
+    <div class="champDossier">
+      <input type="text" id="storageDir" data-i18n-placeholder="reglages.storageDir.placeholder"
+             placeholder="C:/chemin/vers/le/dossier">
+      <button type="button" id="storageDirBrowse" data-i18n="reglages.storageDir.browse">Parcourir…</button>
+    </div>
     <p class="sub tiny" data-i18n="reglages.storageDir.hint">Ne déplace pas les clips ni la session Blink déjà
        présents à l'ancien emplacement : à faire vous-même si vous changez
        ce chemin. Vide = emplacement par défaut, celui de l'exécutable.</p>
@@ -2209,7 +2242,7 @@ const I18N = {
     "view.live": "Direct", "view.clips": "Clips", "view.daily": "Journalières",
     "view.weekly": "Hebdomadaires", "view.monthly": "Mensuelles",
     "filter.allcameras": "toutes caméras", "filter.alldays": "tous les jours",
-    "btn.refresh": "Actualiser", "btn.reglages.title": "Réglages",
+    "btn.refresh": "Actualiser", "btn.reglages": "⚙ Réglages", "btn.reglages.title": "Réglages",
     "update.installing": "Installer {version}",
     "update.title": "Version {version} publiée. Le téléchargement, l'arrêt et la relance sont automatiques.",
     "update.updating": "Mise à jour…",
@@ -2236,6 +2269,8 @@ const I18N = {
     "reglages.stockage": "Stockage", "reglages.storageDir": "Dossier des données",
     "reglages.storageDir.placeholder": "C:/chemin/vers/le/dossier",
     "reglages.storageDir.hint": "Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.",
+    "reglages.storageDir.browse": "Parcourir…",
+    "reglages.storageDir.browse.unavailable": "Sélecteur de dossier indisponible sur cette machine : saisissez le chemin directement.",
     "reglages.cadence": "Cadence de lecture des caméras",
     "reglages.usb": "USB (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Vidéo", "reglages.timestamp": "Incruster la date et l'heure dans l'image",
@@ -2292,7 +2327,7 @@ const I18N = {
     "view.live": "Live", "view.clips": "Clips", "view.daily": "Daily",
     "view.weekly": "Weekly", "view.monthly": "Monthly",
     "filter.allcameras": "all cameras", "filter.alldays": "all days",
-    "btn.refresh": "Refresh", "btn.reglages.title": "Settings",
+    "btn.refresh": "Refresh", "btn.reglages": "⚙ Settings", "btn.reglages.title": "Settings",
     "update.installing": "Install {version}",
     "update.title": "Version {version} published. Download, stop and restart are automatic.",
     "update.updating": "Updating…",
@@ -2319,6 +2354,8 @@ const I18N = {
     "reglages.stockage": "Storage", "reglages.storageDir": "Data folder",
     "reglages.storageDir.placeholder": "C:/path/to/the/folder",
     "reglages.storageDir.hint": "Does not move clips or the Blink session already present at the old location: do it yourself if you change this path. Empty = default location, next to the executable.",
+    "reglages.storageDir.browse": "Browse…",
+    "reglages.storageDir.browse.unavailable": "Folder picker unavailable on this machine: type the path directly.",
     "reglages.cadence": "Camera polling interval",
     "reglages.usb": "USB (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Video", "reglages.timestamp": "Burn the date and time into the image",
@@ -3203,6 +3240,28 @@ $("reglagesButton").onclick = async () => {
   $("reglages").showModal();
 };
 $("reglagesClose").onclick = () => $("reglages").close();
+
+// Ouvre le sélecteur natif côté serveur (tkinter : voir /api/choisir-dossier)
+// plutôt qu'un <input type="file" webkitdirectory> - celui-ci ne rend qu'un
+// nom de dossier relatif au navigateur, jamais un chemin absolu utilisable
+// par le serveur (restriction de vie privée du web, pas une limite de ce code).
+$("storageDirBrowse").onclick = async () => {
+  const bouton = $("storageDirBrowse");
+  bouton.disabled = true;
+  try {
+    const reponse = await fetch("/api/choisir-dossier");
+    const resultat = await reponse.json();
+    if (resultat.error) {
+      alert(t("reglages.storageDir.browse.unavailable"));
+    } else if (resultat.path) {
+      $("storageDir").value = resultat.path;
+    }
+  } catch (erreur) {
+    alert(t("reglages.storageDir.browse.unavailable"));
+  } finally {
+    bouton.disabled = false;
+  }
+};
 
 // Semaine et mois n'ont de sens que si la journalière tourne : décocher
 // « jour » les grise et les décoche, plutôt que de laisser espérer un
