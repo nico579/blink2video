@@ -2024,7 +2024,10 @@ PAGE = """<!doctype html>
   h2 { display:flex; align-items:center; gap:12px; }
   h2 .act { margin-left:auto; font-size:13px; }
   .live { position:relative; aspect-ratio:16/9; background:#000; display:flex;
-          align-items:center; justify-content:center; }
+          align-items:center; justify-content:center; cursor:pointer; }
+  /* Sans ce couple de règles, .live garde son 16/9 fixe en plein écran et se
+     retrouve barrée de bandes noires au lieu de remplir l'écran. */
+  .live:fullscreen, .live:-webkit-full-screen { aspect-ratio:auto; }
   .live img, .live video { width:100%; height:100%; object-fit:contain; }
   /* La vignette reste en fond, le bouton se pose dessus. */
   .live img.still { position:absolute; inset:0; opacity:.55; }
@@ -2343,6 +2346,7 @@ const I18N = {
     "watch.waking": "Réveil de la caméra…", "watch.waking.seconds": "Réveil de la caméra… {s} s",
     "watch.waking.slow": "Réveil de la caméra… {s} s (une caméra sur batterie est plus lente)",
     "watch.waking.mse": "Réveil de la caméra… (MSE)", "watch.reconnecting": "Reconnexion…",
+    "live.fullscreen.title": "Cliquer pour agrandir en plein écran",
     "watch.noimage": "Aucune image reçue. La caméra n'a pas répondu.",
     "watch.refused": "Le flux a été refusé par le serveur.",
     "watch.refused.code": "Le flux a été refusé par le serveur ({code}).",
@@ -2437,6 +2441,7 @@ const I18N = {
     "watch.waking": "Waking the camera…", "watch.waking.seconds": "Waking the camera… {s} s",
     "watch.waking.slow": "Waking the camera… {s} s (a battery camera is slower)",
     "watch.waking.mse": "Waking the camera… (MSE)", "watch.reconnecting": "Reconnecting…",
+    "live.fullscreen.title": "Click to expand fullscreen",
     "watch.noimage": "No image received. The camera did not respond.",
     "watch.refused": "The stream was refused by the server.",
     "watch.refused.code": "The stream was refused by the server ({code}).",
@@ -2748,7 +2753,8 @@ function cameraCard(c, systemArmed) {
     c.armed && !systemArmed ? t("camera.noeffect") : null,
   ].filter(Boolean).join(" · ");
   return `<div class="card ${c.offline ? "out" : ""}">
-    <div class="live" id="live-${cssId(c.name)}">${repos(c.name, t("watch.live"))}</div>
+    <div class="live" id="live-${cssId(c.name)}" onclick="toggleFullscreen(event, '${c.name}')"
+         title="${t("live.fullscreen.title")}">${repos(c.name, t("watch.live"))}</div>
     <div class="meta">
       <div>
         <div class="time">${c.name}</div>
@@ -2817,6 +2823,21 @@ function watch(name) {
 function failWatch(name, message) {
   const box = $("live-" + cssId(name));
   box.innerHTML = repos(name, t("watch.retry")) + `<p class="hint overlay">${message}</p>`;
+}
+
+// Ni <img> (MJPEG) ni la balise <video> du direct MSE ne portent l'attribut
+// controls (un scrubber n'aurait aucun sens sur un flux sans fin) : le
+// plein écran ne peut donc pas venir gratuitement du navigateur comme pour
+// les clips enregistrés. On le pose ici, sur la case elle-même, pour qu'il
+// survive aux allers-retours repos/direct qui remplacent son contenu.
+function toggleFullscreen(event, name) {
+  if (event.target.closest("button")) return;
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    return;
+  }
+  const box = $("live-" + cssId(name));
+  (box.requestFullscreen || box.webkitRequestFullscreen).call(box);
 }
 
 function stopWatch(name) {
