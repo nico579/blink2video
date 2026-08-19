@@ -129,7 +129,10 @@ port mapping yourself.
 
 The page, at `127.0.0.1:8765`, has five views:
 
-- **Live**: one tile per camera, its state, and detection arming.
+- **Live**: one tile per camera, its state, detection arming, a fullscreen
+  button, and a "Wake" button that requests a fresh photo from the camera
+  right now instead of waiting for its next scheduled check-in (uses a bit
+  of battery, can take up to two minutes on a sleeping camera).
 - **Clips**: newest first, with a preview and an "Écarter" button that removes a
   clip from every assembled video.
 - **Daily, Weekly, Monthly**: the assembled videos.

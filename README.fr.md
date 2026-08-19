@@ -141,7 +141,11 @@ volontairement la publication du port.
 
 La page, sur `127.0.0.1:8765`, a cinq vues :
 
-- **Direct** : une tuile par caméra, son état, et l'armement de la détection.
+- **Direct** : une tuile par caméra, son état, l'armement de la détection, un
+  bouton plein écran, et un bouton « Réveiller » qui demande une photo
+  fraîche à la caméra tout de suite plutôt que d'attendre son prochain
+  passage prévu (consomme un peu de batterie, jusqu'à deux minutes sur une
+  caméra endormie).
 - **Clips** : du plus récent au plus ancien, avec un aperçu et un bouton
   « Écarter » qui retire un clip de toutes les vidéos assemblées.
 - **Journalières, Hebdomadaires, Mensuelles** : les vidéos assemblées.
