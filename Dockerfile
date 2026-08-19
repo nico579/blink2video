@@ -21,5 +21,12 @@ COPY . .
 ENV BLINK_HOME=/data
 VOLUME /data
 
+# 127.0.0.1 par defaut (voir serve.py) designerait la boucle locale du
+# conteneur, injoignable depuis l'hote meme avec le port publie : le reseau
+# en pont route vers l'interface du conteneur, pas sa boucle locale. La
+# frontiere de securite reste posee par la publication du port elle-meme
+# (docker-compose.yml : 127.0.0.1: en dur), pas par cette adresse d'ecoute.
+ENV BLINK_BIND=0.0.0.0
+
 EXPOSE 8765
 CMD ["python", "blink2video.py", "serve"]

@@ -3437,8 +3437,15 @@ def main() -> int:
         print(f"Erreur : {error}")
         return 1
 
-    # 127.0.0.1 et pas 0.0.0.0 : cet outil déplace des fichiers, il n'a rien à
-    # faire sur le réseau local.
+    # 127.0.0.1 et pas 0.0.0.0 par défaut : cet outil déplace des fichiers, il
+    # n'a rien à faire sur le réseau local. BLINK_BIND permet d'y déroger,
+    # nécessaire dans un conteneur Docker où 127.0.0.1 désignerait la boucle
+    # locale du conteneur, injoignable depuis l'hôte même avec le port publié
+    # (le réseau en pont route vers l'interface du conteneur, pas sa boucle
+    # locale) : la frontière de sécurité reste alors posée par la publication
+    # du port elle-même (voir docker-compose.yml, 127.0.0.1: en dur).
+    bind = os.environ.get("BLINK_BIND", "127.0.0.1")
+
     class Server(http.server.ThreadingHTTPServer):
         # http.server active allow_reuse_address, dont la sémantique diffère
         # sous Windows : plusieurs serveurs peuvent s'y lier au même port sans
@@ -3450,7 +3457,7 @@ def main() -> int:
         allow_reuse_address = os.name != "nt"
 
     try:
-        server = Server(("127.0.0.1", args.port), Handler)
+        server = Server((bind, args.port), Handler)
     except OSError as error:
         print(f"Impossible d'écouter sur le port {args.port} : {error}")
         print("Un autre « blink2video serve » tourne sans doute déjà. Arrêtez-le, "
