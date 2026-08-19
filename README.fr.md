@@ -39,20 +39,20 @@ Tout tourne sur votre machine. Rien n'est envoyé ailleurs.
 
 ## Captures d'écran
 
-![L'onglet Direct](Screenshots/serve_direct.PNG)
+![L'onglet Direct](Screenshots/serve_direct.fr.PNG)
 
 Le Direct : une tuile par caméra, sa dernière vignette, l'armement du système et
 de chaque caméra, la batterie, la température, le signal et la date du relevé.
 Une caméra hors ligne continue d'annoncer ses dernières valeurs connues, et
 l'interface dit de quand elles datent.
 
-![L'onglet Clips](Screenshots/serve0.PNG)
+![L'onglet Clips](Screenshots/serve0.fr.PNG)
 
 Les clips du plus récent au plus ancien, filtrables par caméra et par jour.
 Chaque carte donne la caméra, la durée, la date et le modèle, et le bouton
 « Écarter » retire le clip de toutes les vidéos assemblées.
 
-![Le panneau de réglages](Screenshots/settings.PNG)
+![Le panneau de réglages](Screenshots/settings.fr.PNG)
 
 Les réglages, derrière l'icône engrenage : démarrage automatique à
 l'ouverture de session, actualisation automatique de la page, cadence de
