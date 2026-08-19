@@ -2024,7 +2024,7 @@ PAGE = """<!doctype html>
   h2 { display:flex; align-items:center; gap:12px; }
   h2 .act { margin-left:auto; font-size:13px; }
   .live { position:relative; aspect-ratio:16/9; background:#000; display:flex;
-          align-items:center; justify-content:center; cursor:pointer; }
+          align-items:center; justify-content:center; }
   /* Sans ce couple de règles, .live garde son 16/9 fixe en plein écran et se
      retrouve barrée de bandes noires au lieu de remplir l'écran. */
   .live:fullscreen, .live:-webkit-full-screen { aspect-ratio:auto; }
@@ -2034,6 +2034,8 @@ PAGE = """<!doctype html>
   .live .watch { position:relative; }
   .watch { border-radius:7px; padding:8px 14px; }
   .watch.stop { position:absolute; right:10px; bottom:10px; opacity:.85; }
+  .watch.expand { position:absolute; right:10px; top:10px; opacity:.85;
+                  padding:6px 10px; font-size:13px; }
   .live { flex-direction:column; gap:12px; }
   .live .hint { color:var(--dim); font-size:14px; margin:0;
                 text-align:center; padding:0 20px; line-height:1.4; }
@@ -2346,7 +2348,7 @@ const I18N = {
     "watch.waking": "Réveil de la caméra…", "watch.waking.seconds": "Réveil de la caméra… {s} s",
     "watch.waking.slow": "Réveil de la caméra… {s} s (une caméra sur batterie est plus lente)",
     "watch.waking.mse": "Réveil de la caméra… (MSE)", "watch.reconnecting": "Reconnexion…",
-    "live.fullscreen.title": "Cliquer pour agrandir en plein écran",
+    "live.fullscreen": "Plein écran", "live.fullscreen.title": "Agrandir en plein écran",
     "watch.noimage": "Aucune image reçue. La caméra n'a pas répondu.",
     "watch.refused": "Le flux a été refusé par le serveur.",
     "watch.refused.code": "Le flux a été refusé par le serveur ({code}).",
@@ -2441,7 +2443,7 @@ const I18N = {
     "watch.waking": "Waking the camera…", "watch.waking.seconds": "Waking the camera… {s} s",
     "watch.waking.slow": "Waking the camera… {s} s (a battery camera is slower)",
     "watch.waking.mse": "Waking the camera… (MSE)", "watch.reconnecting": "Reconnecting…",
-    "live.fullscreen.title": "Click to expand fullscreen",
+    "live.fullscreen": "Fullscreen", "live.fullscreen.title": "Expand fullscreen",
     "watch.noimage": "No image received. The camera did not respond.",
     "watch.refused": "The stream was refused by the server.",
     "watch.refused.code": "The stream was refused by the server ({code}).",
@@ -2753,8 +2755,7 @@ function cameraCard(c, systemArmed) {
     c.armed && !systemArmed ? t("camera.noeffect") : null,
   ].filter(Boolean).join(" · ");
   return `<div class="card ${c.offline ? "out" : ""}">
-    <div class="live" id="live-${cssId(c.name)}" onclick="toggleFullscreen(event, '${c.name}')"
-         title="${t("live.fullscreen.title")}">${repos(c.name, t("watch.live"))}</div>
+    <div class="live" id="live-${cssId(c.name)}">${repos(c.name, t("watch.live"))}</div>
     <div class="meta">
       <div>
         <div class="time">${c.name}</div>
@@ -2828,10 +2829,9 @@ function failWatch(name, message) {
 // Ni <img> (MJPEG) ni la balise <video> du direct MSE ne portent l'attribut
 // controls (un scrubber n'aurait aucun sens sur un flux sans fin) : le
 // plein écran ne peut donc pas venir gratuitement du navigateur comme pour
-// les clips enregistrés. On le pose ici, sur la case elle-même, pour qu'il
-// survive aux allers-retours repos/direct qui remplacent son contenu.
-function toggleFullscreen(event, name) {
-  if (event.target.closest("button")) return;
+// les clips enregistrés. Bouton dédié plutôt qu'un clic sur toute la case :
+// essayé d'abord, jugé peu explicite à l'usage.
+function toggleFullscreen(name) {
   if (document.fullscreenElement || document.webkitFullscreenElement) {
     (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     return;
@@ -2956,7 +2956,8 @@ async function watchMse(name) {
   const box = $("live-" + cssId(name));
   box.innerHTML =
     `<video autoplay muted playsinline></video>
-     <button class="watch stop" onclick="stopWatch('${name}')">${t("watch.stop")}</button>`;
+     <button class="watch stop" onclick="stopWatch('${name}')">${t("watch.stop")}</button>
+     ${expandBtn(name)}`;
   const video = box.querySelector("video");
   const t0 = performance.now();
   window.__mseMetric = null;
@@ -3002,7 +3003,17 @@ async function watchMse(name) {
 // lieu de laisser un rectangle noir jusqu'au rechargement de la page.
 function repos(name, libelle) {
   return `<img class="still" src="/camthumb/${encodeURIComponent(name)}" alt="">
-     <button class="watch" onclick="watchMse('${name}')">${libelle}</button>`;
+     <button class="watch" onclick="watchMse('${name}')">${libelle}</button>
+     ${expandBtn(name)}`;
+}
+
+// Factorisé : posé à la fois ici (repos, y compris l'état d'échec qui
+// réutilise repos()) et dans watchMse() une fois le flux lancé, pour rester
+// visible dans tous les états plutôt que d'apparaître seulement en cours de
+// lecture.
+function expandBtn(name) {
+  return `<button class="watch expand" onclick="toggleFullscreen('${name}')"
+                   title="${t("live.fullscreen.title")}">⛶ ${t("live.fullscreen")}</button>`;
 }
 
 async function setArmed(scope, name, armed) {
