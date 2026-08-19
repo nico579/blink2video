@@ -2059,7 +2059,15 @@ PAGE = """<!doctype html>
   .champCadence { display:flex; align-items:center; justify-content:space-between;
                   gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
   #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
-  .etiquetteChamp { display:block; font-size:14px; margin:4px 0 6px; }
+  /* Le fuseau ("Europe/Paris", "America/Los_Angeles"...) ne tient pas dans
+     les 70px des champs numériques voisins : élargi et aligné à gauche
+     plutôt que de forcer une largeur commune qui tronquerait sa valeur. */
+  #reglages #timezone { width:180px; text-align:left; }
+  /* USB et Cloud sur une même ligne : deux paires label+champ, pas un
+     agencement bord-à-bord comme .champCadence (qui n'en attend qu'une). */
+  .champCadenceDouble { display:flex; align-items:center; flex-wrap:wrap;
+                         gap:8px 10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
+  #reglages .champCadenceDouble input { width:60px; margin-bottom:0; text-align:right; }
   #reglages fieldset p.sub { margin:0; }
   /* Dossier de stockage : tout sur une ligne, l'aide (déplacement des clips,
      valeur vide) en infobulle plutôt qu'en paragraphe pour tenir sans
@@ -2076,7 +2084,6 @@ PAGE = """<!doctype html>
      d'archivage). */
   .ligneCoches { display:flex; flex-wrap:wrap; gap:6px 20px; }
   .ligneCoches label { margin-bottom:0; }
-  #reglagesHint { margin:0 0 14px; }
   #reglages .row-boutons { margin-top:0; justify-content:space-between; }
   #reglages .row-boutons button { flex:none; white-space:nowrap; padding:9px 12px; }
   #stopButton { border-color:var(--out); color:#ffb3ab; }
@@ -2100,8 +2107,8 @@ PAGE = """<!doctype html>
   <div class="maj">
     <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
-    <button class="primary" id="refresh" data-i18n="btn.refresh">Actualiser</button>
-    <button id="reglagesButton" data-i18n="btn.reglages" data-i18n-title="btn.reglages.title" title="Réglages">⚙ Réglages</button>
+    <button class="primary" id="refresh" data-i18n="btn.refresh">↻ Actualiser</button>
+    <button id="reglagesButton" data-i18n="btn.reglages" data-i18n-title="btn.reglages.title" title="Réglages">⚙ Réglages…</button>
   </div>
   <span class="langGroup" title="Langue / Language">
     <button class="btn-lang" data-lang-btn="fr" onclick="setLang('fr', true)">FR</button>
@@ -2151,7 +2158,7 @@ PAGE = """<!doctype html>
     <input type="checkbox" id="showOut"> <span data-i18n="reglages.showOut">Voir les clips écartés</span>
   </label>
   <div class="champCadence">
-    <label for="port" data-i18n="reglages.serveur">Serveur</label>
+    <label for="port" data-i18n="reglages.serveur">Port du serveur</label>
     <input type="number" id="port" min="1" max="65535" step="1">
   </div>
   <div class="champDossier" data-i18n-title="reglages.storageDir.hint"
@@ -2163,11 +2170,9 @@ PAGE = """<!doctype html>
   </div>
   <fieldset>
     <legend data-i18n="reglages.cadence">Cadence de lecture des caméras</legend>
-    <div class="champCadence">
+    <div class="champCadenceDouble">
       <label for="usbMinutes" data-i18n="reglages.usb">USB (minutes)</label>
       <input type="number" id="usbMinutes" min="1" step="1">
-    </div>
-    <div class="champCadence">
       <label for="cloudMinutes" data-i18n="reglages.cloud">Cloud (minutes)</label>
       <input type="number" id="cloudMinutes" min="1" step="1">
     </div>
@@ -2178,8 +2183,10 @@ PAGE = """<!doctype html>
       <input type="checkbox" id="timestamp"> <span data-i18n="reglages.timestamp">Incruster la date et l'heure
       dans l'image</span>
     </label>
-    <label for="timezone" class="etiquetteChamp" data-i18n="reglages.timezone">Fuseau horaire</label>
-    <input type="text" id="timezone" list="fuseauxCourants" placeholder="Europe/Paris">
+    <div class="champCadence">
+      <label for="timezone" data-i18n="reglages.timezone">Fuseau horaire</label>
+      <input type="text" id="timezone" list="fuseauxCourants" placeholder="Europe/Paris">
+    </div>
     <datalist id="fuseauxCourants">
       <option value="Europe/Paris">
       <option value="Europe/London">
@@ -2217,11 +2224,10 @@ PAGE = """<!doctype html>
     <legend data-i18n="reglages.alertes">Mise en sourdine des alertes</legend>
     <div id="sourdineListe" class="ligneCoches sub tiny" data-i18n="sourdine.loading">Chargement…</div>
   </fieldset>
-  <p id="reglagesHint" class="sub tiny" data-i18n="reglages.hint">Les réglages ne prennent effet
-     qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le
-     port redirige cette page vers la nouvelle adresse.</p>
   <div class="row row-boutons">
-    <button class="primary" id="reglagesApply" data-i18n="reglages.apply">Appliquer</button>
+    <button class="primary" id="reglagesApply" data-i18n="reglages.apply"
+            data-i18n-title="reglages.hint"
+            title="Les réglages ne prennent effet qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le port redirige cette page vers la nouvelle adresse.">Appliquer</button>
     <button id="stopButton" data-i18n="reglages.stop">Arrêter la surveillance des caméras</button>
     <button id="reglagesClose" data-i18n="reglages.close">Fermer</button>
   </div>
@@ -2243,7 +2249,7 @@ const I18N = {
     "view.live": "Direct", "view.clips": "Clips", "view.daily": "Journalières",
     "view.weekly": "Hebdomadaires", "view.monthly": "Mensuelles",
     "filter.allcameras": "toutes caméras", "filter.alldays": "tous les jours",
-    "btn.refresh": "Actualiser", "btn.reglages": "⚙ Réglages", "btn.reglages.title": "Réglages",
+    "btn.refresh": "↻ Actualiser", "btn.reglages": "⚙ Réglages…", "btn.reglages.title": "Réglages",
     "update.installing": "Installer {version}",
     "update.title": "Version {version} publiée. Le téléchargement, l'arrêt et la relance sont automatiques.",
     "update.updating": "Mise à jour…",
@@ -2266,7 +2272,7 @@ const I18N = {
     "reglages.auto": "Actualisation automatique de la page",
     "reglages.auto.title": "Recharger la liste dès que des clips arrivent",
     "reglages.showOut": "Voir les clips écartés",
-    "reglages.serveur": "Serveur",
+    "reglages.serveur": "Port du serveur",
     "reglages.storageDir": "Dossier des données",
     "reglages.storageDir.placeholder": "C:/chemin/vers/le/dossier",
     "reglages.storageDir.hint": "Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.",
@@ -2329,7 +2335,7 @@ const I18N = {
     "view.live": "Live", "view.clips": "Clips", "view.daily": "Daily",
     "view.weekly": "Weekly", "view.monthly": "Monthly",
     "filter.allcameras": "all cameras", "filter.alldays": "all days",
-    "btn.refresh": "Refresh", "btn.reglages": "⚙ Settings", "btn.reglages.title": "Settings",
+    "btn.refresh": "↻ Refresh", "btn.reglages": "⚙ Settings…", "btn.reglages.title": "Settings",
     "update.installing": "Install {version}",
     "update.title": "Version {version} published. Download, stop and restart are automatic.",
     "update.updating": "Updating…",
@@ -2352,7 +2358,7 @@ const I18N = {
     "reglages.auto": "Automatic page refresh",
     "reglages.auto.title": "Reload the list as soon as clips arrive",
     "reglages.showOut": "Show discarded clips",
-    "reglages.serveur": "Server",
+    "reglages.serveur": "Server port",
     "reglages.storageDir": "Data folder",
     "reglages.storageDir.placeholder": "C:/path/to/the/folder",
     "reglages.storageDir.hint": "Does not move clips or the Blink session already present at the old location: do it yourself if you change this path. Empty = default location, next to the executable.",
