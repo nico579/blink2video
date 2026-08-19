@@ -117,6 +117,26 @@ du tableau. Un clic droit puis « Ouvrir » fait la même chose.
 
 </details>
 
+<details>
+<summary>Avec Docker</summary>
+
+```bash
+git clone https://github.com/nico579/blink2video
+cd blink2video
+docker compose up -d
+```
+
+Ouvrez `http://127.0.0.1:8765` et connectez-vous de la même façon. Réglages,
+session et clips persistent dans un volume nommé (`blink_data`), séparé de
+l'image : reconstruire l'image ne perd jamais rien.
+
+Le `docker-compose.yml` fourni publie le port sur `127.0.0.1` uniquement,
+comme le binaire par défaut : il n'y a aucune connexion sur le tableau de bord
+lui-même, donc rien au-delà de cette machine ne peut l'atteindre sauf à élargir
+volontairement la publication du port.
+
+</details>
+
 ## L'interface
 
 La page, sur `127.0.0.1:8765`, a cinq vues :

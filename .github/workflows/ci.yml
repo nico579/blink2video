@@ -175,3 +175,32 @@ jobs:
         with:
           name: ${{ matrix.asset }}
           path: dist/blink2video
+
+  docker:
+    name: image Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Construire l'image
+        run: docker build -t blink2video:ci .
+
+      # Meme risque que pour le bundle (voir "Vérifier que le bundle est
+      # autonome et sait horodater" ci-dessus) : sans ffmpeg complet, les
+      # vidéos sortiraient sans horodatage, en silence.
+      - name: Verifier que l'image sait horodater (drawtext)
+        run: docker run --rm --entrypoint ffmpeg blink2video:ci -hide_banner -filters | grep -q drawtext
+
+      # Démarre le conteneur comme un utilisateur le ferait (docker run, port
+      # publié) et vérifie que la page sert bien du HTML reconnaissable,
+      # avant d'avoir un vrai compte Blink pour aller plus loin.
+      - name: Demarrer le conteneur et interroger la page
+        run: |
+          docker run -d --name blink2video-ci -p 127.0.0.1:8765:8765 blink2video:ci
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8765/ -o page.html; then break; fi
+            sleep 1
+          done
+          grep -q "blink2video" page.html || { echo "page inattendue"; docker logs blink2video-ci; exit 1; }
+          docker stop blink2video-ci

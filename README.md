@@ -105,6 +105,26 @@ refuses the first run of an archive downloaded through a browser, hence the
 
 </details>
 
+<details>
+<summary>With Docker</summary>
+
+```bash
+git clone https://github.com/nico579/blink2video
+cd blink2video
+docker compose up -d
+```
+
+Open `http://127.0.0.1:8765` and sign in the same way. Settings, the session
+and clips persist in a named volume (`blink_data`), separate from the image,
+so rebuilding the image never loses anything.
+
+The bundled `docker-compose.yml` publishes the port to `127.0.0.1` only,
+matching the binary's own default: there is no login on the dashboard itself,
+so nothing beyond this machine can reach it unless you deliberately widen the
+port mapping yourself.
+
+</details>
+
 ## The interface
 
 The page, at `127.0.0.1:8765`, has five views:

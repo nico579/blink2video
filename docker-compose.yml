@@ -1,0 +1,15 @@
+services:
+  blink2video:
+    build: .
+    restart: unless-stopped
+    ports:
+      # Reduit a cette machine par defaut, comme le binaire hors conteneur.
+      # Retirer le "127.0.0.1:" expose le tableau de bord a tout le reseau
+      # local : il n'y a aujourd'hui aucun mot de passe dessus, ce doit etre
+      # un choix volontaire, pas un effet de bord de la publication du port.
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - blink_data:/data
+
+volumes:
+  blink_data:
