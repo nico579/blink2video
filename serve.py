@@ -2143,13 +2143,10 @@ PAGE = """<!doctype html>
   <label id="outLabel">
     <input type="checkbox" id="showOut"> <span data-i18n="reglages.showOut">Voir les clips écartés</span>
   </label>
-  <fieldset class="sansCadre">
-    <legend data-i18n="reglages.serveur">Serveur</legend>
-    <div class="champCadence">
-      <label for="port" data-i18n="reglages.port">Port</label>
-      <input type="number" id="port" min="1" max="65535" step="1">
-    </div>
-  </fieldset>
+  <div class="champCadence">
+    <label for="port" data-i18n="reglages.serveur">Serveur</label>
+    <input type="number" id="port" min="1" max="65535" step="1">
+  </div>
   <fieldset class="sansCadre">
     <legend data-i18n="reglages.stockage">Stockage</legend>
     <label for="storageDir" class="etiquetteChamp" data-i18n="reglages.storageDir">Dossier des données</label>
@@ -2219,7 +2216,7 @@ PAGE = """<!doctype html>
   <p id="reglagesHint" class="sub tiny" data-i18n="reglages.hint">Les réglages ne prennent effet
      qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le
      port redirige cette page vers la nouvelle adresse.</p>
-  <button class="primary" id="reglagesApply" data-i18n="reglages.apply">Appliquer et redémarrer</button>
+  <button class="primary" id="reglagesApply" data-i18n="reglages.apply">Appliquer</button>
   <button id="stopButton" data-i18n="reglages.stop">Arrêter la surveillance des caméras</button>
   <div class="row">
     <button id="reglagesClose" data-i18n="reglages.close">Fermer</button>
@@ -2265,7 +2262,7 @@ const I18N = {
     "reglages.auto": "Actualisation automatique de la page",
     "reglages.auto.title": "Recharger la liste dès que des clips arrivent",
     "reglages.showOut": "Voir les clips écartés",
-    "reglages.serveur": "Serveur", "reglages.port": "Port",
+    "reglages.serveur": "Serveur",
     "reglages.stockage": "Stockage", "reglages.storageDir": "Dossier des données",
     "reglages.storageDir.placeholder": "C:/chemin/vers/le/dossier",
     "reglages.storageDir.hint": "Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.",
@@ -2275,12 +2272,13 @@ const I18N = {
     "reglages.usb": "USB (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Vidéo", "reglages.timestamp": "Incruster la date et l'heure dans l'image",
     "reglages.timezone": "Fuseau horaire",
-    "reglages.archivage": "Archivage", "reglages.mergeJour": "Vidéo par jour",
-    "reglages.mergeSemaine": "Agrégat hebdomadaire", "reglages.mergeMois": "Agrégat mensuel",
-    "reglages.archivage.hint": "Semaine et mois sont assemblés à partir des vidéos journalières : décocher « jour » désactive aussi les deux autres.",
-    "reglages.alertes": "Alertes",
+    "reglages.archivage": "Création des vidéos temporelles par caméra",
+    "reglages.mergeJour": "Quotidienne",
+    "reglages.mergeSemaine": "Hebdomadaire", "reglages.mergeMois": "Mensuelle",
+    "reglages.archivage.hint": "Hebdomadaire et mensuelle sont assemblées à partir de la quotidienne : décocher « Quotidienne » désactive aussi les deux autres.",
+    "reglages.alertes": "Mise en sourdine des alertes",
     "reglages.hint": "Les réglages ne prennent effet qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le port redirige cette page vers la nouvelle adresse.",
-    "reglages.apply": "Appliquer et redémarrer", "reglages.restarting": "Redémarrage…",
+    "reglages.apply": "Appliquer", "reglages.restarting": "Redémarrage…",
     "reglages.restarting.settings": "Redémarrage avec les nouveaux réglages…",
     "reglages.portchange": "Port changé : redirection vers {url} dès l'arrêt confirmé…",
     "reglages.stop": "Arrêter la surveillance des caméras", "reglages.close": "Fermer",
@@ -2290,7 +2288,7 @@ const I18N = {
     "stop.stopping": "Arrêt…",
     "stop.stopped": "blink2video est arrêté. Relancez l'application pour reprendre.",
     "sourdine.loading": "Chargement…", "sourdine.unavailable": "Liste des caméras indisponible.",
-    "sourdine.none": "Aucune caméra connue pour l'instant.", "sourdine.muted": " {camera} en sourdine",
+    "sourdine.none": "Aucune caméra connue pour l'instant.",
     "live.querying": "Interrogation du système Blink…",
     "live.count": "{n} caméra(s) · {m} armée(s)",
     "system.armed": "Système armé", "system.disarmed": "Système désarmé",
@@ -2350,7 +2348,7 @@ const I18N = {
     "reglages.auto": "Automatic page refresh",
     "reglages.auto.title": "Reload the list as soon as clips arrive",
     "reglages.showOut": "Show discarded clips",
-    "reglages.serveur": "Server", "reglages.port": "Port",
+    "reglages.serveur": "Server",
     "reglages.stockage": "Storage", "reglages.storageDir": "Data folder",
     "reglages.storageDir.placeholder": "C:/path/to/the/folder",
     "reglages.storageDir.hint": "Does not move clips or the Blink session already present at the old location: do it yourself if you change this path. Empty = default location, next to the executable.",
@@ -2360,12 +2358,13 @@ const I18N = {
     "reglages.usb": "USB (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Video", "reglages.timestamp": "Burn the date and time into the image",
     "reglages.timezone": "Time zone",
-    "reglages.archivage": "Archiving", "reglages.mergeJour": "Daily video",
-    "reglages.mergeSemaine": "Weekly aggregate", "reglages.mergeMois": "Monthly aggregate",
-    "reglages.archivage.hint": "Weekly and monthly are assembled from the daily videos: unchecking \u201cdaily\u201d also disables the other two.",
-    "reglages.alertes": "Alerts",
+    "reglages.archivage": "Per-camera time-based video creation",
+    "reglages.mergeJour": "Daily",
+    "reglages.mergeSemaine": "Weekly", "reglages.mergeMois": "Monthly",
+    "reglages.archivage.hint": "Weekly and Monthly are assembled from the Daily: unchecking \u201cDaily\u201d also disables the other two.",
+    "reglages.alertes": "Mute alerts",
     "reglages.hint": "Settings only take effect on restart: \u201cApply\u201d saves and restarts. Changing the port redirects this page to the new address.",
-    "reglages.apply": "Apply and restart", "reglages.restarting": "Restarting…",
+    "reglages.apply": "Apply", "reglages.restarting": "Restarting…",
     "reglages.restarting.settings": "Restarting with the new settings…",
     "reglages.portchange": "Port changed: redirecting to {url} once the shutdown is confirmed…",
     "reglages.stop": "Stop camera monitoring", "reglages.close": "Close",
@@ -2375,7 +2374,7 @@ const I18N = {
     "stop.stopping": "Stopping…",
     "stop.stopped": "blink2video is stopped. Restart the application to resume.",
     "sourdine.loading": "Loading…", "sourdine.unavailable": "Camera list unavailable.",
-    "sourdine.none": "No known camera yet.", "sourdine.muted": " {camera} muted",
+    "sourdine.none": "No known camera yet.",
     "live.querying": "Querying the Blink system…",
     "live.count": "{n} camera(s) · {m} armed",
     "system.armed": "System armed", "system.disarmed": "System disarmed",
@@ -3320,7 +3319,7 @@ async function chargerSourdine() {
       }
     };
     label.appendChild(case_);
-    label.append(tf("sourdine.muted", { camera }));
+    label.append(` ${camera}`);
     conteneur.appendChild(label);
   }
 }
