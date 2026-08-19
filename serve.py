@@ -2496,14 +2496,22 @@ let system = null;
 
 async function loadSystem(force) {
   if (system && !force) return renderLive();
-  $("list").innerHTML = `<p class="empty">${t("live.querying")}</p>`;
-  $("count").textContent = "";
+  // La vue peut avoir changé entre le déclenchement de cet appel et sa
+  // résolution (bascule rapide vers Clips, ou déclenchement précoce au
+  // chargement avant que la vue par défaut ne soit posée) : ne toucher au
+  // DOM que si Direct est encore affiché, sinon la réponse tardive
+  // écraserait une liste de clips déjà à l'écran sans que le menu déroulant
+  // ne le laisse deviner.
+  if ($("view").value === "live") {
+    $("list").innerHTML = `<p class="empty">${t("live.querying")}</p>`;
+    $("count").textContent = "";
+  }
   try {
     system = await (await fetch("/api/system")).json();
   } catch (error) {
     system = { error: String(error) };
   }
-  renderLive();
+  if ($("view").value === "live") renderLive();
 }
 
 // Un calcul lancé par les boucles de fond, hors de cette page : le
@@ -3434,6 +3442,14 @@ $("stopButton").onclick = async () => {
   document.body.innerHTML = `<p class="empty">${t("stop.stopped")}</p>`;
 };
 
+// Vue par défaut posée AVANT setLang() : celui-ci appelle render(), qui lit
+// $("view").value pour décider quoi peindre. Sans cadre du navigateur pour
+// distinguer une option "selected" ici, la valeur par défaut du <select>
+// serait la première déclarée (Direct) - render() y déclencherait alors un
+// appel réseau vers /api/system dont la réponse, arrivée en retard, écrase
+// la liste de clips déjà affichée sans que le menu déroulant ne bouge (bug
+// vécu en conditions réelles : la page « repassait en Direct toute seule »).
+$("view").value = "clips";
 // Override manuel mémorisé prioritaire ; sinon la langue du navigateur, comme
 // au premier lancement de lidar2map. Placé ici, en fin de script : setLang()
 // appelle render()/renderLive(), qui référencent des `let` déclarés plus haut
@@ -3442,7 +3458,6 @@ $("stopButton").onclick = async () => {
 // en testant réellement au navigateur.
 setLang(localStorage.getItem("lang") || detectLang(), false);
 
-$("view").value = "clips";   // au démarrage on montre les clips, pas d'appel réseau
 load();
 // E-01 : blink2video ouvre cette page avec ?login=1 quand aucune session
 // valide n'a été trouvée, pour que la fenêtre de connexion soit le premier
