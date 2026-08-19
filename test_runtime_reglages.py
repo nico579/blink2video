@@ -1,8 +1,8 @@
 """Non-régression de runtime.lire_reglages / ecrire_reglages / standard
-(AUDIT-2026-08-13.md, section 28.32/28.34/28.36/28.37/28.39) : cadences
-USB/cloud, port, horodatage, fuseau et activation jour/semaine/mois du
-merge réglables depuis la page web plutôt que figés dans la constante
-STANDARD.
+(AUDIT-2026-08-13.md, section 28.32/28.34/28.36/28.37/28.39/28.56) :
+cadences USB/cloud, port, horodatage, fuseau, activation jour/semaine/mois
+du merge et activation du téléchargement automatique, réglables depuis la
+page web plutôt que figés dans la constante STANDARD.
 
 Anciennement test_runtime_cadences.py : renommé avec les fonctions, le
 port, l'horodatage, le fuseau puis les coches de merge ayant rejoint les
@@ -39,12 +39,12 @@ class TestsReglages(unittest.TestCase):
     def test_ecrire_puis_lire_conserve_les_valeurs(self):
         runtime.ecrire_reglages(usb_minutes=7, cloud_minutes=2, port=8899, timestamp=False,
                                 timezone="America/New_York", merge_jour=True,
-                                merge_semaine=False, merge_mois=False)
+                                merge_semaine=False, merge_mois=False, download_auto=False)
         self.assertEqual(
             runtime.lire_reglages(),
             {"usb_minutes": 7, "cloud_minutes": 2, "port": 8899, "timestamp": False,
              "timezone": "America/New_York", "merge_jour": True, "merge_semaine": False,
-             "merge_mois": False})
+             "merge_mois": False, "download_auto": False})
 
     def test_valeurs_partielles_completees_par_les_defauts(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -58,7 +58,8 @@ class TestsReglages(unittest.TestCase):
              "timezone": runtime.REGLAGES_DEFAUT["timezone"],
              "merge_jour": runtime.REGLAGES_DEFAUT["merge_jour"],
              "merge_semaine": runtime.REGLAGES_DEFAUT["merge_semaine"],
-             "merge_mois": runtime.REGLAGES_DEFAUT["merge_mois"]})
+             "merge_mois": runtime.REGLAGES_DEFAUT["merge_mois"],
+             "download_auto": runtime.REGLAGES_DEFAUT["download_auto"]})
 
     def test_fuseau_vide_dans_le_fichier_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -77,7 +78,7 @@ class TestsReglages(unittest.TestCase):
     def test_standard_reflete_les_reglages_enregistres(self):
         runtime.ecrire_reglages(usb_minutes=20, cloud_minutes=3, port=9090, timestamp=True,
                                 timezone="Asia/Tokyo", merge_jour=True, merge_semaine=True,
-                                merge_mois=True)
+                                merge_mois=True, download_auto=True)
         composition = runtime.standard()
         self.assertEqual(
             composition,
@@ -90,7 +91,7 @@ class TestsReglages(unittest.TestCase):
     def test_standard_ajoute_no_timestamp_quand_desactive(self):
         runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=False,
                                 timezone="Europe/Paris", merge_jour=True, merge_semaine=True,
-                                merge_mois=True)
+                                merge_mois=True, download_auto=True)
         composition = runtime.standard()
         self.assertEqual(composition[-6:],
                          ("merge", "--loop", "5", "--timezone", "Europe/Paris",
@@ -102,14 +103,27 @@ class TestsReglages(unittest.TestCase):
         # que de le lancer pour rien.
         runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
                                 timezone="Europe/Paris", merge_jour=False, merge_semaine=True,
-                                merge_mois=True)
+                                merge_mois=True, download_auto=True)
         composition = runtime.standard()
         self.assertNotIn("merge", composition)
+
+    def test_standard_omet_download_quand_desactive(self):
+        # Coche pensee pour qui ne veut que le direct (voir BACKLOG.md) :
+        # aucun des deux "download" (usb, cloud) ne doit rester, watch/serve/
+        # merge continuent de tourner normalement.
+        runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
+                                timezone="Europe/Paris", merge_jour=True, merge_semaine=True,
+                                merge_mois=True, download_auto=False)
+        composition = runtime.standard()
+        self.assertNotIn("download", composition)
+        self.assertIn("serve", composition)
+        self.assertIn("watch", composition)
+        self.assertIn("merge", composition)
 
     def test_standard_ajoute_no_weekly_et_no_monthly_selon_les_reglages(self):
         runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
                                 timezone="Europe/Paris", merge_jour=True, merge_semaine=False,
-                                merge_mois=False)
+                                merge_mois=False, download_auto=True)
         composition = runtime.standard()
         self.assertEqual(composition[-7:],
                          ("merge", "--loop", "5", "--timezone", "Europe/Paris",

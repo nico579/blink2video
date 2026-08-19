@@ -63,7 +63,7 @@ ENTREE = "blink2video"
 REGLAGES = "blink_reglages.json"
 REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": True,
                    "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": True,
-                   "merge_mois": True}
+                   "merge_mois": True, "download_auto": True}
 # Nombre d'éléments du bloc fixe en tête de standard() : serve, --port,
 # valeur, --timezone, valeur. blink_cli.route() s'appuie sur cette longueur
 # pour greffer le supplément de « start » juste après (voir standard()).
@@ -90,17 +90,19 @@ def lire_reglages() -> dict:
         "merge_jour": bool(valeurs.get("merge_jour", REGLAGES_DEFAUT["merge_jour"])),
         "merge_semaine": bool(valeurs.get("merge_semaine", REGLAGES_DEFAUT["merge_semaine"])),
         "merge_mois": bool(valeurs.get("merge_mois", REGLAGES_DEFAUT["merge_mois"])),
+        "download_auto": bool(valeurs.get("download_auto", REGLAGES_DEFAUT["download_auto"])),
     }
 
 
 def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool,
                     timezone: str, merge_jour: bool, merge_semaine: bool,
-                    merge_mois: bool) -> None:
+                    merge_mois: bool, download_auto: bool) -> None:
     (app_dir() / REGLAGES).write_text(
         json.dumps({"usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
                     "port": int(port), "timestamp": bool(timestamp),
                     "timezone": str(timezone), "merge_jour": bool(merge_jour),
-                    "merge_semaine": bool(merge_semaine), "merge_mois": bool(merge_mois)}),
+                    "merge_semaine": bool(merge_semaine), "merge_mois": bool(merge_mois),
+                    "download_auto": bool(download_auto)}),
         encoding="utf-8")
 
 
@@ -126,11 +128,13 @@ def standard() -> tuple:
             merge.append("--no-weekly")
         if not c["merge_mois"]:
             merge.append("--no-monthly")
+    download = []
+    if c["download_auto"]:
+        download = ["download", "--from", "usb", "--loop", str(c["usb_minutes"]),
+                    "download", "--from", "cloud", "--loop", str(c["cloud_minutes"])]
     return ("serve", "--port", str(c["port"]), "--timezone", c["timezone"],
             "watch", "--loop", "10",
-            "download", "--from", "usb", "--loop", str(c["usb_minutes"]),
-            "download", "--from", "cloud", "--loop", str(c["cloud_minutes"]),
-            *merge)
+            *download, *merge)
 
 
 class Verbe(NamedTuple):

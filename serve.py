@@ -1695,8 +1695,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             merge_jour = bool(payload.get("merge_jour", True))
             merge_semaine = bool(payload.get("merge_semaine", True))
             merge_mois = bool(payload.get("merge_mois", True))
+            download_auto = bool(payload.get("download_auto", True))
             runtime.ecrire_reglages(usb_minutes, cloud_minutes, port, timestamp, timezone_str,
-                                    merge_jour, merge_semaine, merge_mois)
+                                    merge_jour, merge_semaine, merge_mois, download_auto)
             runtime.ecrire_dossier_stockage(storage_dir)
             # Détaché, comme /api/update : ce processus fait partie de ce que
             # « restart » va arrêter. Le verbe diffère de « update » puisqu'aucune
@@ -2038,6 +2039,11 @@ PAGE = """<!doctype html>
   </div>
   <fieldset>
     <legend data-i18n="reglages.cadence">Cadence de lecture des caméras</legend>
+    <label id="downloadAutoLabel" data-i18n-title="reglages.downloadAuto.hint"
+           title="Décochée, aucun clip n'est plus récupéré ni stocké : utile pour ne garder que le direct. Les cadences ci-dessous n'ont alors plus d'effet.">
+      <input type="checkbox" id="downloadAuto">
+      <span data-i18n="reglages.downloadAuto">Télécharger les clips automatiquement</span>
+    </label>
     <div class="champCadenceDouble">
       <label for="usbMinutes" data-i18n="reglages.usb">USB (minutes)</label>
       <input type="number" id="usbMinutes" min="1" step="1">
@@ -2151,6 +2157,8 @@ const I18N = {
     "reglages.video": "Vidéo", "reglages.timestamp": "Incruster la date et l'heure dans l'image",
     "reglages.timezone": "Fuseau horaire",
     "reglages.archivage": "Création des vidéos temporelles par caméra",
+    "reglages.downloadAuto": "Télécharger les clips automatiquement",
+    "reglages.downloadAuto.hint": "Décochée, aucun clip n'est plus récupéré ni stocké : utile pour ne garder que le direct. Les cadences ci-dessous n'ont alors plus d'effet.",
     "reglages.mergeJour": "Quotidienne",
     "reglages.mergeSemaine": "Hebdomadaire", "reglages.mergeMois": "Mensuelle",
     "reglages.archivage.hint": "Hebdomadaire et mensuelle sont assemblées à partir de la quotidienne : décocher « Quotidienne » désactive aussi les deux autres.",
@@ -2249,6 +2257,8 @@ const I18N = {
     "reglages.video": "Video", "reglages.timestamp": "Burn the date and time into the image",
     "reglages.timezone": "Time zone",
     "reglages.archivage": "Per-camera time-based video creation",
+    "reglages.downloadAuto": "Download clips automatically",
+    "reglages.downloadAuto.hint": "Unchecked, no clip is fetched or stored anymore: useful to keep only the live view. The cadences below then have no effect.",
     "reglages.mergeJour": "Daily",
     "reglages.mergeSemaine": "Weekly", "reglages.mergeMois": "Monthly",
     "reglages.archivage.hint": "Weekly and Monthly are assembled from the Daily: unchecking \u201cDaily\u201d also disables the other two.",
@@ -3209,6 +3219,8 @@ $("reglagesButton").onclick = async () => {
     $("mergeSemaine").checked = reglages.merge_semaine;
     $("mergeMois").checked = reglages.merge_mois;
     appliquerDependanceMergeJour();
+    $("downloadAuto").checked = reglages.download_auto;
+    appliquerDependanceDownloadAuto();
   } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
   chargerSourdine();
   $("reglages").showModal();
@@ -3250,6 +3262,15 @@ function appliquerDependanceMergeJour() {
   }
 }
 $("mergeJour").onchange = appliquerDependanceMergeJour;
+
+// Les cadences n'ont plus de sens si rien n'est téléchargé : grisées plutôt
+// que retirées, pour retrouver la dernière valeur en recochant.
+function appliquerDependanceDownloadAuto() {
+  const actif = $("downloadAuto").checked;
+  $("usbMinutes").disabled = !actif;
+  $("cloudMinutes").disabled = !actif;
+}
+$("downloadAuto").onchange = appliquerDependanceDownloadAuto;
 
 // Séparé du reste du panneau : contrairement aux cadences, au port ou au
 // fuseau, la sourdine n'exige pas de redémarrage (watch relit son état à
@@ -3331,12 +3352,13 @@ $("reglagesApply").onclick = async () => {
     const mergeJour = $("mergeJour").checked;
     const mergeSemaine = $("mergeSemaine").checked;
     const mergeMois = $("mergeMois").checked;
+    const downloadAuto = $("downloadAuto").checked;
     const reponse = await fetch("/api/reglages", { method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud, port,
                              storage_dir: storageDir, timestamp, timezone,
                              merge_jour: mergeJour, merge_semaine: mergeSemaine,
-                             merge_mois: mergeMois }) });
+                             merge_mois: mergeMois, download_auto: downloadAuto }) });
     const resultat = await reponse.json();
     if (resultat.error) {
       alert(resultat.error);
