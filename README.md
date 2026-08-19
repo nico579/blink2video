@@ -15,6 +15,10 @@ and assemble them into one video per day, per week and per month.
 
 Everything runs on your machine. Nothing is sent anywhere.
 
+The web interface listens on `127.0.0.1` only: nothing else on your local
+network can reach it, just this machine. It has no login of its own beyond
+the Blink account session, so anyone with access to this machine can open it.
+
 ## Features
 
 - Live view of any camera in the browser, arming the system or a single camera.

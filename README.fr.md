@@ -17,6 +17,11 @@ par semaine et par mois.
 
 Tout tourne sur votre machine. Rien n'est envoyé ailleurs.
 
+L'interface web n'écoute que sur `127.0.0.1` : rien d'autre sur votre réseau
+local ne peut l'atteindre, seulement cette machine. Elle n'a pas de mot de
+passe propre au-delà de la session du compte Blink : quiconque a accès à
+cette machine peut donc l'ouvrir.
+
 ## Fonctionnalités
 
 - Visionnage du direct de n'importe quelle caméra dans le navigateur, armement
