@@ -1272,7 +1272,8 @@ def _executer(args) -> int:
                 position += 1
                 print(f"  [{position}/{total}] {identity}", flush=True)
                 report = progress_printer(f"[{position}/{total}]")
-                runtime.travail("Préparation des clips", position - 1, total)
+                runtime.travail("Préparation des clips", position - 1, total,
+                                cle="phase.prepare_clips")
             ok, error, did_encode = normalize_clip(
                 ffmpeg, timezone, registry, normalized_dir, identity, info,
                 target, key, font_path, args.preset, args.crf, args.force,
@@ -1315,7 +1316,8 @@ def _executer(args) -> int:
 
         print(f"  [{index}/{len(todo)}] Assemblage : {day} / {camera} / "
               f"{len(segments)} clip(s)")
-        runtime.travail("Assemblage des vidéos", index - 1, len(todo))
+        runtime.travail("Assemblage des vidéos", index - 1, len(todo),
+                        cle="phase.assemble_videos")
         ok, error = merge_group(ffmpeg, segments, destination)
         if not ok:
             print(f"  Échec : {error}")

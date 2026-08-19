@@ -382,7 +382,8 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                 for position, clip in enumerate(pending, start=1):
                     target = blink_models.target_path(output, clip, sync=sync, source="usb")
                     print(f"  [{position}/{len(pending)}] {target.name}")
-                    runtime.travail("Téléchargement des clips", position - 1, len(pending))
+                    runtime.travail("Téléchargement des clips", position - 1, len(pending),
+                                    cle="phase.download_clips")
                     try:
                         result = await download_clip(blink, clip, target, args.overwrite)
                     except Exception as error:  # Continuer avec les autres clips.

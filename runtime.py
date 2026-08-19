@@ -818,16 +818,24 @@ def passage_recent(verbe: str, minutes: float) -> bool:
 TRAVAIL = Path(".blink_travail.json")
 
 
-def travail(quoi: str, fait: float = 0, total: int = 0) -> None:
+def travail(quoi: str, fait: float = 0, total: int = 0, cle: str | None = None) -> None:
     """Publie l'avancement du travail en cours, pour qui voudrait le montrer.
 
     Les verbes tournent dans leurs propres processus : quand l'assemblage part
     d'une boucle de fond, l'interface ne voit rien de sa sortie. Ce fichier est
     le seul point où elle peut apprendre qu'un calcul occupe la machine, et où
-    il en est. Écrit à chaque clip, effacé à la fin."""
+    il en est. Écrit à chaque clip, effacé à la fin.
+
+    `quoi` reste le texte français en dur, pour les appelants qui n'affichent
+    rien (journaux, terminal) : ne pas leur imposer de traduction. `cle` est
+    une étiquette stable, optionnelle, que la page web utilise pour retrouver
+    l'équivalent anglais dans son propre dictionnaire (I18N) sans que ce
+    fichier n'ait besoin d'en connaître la traduction lui-même - un texte
+    inconnu (clé absente, ou clé que la page ne reconnaît pas) reste affiché
+    tel quel, jamais une chaîne vide."""
     import datetime as dt
 
-    etat = {"quoi": quoi, "fait": round(fait, 3), "total": total,
+    etat = {"quoi": quoi, "cle": cle, "fait": round(fait, 3), "total": total,
             "pid": os.getpid(),
             "depuis": dt.datetime.now().astimezone().isoformat(timespec="seconds")}
     try:

@@ -1644,8 +1644,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         « download » et « merge » sont les deux seules mains de l'outil, et les
         appeler l'un après l'autre dit exactement ce qui se passe."""
         auth = BASE_DIR / "blink_auth.json"
-        etapes = [("Téléchargement", runtime.self_command("download", "--hub", self.hub)),
-                  ("Fusion", runtime.self_command("merge"))]
+        etapes = [("Téléchargement", "phase.step_download",
+                  runtime.self_command("download", "--hub", self.hub)),
+                  ("Fusion", "phase.step_merge", runtime.self_command("merge"))]
         if not auth.is_file():
             # Le téléchargement demanderait l'e-mail, le mot de passe et le code
             # de vérification sur l'entrée standard, qui n'existe pas ici : le
@@ -1661,8 +1662,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # plusieurs kilo-octets et la barre avancerait par à-coups.
         # PYTHONIOENCODING évite les accents mutilés par la console Windows.
         env = dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
-        for phase, command in etapes:
-            self.send_event({"phase": phase, "line": f"$ {phase.lower()}"})
+        for phase, cle, command in etapes:
+            self.send_event({"phase": phase, "phase_key": cle, "line": f"$ {phase.lower()}"})
             if not self.suivre(command, env, phase):
                 return
         self.send_event({"done": True, "ok": True})
@@ -1695,6 +1696,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if heading:
                 titre = heading.group(1).strip()
                 event["phase"] = titre.capitalize() if titre.isupper() else titre
+                # Ces deux titres sont les seuls que blink_engine.py émette
+                # sous cette forme (voir traiter_cloud/un_passage) : une clé
+                # stable permet à la page de les traduire, le nom du hub
+                # (donnée de l'utilisateur, jamais traduisible) passant à part.
+                if titre == "CLOUD DE L'ABONNEMENT":
+                    event["phase_key"] = "phase.cloud_section"
+                elif titre.startswith("STOCKAGE LOCAL : "):
+                    event["phase_key"] = "phase.usb_section"
+                    event["phase_hub"] = titre[len("STOCKAGE LOCAL : "):].strip()
             if not self.send_event(event):
                 process.terminate()
                 process.wait()
@@ -2311,6 +2321,14 @@ const I18N = {
     "stop.stopped": "blink2video est arrêté. Relancez l'application pour reprendre.",
     "sourdine.loading": "Chargement…", "sourdine.unavailable": "Liste des caméras indisponible.",
     "sourdine.none": "Aucune caméra connue pour l'instant.",
+    "phase.download_clips": "Téléchargement des clips",
+    "phase.prepare_clips": "Préparation des clips",
+    "phase.assemble_videos": "Assemblage des vidéos",
+    "phase.update_download": "Téléchargement de la mise à jour ({mo} Mo)",
+    "phase.update_install": "Installation de la mise à jour",
+    "phase.step_download": "Téléchargement", "phase.step_merge": "Fusion",
+    "phase.cloud_section": "Cloud de l'abonnement",
+    "phase.usb_section": "Stockage local : {hub}",
     "live.querying": "Interrogation du système Blink…",
     "live.count": "{n} caméra(s) · {m} armée(s)",
     "system.armed": "Système armé", "system.disarmed": "Système désarmé",
@@ -2397,6 +2415,14 @@ const I18N = {
     "stop.stopped": "blink2video is stopped. Restart the application to resume.",
     "sourdine.loading": "Loading…", "sourdine.unavailable": "Camera list unavailable.",
     "sourdine.none": "No known camera yet.",
+    "phase.download_clips": "Downloading clips",
+    "phase.prepare_clips": "Preparing clips",
+    "phase.assemble_videos": "Assembling videos",
+    "phase.update_download": "Downloading the update ({mo} MB)",
+    "phase.update_install": "Installing the update",
+    "phase.step_download": "Downloading", "phase.step_merge": "Merging",
+    "phase.cloud_section": "Subscription cloud",
+    "phase.usb_section": "Local storage: {hub}",
     "live.querying": "Querying the Blink system…",
     "live.count": "{n} camera(s) · {m} armed",
     "system.armed": "System armed", "system.disarmed": "System disarmed",
@@ -2550,6 +2576,18 @@ async function loadSystem(force) {
 let travailEnCours = false;
 let actualisationLocale = false;
 
+// Le serveur ne connaît jamais la langue affichée (choix propre à chaque
+// onglet, en localStorage) : un libellé de phase arrive donc toujours en
+// français, accompagné d'une clé stable quand une traduction existe. Clé
+// absente ou inconnue de ce dictionnaire : le texte reçu reste affiché tel
+// quel plutôt qu'une chaîne vide, qui masquerait un travail réellement en
+// cours (ex. bug vécu en vrai : « Téléchargement des clips » figé en
+// français quelle que soit la langue choisie).
+function libellePhase(cle, texteBrut, valeurs) {
+  if (!cle || !((I18N[_lang] && I18N[_lang][cle]) || I18N.fr[cle])) return texteBrut;
+  return valeurs ? tf(cle, valeurs) : t(cle);
+}
+
 function montrerTravail(travail) {
   if (actualisationLocale) return;    // notre propre barre parle déjà
   const actif = !!(travail && travail.quoi);
@@ -2564,14 +2602,16 @@ function montrerTravail(travail) {
   $("work").classList.add("on");
   const total = travail.total || 0;
   const fait = travail.fait || 0;
+  const quoi = travail.cle === "phase.update_download"
+    ? libellePhase(travail.cle, travail.quoi, { mo: Math.round(total) })
+    : libellePhase(travail.cle, travail.quoi);
   if (total) {
     $("bar").max = total;
     $("bar").value = fait;
-    $("phase").textContent =
-      `${travail.quoi} ${Math.min(fait + 1, total)}/${total}`;
+    $("phase").textContent = `${quoi} ${Math.min(fait + 1, total)}/${total}`;
   } else {
     $("bar").removeAttribute("value");
-    $("phase").textContent = travail.quoi;
+    $("phase").textContent = quoi;
   }
 }
 
@@ -3173,7 +3213,9 @@ $("refresh").onclick = async () => {
   source.onmessage = (message) => {
     const event = JSON.parse(message.data);
     if (event.phase) {
-      label = event.phase;
+      label = event.phase_key === "phase.usb_section"
+        ? libellePhase(event.phase_key, event.phase, { hub: event.phase_hub })
+        : libellePhase(event.phase_key, event.phase);
       $("phase").textContent = label;
       $("bar").removeAttribute("value");
     }

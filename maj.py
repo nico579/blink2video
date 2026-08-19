@@ -149,7 +149,8 @@ def _telecharger(url: str, destination: Path, taille: int) -> None:
                 dernier = time.time()
                 mo = recu // (1024 * 1024)
                 runtime.travail(f"Téléchargement de la mise à jour ({mo} Mo)",
-                                recu / (1024 * 1024), total // (1024 * 1024))
+                                recu / (1024 * 1024), total // (1024 * 1024),
+                                cle="phase.update_download")
     print(f"  archive reçue : {destination.name} "
           f"({destination.stat().st_size // (1024 * 1024)} Mo)")
 
@@ -425,7 +426,7 @@ def installer(force: bool = False) -> int:
     try:
         fichier = travail / str(archive["nom"])
         _telecharger(str(archive["url"]), fichier, int(archive.get("taille") or 0))
-        runtime.travail("Installation de la mise à jour", 0, 0)
+        runtime.travail("Installation de la mise à jour", 0, 0, cle="phase.update_install")
         dossier = _extraire(fichier, travail / "contenu")
         _rendre_executable(dossier)
         if not _verifier(dossier, neuve["version"]):
