@@ -108,7 +108,6 @@ LIVE_MAX_SECONDS = 300
 # Délai accordé à la première image. Une caméra sur batterie doit se réveiller,
 # donc on est patient ; au-delà on considère qu'elle ne répondra pas.
 LIVE_FIRST_FRAME_SECONDS = 40
-LIVE_BOUNDARY = "blinkframe"
 
 # Aucune vignette n'est redemandée d'elle-même : elle est récupérée une fois,
 # puis conservée jusqu'à ce qu'on clique sur Actualiser. Une image qui change
@@ -990,199 +989,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "endormie, ou déjà occupée par une autre session.")
         return message or "La caméra n'a envoyé aucune image."
 
-    def send_live(self, name: str) -> None:
-        """Diffuse le direct d'une caméra en MJPEG.
-
-        Chaîne complète : Blink livre un flux « immis » que blinkpy sait
-        déchiffrer et republier en MPEG-TS sur un port local, ffmpeg le lit et
-        le convertit en suite d'images JPEG, que l'on pousse en
-        multipart/x-mixed-replace. Une simple balise <img> suffit alors à
-        l'afficher, sans lecteur ni bibliothèque.
-
-        Tout le cycle de vie tient à cette requête HTTP : quand le navigateur
-        ferme l'onglet, la connexion tombe, on arrête ffmpeg et on rend la
-        session à la caméra. Rien à révoquer, rien à oublier de fermer."""
-        if not MODULE_SLOT.acquire(blocking=False):
-            self.send_error(409, _slot_occupe_message())
-            return
-        _slot_pris("direct MJPEG", name)
-
-        holder: dict = {}
-        try:
-            # Verrou sur disque en plus du jeton mémoire : la surveillance est un
-            # autre processus, elle ne voit pas nos sémaphores. Sans lui, un
-            # téléchargement lancé en arrière-plan tomberait sur « System is
-            # busy » pendant qu'on diffuse.
-            holder["lock"] = blink_engine.hub_lock("direct")
-            holder["lock"].__enter__()
-            def start(blink):
-                async def run(_blink=blink):
-                    sync, camera = BLINK.find_camera(_blink, name)
-                    try:
-                        stream = await camera.init_livestream()
-                    except KeyError as error:
-                        # Blink accepte la demande mais ne renvoie aucune
-                        # adresse de flux quand la caméra est injoignable.
-                        # blinkpy va alors chercher une clé absente ; le
-                        # KeyError brut n'apprendrait rien à personne.
-                        raise RuntimeError(
-                            f"Blink n'a fourni aucune adresse de flux pour "
-                            f"« {name} ». La caméra est probablement hors de "
-                            f"portée du module de synchronisation, éteinte, ou "
-                            f"sa batterie est vide."
-                        ) from error
-                    except NotImplementedError as error:
-                        raise RuntimeError(
-                            f"Cette caméra diffuse dans un format non pris en "
-                            f"charge ({error})."
-                        ) from error
-                    await stream.start()
-                    holder["stream"] = stream
-                    holder["feed"] = asyncio.ensure_future(stream.feed())
-                    return stream.url
-                return run()
-
-            url = BLINK.call(start, timeout=45)
-
-            print(f"[direct] {name} : flux Blink ouvert sur {url}", flush=True)
-            process = runtime.demarrer(
-                [self.ffmpeg, "-hide_banner", "-loglevel", "error",
-                 # Le flux arrive au fil de l'eau : on ne veut ni analyse
-                 # préalable longue ni mise en tampon, sinon l'image affichée
-                 # aurait plusieurs secondes de retard. La caméra reste, elle,
-                 # le vrai goulot (réveil, négociation côté Blink) : ces deux
-                 # bornes ne raccourcissent que la part qui nous revient.
-                 "-fflags", "nobuffer", "-flags", "low_delay",
-                 "-analyzeduration", "500000", "-probesize", "300000",
-                 "-i", url,
-                 # La fluidité perçue tenait plus à 10 im/s qu'à la définition :
-                 # un flux caméra dépasse rarement ce qu'un cadre de vidéo-
-                 # surveillance a besoin d'afficher. Écrêter la largeur avant
-                 # d'encoder laisse la place à 15 im/s pour un débit local
-                 # comparable ; min(1280,iw) ne réduit jamais un flux déjà
-                 # plus étroit.
-                 "-vf", "scale='min(1280,iw)':-2",
-                 "-f", "mpjpeg", "-q:v", "6", "-r", "15",
-                 "-boundary_tag", LIVE_BOUNDARY, "-"],
-                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            holder["process"] = process
-            errors: list = []
-            holder["drain"] = threading.Thread(
-                target=lambda: errors.append(process.stderr.read()), daemon=True
-            )
-            holder["drain"].start()
-
-            # On attend la première image avant d'annoncer un succès. Envoyer
-            # les en-têtes tout de suite condamnerait à ne plus rien pouvoir
-            # signaler ensuite : une caméra hors de portée laisserait le
-            # navigateur devant un cadre vide sans explication.
-            lecteur = LecteurTube(process.stdout)
-            first = lecteur.lire(LIVE_FIRST_FRAME_SECONDS)
-            if not first:
-                reason = self.live_failure_reason(holder.get("stream"))
-                drain = holder.get("drain")
-                if drain is not None:
-                    drain.join(timeout=2)
-                trace = (errors[0] or b"").decode("utf-8", "replace").strip()[:300] \
-                    if errors else ""
-                if trace:
-                    reason = f"{reason} | ffmpeg : {trace}"
-                raise RuntimeError(reason)
-
-            self.send_response(200)
-            self.send_header(
-                "Content-Type",
-                f"multipart/x-mixed-replace; boundary={LIVE_BOUNDARY}",
-            )
-            self.send_header("Cache-Control", "no-store")
-            # Indispensable : un corps de longueur inconnue n'est licite en
-            # HTTP/1.1 que si la connexion se ferme à la fin. Sans cet en-tête
-            # le navigateur ignore où s'arrête la réponse et n'affiche rien,
-            # alors que curl, plus tolérant, montre bien les images.
-            self.send_header("Connection", "close")
-            self.close_connection = True
-            self.end_headers()
-
-            def _ecrire(data: bytes) -> bool:
-                # Le premier envoi mérite la même tolérance que les suivants :
-                # un onglet déjà fermé quand ce premier bloc part ne doit pas
-                # remonter comme un échec (vu en vrai : ConnectionAbortedError
-                # sur ce tout premier write, alors que c'est une fin normale).
-                try:
-                    self.wfile.write(data)
-                    return True
-                except (BrokenPipeError, ConnectionResetError,
-                        ConnectionAbortedError):
-                    return False
-
-            if not _ecrire(first):
-                holder["sent"] = 0
-                return
-            sent = len(first)
-            # deadline n'était vérifiée qu'entre deux lectures : une lecture
-            # individuelle bloquée (ffmpeg qui se tait sans jamais fermer
-            # stdout) ne rendait jamais la main, et LIVE_MAX_SECONDS ne
-            # bornait donc rien dans ce cas précis (vu en vrai : un direct
-            # resté ouvert plus de 600 s, MODULE_SLOT jamais rendu). lire()
-            # porte maintenant elle-même un délai réel sur chaque lecture.
-            deadline = time.monotonic() + LIVE_MAX_SECONDS
-            while time.monotonic() < deadline:
-                chunk = lecteur.lire(deadline - time.monotonic())
-                if chunk is None:
-                    continue  # juste lent : le délai global n'est pas encore écoulé
-                if not chunk:
-                    break
-                if not _ecrire(chunk):
-                    break  # onglet fermé : c'est la fin normale d'un direct
-                sent += len(chunk)
-            holder["sent"] = sent
-        except Exception as error:
-            message = str(error) if isinstance(error, RuntimeError)                 else f"{type(error).__name__}: {error}"
-            LAST_LIVE_ERROR.clear()
-            LAST_LIVE_ERROR.update({"camera": name, "message": message})
-            print(f"[direct] {name} : echec, {message}", flush=True)
-            try:
-                self.send_error(503, message[:200])
-            except Exception:
-                pass  # en-tetes deja envoyes : le flux s'arrete, c'est tout
-        finally:
-            process = holder.get("process")
-            if process is not None:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-            stream = holder.get("stream")
-            if stream is not None:
-                try:
-                    verdict = BLINK.call(
-                        lambda _b: _stop_stream(stream, holder.get("feed")),
-                        timeout=45,
-                    )
-                except Exception as error:
-                    verdict = f"echec de fermeture, {type(error).__name__}: {error}"
-                print(f"[direct] {name} : {verdict}", flush=True)
-            sent = holder.get("sent")
-            if sent is not None:
-                detail = ""
-                if not sent:
-                    drain = holder.get("drain")
-                    if drain is not None:
-                        drain.join(timeout=3)
-                    detail = " | ffmpeg : " + (
-                        (errors[0] or "").strip()[:300] if errors else "rien"
-                    )
-                print(f"[direct] {name} : termine, {sent} octets transmis{detail}",
-                      flush=True)
-            verrou = holder.get("lock")
-            if verrou is not None:
-                verrou.__exit__(None, None, None)
-            _slot_rendu()
-            MODULE_SLOT.release()
-
     def send_live_mse(self, name: str) -> None:
         """Diffuse le direct d'une caméra en fMP4 fragmenté, pour MediaSource.
 
@@ -1437,10 +1243,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # qui refuse un nom inconnu, et safe_file qui assainit le nom de
             # fichier du cache.
             self.send_camera_thumb(unquote(route[len("/camthumb/"):]))
-            return
-
-        if route.startswith("/live/"):
-            self.send_live(unquote(route[len("/live/"):]))
             return
 
         if route.startswith("/live-mse/"):
@@ -2780,48 +2582,6 @@ function cameraCard(c, systemArmed) {
 }
 
 const cssId = (name) => name.replace(/[^\\w-]/g, "_");
-
-function watch(name) {
-  const box = $("live-" + cssId(name));
-  // La balise <img> tient le flux : la retirer ferme la connexion, ce qui
-  // rend la caméra au bout de la chaîne. Rien d'autre à arrêter.
-  box.innerHTML =
-    `<img src="/live/${encodeURIComponent(name)}" alt="direct ${name}">
-     <p class="hint overlay" id="hint-${cssId(name)}">${t("watch.waking")}</p>
-     <button class="watch stop" onclick="stopWatch('${name}')">${t("watch.stop")}</button>`;
-
-  // La première image met une dizaine de secondes : la caméra doit se
-  // réveiller, ouvrir sa session, puis ffmpeg doit identifier le flux. Sans
-  // ce message l'attente ressemble exactement à une panne, cadre noir compris.
-  // L'événement « load » ne convient pas ici : sur un flux multipart il ne se
-  // déclenche qu'à la fin, donc on surveille l'arrivée du premier pixel.
-  const img = box.querySelector("img");
-  const hint = $("hint-" + cssId(name));
-  const started = Date.now();
-  const timer = setInterval(() => {
-    if (!document.body.contains(img)) return clearInterval(timer);
-    if (img.naturalWidth > 0) {
-      hint.remove();
-      clearInterval(timer);
-    } else if (Date.now() - started > 75000) {
-      clearInterval(timer);
-      failWatch(name, t("watch.noimage"));
-    } else {
-      const s = Math.round((Date.now() - started) / 1000);
-      hint.textContent = tf(s > 20 ? "watch.waking.slow" : "watch.waking.seconds", { s });
-    }
-  }, 500);
-  img.onerror = async () => {
-    clearInterval(timer);
-    let message = t("watch.refused");
-    try {
-      const info = await (await fetch("/api/live-error")).json();
-      if (info.camera === name && info.message) message = info.message;
-      else message = t("watch.refused.retry");
-    } catch (error) { /* on garde le message générique */ }
-    failWatch(name, message);
-  };
-}
 
 // Un direct qui échoue doit rendre son bouton d'origine : laisser « Arrêter »
 // laisserait croire qu'un flux tourne, et il n'y aurait plus aucun moyen de
