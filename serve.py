@@ -2035,7 +2035,7 @@ PAGE = """<!doctype html>
   .watch { border-radius:7px; padding:8px 14px; }
   .watch.stop { position:absolute; right:10px; bottom:10px; opacity:.85; }
   .watch.expand { position:absolute; right:10px; top:10px; opacity:.85;
-                  padding:6px 10px; font-size:13px; }
+                  padding:5px 9px; font-size:16px; line-height:1; }
   .live { flex-direction:column; gap:12px; }
   .live .hint { color:var(--dim); font-size:14px; margin:0;
                 text-align:center; padding:0 20px; line-height:1.4; }
@@ -2348,7 +2348,8 @@ const I18N = {
     "watch.waking": "Réveil de la caméra…", "watch.waking.seconds": "Réveil de la caméra… {s} s",
     "watch.waking.slow": "Réveil de la caméra… {s} s (une caméra sur batterie est plus lente)",
     "watch.waking.mse": "Réveil de la caméra… (MSE)", "watch.reconnecting": "Reconnexion…",
-    "live.fullscreen": "Plein écran", "live.fullscreen.title": "Agrandir en plein écran",
+    "live.fullscreen.title": "Agrandir en plein écran",
+    "live.fullscreen.title.exit": "Quitter le plein écran",
     "watch.noimage": "Aucune image reçue. La caméra n'a pas répondu.",
     "watch.refused": "Le flux a été refusé par le serveur.",
     "watch.refused.code": "Le flux a été refusé par le serveur ({code}).",
@@ -2443,7 +2444,8 @@ const I18N = {
     "watch.waking": "Waking the camera…", "watch.waking.seconds": "Waking the camera… {s} s",
     "watch.waking.slow": "Waking the camera… {s} s (a battery camera is slower)",
     "watch.waking.mse": "Waking the camera… (MSE)", "watch.reconnecting": "Reconnecting…",
-    "live.fullscreen": "Fullscreen", "live.fullscreen.title": "Expand fullscreen",
+    "live.fullscreen.title": "Expand fullscreen",
+    "live.fullscreen.title.exit": "Exit fullscreen",
     "watch.noimage": "No image received. The camera did not respond.",
     "watch.refused": "The stream was refused by the server.",
     "watch.refused.code": "The stream was refused by the server ({code}).",
@@ -2511,6 +2513,10 @@ function setLang(code, persist) {
   }
   if (typeof render === "function" && data.clips) render();
   if (typeof renderLive === "function" && system) renderLive();
+  // Un direct actif gèle la grille (voir renderLive()) : le bouton plein
+  // écran déjà posé survit donc au changement de langue sans se refaire,
+  // et doit être retraduit ici plutôt que de rester dans l'ancienne langue.
+  if (typeof syncExpandButtons === "function") syncExpandButtons();
   // #sourdineListe porte data-i18n="sourdine.loading" en repli HTML :
   // applyI18n() vient d'écraser ses cases à cocher réelles par ce texte de
   // chargement si le panneau est ouvert pendant la bascule de langue.
@@ -2956,7 +2962,7 @@ async function watchMse(name) {
   const box = $("live-" + cssId(name));
   box.innerHTML =
     `<video autoplay muted playsinline></video>
-     <button class="watch stop" onclick="stopWatch('${name}')">${t("watch.stop")}</button>
+     <button class="watch stop" data-i18n="watch.stop" onclick="stopWatch('${name}')">${t("watch.stop")}</button>
      ${expandBtn(name)}`;
   const video = box.querySelector("video");
   const t0 = performance.now();
@@ -3012,9 +3018,27 @@ function repos(name, libelle) {
 // visible dans tous les états plutôt que d'apparaître seulement en cours de
 // lecture.
 function expandBtn(name) {
+  // Icône seule, jamais de texte : un bouton neuf n'est jamais encore
+  // l'élément plein écran courant, donc l'état "entrer" est toujours le bon
+  // à la création. syncExpandButtons() corrige l'icône/le libellé ensuite,
+  // au changement de langue comme au passage en/hors plein écran.
   return `<button class="watch expand" onclick="toggleFullscreen('${name}')"
-                   title="${t("live.fullscreen.title")}">⛶ ${t("live.fullscreen")}</button>`;
+                   title="${t("live.fullscreen.title")}"
+                   aria-label="${t("live.fullscreen.title")}">⛶</button>`;
 }
+
+function syncExpandButtons() {
+  const actif = document.fullscreenElement || document.webkitFullscreenElement || null;
+  document.querySelectorAll(".watch.expand").forEach((b) => {
+    const estActif = b.closest(".live") === actif;
+    b.textContent = estActif ? "×" : "⛶";
+    const libelle = t(estActif ? "live.fullscreen.title.exit" : "live.fullscreen.title");
+    b.title = libelle;
+    b.setAttribute("aria-label", libelle);
+  });
+}
+document.addEventListener("fullscreenchange", syncExpandButtons);
+document.addEventListener("webkitfullscreenchange", syncExpandButtons);
 
 async function setArmed(scope, name, armed) {
   $("count").textContent = t("command.sending");
