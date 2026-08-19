@@ -914,6 +914,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         BLINK.call(apply, timeout=60)
 
+    def reveiller_camera(self, name: str) -> None:
+        """Reveille une camera pour de bon, pas une simple relecture du cache.
+
+        `system_state()`/`/api/system` relit deja le compte a chaque fois,
+        mais c'est une lecture passive : les deux GET que blinkpy y fait
+        (config, capteurs) renvoient ce que Blink a deja en archive cote
+        serveur, jamais une valeur plus fraiche qu'un appareil endormi n'a
+        pas encore renvoyee. `snap_picture()` poste une vraie commande, que
+        Blink relaie a la camera physique et attend qu'elle confirme avant
+        de repondre (jusqu'a 120 s dans le pire cas) - le seul mecanisme qui
+        force reellement un reveil, au prix reel d'une photo prise et d'un
+        peu de batterie a chaque clic. Voir AUDIT 28.51 (suite) pour la
+        recherche qui a mene ici."""
+        def demander(blink):
+            async def run(_blink=blink):
+                _, camera = BLINK.find_camera(_blink, name)
+                await camera.snap_picture()
+            return run()
+
+        BLINK.call(demander, timeout=130)
+
     def send_camera_thumb(self, name: str) -> None:
         """Sert la dernière vignette connue d'une caméra.
 
@@ -1556,6 +1577,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"error": str(error)}, 503)
             return
 
+        if route == "/api/reveiller":
+            name = str(payload.get("name", "")).strip()
+            try:
+                self.reveiller_camera(name)
+                self.send_json(self.system_state())
+            except Exception as error:
+                # Delai large (jusqu'a 130 s, voir reveiller_camera) : outre
+                # RuntimeError (camera inconnue), un timeout cote blinkpy ou
+                # un refus reseau doivent aussi remonter un message lisible
+                # plutot qu'une erreur 500 muette.
+                self.send_json({"error": f"{type(error).__name__}: {error}"}, 503)
+            return
+
         if route == "/api/update":
             neuve = maj.disponible(reseau=False)
             if not neuve:
@@ -1808,6 +1842,11 @@ PAGE = """<!doctype html>
   .act { margin-left:auto; padding:6px 12px; border-radius:6px; }
   .act.out { background:#4a2320; border-color:var(--out); color:#ffb3ab; }
   .act.in  { background:#1e3d2b; border-color:var(--in); color:#a8e6c0; }
+  /* Second bouton d'un groupe de droite : la marge auto ne se pose qu'une
+     fois, sur le premier, sinon flexbox partage l'espace libre entre les
+     deux et les separe au lieu de les coller. */
+  .act.grouped { margin-left:0; }
+  .act:disabled { opacity:.6; cursor:default; }
   #log { white-space:pre-wrap; font:13px/1.45 ui-monospace, Consolas, monospace;
          background:#101216; border:1px solid var(--line); border-radius:8px;
          padding:14px; margin-top:20px; color:var(--dim); display:none;
@@ -2141,6 +2180,8 @@ const I18N = {
     "system.armed": "Système armé", "system.disarmed": "Système désarmé",
     "camera.offline": "HORS LIGNE", "camera.noeffect": "sans effet, système désarmé",
     "camera.detection.on": "Détection active", "camera.detection.off": "Détection coupée",
+    "camera.wake": "Réveiller", "camera.waking": "Réveil…",
+    "camera.wake.title": "Réveille la caméra maintenant (prend une photo). Consomme un peu de batterie, jusqu'à 2 minutes.",
     "camera.battery": "batterie {v}", "camera.wifi": "Wi-Fi {v} dBm",
     "camera.lfr": "liaison module {v}", "camera.measured.at": "relevé à {v}",
     "camera.measured.on": "relevé du {v}", "camera.firmware": "micrologiciel {v}",
@@ -2237,6 +2278,8 @@ const I18N = {
     "system.armed": "System armed", "system.disarmed": "System disarmed",
     "camera.offline": "OFFLINE", "camera.noeffect": "no effect, system disarmed",
     "camera.detection.on": "Detection on", "camera.detection.off": "Detection off",
+    "camera.wake": "Wake", "camera.waking": "Waking…",
+    "camera.wake.title": "Wakes the camera now (takes a photo). Uses a bit of battery, up to 2 minutes.",
     "camera.battery": "battery {v}", "camera.wifi": "Wi-Fi {v} dBm",
     "camera.lfr": "module link {v}", "camera.measured.at": "measured at {v}",
     "camera.measured.on": "measured on {v}", "camera.firmware": "firmware {v}",
@@ -2577,6 +2620,8 @@ function cameraCard(c, systemArmed) {
               onclick="setArmed('camera', '${c.name}', ${!c.armed})">
         ${c.armed ? t("camera.detection.on") : t("camera.detection.off")}
       </button>
+      <button class="act grouped" title="${t("camera.wake.title")}"
+              onclick="reveillerCamera('${c.name}', event)">${t("camera.wake")}</button>
     </div>
   </div>`;
 }
@@ -2810,6 +2855,32 @@ async function setArmed(scope, name, armed) {
   if (result.error) { alert(result.error); return loadSystem(true); }
   system = result;
   renderLive();
+}
+
+// Contrairement a setArmed(), peut prendre jusqu'a 2 minutes (voir
+// reveiller_camera cote serveur) : le bouton se desactive pendant l'attente
+// plutot que de laisser croire qu'un second clic accelererait quoi que ce
+// soit. Le try/finally, pas juste le chemin normal, couvre aussi le cas ou
+// renderLive() est gele (direct actif ailleurs, voir 28.20) et ne
+// remplace donc jamais ce bouton par un neuf.
+async function reveillerCamera(name, event) {
+  const bouton = event.target;
+  const libelle = bouton.textContent;
+  bouton.disabled = true;
+  bouton.textContent = t("camera.waking");
+  try {
+    const answer = await fetch("/api/reveiller", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const result = await answer.json();
+    if (result.error) { alert(result.error); return loadSystem(true); }
+    system = result;
+    renderLive();
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = libelle;
+  }
 }
 
 function renderClips() {
