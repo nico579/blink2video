@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -680,6 +681,47 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # le journal d'accès n'apprend rien ici
 
+    # ------------------------------------------------------------ protection
+
+    _HOTES_LOCAUX = ("127.0.0.1", "localhost", "::1")
+
+    def hote_autorise(self) -> bool:
+        """Faux si Host (ou Origin, quand le navigateur l'envoie) ne désigne
+        pas cette machine.
+
+        L'interface n'a pas d'authentification (40210a6, délibéré : un outil
+        personnel, pas un service multi-utilisateur) ; le seul rempart contre
+        une page tierce qui actionnerait l'API à l'insu de qui la visite est
+        de vérifier d'où vient la requête. Un client HTTP quelconque (tests,
+        `curl` local) n'envoie pas Origin : seul Host, toujours présent,
+        est alors regardé."""
+        hote = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
+        if hote not in self._HOTES_LOCAUX:
+            return False
+        origine = self.headers.get("Origin")
+        if origine and urlparse(origine).hostname not in self._HOTES_LOCAUX:
+            return False
+        return True
+
+    def jeton_valide(self) -> bool:
+        """Le jeton de process (TOKEN) doit accompagner toute requête qui
+        change quelque chose.
+
+        Distinct de `hote_autorise()` : Host se falsifie difficilement mais
+        se contourne par re-liaison DNS (un domaine public pointé sur
+        127.0.0.1) ; un en-tête personnalisé, lui, ne peut être posé que par
+        du code qui a lu la page servie ici, ce qu'une origine étrangère ne
+        peut pas faire (politique de même origine du navigateur)."""
+        return self.headers.get("X-Blink-Token") == TOKEN
+
+    def end_headers(self) -> None:
+        # cadre 'none' : même une page de ce site ne doit pas pouvoir
+        # s'afficher dans un <iframe>, dernier rempart contre le
+        # détournement de clic (cliquer sur un bouton qu'on croit ailleurs).
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        super().end_headers()
+
     # ------------------------------------------------------------------ envoi
 
     def send_json(self, payload: dict, status: int = 200) -> None:
@@ -1228,6 +1270,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # ------------------------------------------------------------------ routes
 
     def do_GET(self):
+        if not self.hote_autorise():
+            self.send_error(403)
+            return
         route = urlparse(self.path).path
         if route == "/":
             body = PAGE.encode("utf-8")
@@ -1540,6 +1585,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return True
 
     def do_POST(self):
+        if not self.hote_autorise() or not self.jeton_valide():
+            self.send_error(403)
+            return
         route = urlparse(self.path).path
         length = int(self.headers.get("Content-Length") or 0)
         try:
@@ -2107,6 +2155,21 @@ PAGE = """<!doctype html>
   </div>
 </dialog>
 <script>
+// Jeton anti-CSRF (voir Handler.jeton_valide côté serveur, 28.60) : posé sur
+// toute requête qui modifie quelque chose. Fait une fois ici, avant tout
+// autre script, pour qu'aucun fetch() plus bas n'ait à s'en soucier.
+const BLINK_TOKEN = "__TOKEN__";
+const _fetchNatif = window.fetch;
+window.fetch = (entree, options) => {
+  options = options || {};
+  const methode = (options.method || "GET").toUpperCase();
+  if (methode !== "GET" && methode !== "HEAD") {
+    options = { ...options,
+               headers: { ...(options.headers || {}), "X-Blink-Token": BLINK_TOKEN } };
+  }
+  return _fetchNatif(entree, options);
+};
+
 let data = { clips: [], cameras: [], days: [] };
 let videos = { daily: [], weekly: [], monthly: [] };
 const $ = (id) => document.getElementById(id);
@@ -3461,6 +3524,13 @@ if (new URLSearchParams(location.search).get("login") === "1") authenticate();
 # impossible d'en faire une f-string. Une substitution unique au chargement
 # suffit, et laisse le gabarit lisible.
 PAGE = PAGE.replace("__VERSION__", runtime.VERSION)
+
+# Un jeton par processus (28.60/28.59), pas par requête : engendré une seule
+# fois ici, au chargement du module, comme VERSION ci-dessus. uuid4 plutôt que
+# secrets pour rester sur la génération de jeton déjà en usage ailleurs
+# (runtime.py, verrou disque ; blink_auth.py, fichiers temporaires).
+TOKEN = uuid.uuid4().hex
+PAGE = PAGE.replace("__TOKEN__", TOKEN)
 
 
 def parse_args() -> argparse.Namespace:

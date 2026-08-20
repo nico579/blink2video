@@ -11,17 +11,11 @@ les perdre, pas forcement les construire toutes.
 
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
-Deux corrections triviales deja faites (Dockerfile CMD start, autostart.py
-quoi manquant sur macOS/Linux). Le reste, verifie credible (3 affirmations
-contre-verifiees dans le code avant de faire confiance au reste), pas encore
-traite.
-
-- **CSRF / requetes croisees vers l'interface locale.**
-  serve.py:1230 (do_GET) et :1542 (do_POST) : aucune verification
-  Origin/Host/jeton sur les routes sensibles (arm, toggle, reglages, stop,
-  update...), et /api/refresh declenche telechargement+fusion en GET. Le
-  plus gros morceau : jeton par processus, verif Origin/Host stricte,
-  passer /api/refresh en POST.
+Deux corrections triviales (Dockerfile CMD start, autostart.py quoi
+manquant sur macOS/Linux) et le CSRF/Origin (le plus gros morceau) deja
+traites (28.59, 28.60). Le reste, verifie credible (3 affirmations
+contre-verifiees dans le code avant de faire confiance aux autres), pas
+encore traite.
 
 - **Video journaliere obsolete apres exclusion totale d'une journee.**
   merge_daily.py:305, :1195, :1296. Exclure le dernier clip d'une journee la
