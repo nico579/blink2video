@@ -31,7 +31,7 @@ SORTIE = BASE_DIR / "dist" / "blink2video"
 # n'est pas un logiciel distribué à des tiers, et un verrouillage de versions
 # demanderait un entretien que personne ne fera.
 PAQUETS = ["aiohttp", "blinkpy", "tzdata", "imageio-ffmpeg", "pyinstaller",
-           "Pillow"]
+           "Pillow", "pystray"]
 
 
 # Compilation complète de secours, quand celle fournie par imageio-ffmpeg ne

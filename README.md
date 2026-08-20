@@ -81,6 +81,9 @@ start appearing in the Clips tab as they come in.
 
 If the tab didn't open, or you closed it, `blink2video open` brings it back.
 
+A tray icon also appears when `start` runs (Windows/macOS; Linux depends on
+your desktop's tray support), with Open/Restart/Stop, no terminal needed.
+
 **3. Settings.** The gear icon, top right, opens a panel: start automatically
 when you log in, refresh the page on its own as clips arrive, how often USB and
 cloud are checked, and a button to stop everything. `blink2video autostart on`

@@ -42,6 +42,7 @@ import blink_engine  # noqa: E402
 import blink_models  # noqa: E402
 import blink_registre  # noqa: E402
 import runtime  # noqa: E402 - bootstrap neutralisé avant import
+import tray  # noqa: E402
 
 
 class FauxClip:
@@ -1311,6 +1312,7 @@ class TestsE01Onboarding(unittest.TestCase):
              mock.patch.object(blink_cli, "executer",
                                wraps=blink_cli.executer) as executer_espionne, \
              mock.patch.object(b2v.runtime, "demarrer") as demarrer, \
+             mock.patch.object(tray, "disponible", return_value=False), \
              contextlib.redirect_stdout(io.StringIO()):
             demarrer.return_value.pid = 4242
             blink_cli.executer([["start"]])

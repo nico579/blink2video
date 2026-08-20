@@ -92,6 +92,10 @@ apparaissent dans l'onglet Clips au fur et à mesure.
 Si l'onglet ne s'est pas ouvert, ou que vous l'avez fermé, `blink2video open`
 le rouvre.
 
+Une icône apparaît aussi dans la zone de notification quand `start` tourne
+(Windows/macOS ; sous Linux, selon la prise en charge de votre bureau), avec
+Ouvrir/Redémarrer/Arrêter, sans passer par le terminal.
+
 **3. Réglages.** L'icône engrenage, en haut à droite, ouvre un panneau :
 démarrer automatiquement à l'ouverture de session, actualiser la page toute
 seule à l'arrivée des clips, la fréquence de lecture des caméras USB et cloud,

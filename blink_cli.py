@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -539,7 +540,9 @@ def executer(groupes: list) -> int:
     # qui tombe n'étant pas une raison d'arrêter la surveillance.
     pire = 0
     annonces = set()
-    try:
+
+    def surveiller(sur_fin=None) -> None:
+        nonlocal pire
         while any(processus.poll() is None for _, processus in lances):
             for rang, (verbe, processus) in enumerate(lances):
                 code = processus.poll()
@@ -550,6 +553,36 @@ def executer(groupes: list) -> int:
                 print(f"Arrêté : {verbe}"
                       + (f" (code {code})" if code else " (fin normale)"))
             time.sleep(1)
+        if sur_fin:
+            sur_fin()
+
+    port = 8765
+    for verbe, *arguments in persistant:
+        if verbe == "serve" and "--port" in arguments:
+            port = int(arguments[arguments.index("--port") + 1])
+
+    import tray
+
+    try:
+        # L'icône de zone de notification (Ouvrir/Redémarrer/Arrêter) exige
+        # le thread principal sous macOS : la surveillance des verbes passe
+        # alors sur un thread à part, qui referme l'icône si l'un d'eux
+        # meurt de lui-même (crash), pour ne pas laisser une icône morte.
+        if tray.disponible():
+            fin = threading.Event()
+            veilleur = threading.Thread(target=surveiller,
+                                        kwargs={"sur_fin": fin.set}, daemon=True)
+            veilleur.start()
+            try:
+                tray.executer(port, fin)
+            except Exception:
+                # L'icône a échoué en cours de route (backend Linux qui se
+                # dérobe, par exemple) : le thread de surveillance, lui,
+                # continue, on se contente de l'attendre.
+                pass
+            veilleur.join()
+        else:
+            surveiller()
     except KeyboardInterrupt:
         print("\nArrêt.")
     finally:
