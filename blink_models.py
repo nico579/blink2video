@@ -143,6 +143,18 @@ class CloudClip:
                 target.unlink(missing_ok=True)
 
 
+# get_videos_metadata (blinkpy) boucle `for page in range(1, stop)` et
+# s'arrête déjà de lui-même dès qu'une page revient vide - `stop` n'est donc
+# qu'un plafond de sécurité, pas la pagination réelle. Fixé à 20 (19 pages,
+# ~25 éléments chacune, soit environ 475 clips), il agissait en pratique
+# comme une troncature silencieuse : un compte actif multi-caméras peut
+# dépasser ce volume en 30 jours, les clips les plus anciens de la fenêtre
+# n'étant alors jamais vus (revue de code du 0eab463, bug #6). 400 laisse une
+# marge considérable (~10 000 clips) pour un usage réel quelconque, tout en
+# restant une valeur finie plutôt que de retirer toute protection.
+PLAFOND_PAGES_CLOUD = 400
+
+
 async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
     """Inventaire des clips conservés dans le cloud de l'abonnement Blink.
 
@@ -155,8 +167,15 @@ async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
         raise ValueError("le nombre de jours doit être positif ou nul")
     depuis = dt.datetime.now() - dt.timedelta(days=jours)
     entrees = await blink.get_videos_metadata(
-        since=depuis.strftime("%Y/%m/%d %H:%M:%S"), stop=20
+        since=depuis.strftime("%Y/%m/%d %H:%M:%S"), stop=PLAFOND_PAGES_CLOUD
     )
+    if isinstance(entrees, (list, tuple)) and len(entrees) >= (PLAFOND_PAGES_CLOUD - 3) * 20:
+        # Compte proche du plafond : impossible de savoir depuis ici si la
+        # dernière page était vide (fin réelle) ou si le plafond a coupé une
+        # pagination encore active - signalé plutôt que tranché en silence.
+        print(f"  ! [données] Manifeste cloud proche du plafond de sécurité "
+              f"({PLAFOND_PAGES_CLOUD} pages) : des clips plus anciens dans "
+              f"la fenêtre demandée ont peut-être été omis.")
     if entrees is None:
         return []
     if not isinstance(entrees, (list, tuple)):

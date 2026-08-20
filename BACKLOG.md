@@ -19,11 +19,12 @@ les perdre, pas forcement les construire toutes.
 
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
-Six corrections deja faites (Dockerfile CMD start, autostart.py quoi
+Sept corrections deja faites (Dockerfile CMD start, autostart.py quoi
 manquant, CSRF/Origin, verrou disque a double proprietaire, validation
-MP4/adoption, trois copies divergentes de safe_name) : 28.59 a 28.64. Le
-reste, verifie credible (3 affirmations contre-verifiees dans le code
-avant de faire confiance aux autres), pas encore traite.
+MP4/adoption, trois copies divergentes de safe_name, plafond cloud
+silencieux) : 28.59 a 28.65. Le reste, verifie credible (3 affirmations
+contre-verifiees dans le code avant de faire confiance aux autres), pas
+encore traite.
 
 - **Journalieres/hebdo/mensuelles sans distinction si deux cameras se
   nettoient pareil.** (Reformule apres 28.64 : la derive entre les trois
@@ -37,12 +38,6 @@ avant de faire confiance aux autres), pas encore traite.
   sortie toucherait des installations existantes deja organisees autour de
   `Blink_Daily/<camera>/...` - decision a prendre avec l'utilisateur, pas
   a trancher seule.
-
-- **Plafond cloud silencieux (~475 clips).**
-  blink_models.py:146. stop=20 limite blinkpy a environ 475 elements ; un
-  compte actif multi-cameras peut depasser ce volume sur 30 jours sans que
-  les pages anciennes soient jamais vues. Paginer jusqu'a page vide, avec
-  limite de securite explicite et signalee.
 
 - **Course a la sauvegarde de session.**
   blink_auth.py:151. Le controle updated_at se fait avant remplacement, sans

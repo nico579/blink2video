@@ -1116,6 +1116,47 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
             await blink_models.read_cloud_manifest(Blink(), 7)
         self.assertEqual(appels[0]["since"], "2026/08/06 12:34:56")
 
+    async def test_I06_plafond_cloud_releve_a_400_pages(self):
+        """Bug #6, revue de code du 0eab463 : stop=20 (19 pages, ~475 clips)
+        tronquait en silence un compte actif ; le plafond est desormais
+        PLAFOND_PAGES_CLOUD (400), passe tel quel a blinkpy."""
+        appels = []
+
+        class Blink:
+            async def get_videos_metadata(self, **options):
+                appels.append(options)
+                return []
+
+        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee):
+            await blink_models.read_cloud_manifest(Blink(), None)
+        self.assertEqual(appels[0]["stop"], blink_models.PLAFOND_PAGES_CLOUD)
+        self.assertGreater(blink_models.PLAFOND_PAGES_CLOUD, 20)
+
+    async def test_I06_avertit_quand_proche_du_plafond(self):
+        """Bug #6 : impossible de savoir depuis ici si la pagination s'est
+        arretee sur une page vide (fin reelle) ou sur le plafond (troncature
+        possible) - un volume proche du maximum theorique doit se signaler."""
+        volume = (blink_models.PLAFOND_PAGES_CLOUD - 3) * 20
+
+        class BlinkPlein:
+            async def get_videos_metadata(self, **options):
+                return [{"deleted": True} for _ in range(volume)]
+
+        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee), \
+             contextlib.redirect_stdout(io.StringIO()) as sortie:
+            await blink_models.read_cloud_manifest(BlinkPlein(), None)
+        self.assertIn("plafond", sortie.getvalue())
+
+    async def test_I06_pas_d_avertissement_sous_le_plafond(self):
+        class BlinkNormal:
+            async def get_videos_metadata(self, **options):
+                return [{"deleted": True} for _ in range(30)]
+
+        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee), \
+             contextlib.redirect_stdout(io.StringIO()) as sortie:
+            await blink_models.read_cloud_manifest(BlinkNormal(), None)
+        self.assertNotIn("plafond", sortie.getvalue())
+
     async def test_I17_boucler_survit_a_une_erreur_de_tour(self):
         """I-17 : seul BusyError était intercepté ; toute autre erreur (HTTP,
         auth, schéma) tuait définitivement le worker de fond."""
