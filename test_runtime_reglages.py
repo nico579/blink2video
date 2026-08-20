@@ -36,6 +36,52 @@ class TestsReglages(unittest.TestCase):
         (self.dossier / runtime.REGLAGES).write_text("{pas du json", encoding="utf-8")
         self.assertEqual(runtime.lire_reglages(), dict(runtime.REGLAGES_DEFAUT))
 
+    def test_racine_json_non_objet_rend_les_valeurs_par_defaut(self):
+        """Bug #10, revue de code du 0eab463 : `[]` est du JSON valide, mais
+        `.get()` dessus levait AttributeError avant ce correctif (reproduit
+        par la revue)."""
+        (self.dossier / runtime.REGLAGES).write_text("[]", encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages(), dict(runtime.REGLAGES_DEFAUT))
+        (self.dossier / runtime.REGLAGES).write_text('"texte"', encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages(), dict(runtime.REGLAGES_DEFAUT))
+        (self.dossier / runtime.REGLAGES).write_text("42", encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages(), dict(runtime.REGLAGES_DEFAUT))
+
+    def test_chaine_a_la_place_d_un_booleen_retombe_sur_le_defaut(self):
+        """Bug #10 : bool("false") vaut True en Python (chaîne non vide) -
+        l'inverse de l'intention derrière une valeur écrite ainsi à la main.
+        Retombe désormais sur le défaut plutôt que d'inverser en silence."""
+        (self.dossier / runtime.REGLAGES).write_text(
+            '{"timestamp": "false", "merge_jour": "oui"}', encoding="utf-8")
+        reglages = runtime.lire_reglages()
+        self.assertEqual(reglages["timestamp"], runtime.REGLAGES_DEFAUT["timestamp"])
+        self.assertEqual(reglages["merge_jour"], runtime.REGLAGES_DEFAUT["merge_jour"])
+
+    def test_port_hors_plage_retombe_sur_le_defaut(self):
+        (self.dossier / runtime.REGLAGES).write_text('{"port": 99999}', encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages()["port"], runtime.REGLAGES_DEFAUT["port"])
+        (self.dossier / runtime.REGLAGES).write_text('{"port": 0}', encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages()["port"], runtime.REGLAGES_DEFAUT["port"])
+
+    def test_cadence_non_numerique_ou_negative_retombe_sur_le_defaut(self):
+        (self.dossier / runtime.REGLAGES).write_text(
+            '{"usb_minutes": "dix"}', encoding="utf-8")
+        self.assertEqual(
+            runtime.lire_reglages()["usb_minutes"], runtime.REGLAGES_DEFAUT["usb_minutes"])
+        (self.dossier / runtime.REGLAGES).write_text(
+            '{"cloud_minutes": -5}', encoding="utf-8")
+        self.assertEqual(
+            runtime.lire_reglages()["cloud_minutes"], runtime.REGLAGES_DEFAUT["cloud_minutes"])
+
+    def test_ecriture_ne_laisse_aucun_temporaire(self):
+        """Bug #10 : ecrire_reglages() est maintenant atomique (temporaire
+        propre a ce processus, puis replace), meme precaution que
+        blink_auth.save_session (I-02)."""
+        runtime.ecrire_reglages(usb_minutes=5, cloud_minutes=1, port=8765, timestamp=True,
+                                timezone="Europe/Paris", merge_jour=True,
+                                merge_semaine=True, merge_mois=True, download_auto=True)
+        self.assertEqual(list(self.dossier.glob("*.tmp")), [])
+
     def test_ecrire_puis_lire_conserve_les_valeurs(self):
         runtime.ecrire_reglages(usb_minutes=7, cloud_minutes=2, port=8899, timestamp=False,
                                 timezone="America/New_York", merge_jour=True,

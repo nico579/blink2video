@@ -70,6 +70,39 @@ REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timesta
 LONGUEUR_BLOC_SERVE = 5
 
 
+def _entier_borne(valeurs: dict, champ: str, defaut: int, minimum: int,
+                  maximum: int | None = None) -> int:
+    """Lit un entier borné dans le JSON des réglages, replie sur `defaut`
+    dès que la valeur est absente, du mauvais type, ou hors plage.
+
+    Mêmes bornes que la validation déjà faite côté écriture (`/api/reglages`
+    dans serve.py) : ce plancher/plafond n'est pas nouveau, seule sa lecture
+    l'est - un fichier modifié à la main ou corrompu (revue de code du
+    0eab463, bug #10) ne pouvait jusqu'ici passer par aucun de ces deux
+    contrôles, contrairement au formulaire web."""
+    try:
+        nombre = int(valeurs.get(champ, defaut))
+    except (TypeError, ValueError):
+        return defaut
+    if nombre < minimum or (maximum is not None and nombre > maximum):
+        return defaut
+    return nombre
+
+
+def _booleen(valeurs: dict, champ: str, defaut: bool) -> bool:
+    """Lit un booléen, replie sur `defaut` si ce n'en est pas un.
+
+    `bool(valeur)` seul rend presque tout vrai (seuls 0, "", None, [], {}
+    sont faux en Python) : une chaîne "false" - une erreur plausible en
+    éditant le JSON à la main, puisque JSON exige `false` sans guillemets -
+    y devenait donc `True`, l'inverse de l'intention (revue de code du
+    0eab463, bug #10). Seul un vrai booléen JSON (`true`/`false` sans
+    guillemets) est désormais accepté ; tout le reste retombe sur le
+    défaut plutôt que d'être mal interprété en silence."""
+    valeur = valeurs.get(champ, defaut)
+    return valeur if isinstance(valeur, bool) else defaut
+
+
 def lire_reglages() -> dict:
     """Cadences USB/cloud, port, horodatage et fuseau actuels, modifiables
     depuis la page web.
@@ -80,30 +113,51 @@ def lire_reglages() -> dict:
         valeurs = json.loads((app_dir() / REGLAGES).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return dict(REGLAGES_DEFAUT)
+    if not isinstance(valeurs, dict):
+        # JSON valide (`[]`, `"texte"`, `42`...) mais pas un objet : aussi
+        # inexploitable qu'illisible (revue de code du 0eab463, bug #10 -
+        # `.get()` sur autre chose qu'un dict levait AttributeError, jamais
+        # intercepté).
+        return dict(REGLAGES_DEFAUT)
     return {
-        "usb_minutes": int(valeurs.get("usb_minutes", REGLAGES_DEFAUT["usb_minutes"])),
-        "cloud_minutes": int(valeurs.get("cloud_minutes", REGLAGES_DEFAUT["cloud_minutes"])),
-        "port": int(valeurs.get("port", REGLAGES_DEFAUT["port"])),
-        "timestamp": bool(valeurs.get("timestamp", REGLAGES_DEFAUT["timestamp"])),
+        "usb_minutes": _entier_borne(valeurs, "usb_minutes",
+                                     REGLAGES_DEFAUT["usb_minutes"], 1),
+        "cloud_minutes": _entier_borne(valeurs, "cloud_minutes",
+                                       REGLAGES_DEFAUT["cloud_minutes"], 1),
+        "port": _entier_borne(valeurs, "port", REGLAGES_DEFAUT["port"], 1, 65535),
+        "timestamp": _booleen(valeurs, "timestamp", REGLAGES_DEFAUT["timestamp"]),
         "timezone": str(valeurs.get("timezone", REGLAGES_DEFAUT["timezone"])) or
         REGLAGES_DEFAUT["timezone"],
-        "merge_jour": bool(valeurs.get("merge_jour", REGLAGES_DEFAUT["merge_jour"])),
-        "merge_semaine": bool(valeurs.get("merge_semaine", REGLAGES_DEFAUT["merge_semaine"])),
-        "merge_mois": bool(valeurs.get("merge_mois", REGLAGES_DEFAUT["merge_mois"])),
-        "download_auto": bool(valeurs.get("download_auto", REGLAGES_DEFAUT["download_auto"])),
+        "merge_jour": _booleen(valeurs, "merge_jour", REGLAGES_DEFAUT["merge_jour"]),
+        "merge_semaine": _booleen(valeurs, "merge_semaine", REGLAGES_DEFAUT["merge_semaine"]),
+        "merge_mois": _booleen(valeurs, "merge_mois", REGLAGES_DEFAUT["merge_mois"]),
+        "download_auto": _booleen(valeurs, "download_auto", REGLAGES_DEFAUT["download_auto"]),
     }
 
 
 def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool,
                     timezone: str, merge_jour: bool, merge_semaine: bool,
                     merge_mois: bool, download_auto: bool) -> None:
-    (app_dir() / REGLAGES).write_text(
-        json.dumps({"usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
-                    "port": int(port), "timestamp": bool(timestamp),
-                    "timezone": str(timezone), "merge_jour": bool(merge_jour),
-                    "merge_semaine": bool(merge_semaine), "merge_mois": bool(merge_mois),
-                    "download_auto": bool(download_auto)}),
-        encoding="utf-8")
+    # Écriture atomique (temporaire propre à ce processus, puis replace) :
+    # même précaution que blink_auth.save_session (I-02) - un plantage en
+    # cours d'écriture ne doit jamais laisser un JSON à moitié écrit, que
+    # lire_reglages() prendrait pour un fichier corrompu et remplacerait
+    # entièrement par les défauts (revue de code du 0eab463, bug #10).
+    import uuid
+
+    cible = app_dir() / REGLAGES
+    temporaire = cible.with_name(f"{cible.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        temporaire.write_text(
+            json.dumps({"usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
+                        "port": int(port), "timestamp": bool(timestamp),
+                        "timezone": str(timezone), "merge_jour": bool(merge_jour),
+                        "merge_semaine": bool(merge_semaine), "merge_mois": bool(merge_mois),
+                        "download_auto": bool(download_auto)}),
+            encoding="utf-8")
+        temporaire.replace(cible)
+    finally:
+        temporaire.unlink(missing_ok=True)
 
 
 def standard() -> tuple:

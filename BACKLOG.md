@@ -19,12 +19,12 @@ les perdre, pas forcement les construire toutes.
 
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
-Huit corrections deja faites (Dockerfile CMD start, autostart.py quoi
+Neuf corrections deja faites (Dockerfile CMD start, autostart.py quoi
 manquant, CSRF/Origin, verrou disque a double proprietaire, validation
 MP4/adoption, trois copies divergentes de safe_name, plafond cloud
-silencieux, course a la sauvegarde de session) : 28.59 a 28.66. Le reste,
-verifie credible (3 affirmations contre-verifiees dans le code avant de
-faire confiance aux autres), pas encore traite.
+silencieux, course a la sauvegarde de session, reglages JSON mal types) :
+28.59 a 28.67. Le reste, verifie credible (3 affirmations contre-verifiees
+dans le code avant de faire confiance aux autres), pas encore traite.
 
 - **Journalieres/hebdo/mensuelles sans distinction si deux cameras se
   nettoient pareil.** (Reformule apres 28.64 : la derive entre les trois
@@ -38,12 +38,6 @@ faire confiance aux autres), pas encore traite.
   sortie toucherait des installations existantes deja organisees autour de
   `Blink_Daily/<camera>/...` - decision a prendre avec l'utilisateur, pas
   a trancher seule.
-
-- **Reglages JSON valides mais mal types.**
-  runtime.py:73. blink_reglages.json contenant [] provoque un
-  AttributeError (reproduit) ; nombres hors plage et chaines-comme-booleens
-  mal geres aussi. Ecritures de reglages/passages a rendre atomiques et
-  validees.
 
 - **Surveillance (watch.py) incomplete.**
   watch.py:102, :151. Une batterie deja faible des le premier passage ne
@@ -59,5 +53,5 @@ faire confiance aux autres), pas encore traite.
   (response.read(), a chunker) ; cache _DURATIONS qui ne purge jamais ses
   anciennes cles ; dependances non epinglees alors que le code touche des
   attributs prives de blinkpy ; bootstrap qui reutilise l'environnement
-  global au lieu de rester isole ; trois implementations de safe_name (et
-  plusieurs helpers JSON) deja divergentes, a centraliser.
+  global au lieu de rester isole ; plusieurs helpers JSON divergents,
+  a centraliser (meme esprit que safe_name, deja fait en 28.64).
