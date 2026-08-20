@@ -155,35 +155,50 @@ def save_session(blink: Blink) -> None:
     (download USB, download cloud, watch, serve), et ce callback est aussi
     celui que l'auto-rafraîchissement de blinkpy déclenche en cours de route
     (voir make_blink, I-03) : deux écritures peuvent donc se chevaucher sans
-    ordre garanti. Deux précautions : un temporaire propre à ce processus
-    (I-02, l'ancien `blink_auth.tmp` était partagé par tous), et un horodatage
+    ordre garanti. Trois précautions : un temporaire propre à ce processus
+    (I-02, l'ancien `blink_auth.tmp` était partagé par tous), un horodatage
     interne qui empêche une sauvegarde en retard d'écraser une plus récente
-    déjà sur disque."""
+    déjà sur disque, et - depuis la revue de code du 0eab463, bug #7 - un
+    verrou (`runtime.verrou`, déjà utilisé ailleurs pour le Sync Module et
+    l'assemblage) qui rend la lecture-puis-décision-puis-écriture atomique :
+    sans lui, deux processus pouvaient chacun lire l'ancien contenu, chacun
+    conclure « le mien est plus récent », puis écrire dans un ordre non
+    garanti - celui qui finit en second écrase le jeton le plus récent,
+    quel que soit l'horodatage qu'il portait."""
     complet = blink.auth.login_attributes
     data = {champ: complet[champ] for champ in AUTH_FIELDS if champ in complet}
     data["updated_at"] = time.time()
 
-    precedent = None
-    if CONFIG.exists():
-        try:
-            precedent = json.loads(CONFIG.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            precedent = None
-    if (isinstance(precedent, dict)
-            and float(precedent.get("updated_at") or 0) > data["updated_at"]):
-        return
-
-    CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    temporary = CONFIG.with_name(
-        f"{CONFIG.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
-    )
     try:
-        temporary.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        if os.name != "nt":
-            os.chmod(temporary, stat_module.S_IRUSR | stat_module.S_IWUSR)
-        temporary.replace(CONFIG)
-    finally:
-        temporary.unlink(missing_ok=True)
+        with runtime.verrou("session-save", f"blink_auth-{os.getpid()}", attente=5):
+            precedent = None
+            if CONFIG.exists():
+                try:
+                    precedent = json.loads(CONFIG.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    precedent = None
+            if (isinstance(precedent, dict)
+                    and float(precedent.get("updated_at") or 0) > data["updated_at"]):
+                return
+
+            CONFIG.parent.mkdir(parents=True, exist_ok=True)
+            temporary = CONFIG.with_name(
+                f"{CONFIG.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+            )
+            try:
+                temporary.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                if os.name != "nt":
+                    os.chmod(temporary, stat_module.S_IRUSR | stat_module.S_IWUSR)
+                temporary.replace(CONFIG)
+            finally:
+                temporary.unlink(missing_ok=True)
+    except runtime.BusyError:
+        # Un autre processus tient le verrou depuis plus de 5 s pour une
+        # simple écriture de jeton : plus probable qu'il vient de finir la
+        # sienne (déjà à jour) qu'un vrai blocage - abandonner ici plutôt que
+        # de faire attendre l'appelant plus longtemps pour une sauvegarde
+        # redondante.
+        pass
 
 
 async def connect(session: ClientSession) -> Blink | None:

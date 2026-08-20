@@ -25,6 +25,7 @@ import queue
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -390,6 +391,27 @@ class TestsDefautsSynchrones(BacASable):
             json.loads(session.read_text(encoding="utf-8"))["token"],
             "le-plus-recent",
         )
+
+    def test_sauvegarde_session_attend_le_verrou_avant_d_ecrire(self):
+        """Bug #7, revue de code du 0eab463 : lecture-decision-ecriture
+        passe desormais par runtime.verrou() - une sauvegarde concurrente ne
+        doit ni s'entrelacer (l'ancien trou) ni echouer aussitot, juste
+        patienter le temps que le verrou se libere."""
+        session = self.home / "blink_auth.json"
+        blink = SimpleNamespace(auth=SimpleNamespace(
+            login_attributes={"token": "nouveau"}))
+
+        with mock.patch.object(blink_auth, "CONFIG", session):
+            with runtime.verrou("session-save", "concurrent-test"):
+                fil = threading.Thread(target=blink_auth.save_session, args=(blink,))
+                fil.start()
+                time.sleep(0.2)
+                self.assertFalse(session.exists(),
+                                 "n'aurait pas dû écrire pendant que le verrou est tenu")
+            fil.join(timeout=10)
+        self.assertFalse(fil.is_alive(), "save_session() ne rend jamais la main")
+        self.assertEqual(
+            json.loads(session.read_text(encoding="utf-8"))["token"], "nouveau")
 
     def test_I03_make_blink_fournit_un_callback_de_persistance(self):
         """I-03 : le rafraîchissement automatique de blinkpy doit être persisté."""

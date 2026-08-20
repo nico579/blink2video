@@ -19,12 +19,12 @@ les perdre, pas forcement les construire toutes.
 
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
-Sept corrections deja faites (Dockerfile CMD start, autostart.py quoi
+Huit corrections deja faites (Dockerfile CMD start, autostart.py quoi
 manquant, CSRF/Origin, verrou disque a double proprietaire, validation
 MP4/adoption, trois copies divergentes de safe_name, plafond cloud
-silencieux) : 28.59 a 28.65. Le reste, verifie credible (3 affirmations
-contre-verifiees dans le code avant de faire confiance aux autres), pas
-encore traite.
+silencieux, course a la sauvegarde de session) : 28.59 a 28.66. Le reste,
+verifie credible (3 affirmations contre-verifiees dans le code avant de
+faire confiance aux autres), pas encore traite.
 
 - **Journalieres/hebdo/mensuelles sans distinction si deux cameras se
   nettoient pareil.** (Reformule apres 28.64 : la derive entre les trois
@@ -38,11 +38,6 @@ encore traite.
   sortie toucherait des installations existantes deja organisees autour de
   `Blink_Daily/<camera>/...` - decision a prendre avec l'utilisateur, pas
   a trancher seule.
-
-- **Course a la sauvegarde de session.**
-  blink_auth.py:151. Le controle updated_at se fait avant remplacement, sans
-  verrou : une sauvegarde en retard peut ecraser un jeton plus recent ecrit
-  entre-temps par un autre processus.
 
 - **Reglages JSON valides mais mal types.**
   runtime.py:73. blink_reglages.json contenant [] provoque un
