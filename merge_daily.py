@@ -303,25 +303,37 @@ def read_registry(state_path: Path) -> dict:
 
 
 def load_groups(input_dir: Path, timezone: ZoneInfo) -> dict:
-    """Regroupe les fichiers enregistrés par le téléchargeur incrémental."""
+    """Regroupe les fichiers enregistrés par le téléchargeur incrémental.
+
+    Une journée sans aucun clip survivant (tous écartés, ou plus aucun
+    valide) reste présente dans le résultat, avec une liste vide, plutôt que
+    de disparaître : sans cette entrée, la journée n'était plus jamais revue
+    une fois son dernier clip écarté, ni reconstruite (elle devrait se vider)
+    ni supprimée - sa vidéo déjà assemblée restait sur disque indéfiniment et
+    continuait d'être agrégée dans l'hebdomadaire et la mensuelle (bug #2,
+    revue de code du 0eab463, voir AUDIT-2026-08-13.md 28.61)."""
     entries = read_registry(input_dir / DOWNLOAD_STATE)
 
     root = input_dir.resolve()
     groups = defaultdict(list)
     for entry in entries.values():
         try:
+            created = parse_created_at(entry["created_at"])
+            camera = str(entry.get("camera") or "camera").strip() or "camera"
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        local_day = created.astimezone(timezone).date().isoformat()
+        clips = groups[(camera, local_day)]
+        try:
             if entry.get("excluded"):
                 continue
             source = (root / entry["path"]).resolve()
             if not source.is_relative_to(root) or not valid_mp4(source):
                 continue
-            created = parse_created_at(entry["created_at"])
-            camera = str(entry.get("camera") or "camera").strip() or "camera"
-        except (KeyError, TypeError, ValueError, OSError):
+        except (KeyError, TypeError, OSError):
             continue
-
-        local_day = created.astimezone(timezone).date().isoformat()
-        groups[(camera, local_day)].append((created, source))
+        clips.append((created, source))
 
     for clips in groups.values():
         clips.sort(key=lambda item: (item[0], str(item[1]).casefold()))
@@ -1297,11 +1309,23 @@ def _executer(args) -> int:
     built = skipped = 0
     todo = sorted(normalized.items(), key=lambda item: item[0])
     for index, ((camera, day), (keys, segments)) in enumerate(todo, start=1):
-        if not segments:
-            continue
         camera_path = safe_name(camera)
         destination = output_dir / camera_path / f"{day}_{camera_path}.mp4"
         state_key = f"{camera}|{day}"
+        if not segments:
+            # Rien à assembler : soit la journée n'a plus aucun clip valide
+            # (tout écarté), soit l'encodage a échoué pour ceux qui
+            # existaient. Seul le premier cas doit faire disparaître une
+            # vidéo déjà assemblée - le second ne doit surtout pas l'effacer
+            # sur un échec passager (réseau, ffmpeg) : elle reste à jour et
+            # sera retentée au prochain passage.
+            _, entries = plan.get((camera, day), (None, ()))
+            if not entries and destination.exists():
+                destination.unlink()
+                merge_state["groups"].pop(state_key, None)
+                save_json(merge_state_path, merge_state)
+                print(f"Supprimée (plus aucun clip) : {destination.name}")
+            continue
         fingerprint = group_fingerprint(keys)
         previous = merge_state["groups"].get(state_key, {})
 

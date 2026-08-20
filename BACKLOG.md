@@ -9,6 +9,14 @@ les perdre, pas forcement les construire toutes.
   modele d'entites, HACS), pas une extension de ce qui existe. Note ici
   pour ne pas l'oublier si la demande revient.
 
+- **Indicateur de mise a jour pas assez visible.**
+  Source : reddit/SR_gAr, r/blinkcameras, 2026-08-20. A dit avoir ete
+  "perdu dans toutes les infos" et ne pas avoir vu qu'une mise a jour etait
+  disponible, a cru manquer quelque chose. Signal faible (un seul retour)
+  mais a surveiller : si ca revient, revoir la visibilite du bouton/de la
+  bascule "Mettre a jour" dans reglages (et maintenant dans le menu de
+  l'icone tray, 28.58).
+
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
 Deux corrections triviales (Dockerfile CMD start, autostart.py quoi
