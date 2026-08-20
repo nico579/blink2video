@@ -1336,6 +1336,19 @@ def _executer(args) -> int:
             reused += not did_encode
             keys.append(key)
             segments.append(normalized_dir / identity)
+            if did_encode:
+                # Sauvegarde par clip fraîchement encodé, pas seulement en
+                # fin de journée : un arrêt en cours de route (redémarrage,
+                # plantage) ne doit perdre que le clip en train d'être
+                # encodé, pas tout le progrès déjà acquis sur les
+                # précédents du même jour. Sans ça, une journée de
+                # plusieurs dizaines de clips recommençait entièrement à
+                # chaque interruption, même après avoir déjà correctement
+                # encodé la plupart d'entre eux - vécu en réel : plusieurs
+                # redémarrages consécutifs sur une même journée d'environ
+                # trente clips, qui relançait ffmpeg sur la totalité à
+                # chaque fois.
+                save_json(registry_path, registry)
 
         normalized[(camera, day)] = (keys, segments)
         save_json(registry_path, registry)
