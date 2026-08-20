@@ -19,17 +19,24 @@ les perdre, pas forcement les construire toutes.
 
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
-Cinq corrections deja faites (Dockerfile CMD start, autostart.py quoi
+Six corrections deja faites (Dockerfile CMD start, autostart.py quoi
 manquant, CSRF/Origin, verrou disque a double proprietaire, validation
-MP4/adoption) : 28.59 a 28.63. Le reste, verifie credible (3 affirmations
-contre-verifiees dans le code avant de faire confiance aux autres), pas
-encore traite.
+MP4/adoption, trois copies divergentes de safe_name) : 28.59 a 28.64. Le
+reste, verifie credible (3 affirmations contre-verifiees dans le code
+avant de faire confiance aux autres), pas encore traite.
 
-- **Collisions de noms de camera.**
-  merge_daily.py:66, serve.py:117. safe_name("A/B") et safe_name("A_B")
-  donnent le meme resultat : journalieres et caches peuvent s'ecraser entre
-  deux cameras aux noms proches. Centraliser sur l'assainissement de
-  blink_models.py (deja plus robuste) + empreinte stable.
+- **Journalieres/hebdo/mensuelles sans distinction si deux cameras se
+  nettoient pareil.** (Reformule apres 28.64 : la derive entre les trois
+  copies de safe_name est fermee, ceci est ce qui restait reellement.)
+  merge_daily.py, etapes de regroupement : `safe_name(camera)` sert de nom
+  de dossier ET de fichier sans aucun suffixe distinctif, contrairement a
+  `target_path()` (clips bruts) qui en a un. Deux cameras dont le nom brut
+  differe mais se nettoie pareil ("Garage" / "Garage!") verraient leurs
+  videos assemblees atterrir au meme endroit. Rare en pratique (exige une
+  coincidence de nommage precise), et changer le nommage des dossiers de
+  sortie toucherait des installations existantes deja organisees autour de
+  `Blink_Daily/<camera>/...` - decision a prendre avec l'utilisateur, pas
+  a trancher seule.
 
 - **Plafond cloud silencieux (~475 clips).**
   blink_models.py:146. stop=20 limite blinkpy a environ 475 elements ; un

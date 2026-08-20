@@ -405,21 +405,10 @@ def human_size(size: int) -> str:
     return f"{size} o"
 
 
-def _tronquer_utf8(value: str, maximum: int) -> str:
-    brut = value.encode("utf-8")[:maximum]
-    return brut.decode("utf-8", errors="ignore")
-
-
-def safe_name(value: str) -> str:
-    """Produit un composant de chemin sûr à partir du nom d'une caméra."""
-    cleaned = re.sub(r"[^\w.-]+", "_", value, flags=re.UNICODE).strip("._")
-    cleaned = _tronquer_utf8(cleaned, 32).rstrip(". ") or "camera"
-    racine = cleaned.split(".", 1)[0].casefold()
-    reserves = {"con", "prn", "aux", "nul", *{f"com{i}" for i in range(1, 10)},
-                *{f"lpt{i}" for i in range(1, 10)}}
-    if racine in reserves:
-        cleaned = f"_{cleaned}"
-    return cleaned
+# Alias, pas une copie : trois versions quasi identiques de ce nettoyage
+# avaient dérivé (revue de code du 0eab463, bug #5). md.safe_name (celle-ci
+# à l'origine) reste la référence unique - voir sa docstring.
+safe_name = md.safe_name
 
 
 def target_path(output: Path, clip, sync=None, source: str | None = None) -> Path:

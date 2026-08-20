@@ -115,10 +115,9 @@ LIVE_FIRST_FRAME_SECONDS = 40
 # seule sous les yeux, sans qu'on l'ait demandé, n'est pas un service rendu.
 
 
-def safe_file(name: str) -> str:
-    """Nom de fichier sûr pour une caméra, dont le nom est libre côté Blink."""
-    cleaned = re.sub(r"[^\w.-]+", "_", name.strip(), flags=re.UNICODE).strip("._")
-    return cleaned or "camera"
+# md.safe_name directement : safe_file() était une troisième copie du même
+# nettoyage, dérivée des deux autres (revue de code du 0eab463, bug #5).
+safe_file = md.safe_name
 
 
 def read_entries(paths: dict) -> dict:

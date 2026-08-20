@@ -63,9 +63,39 @@ ClipInfo = namedtuple(
 )
 
 
+def _tronquer_utf8(value: str, maximum: int) -> str:
+    brut = value.encode("utf-8")[:maximum]
+    return brut.decode("utf-8", errors="ignore")
+
+
 def safe_name(value: str) -> str:
+    """Produit un composant de chemin sûr à partir d'un nom libre (caméra).
+
+    Seule version conservée (revue de code du 0eab463, bug #5) : trois
+    copies quasi identiques de ce même nettoyage avaient dérivé, chacune
+    avec une partie du traitement mais pas toutes - celle-ci, la plus
+    complète (déjà dans blink_models.py), reste ici parce que blink_models
+    importe déjà ce module (l'inverse créerait un import circulaire), et
+    serve.py l'importait aussi. blink_models.safe_name et serve.safe_file
+    n'existent plus qu'en alias vers celle-ci.
+
+    Ne rend PAS deux noms distincts garantis différents : "A/B" et "A_B"
+    produisent le même résultat, un compromis assumé (voir I-16,
+    test_T_I16_A_slash_B_et_A_underscore_B_restent_distincts) - l'identité
+    réelle d'un clip ne repose jamais sur cette chaîne (state_key(),
+    target_path() y ajoutent chacun leur propre distinction), seul le
+    regroupement journalier/hebdo/mensuel de merge_daily.py peut donc
+    encore confondre deux caméras dont le nom brut diffère mais se
+    nettoie pareil - cas assez rare pour rester documenté plutôt que
+    corrigé dans l'immédiat (voir BACKLOG.md)."""
     cleaned = re.sub(r"[^\w.-]+", "_", value, flags=re.UNICODE).strip("._")
-    return cleaned or "camera"
+    cleaned = _tronquer_utf8(cleaned, 32).rstrip(". ") or "camera"
+    racine = cleaned.split(".", 1)[0].casefold()
+    reserves = {"con", "prn", "aux", "nul", *{f"com{i}" for i in range(1, 10)},
+                *{f"lpt{i}" for i in range(1, 10)}}
+    if racine in reserves:
+        cleaned = f"_{cleaned}"
+    return cleaned
 
 
 def valid_mp4(path: Path) -> bool:
