@@ -76,9 +76,16 @@ def valid_mp4(path: Path) -> bool:
     invisible sur un clip mais réel sur une vidéo assemblée de plusieurs
     centaines de Mo à quelques Go (vu en vrai : /api/videos mettait
     plusieurs dizaines de secondes à répondre, dominé par cette relecture
-    complète répétée à chaque appel, sur chaque fichier, sans cache)."""
+    complète répétée à chaque appel, sur chaque fichier, sans cache).
+
+    Le plancher de 64 octets (revue de code du 0eab463, bug #4) coûte rien
+    de plus - la taille est déjà lue pour le premier contrôle : une boîte
+    ftyp à elle seule tient sur une vingtaine d'octets, mais aucun MP4 réel
+    ne s'arrête là (il porte au moins un index moov). Un fichier de 8 octets
+    contenant littéralement "ftyp" passait ce contrôle avant ce plancher."""
     try:
-        if path.stat().st_size <= 0:
+        taille = path.stat().st_size
+        if taille < 64:
             return False
         with path.open("rb") as f:
             en_tete = f.read(64)

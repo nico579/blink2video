@@ -38,7 +38,7 @@ class TestsJourneeEcartee(unittest.TestCase):
     def test_journee_partiellement_ecartee_ignore_pas_le_reste(self):
         clip_valide = self.input_dir / "jardin" / "b.mp4"
         clip_valide.parent.mkdir(parents=True)
-        clip_valide.write_bytes(b"\x00\x00\x00\x18ftypmp42")
+        clip_valide.write_bytes(b"    ftyp" + b"\x00" * 56)
         self._ecrire_registre({
             "a": {"path": "jardin/a.mp4", "camera": "jardin", "excluded": True,
                   "created_at": "2026-08-10T09:00:00+00:00"},

@@ -19,17 +19,11 @@ les perdre, pas forcement les construire toutes.
 
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
-Quatre corrections deja faites (Dockerfile CMD start, autostart.py quoi
-manquant, CSRF/Origin, verrou disque a double proprietaire) : 28.59 a
-28.62. Le reste, verifie credible (3 affirmations contre-verifiees dans le
-code avant de faire confiance aux autres), pas encore traite.
-
-- **Validation MP4 trop faible.**
-  merge_daily.py:71, blink_models.py:129, blink_engine.py:220. valid_mp4()
-  ne regarde que les octets ftyp dans les 64 premiers octets (un fichier de
-  8 octets passe), et un fichier existant invalide peut etre "adopte" sans
-  telechargement. Comparer la taille HTTP/manifeste, vrai probe avant
-  adoption.
+Cinq corrections deja faites (Dockerfile CMD start, autostart.py quoi
+manquant, CSRF/Origin, verrou disque a double proprietaire, validation
+MP4/adoption) : 28.59 a 28.63. Le reste, verifie credible (3 affirmations
+contre-verifiees dans le code avant de faire confiance aux autres), pas
+encore traite.
 
 - **Collisions de noms de camera.**
   merge_daily.py:66, serve.py:117. safe_name("A/B") et safe_name("A_B")

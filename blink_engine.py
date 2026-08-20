@@ -138,7 +138,11 @@ class _HubCloud:
 
 async def download_clip(blink: Blink, clip, target: Path, overwrite: bool) -> str:
     """Prépare puis télécharge un clip, sans jamais le supprimer du hub."""
-    if target.exists() and target.stat().st_size > 0 and not overwrite:
+    # md.valid_mp4, pas une simple taille non nulle (revue de code du
+    # 0eab463, bug #4) : un fichier déjà présent mais corrompu (écriture
+    # interrompue, disque en cause) était sinon tenu pour acquis et jamais
+    # retéléchargé.
+    if target.exists() and md.valid_mp4(target) and not overwrite:
         return "skipped"
 
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -221,7 +225,7 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
             entree_connue is None
             and target.exists()
             and target.is_file()
-            and target.stat().st_size > 0
+            and md.valid_mp4(target)
             and not args.overwrite
         ):
             blink_registre.remember_download(state, sync, args.hub or "cloud", clip, output,
@@ -361,7 +365,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                         entree_connue is None
                         and target.exists()
                         and target.is_file()
-                        and target.stat().st_size > 0
+                        and md.valid_mp4(target)
                         and not args.overwrite
                     ):
                         blink_registre.remember_download(state, sync, name, clip, output, target)
@@ -396,7 +400,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                         blink_registre.save_download_state(output, state)
                     elif result == "skipped":
                         skipped += 1
-                        if target.exists() and target.stat().st_size > 0:
+                        if target.exists() and md.valid_mp4(target):
                             blink_registre.remember_download(state, sync, name, clip, output, target)
                             blink_registre.save_download_state(output, state)
                     else:

@@ -860,7 +860,11 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         cible_sautee.write_bytes(b"video-connue")
         cible_adoptee = blink_models.target_path(sortie, adopte)
         cible_adoptee.parent.mkdir(parents=True)
-        cible_adoptee.write_bytes(b"video-existante")
+        # Un vrai MP4 (en-tête ftyp, >= 64 octets) : depuis la revue de code
+        # du 0eab463 (bug #4), l'adoption exige valid_mp4(), pas seulement
+        # une taille non nulle - ce test vérifie l'adoption d'un fichier
+        # réellement valide, pas le trou que le bug laissait passer.
+        cible_adoptee.write_bytes(b"    ftyp" + b"\x00" * 56)
 
         etat = {"version": 1, "clips": {}}
         blink_registre.remember_download(etat, FauxSync(10), "cloud", saute, sortie, cible_sautee,
@@ -891,6 +895,41 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         )
         registre = blink_registre.load_download_state(sortie)
         self.assertEqual(len(registre["clips"]), 3)
+
+    async def test_I18_fichier_existant_invalide_n_est_pas_adopte(self):
+        """Bug #4, revue de code du 0eab463 : un fichier présent au bon
+        chemin mais pas un MP4 valide (texte, écriture interrompue...) ne
+        doit pas être « adopté » sans être re-téléchargé, sous prétexte
+        qu'il n'est pas vide. Seule md.valid_mp4() doit trancher, pas
+        st_size > 0."""
+        sortie = self.home / "invalide"
+        sortie.mkdir()
+        instant = dt.datetime(2026, 8, 13, 12, tzinfo=dt.timezone.utc)
+        corrompu = FauxClip(1, "pas-un-mp4", instant)
+
+        async def retelecharger(_blink, cible):
+            cible.write_bytes(b"    ftyp" + b"\x00" * 56)
+            return True
+
+        corrompu.download_to = retelecharger
+
+        cible = blink_models.target_path(sortie, corrompu)
+        cible.parent.mkdir(parents=True)
+        cible.write_bytes(b"ceci n'est pas un mp4")
+
+        with mock.patch.object(
+            blink_models, "read_cloud_manifest",
+            new=mock.AsyncMock(return_value=[corrompu]),
+        ), contextlib.redirect_stdout(io.StringIO()):
+            resultat = await blink_engine.traiter_cloud(
+                object(),
+                self.arguments(command="download", source="cloud", output=sortie),
+                [("Maison", FauxSync(10))],
+            )
+
+        self.assertEqual(resultat.adopted, 0)
+        self.assertEqual(resultat.downloaded, 1)
+        self.assertTrue(blink_engine.md.valid_mp4(cible))
 
     async def test_I05_fichier_cloud_absent_est_repare(self):
         """I-05 : registre sans média n'est pas un doublon définitif."""
