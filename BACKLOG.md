@@ -19,12 +19,15 @@ les perdre, pas forcement les construire toutes.
 
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
-Neuf corrections deja faites (Dockerfile CMD start, autostart.py quoi
-manquant, CSRF/Origin, verrou disque a double proprietaire, validation
-MP4/adoption, trois copies divergentes de safe_name, plafond cloud
-silencieux, course a la sauvegarde de session, reglages JSON mal types) :
-28.59 a 28.67. Le reste, verifie credible (3 affirmations contre-verifiees
-dans le code avant de faire confiance aux autres), pas encore traite.
+Les onze bugs numerotes de la revue sont tous traites (28.59 a 28.68) :
+Dockerfile CMD start, autostart.py quoi manquant, CSRF/Origin, verrou
+disque a double proprietaire, validation MP4/adoption, trois copies
+divergentes de safe_name, plafond cloud silencieux, course a la
+sauvegarde de session, reglages JSON mal types, surveillance watch.py
+(batterie au premier passage + clips ecartes). Restent deux points
+reformules ci-dessous, volontairement pas ceux d'origine - chacun touche
+une decision de conception plutot qu'un simple oubli, a trancher avec
+l'utilisateur - et le lot d'optimisations, non urgentes.
 
 - **Journalieres/hebdo/mensuelles sans distinction si deux cameras se
   nettoient pareil.** (Reformule apres 28.64 : la derive entre les trois
@@ -39,12 +42,18 @@ dans le code avant de faire confiance aux autres), pas encore traite.
   `Blink_Daily/<camera>/...` - decision a prendre avec l'utilisateur, pas
   a trancher seule.
 
-- **Surveillance (watch.py) incomplete.**
-  watch.py:102, :151. Une batterie deja faible des le premier passage ne
-  declenche aucune alerte (l'etat precedent doit valoir "ok") ; les clips
-  exclus sont ignores pour la derniere activite (fausse alerte de silence
-  possible) ; une camera n'ayant jamais enregistre n'entre jamais dans ce
-  controle.
+- **Silence d'une camera n'ayant jamais enregistre.**
+  (Reformule apres 28.68 : les deux autres defauts de watch.py sont
+  fermes, ceci est ce qui restait reellement.) Le controle de silence
+  prolonge (`compare()`) ne visite que les cameras presentes dans
+  `last_clip` (au moins un clip, meme ecarte, un jour) - une camera qui
+  n'a jamais rien enregistre depuis son installation n'y entre jamais,
+  quelle que soit la duree. Fermer ce cas demande un point d'ancrage
+  temporel qui n'existe pas encore (depuis quand cette camera n'a-t-elle
+  rien enregistre ?) : un suivi d'etat a ajouter a WATCH_STATE (horodater
+  la premiere observation d'une camera sans historique), pas un correctif
+  d'une ligne - a concevoir plutot qu'a improviser au milieu d'une serie
+  de corrections.
 
 - **Optimisations identifiees (pas des bugs, pas urgentes).**
   Registre reecrit en entier a chaque clip (quadratique sur un lot) ;

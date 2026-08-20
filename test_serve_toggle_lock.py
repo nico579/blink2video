@@ -76,7 +76,10 @@ class TestToggleNAttendPasLeVerrouRegistre(unittest.TestCase):
     def appeler_toggle(self, handler, excluded: bool):
         corps = json.dumps({"identity": self.identity, "excluded": excluded}).encode("utf-8")
         handler.path = "/api/toggle"
-        handler.headers = {"Content-Length": str(len(corps))}
+        # Host + jeton requis depuis 28.60 (protection CSRF/Origin) : sans
+        # eux, ce handler construit à la main est rejeté en 403.
+        handler.headers = {"Content-Length": str(len(corps)), "Host": "127.0.0.1",
+                          "X-Blink-Token": serve.TOKEN}
         handler.rfile = io.BytesIO(corps)
         reponses = []
         handler.send_json = lambda payload, code=200: reponses.append((code, payload))
@@ -129,7 +132,10 @@ class TestToggleNAttendPasLeVerrouRegistre(unittest.TestCase):
         handler = self.construire_handler()
         corps = json.dumps({"identity": "../../etc/passwd", "excluded": True}).encode("utf-8")
         handler.path = "/api/toggle"
-        handler.headers = {"Content-Length": str(len(corps))}
+        # Host + jeton requis depuis 28.60 (protection CSRF/Origin) : sans
+        # eux, ce handler construit à la main est rejeté en 403.
+        handler.headers = {"Content-Length": str(len(corps)), "Host": "127.0.0.1",
+                          "X-Blink-Token": serve.TOKEN}
         handler.rfile = io.BytesIO(corps)
         reponses = []
         handler.send_json = lambda payload, code=200: reponses.append((code, payload))

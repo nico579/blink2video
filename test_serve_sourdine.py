@@ -68,6 +68,11 @@ class TestSourdine(unittest.TestCase):
         handler = serve.Handler.__new__(serve.Handler)
         handler.paths = self.paths
         handler.timezone = ZoneInfo("UTC")
+        # Host requis depuis 28.60 (protection CSRF/Origin, hote_autorise())
+        # sur do_GET comme do_POST : sans lui, ce handler construit à la
+        # main (pas de vraie requête HTTP derrière) est rejeté en 403 avant
+        # même d'atteindre la route testée.
+        handler.headers = {"Host": "127.0.0.1"}
         return handler
 
     def appeler_get(self, handler):
@@ -80,7 +85,11 @@ class TestSourdine(unittest.TestCase):
     def appeler_post(self, handler, camera: str, ignored: bool):
         corps = json.dumps({"camera": camera, "ignored": ignored}).encode("utf-8")
         handler.path = "/api/sourdine"
-        handler.headers = {"Content-Length": str(len(corps))}
+        # Host déjà posé par construire_handler() ; do_POST exige en plus le
+        # jeton anti-CSRF (28.60) - serve.TOKEN, généré une fois par
+        # processus, est directement accessible ici (même processus).
+        handler.headers = {**handler.headers, "Content-Length": str(len(corps)),
+                          "X-Blink-Token": serve.TOKEN}
         handler.rfile = io.BytesIO(corps)
         reponses = []
         handler.send_json = lambda payload, code=200: reponses.append((code, payload))

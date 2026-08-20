@@ -51,7 +51,9 @@ class TestChoisirDossier(unittest.TestCase):
         handler.paths = {}
         handler.timezone = ZoneInfo("UTC")
         handler.path = "/api/choisir-dossier"
-        handler.headers = {}
+        # Host requis depuis 28.60 (protection CSRF/Origin sur do_GET) :
+        # sans lui, ce handler construit à la main est rejeté en 403.
+        handler.headers = {"Host": "127.0.0.1"}
         handler.rfile = io.BytesIO(b"")
         return handler
 

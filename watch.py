@@ -103,11 +103,19 @@ def last_clip_per_camera(timezone) -> dict:
     """Date du dernier clip acquis par caméra, d'après le registre local.
 
     On lit le registre de téléchargement plutôt que d'interroger Blink : c'est
-    gratuit, et c'est bien l'arrivée effective des clips chez soi qui compte."""
+    gratuit, et c'est bien l'arrivée effective des clips chez soi qui compte.
+
+    Un clip écarté (revue de code du 0eab463, bug #11) compte quand même
+    pour cette date : « écarté » veut dire que l'utilisateur ne veut pas le
+    garder dans les vidéos assemblées, pas que la caméra n'a rien détecté à
+    cet instant - l'ignorer ici faisait régresser la dernière activité
+    connue vers un clip plus ancien, ou la faisait disparaître entièrement
+    si tous les clips récents étaient écartés, au risque d'une fausse
+    alerte de silence."""
     state = md.load_json(BASE_DIR / "Blink_Clips" / md.DOWNLOAD_STATE, {})
     latest: dict = {}
     for entry in (state.get("clips") or {}).values():
-        if not isinstance(entry, dict) or entry.get("excluded"):
+        if not isinstance(entry, dict):
             continue
         try:
             created = md.parse_created_at(entry["created_at"]).astimezone(timezone)
@@ -148,7 +156,14 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
         elif etat["online"] and ancien and not ancien.get("online"):
             recoveries.append(f"Caméra « {name} » de nouveau en ligne.")
 
-        if etat["battery"] and etat["battery"] != "ok" and ancien.get("battery") == "ok":
+        # `not ancien` (premier passage, ou caméra jamais vue avant) compte
+        # comme un « ok » implicite ailleurs dans cette fonction (en ligne,
+        # armement) ; la batterie ne suivait pas la même règle (revue de
+        # code du 0eab463, bug #11) : une caméra déjà faible dès sa première
+        # observation ne déclenchait donc jamais rien, jusqu'à ce qu'elle
+        # remonte à « ok » puis redescende.
+        if etat["battery"] and etat["battery"] != "ok" and (
+                not ancien or ancien.get("battery") == "ok"):
             alerts.append(f"Caméra « {name} » : batterie « {etat['battery']} ».")
 
         if ancien and ancien.get("armed") and not etat["armed"]:
