@@ -210,7 +210,7 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return _retirer(cible, simulation)
 
-    arguments = "".join(f"    <string>{a}</string>\n" for a in commande())
+    arguments = "".join(f"    <string>{a}</string>\n" for a in commande(quoi))
     contenu = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
@@ -256,7 +256,7 @@ def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
         "[Unit]\n"
         "Description=Surveillance blink2video\n\n"
         "[Service]\n"
-        f"ExecStart={' '.join(commande())}\n"
+        f"ExecStart={' '.join(commande(quoi))}\n"
         f"WorkingDirectory={runtime.app_dir()}\n"
         "Restart=on-failure\n\n"
         "[Install]\n"

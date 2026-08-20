@@ -29,4 +29,4 @@ VOLUME /data
 ENV BLINK_BIND=0.0.0.0
 
 EXPOSE 8765
-CMD ["python", "blink2video.py", "serve"]
+CMD ["python", "blink2video.py", "start"]
