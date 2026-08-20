@@ -1796,6 +1796,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"ok": True})
             return
 
+        if route == "/api/lang":
+            runtime.ecrire_langue(str(payload.get("lang", "")))
+            self.send_json({"ok": True})
+            return
+
         self.send_error(404)
 
     def reassembler(self, identity: str) -> None:
@@ -2441,6 +2446,14 @@ function setLang(code, persist) {
   // jusqu'à la prochaine ouverture du panneau.
   if (typeof chargerSourdine === "function" && $("reglages")?.open) chargerSourdine();
   if (persist) localStorage.setItem("lang", _lang);
+  // Envoyé à chaque appel, pas seulement un choix explicite (persist) :
+  // le menu du systray (tray.py) lit cette valeur pour s'afficher dans la
+  // même langue que la page, y compris quand elle vient de detectLang()
+  // et n'a jamais été choisie à la main. Best-effort, jamais bloquant : une
+  // page ouverte hors-ligne ou un onglet d'arrière-plan ne doit pas faire
+  // échouer l'affichage.
+  fetch("/api/lang", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lang: _lang }) }).catch(() => {});
 }
 
 function fill(select, values, all, label) {

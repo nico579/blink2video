@@ -27,6 +27,16 @@ import webbrowser
 import maj
 import runtime
 
+# Mêmes deux langues que la page web (serve.py, const I18N) ; runtime.lire_langue()
+# rapporte celle du dernier chargement de page (POST /api/lang à chaque setLang()),
+# pas la locale du système : le menu doit suivre la page, pas l'OS.
+LIBELLES = {
+    "fr": {"ouvrir": "Ouvrir", "maj": "Mettre à jour vers {version}",
+           "redemarrer": "Redémarrer", "arreter": "Arrêter"},
+    "en": {"ouvrir": "Open", "maj": "Update to {version}",
+           "redemarrer": "Restart", "arreter": "Stop"},
+}
+
 
 def disponible() -> bool:
     """Faux si pystray ou son image ne peuvent pas etre charges ici :
@@ -81,14 +91,17 @@ def executer(port: int, arret: threading.Event) -> None:
     def menu():
         # Un appelable plutot qu'une liste figee : pystray le relance a
         # chaque ouverture du menu, donc une version parue pendant que
-        # l'icone tournait apparait sans redemarrer quoi que ce soit.
-        yield pystray.MenuItem("Ouvrir", ouvrir, default=True)
+        # l'icone tournait apparait sans redemarrer quoi que ce soit, et un
+        # changement de langue sur la page (relu ici a chaque ouverture)
+        # s'applique de la meme facon.
+        mots = LIBELLES[runtime.lire_langue()]
+        yield pystray.MenuItem(mots["ouvrir"], ouvrir, default=True)
         neuve = maj.disponible(reseau=False)
         if neuve:
-            yield pystray.MenuItem(f"Mettre a jour vers {neuve['version']}",
+            yield pystray.MenuItem(mots["maj"].format(version=neuve["version"]),
                                    mettre_a_jour)
-        yield pystray.MenuItem("Redemarrer", redemarrer)
-        yield pystray.MenuItem("Arreter", arreter)
+        yield pystray.MenuItem(mots["redemarrer"], redemarrer)
+        yield pystray.MenuItem(mots["arreter"], arreter)
 
     icone_fichier = runtime.resource_dir() / "assets" / "blink2video.ico"
     image = Image.open(str(icone_fichier))

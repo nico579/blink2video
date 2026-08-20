@@ -160,6 +160,40 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
         temporaire.unlink(missing_ok=True)
 
 
+LANGUE = "blink_langue.txt"
+
+
+def lire_langue() -> str:
+    """Langue de la dernière page web chargée, « fr » ou « en ».
+
+    Fichier absent (rien encore chargé) ou illisible : « fr », le même
+    défaut que detectLang() côté navigateur quand la langue système n'est
+    pas reconnue. Sert au menu du systray (tray.py) pour hériter de la
+    langue de la page plutôt que de rester figé en français."""
+    try:
+        contenu = (app_dir() / LANGUE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return "fr"
+    return "en" if contenu == "en" else "fr"
+
+
+def ecrire_langue(code: str) -> None:
+    """Mémorise la langue affichée par la page web (POST /api/lang), à
+    chaque chargement ou changement explicite - pas seulement le choix
+    manuel : sans ça, un premier lancement jamais retouché aux boutons
+    FR/EN laisserait le menu du systray dans le défaut, même si la page
+    s'affichait déjà en anglais (langue détectée du navigateur)."""
+    import uuid
+
+    cible = app_dir() / LANGUE
+    temporaire = cible.with_name(f"{cible.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        temporaire.write_text("en" if code == "en" else "fr", encoding="utf-8")
+        temporaire.replace(cible)
+    finally:
+        temporaire.unlink(missing_ok=True)
+
+
 def standard() -> tuple:
     """Composition recommandée : mêmes verbes que l'ancienne constante
     STANDARD, mais les cadences USB/cloud, le port, l'horodatage et le
