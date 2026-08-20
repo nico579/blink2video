@@ -740,15 +740,52 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
 
         presente = _lire_verrou(fichier)
         if presente is None:
-            # Fichier disparu entre l'échec de la création et la lecture (son
-            # propriétaire vient de le libérer), ou création concurrente pas
-            # encore écrite : dans les deux cas, retenter tout de suite.
+            if fichier.exists():
+                # Présent mais illisible : corrompu, ou fenêtre d'écriture
+                # d'un autre processus pas encore terminée. Les deux se
+                # confondent ici (même limite documentée que pour B-05), mais
+                # doivent quand même respecter `attente` - une marque restée
+                # corrompue (écriture interrompue, disque en cause) tournait
+                # sinon en boucle active, sans jamais lever BusyError ni
+                # rendre la main (revue de code du 0eab463, bug #3).
+                if time.time() >= limite:
+                    raise BusyError(f"verrou illisible ou corrompu : {fichier}")
+                time.sleep(0.05)
+                continue
+            # Fichier réellement absent entre l'échec de la création et la
+            # lecture (son propriétaire vient de le libérer) : retenter tout
+            # de suite, rien à attendre.
             continue
         if not processus_vivant(int(presente.get("pid") or 0)):
-            # Propriétaire mort : on retire sa marque puis on retente la
-            # création exclusive. Si un autre processus arrive au même verdict
-            # en même temps, un seul des deux gagnera la prochaine création.
-            fichier.unlink(missing_ok=True)
+            # Propriétaire mort : purge sous mutex, pas par un unlink direct.
+            # L'ancien protocole (lire, conclure « mort », supprimer) laissait
+            # une fenêtre entre la lecture et la suppression : un second
+            # processus arrivé au même verdict pouvait y supprimer, à la
+            # place de la marque périmée qu'il croyait viser, celle qu'un
+            # premier processus venait de recréer entre-temps - les deux se
+            # croyaient alors propriétaires (revue de code du 0eab463, bug
+            # #3). Le fichier `.purge` sert exactement le même rôle que
+            # O_CREAT|O_EXCL sur le verrou lui-même : un seul processus à la
+            # fois entre dans la section suivante, et celui qui y entre
+            # revérifie que le jeton lu n'a pas changé avant de supprimer.
+            purge = fichier.with_name(fichier.name + ".purge")
+            try:
+                os.close(os.open(purge, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            except FileExistsError:
+                # Un autre processus est dans cette même section (ou, très
+                # rarement, y est mort avant son finally) : `limite` reste le
+                # seul garde-fou contre une attente indéfinie, même ici.
+                if time.time() >= limite:
+                    raise BusyError(f"purge du verrou déjà en cours pour "
+                                    f"« {presente.get('owner')} »")
+                time.sleep(0.05)
+                continue
+            try:
+                encore = _lire_verrou(fichier)
+                if encore is not None and encore.get("jeton") == presente.get("jeton"):
+                    fichier.unlink(missing_ok=True)
+            finally:
+                purge.unlink(missing_ok=True)
             continue
 
         if time.time() >= limite:

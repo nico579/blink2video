@@ -19,22 +19,10 @@ les perdre, pas forcement les construire toutes.
 
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
-Deux corrections triviales (Dockerfile CMD start, autostart.py quoi
-manquant sur macOS/Linux) et le CSRF/Origin (le plus gros morceau) deja
-traites (28.59, 28.60). Le reste, verifie credible (3 affirmations
-contre-verifiees dans le code avant de faire confiance aux autres), pas
-encore traite.
-
-- **Video journaliere obsolete apres exclusion totale d'une journee.**
-  merge_daily.py:305, :1195, :1296. Exclure le dernier clip d'une journee la
-  fait disparaitre de load_groups() : son MP4 journalier n'est plus jamais
-  reconstruit ni supprime, et les hebdo/mensuelles continuent a l'agreger.
-
-- **Verrou disque avec double proprietaire possible.**
-  runtime.py:729. Course lors du nettoyage d'un verrou de PID mort (deux
-  concurrents peuvent chacun croire l'avoir acquis) ; fichier vide/corrompu
-  provoque en plus une boucle active infinie. Il faudrait un vrai verrou OS
-  ou une suppression conditionnelle qui revalide le jeton avant d'effacer.
+Quatre corrections deja faites (Dockerfile CMD start, autostart.py quoi
+manquant, CSRF/Origin, verrou disque a double proprietaire) : 28.59 a
+28.62. Le reste, verifie credible (3 affirmations contre-verifiees dans le
+code avant de faire confiance aux autres), pas encore traite.
 
 - **Validation MP4 trop faible.**
   merge_daily.py:71, blink_models.py:129, blink_engine.py:220. valid_mp4()

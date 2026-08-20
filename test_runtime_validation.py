@@ -7,6 +7,8 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -108,6 +110,61 @@ class VerrouTests(unittest.TestCase):
                 contenu = json.loads(cible.read_text(encoding="utf-8"))
                 self.assertEqual(contenu["owner"], "sauveteur")
         self.assertFalse(cible.exists())
+
+    def test_verrou_corrompu_leve_busyerror_au_lieu_de_boucler(self) -> None:
+        """Bug #3, revue de code du 0eab463 : un fichier de verrou présent
+        mais illisible (JSON corrompu) bouclait indéfiniment en ignorant
+        `attente`, jamais de BusyError, jamais de main rendue. Lancé sur un
+        thread à part avec join(timeout) : si le correctif régresse, ce test
+        échoue par timeout plutôt que de pendre toute la suite."""
+        cible = self.fichier("corrompu")
+        cible.write_text("pas du json valide", encoding="utf-8")
+        resultat = {}
+
+        def tenter():
+            debut = time.monotonic()
+            try:
+                with runtime.verrou("corrompu", "moi", attente=0.2):
+                    pass
+            except runtime.BusyError:
+                resultat["busy"] = True
+            except Exception as erreur:  # pragma: no cover - diagnostic seulement
+                resultat["erreur"] = erreur
+            resultat["duree"] = time.monotonic() - debut
+
+        fil = threading.Thread(target=tenter, daemon=True)
+        fil.start()
+        fil.join(timeout=5)
+        self.assertFalse(fil.is_alive(), "verrou() sur fichier corrompu ne rend jamais la main")
+        self.assertTrue(resultat.get("busy"), resultat.get("erreur"))
+        self.assertLess(resultat["duree"], 3)
+        cible.unlink(missing_ok=True)
+
+    def test_verrou_double_purge_ne_supprime_pas_un_verrou_frais(self) -> None:
+        """Bug #3, revue de code du 0eab463 : un second processus qui conclut
+        aussi « propriétaire mort » ne doit pas supprimer, entre-temps, le
+        verrou qu'un premier vient de recréer sous un jeton différent - il
+        doit constater le nouveau jeton et renoncer, pas le voler."""
+        cible = self.fichier("double-purge")
+        perime = {"owner": "victime", "pid": 999_999, "jeton": "perime", "at": 0}
+        frais = {"owner": "rescape", "pid": os.getpid(), "jeton": "frais", "at": time.time()}
+        cible.write_text(json.dumps(perime), encoding="utf-8")
+
+        lectures = [perime, frais, frais, frais, frais]
+
+        def vivant(pid):
+            return pid == os.getpid()
+
+        with mock.patch.object(runtime, "_lire_verrou", side_effect=lectures), \
+             mock.patch.object(runtime, "processus_vivant", side_effect=vivant):
+            with self.assertRaises(runtime.BusyError):
+                with runtime.verrou("double-purge", "voleur", attente=0):
+                    pass
+        # Le fichier réel n'a jamais bougé : la lecture simulée « frais » ne
+        # provient que du mock, mais la garantie testée est que rien n'a
+        # tenté de le supprimer entre les deux lectures.
+        self.assertTrue(cible.exists())
+        cible.unlink()
 
     def test_B05_liberation_ne_retire_que_son_propre_jeton(self) -> None:
         cible = self.fichier("jeton-etranger")
