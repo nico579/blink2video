@@ -11,13 +11,20 @@ une machine sans ecran doit continuer a fonctionner. Meme esprit que
 Redemarrer/Arreter passent par « blink2video restart », deja le mecanisme du
 bouton Stop/Appliquer de la page de reglages (serve.py, /api/stop et
 /api/reglages) : la meme commande detachee, pas une deuxieme facon de tuer
-l'instance en cours."""
+l'instance en cours.
+
+« Mettre a jour », quand une version plus recente existe, passe de meme par
+« blink2video update », le mecanisme du bouton de mise a jour de la page web
+(serve.py, /api/update). `maj.disponible(reseau=False)` ne lit que le cache
+deja entretenu par le thread de fond de serve.py (six heures de fraicheur,
+voir maj.py) : ouvrir le menu n'interroge jamais GitHub soi-meme."""
 
 import os
 import subprocess
 import threading
 import webbrowser
 
+import maj
 import runtime
 
 
@@ -63,17 +70,30 @@ def executer(port: int, arret: threading.Event) -> None:
         _relancer(sans_relance=True)
         icon.stop()
 
+    def mettre_a_jour(icon, item):
+        runtime.demarrer(
+            runtime.self_command("update"), cwd=str(runtime.app_dir()),
+            stdin=subprocess.DEVNULL,
+            stdout=(runtime.app_dir() / "maj.log").open("ab"),
+            stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
+        icon.stop()
+
+    def menu():
+        # Un appelable plutot qu'une liste figee : pystray le relance a
+        # chaque ouverture du menu, donc une version parue pendant que
+        # l'icone tournait apparait sans redemarrer quoi que ce soit.
+        yield pystray.MenuItem("Ouvrir", ouvrir, default=True)
+        neuve = maj.disponible(reseau=False)
+        if neuve:
+            yield pystray.MenuItem(f"Mettre a jour vers {neuve['version']}",
+                                   mettre_a_jour)
+        yield pystray.MenuItem("Redemarrer", redemarrer)
+        yield pystray.MenuItem("Arreter", arreter)
+
     icone_fichier = runtime.resource_dir() / "assets" / "blink2video.ico"
     image = Image.open(str(icone_fichier))
 
-    icon = pystray.Icon(
-        "blink2video", image, "blink2video",
-        menu=pystray.Menu(
-            pystray.MenuItem("Ouvrir", ouvrir, default=True),
-            pystray.MenuItem("Redemarrer", redemarrer),
-            pystray.MenuItem("Arreter", arreter),
-        ),
-    )
+    icon = pystray.Icon("blink2video", image, "blink2video", menu=pystray.Menu(menu))
 
     def veille():
         arret.wait()
