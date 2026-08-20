@@ -89,11 +89,17 @@ def executer(port: int, arret: threading.Event) -> None:
         icon.stop()
 
     def menu():
-        # Un appelable plutot qu'une liste figee : pystray le relance a
-        # chaque ouverture du menu, donc une version parue pendant que
-        # l'icone tournait apparait sans redemarrer quoi que ce soit, et un
-        # changement de langue sur la page (relu ici a chaque ouverture)
-        # s'applique de la meme facon.
+        # Un appelable plutot qu'une liste figee : necessaire pour lire
+        # runtime.lire_langue()/maj.disponible() a chaque reconstruction.
+        # Ca ne suffit pourtant pas seul : le backend win32 de pystray ne
+        # rappelle PAS ce generateur a chaque clic droit, il reutilise le
+        # HMENU construit une fois pour toutes au demarrage (verifie dans
+        # pystray/_win32.py, _on_notify utilise self._menu_handle, jamais
+        # regenere sans un appel explicite a icon.update_menu() - documente
+        # dans Icon.update_menu() elle-meme : necessaire des que les
+        # changements sont "triggered by actions other than the menu item
+        # activation callbacks", exactement notre cas). D'ou le thread de
+        # rafraichissement plus bas, qui appelle update_menu() en boucle.
         mots = LIBELLES[runtime.lire_langue()]
         yield pystray.MenuItem(mots["ouvrir"], ouvrir, default=True)
         neuve = maj.disponible(reseau=False)
@@ -112,5 +118,20 @@ def executer(port: int, arret: threading.Event) -> None:
         arret.wait()
         icon.stop()
 
+    def rafraichir():
+        # icon.update_menu() reconstruit le HMENU depuis menu() : sans ce
+        # thread, changer de langue ou voir paraitre une mise a jour
+        # n'apparaitrait dans le menu qu'apres un redemarrage complet de
+        # l'icone (voir le commentaire dans menu()). Cinq secondes : assez
+        # court pour paraitre immediat a l'ouverture du menu, assez long
+        # pour rester un cout negligeable (reconstruire trois-quatre
+        # entrees de menu, pas un travail reseau).
+        while not arret.wait(timeout=5):
+            try:
+                icon.update_menu()
+            except Exception:
+                pass
+
     threading.Thread(target=veille, daemon=True).start()
+    threading.Thread(target=rafraichir, daemon=True).start()
     icon.run()
