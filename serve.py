@@ -1665,105 +1665,135 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"ok": True, "version": neuve["version"]})
             return
 
-        if route == "/api/toggle":
-            identity = str(payload.get("identity", ""))
-            excluded = bool(payload.get("excluded"))
-            if not IDENTITY.match(identity):
-                self.send_json({"error": "identifiant invalide"}, 400)
-                return
+        if route == "/api/appliquer-selection":
+            # Remplace les anciens /api/toggle et /api/supprimer-source (un
+            # clip à la fois) : un lot entier en un seul appel, pour que la
+            # suppression USB ne paie qu'une fois par Sync Module concerné le
+            # délai de régénération du manifeste (jusqu'à une minute, voir
+            # AUDIT 28.73/28.75), pas une fois par clip.
+            exclure = [str(x) for x in (payload.get("exclure") or [])
+                       if IDENTITY.match(str(x))]
+            inclure = [str(x) for x in (payload.get("inclure") or [])
+                       if IDENTITY.match(str(x))]
+            supprimer = [str(x) for x in (payload.get("supprimer") or [])
+                         if IDENTITY.match(str(x))]
 
-            def travailler():
-                # Une seule décision à la fois : le registre est un fichier,
-                # deux écritures concurrentes en perdraient une. set_excluded
-                # attend au besoin jusqu'à 10s ce même verrou côté fichier
-                # (partagé avec le téléchargement) : fait ici, en tâche de
-                # fond, pour que ce délai ne bloque plus la réponse HTTP —
-                # jusque-là, un clic pouvait sembler ne rien faire pendant que
-                # le téléchargement écrivait le registre au même instant.
-                with REGISTRE:
-                    try:
-                        md.set_excluded(
-                            self.paths["input"], self.paths["normalized"],
-                            self.paths["excluded"], [str(self.paths["input"] / identity)],
-                            excluded,
-                        )
-                    except RuntimeError as error:
-                        print(f"Écarter {identity} : {error}")
-                        return
-                # Écarter un clip change la liste des segments d'une journée,
-                # donc son empreinte : sans reconstruction, la journalière, la
-                # semaine et le mois continuent de le montrer jusqu'au
-                # prochain assemblage.
-                self.reassembler(identity)
+            entrees = read_entries(self.paths)
 
-            threading.Thread(target=travailler, daemon=True).start()
-            self.send_json({"ok": True})
-            return
+            def trouver_entree(identity):
+                return next(
+                    (e for e in entrees.values()
+                     if isinstance(e, dict) and e.get("path") == identity), None)
 
-        if route == "/api/supprimer-source":
-            # Bouton par vignette (issue GitHub #1) : distinct de « Écarter »,
-            # qui ne touche que l'assemblage local. Ici on retire la copie
-            # distante (Sync Module ou cloud selon la provenance du clip), la
-            # copie locale déjà téléchargée reste intacte.
-            identity = str(payload.get("identity", ""))
-            if not IDENTITY.match(identity):
-                self.send_json({"error": "identifiant invalide"}, 400)
-                return
-            entree = next(
-                (e for e in read_entries(self.paths).values()
-                 if isinstance(e, dict) and e.get("path") == identity),
-                None,
-            )
-            if entree is None:
-                self.send_json({"error": "Clip inconnu du registre."}, 404)
-                return
-            source = str(entree.get("source") or "usb")
-            camera = str(entree.get("camera") or "").strip()
-            # L'identifiant distant est encodé dans le nom de fichier depuis
-            # blink_models.target_path() ({date}_{camera}_{id}_{empreinte}.mp4)
-            # ; remote_id (registre) sert de repli pour les entrées plus
-            # anciennes, d'avant cette convention.
-            correspondance = re.search(r"_(\d+)_[0-9a-f]{12}\.mp4$", identity)
-            id_distant = correspondance.group(1) if correspondance else str(
-                entree.get("remote_id") or "")
-            if not id_distant:
-                self.send_json(
-                    {"error": "Identifiant distant introuvable pour ce clip "
-                              "(clip acquis avant cette fonctionnalité)."}, 400)
-                return
+            if exclure or inclure:
+                def travailler_registre():
+                    # Une seule décision à la fois par sens (écarter/réintégrer) :
+                    # le registre est un fichier, deux écritures concurrentes en
+                    # perdraient une. set_excluded accepte déjà une liste entière.
+                    with REGISTRE:
+                        for liste, cible in ((exclure, True), (inclure, False)):
+                            if not liste:
+                                continue
+                            try:
+                                md.set_excluded(
+                                    self.paths["input"], self.paths["normalized"],
+                                    self.paths["excluded"],
+                                    [str(self.paths["input"] / i) for i in liste], cible)
+                            except RuntimeError as error:
+                                print(f"Écarter (lot) : {error}")
+                    # Une seule reconstruction par (caméra, jour) touché, même si
+                    # plusieurs clips de ce jour ont changé de statut ensemble.
+                    jours = set()
+                    for identity in exclure + inclure:
+                        entree = trouver_entree(identity)
+                        camera = str((entree or {}).get("camera") or "").strip()
+                        try:
+                            jour = md.parse_created_at(
+                                str((entree or {}).get("created_at"))
+                            ).astimezone(self.timezone).date().isoformat()
+                        except (TypeError, ValueError):
+                            jour = None
+                        if camera and jour:
+                            jours.add((camera, jour))
+                    # Un seul réassemblage à la fois : deux assemblages
+                    # simultanés de la même journée écriraient le même fichier.
+                    with REASSEMBLAGE:
+                        for camera, jour in jours:
+                            runtime.lancer(
+                                runtime.self_command("merge", "--camera", camera,
+                                                      "--date", jour),
+                                cwd=str(runtime.app_dir()), stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                check=False,
+                            )
 
-            try:
-                if source == "cloud":
-                    async def operation(blink):
-                        clip = blink_models.CloudClip({
-                            "id": int(id_distant), "device_name": camera,
-                            "created_at": entree.get("created_at"),
-                        })
-                        return await clip.delete_video(blink)
+                threading.Thread(target=travailler_registre, daemon=True).start()
 
-                    supprime = BLINK.call(operation, timeout=30)
-                else:
-                    async def operation(blink):
-                        sync, _ = BLINK.find_camera(blink, camera)
-                        clips = await blink_models.read_local_manifest(sync)
-                        cible = next(
-                            (c for c in clips if str(c.id) == id_distant), None)
-                        if cible is None:
-                            return None  # déjà hors du tampon, rien à faire
-                        return await cible.delete_video(blink)
+            resultats = {}
+            if supprimer:
+                # L'identifiant distant est encodé dans le nom de fichier depuis
+                # blink_models.target_path() ({date}_{camera}_{id}_{empreinte}
+                # .mp4) ; remote_id (registre) sert de repli pour les entrées
+                # plus anciennes, d'avant cette convention.
+                cibles = []
+                for identity in supprimer:
+                    entree = trouver_entree(identity)
+                    if entree is None:
+                        resultats[identity] = "inconnu"
+                        continue
+                    correspondance = re.search(r"_(\d+)_[0-9a-f]{12}\.mp4$", identity)
+                    id_distant = correspondance.group(1) if correspondance else str(
+                        entree.get("remote_id") or "")
+                    if not id_distant:
+                        resultats[identity] = "identifiant_introuvable"
+                        continue
+                    cibles.append((identity, entree, id_distant))
 
-                    supprime = BLINK.call(operation, timeout=90)
-            except Exception as error:
-                self.send_json({"error": f"{type(error).__name__}: {error}"}, 502)
-                return
+                nb_cameras_usb = len({
+                    str(e.get("camera") or "").strip() for _, e, _ in cibles
+                    if str(e.get("source") or "usb") != "cloud"
+                })
 
-            if supprime is None:
-                self.send_json({"ok": True, "deja_absent": True})
-            elif supprime:
-                self.send_json({"ok": True})
-            else:
-                self.send_json(
-                    {"error": "Le service a refusé la suppression."}, 502)
+                async def operation(blink):
+                    manifestes = {}
+                    for identity, entree, id_distant in cibles:
+                        source = str(entree.get("source") or "usb")
+                        camera = str(entree.get("camera") or "").strip()
+                        try:
+                            if source == "cloud":
+                                clip = blink_models.CloudClip({
+                                    "id": int(id_distant), "device_name": camera,
+                                    "created_at": entree.get("created_at"),
+                                })
+                                resultats[identity] = (
+                                    "supprime" if await clip.delete_video(blink)
+                                    else "echec")
+                                continue
+                            sync, _ = BLINK.find_camera(blink, camera)
+                            # Une seule lecture de manifeste par Sync Module,
+                            # même si plusieurs clips ciblés lui appartiennent.
+                            cle = id(sync)
+                            if cle not in manifestes:
+                                manifestes[cle] = await blink_models.read_local_manifest(sync)
+                            cible_clip = next(
+                                (c for c in manifestes[cle] if str(c.id) == id_distant),
+                                None)
+                            if cible_clip is None:
+                                resultats[identity] = "deja_absent"
+                            else:
+                                resultats[identity] = (
+                                    "supprime" if await cible_clip.delete_video(blink)
+                                    else "echec")
+                        except Exception as error:
+                            resultats[identity] = f"echec: {type(error).__name__}"
+
+                try:
+                    BLINK.call(operation, timeout=30 + 90 * max(1, nb_cameras_usb))
+                except Exception as error:
+                    for identity, _, _ in cibles:
+                        resultats.setdefault(identity, f"echec: {type(error).__name__}")
+
+            self.send_json({"ok": True, "resultats": resultats})
             return
 
         if route == "/api/autostart":
@@ -1904,33 +1934,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         self.send_error(404)
-
-    def reassembler(self, identity: str) -> None:
-        """Reconstruit, en arrière-plan, les vidéos de la journée touchée.
-
-        Ciblé sur une caméra et un jour : les agrégats de la semaine et du mois
-        suivent, et rien d'autre n'est réencodé, l'assemblage n'étant qu'une
-        copie de flux."""
-        entree = (read_entries(self.paths).get(identity)
-                  or next((e for e in read_entries(self.paths).values()
-                           if e.get("path") == identity), None))
-        camera = str((entree or {}).get("camera") or "").strip()
-        try:
-            jour = md.parse_created_at(str((entree or {}).get("created_at")))                      .astimezone(self.timezone).date().isoformat()
-        except (TypeError, ValueError):
-            jour = None
-        if not camera or not jour:
-            return
-
-        def travailler():
-            with REASSEMBLAGE:
-                runtime.lancer(
-                    runtime.self_command("merge", "--camera", camera, "--date", jour),
-                    cwd=str(runtime.app_dir()), stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
-                )
-
-        threading.Thread(target=travailler, daemon=True).start()
 
 
 PAGE = """<!doctype html>
@@ -2122,6 +2125,7 @@ PAGE = """<!doctype html>
   <div class="maj">
     <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
+    <button id="applyButton" hidden onclick="appliquerSelection()"></button>
     <button class="primary" id="refresh" data-i18n="btn.refresh">↻ Actualiser</button>
     <button id="reglagesButton" data-i18n="btn.reglages" data-i18n-title="btn.reglages.title" title="Réglages">⚙ Réglages…</button>
   </div>
@@ -2400,7 +2404,9 @@ const I18N = {
     "clip.deleteSource": "Supprimer", "clip.sourceDeleted": "Supprimé",
     "clip.deleteSource.pending": "Suppression…",
     "clip.deleteSource.title": "Supprimer ce clip de sa source (clé USB ou cloud de l'abonnement). La copie déjà téléchargée ici n'est pas touchée. Peut prendre jusqu'à une minute pour l'USB.",
-    "clip.deleteSource.confirm": "Supprimer ce clip de sa source (clé USB ou cloud de l'abonnement) ? La copie déjà téléchargée ici n'est pas touchée.",
+    "selection.apply": "Appliquer ({n})",
+    "selection.confirm.suppression": "{n} clip(s) vont être supprimés de leur source (clé USB ou cloud de l'abonnement). Les copies déjà téléchargées ne sont pas touchées. Continuer ?",
+    "selection.partial": "{n} suppression(s) ont échoué ou n'ont rien trouvé à supprimer (déjà retiré ailleurs). Le reste de la sélection a été appliqué.",
     "refresh.starting": "Démarrage…", "refresh.errors": "Terminé avec des erreurs",
     "refresh.disconnected": "\\nConnexion interrompue.\\n",
   },
@@ -2511,7 +2517,9 @@ const I18N = {
     "clip.deleteSource": "Delete", "clip.sourceDeleted": "Deleted",
     "clip.deleteSource.pending": "Deleting…",
     "clip.deleteSource.title": "Delete this clip from its source (USB drive or subscription cloud). The copy already downloaded here is not affected. Can take up to a minute for USB.",
-    "clip.deleteSource.confirm": "Delete this clip from its source (USB drive or subscription cloud)? The copy already downloaded here is not affected.",
+    "selection.apply": "Apply ({n})",
+    "selection.confirm.suppression": "{n} clip(s) will be deleted from their source (USB drive or subscription cloud). Copies already downloaded here are not affected. Continue?",
+    "selection.partial": "{n} deletion(s) failed or found nothing to delete (already removed elsewhere). The rest of the selection was applied.",
     "refresh.starting": "Starting…", "refresh.errors": "Finished with errors",
     "refresh.disconnected": "\\nConnection lost.\\n",
   },
@@ -3175,17 +3183,17 @@ function card(c) {
            src="/media/clip/${encodeURI(c.identity)}"></video>
     <div class="meta">
       <div class="time line">${ligne}</div>
-      <button class="act ${c.excluded ? "in" : "out"}"
-              title="${c.excluded ? t("clip.resume.title") : t("clip.discard.title")}"
-              onclick="toggle('${c.identity}', ${!c.excluded})">
-        ${c.excluded ? t("clip.resume") : t("clip.discard")}
-      </button>
-      <button class="act out" ${c.sourceDeleted || c.sourcePending ? "disabled" : ""}
-              title="${t("clip.deleteSource.title")}"
-              onclick="supprimerSource('${c.identity}')">
-        ${c.sourcePending ? t("clip.deleteSource.pending")
-          : c.sourceDeleted ? t("clip.sourceDeleted") : t("clip.deleteSource")}
-      </button>
+      <label class="act" title="${t("clip.discard.title")}">
+        <input type="checkbox" ${c.excludedStaged ? "checked" : ""}
+               onchange="stagerExclusion('${c.identity}', this.checked)">
+        ${t("clip.discard")}
+      </label>
+      <label class="act" title="${t("clip.deleteSource.title")}">
+        <input type="checkbox" ${c.sourceDeleted ? "disabled checked" : ""}
+               ${c.supprimerStaged ? "checked" : ""}
+               onchange="stagerSuppression('${c.identity}', this.checked)">
+        ${c.sourceDeleted ? t("clip.sourceDeleted") : t("clip.deleteSource")}
+      </label>
     </div>
   </div>`;
 }
@@ -3203,11 +3211,18 @@ async function load() {
   data = await answer.json();
   videos = await videoAnswer.json();
   if (data.error) { $("log").style.display = "block"; $("log").textContent = data.error; return; }
+  // État de la sélection : à zéro à chaque rechargement, il reflète l'état
+  // réel qu'on vient de relire, pas une intention encore en attente.
+  for (const c of data.clips || []) {
+    c.excludedStaged = c.excluded;
+    c.supprimerStaged = false;
+  }
   // Le modèle accompagne le nom ici, une fois, plutôt que sur chaque vignette.
   fill($("camera"), data.cameras, t("filter.allcameras"),
        (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
   fill($("day"), data.days, t("filter.alldays"));
   render();
+  majBoutonAppliquer();
 }
 
 async function afficherTout() {
@@ -3216,42 +3231,65 @@ async function afficherTout() {
   await load();
 }
 
-async function toggle(identity, excluded) {
-  const answer = await fetch("/api/toggle", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ identity, excluded }),
-  });
-  const result = await answer.json();
-  if (result.error) { alert(result.error); return; }
-  // La décision est connue : on retourne la vignette tout de suite plutôt que
-  // de recharger la liste entière, qui relit le registre et refait défiler la
-  // page. La reconstruction des journalières se poursuit en arrière-plan.
+// Écarter et Supprimer sont des cases, pas des actions immédiates : coup par
+// coup, la suppression USB paierait à chaque clic le délai de régénération
+// du manifeste par le Sync Module (jusqu'à une minute, voir AUDIT 28.73/75).
+// Le bouton Appliquer traite tout le lot en un seul appel, une seule lecture
+// de manifeste par Sync Module concerné plutôt qu'une par clip.
+function stagerExclusion(identity, coche) {
   const clip = data.clips.find((c) => c.identity === identity);
-  if (clip) clip.excluded = excluded;
-  render();
+  if (clip) clip.excludedStaged = coche;
+  majBoutonAppliquer();
 }
 
-// Distinct de toggle() : celui-ci retire la copie distante (Sync Module ou
-// cloud selon la caméra), pas la copie locale déjà téléchargée. Peut prendre
-// jusqu'à une minute côté USB (voir AUDIT 28.73, délai de régénération du
-// manifeste par le Sync Module), d'où le bouton désactivé pendant l'appel.
-async function supprimerSource(identity) {
-  if (!confirm(t("clip.deleteSource.confirm"))) return;
+function stagerSuppression(identity, coche) {
   const clip = data.clips.find((c) => c.identity === identity);
-  if (clip) clip.sourcePending = true;
-  render();
+  if (clip) clip.supprimerStaged = coche;
+  majBoutonAppliquer();
+}
+
+function calculerSelection() {
+  const exclure = [], inclure = [], supprimer = [];
+  for (const c of data.clips || []) {
+    if (!!c.excludedStaged !== !!c.excluded) (c.excludedStaged ? exclure : inclure).push(c.identity);
+    if (c.supprimerStaged && !c.sourceDeleted) supprimer.push(c.identity);
+  }
+  return { exclure, inclure, supprimer };
+}
+
+function majBoutonAppliquer() {
+  const bouton = $("applyButton");
+  if (!bouton) return;
+  const { exclure, inclure, supprimer } = calculerSelection();
+  const n = exclure.length + inclure.length + supprimer.length;
+  bouton.hidden = n === 0;
+  bouton.textContent = tf("selection.apply", { n });
+}
+
+async function appliquerSelection() {
+  const { exclure, inclure, supprimer } = calculerSelection();
+  if (!exclure.length && !inclure.length && !supprimer.length) return;
+  if (supprimer.length && !confirm(tf("selection.confirm.suppression", { n: supprimer.length }))) return;
+  const bouton = $("applyButton");
+  bouton.disabled = true;
+  bouton.textContent = t("clip.deleteSource.pending");
   try {
-    const reponse = await fetch("/api/supprimer-source", { method: "POST",
+    const reponse = await fetch("/api/appliquer-selection", { method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identity }) });
+      body: JSON.stringify({ exclure, inclure, supprimer }) });
     const resultat = await reponse.json();
-    if (resultat.error) alert(resultat.error);
-    else if (clip) clip.sourceDeleted = true;
+    if (resultat.error) { alert(resultat.error); return; }
+    const echecs = Object.values(resultat.resultats || {})
+      .filter((statut) => statut !== "supprime" && statut !== "deja_absent").length;
+    if (echecs) alert(tf("selection.partial", { n: echecs }));
   } catch (erreur) {
     alert(String(erreur));
   } finally {
-    if (clip) clip.sourcePending = false;
-    render();
+    bouton.disabled = false;
+    // Rechargement plutôt que mise à jour locale : le lot touche plusieurs
+    // clips, plusieurs journées réassemblées en arrière-plan, et l'état réel
+    // (déjà absent, échec) vient du serveur, pas d'une supposition côté page.
+    await load();
   }
 }
 
