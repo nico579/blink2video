@@ -1398,6 +1398,7 @@ class TestsE01Onboarding(unittest.TestCase):
         with mock.patch.object(blink_auth, "preflight",
                                new=mock.AsyncMock(return_value=self.etat_non_authentifie)), \
              mock.patch.object(blink_cli, "accueillir", return_value=1) as accueil, \
+             mock.patch.object(blink_cli, "_port_ouvert", return_value=False), \
              mock.patch.object(b2v.runtime, "decouper_verbes") as decouper, \
              contextlib.redirect_stdout(io.StringIO()):
             code = blink_cli.executer([["start"]])
@@ -1411,6 +1412,7 @@ class TestsE01Onboarding(unittest.TestCase):
         with mock.patch.object(blink_auth, "preflight",
                                new=mock.AsyncMock(return_value=authentifie)), \
              mock.patch.object(blink_cli, "accueillir") as accueil, \
+             mock.patch.object(blink_cli, "_port_ouvert", return_value=False), \
              mock.patch.object(blink_cli, "executer",
                                wraps=blink_cli.executer) as executer_espionne, \
              mock.patch.object(b2v.runtime, "demarrer") as demarrer, \

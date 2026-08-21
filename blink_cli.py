@@ -459,22 +459,44 @@ def executer(groupes: list) -> int:
         # s'ouvre seule d'abord, avec la page de connexion prête, et les
         # boucles de fond n'apparaissent qu'après un succès confirmé (5.12,
         # 5.15, 5.16).
-        runtime.bootstrap()
-        import blink_auth
-        etat = asyncio.run(blink_auth.preflight())
-        if not etat["authenticated"]:
-            code = accueillir(etat, supplement)
-            if code != 0:
-                return code
-        composition = runtime.standard()
-        # Le bloc fixe (serve, --port, valeur, --timezone, valeur) précède
-        # toujours le supplément : un « --port »/« --timezone » tapé à la
-        # main arrive donc après celui, déjà présent, de la configuration
-        # enregistrée, et l'emporte (argparse retient la dernière
-        # occurrence d'une option).
-        n = runtime.LONGUEUR_BLOC_SERVE
-        return executer(runtime.decouper_verbes(
-            [*composition[:n], *supplement, *composition[n:]]))
+        #
+        # Le verrou couvre tout ce bloc, jusqu'au lancement effectif des
+        # processus : un raccourci bureau cliqué deux fois de suite (ou un
+        # double-clic Explorer qui part deux fois) lance sinon deux « start »
+        # en parallèle, tous deux passant la vérification du port avant que
+        # le premier n'ait fini de démarrer. Le second cède la place plutôt
+        # que de tenter un démarrage concurrent.
+        try:
+            with runtime.verrou("start", "start", attente=0):
+                # Une instance écoute déjà : « start » se comporte alors
+                # comme « open », sans rien relancer. Le même raccourci
+                # (bureau ou autostart) sert donc aussi bien à démarrer
+                # qu'à rouvrir l'interface déjà en place, sans avoir à
+                # composer deux commandes séparées ni à ouvrir une seconde
+                # fenêtre de console pour le vérifier.
+                port = runtime.lire_reglages()["port"]
+                if _port_ouvert(port):
+                    return ouvrir(["--port", str(port)])
+
+                runtime.bootstrap()
+                import blink_auth
+                etat = asyncio.run(blink_auth.preflight())
+                if not etat["authenticated"]:
+                    code = accueillir(etat, supplement)
+                    if code != 0:
+                        return code
+                composition = runtime.standard()
+                # Le bloc fixe (serve, --port, valeur, --timezone, valeur)
+                # précède toujours le supplément : un « --port »/« --timezone »
+                # tapé à la main arrive donc après celui, déjà présent, de la
+                # configuration enregistrée, et l'emporte (argparse retient la
+                # dernière occurrence d'une option).
+                n = runtime.LONGUEUR_BLOC_SERVE
+                return executer(runtime.decouper_verbes(
+                    [*composition[:n], *supplement, *composition[n:]]))
+        except runtime.BusyError:
+            print("Démarrage déjà en cours ailleurs, ouverture de l'interface...")
+            return ouvrir(())
 
     if len(groupes) == 1 and groupes[0][0] == "open":
         return ouvrir(groupes[0][1:])

@@ -25,6 +25,7 @@ import threading
 import webbrowser
 
 import maj
+import raccourci_bureau
 import runtime
 
 # Mêmes deux langues que la page web (serve.py, const I18N) ; runtime.lire_langue()
@@ -32,9 +33,11 @@ import runtime
 # pas la locale du système : le menu doit suivre la page, pas l'OS.
 LIBELLES = {
     "fr": {"ouvrir": "Ouvrir", "maj": "Mettre à jour vers {version}",
-           "redemarrer": "Redémarrer", "arreter": "Arrêter"},
+           "redemarrer": "Redémarrer", "arreter": "Arrêter",
+           "raccourci": "Créer un raccourci sur le Bureau"},
     "en": {"ouvrir": "Open", "maj": "Update to {version}",
-           "redemarrer": "Restart", "arreter": "Stop"},
+           "redemarrer": "Restart", "arreter": "Stop",
+           "raccourci": "Create a Desktop shortcut"},
 }
 
 
@@ -80,6 +83,9 @@ def executer(port: int, arret: threading.Event) -> None:
         _relancer(sans_relance=True)
         icon.stop()
 
+    def creer_raccourci(icon, item):
+        raccourci_bureau.creer()
+
     def mettre_a_jour(icon, item):
         runtime.demarrer(
             runtime.self_command("update"), cwd=str(runtime.app_dir()),
@@ -108,6 +114,7 @@ def executer(port: int, arret: threading.Event) -> None:
                                    mettre_a_jour)
         yield pystray.MenuItem(mots["redemarrer"], redemarrer)
         yield pystray.MenuItem(mots["arreter"], arreter)
+        yield pystray.MenuItem(mots["raccourci"], creer_raccourci)
 
     icone_fichier = runtime.resource_dir() / "assets" / "blink2video.ico"
     image = Image.open(str(icone_fichier))
