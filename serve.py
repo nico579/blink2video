@@ -47,6 +47,7 @@ from aiohttp import ClientSession
 import autostart
 import blink_auth
 import blink_engine
+import blink_models
 import maj
 import merge_daily as md
 import watch
@@ -1699,6 +1700,72 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"ok": True})
             return
 
+        if route == "/api/supprimer-source":
+            # Bouton par vignette (issue GitHub #1) : distinct de « Écarter »,
+            # qui ne touche que l'assemblage local. Ici on retire la copie
+            # distante (Sync Module ou cloud selon la provenance du clip), la
+            # copie locale déjà téléchargée reste intacte.
+            identity = str(payload.get("identity", ""))
+            if not IDENTITY.match(identity):
+                self.send_json({"error": "identifiant invalide"}, 400)
+                return
+            entree = next(
+                (e for e in read_entries(self.paths).values()
+                 if isinstance(e, dict) and e.get("path") == identity),
+                None,
+            )
+            if entree is None:
+                self.send_json({"error": "Clip inconnu du registre."}, 404)
+                return
+            source = str(entree.get("source") or "usb")
+            camera = str(entree.get("camera") or "").strip()
+            # L'identifiant distant est encodé dans le nom de fichier depuis
+            # blink_models.target_path() ({date}_{camera}_{id}_{empreinte}.mp4)
+            # ; remote_id (registre) sert de repli pour les entrées plus
+            # anciennes, d'avant cette convention.
+            correspondance = re.search(r"_(\d+)_[0-9a-f]{12}\.mp4$", identity)
+            id_distant = correspondance.group(1) if correspondance else str(
+                entree.get("remote_id") or "")
+            if not id_distant:
+                self.send_json(
+                    {"error": "Identifiant distant introuvable pour ce clip "
+                              "(clip acquis avant cette fonctionnalité)."}, 400)
+                return
+
+            try:
+                if source == "cloud":
+                    async def operation(blink):
+                        clip = blink_models.CloudClip({
+                            "id": int(id_distant), "device_name": camera,
+                            "created_at": entree.get("created_at"),
+                        })
+                        return await clip.delete_video(blink)
+
+                    supprime = BLINK.call(operation, timeout=30)
+                else:
+                    async def operation(blink):
+                        sync, _ = BLINK.find_camera(blink, camera)
+                        clips = await blink_models.read_local_manifest(sync)
+                        cible = next(
+                            (c for c in clips if str(c.id) == id_distant), None)
+                        if cible is None:
+                            return None  # déjà hors du tampon, rien à faire
+                        return await cible.delete_video(blink)
+
+                    supprime = BLINK.call(operation, timeout=90)
+            except Exception as error:
+                self.send_json({"error": f"{type(error).__name__}: {error}"}, 502)
+                return
+
+            if supprime is None:
+                self.send_json({"ok": True, "deja_absent": True})
+            elif supprime:
+                self.send_json({"ok": True})
+            else:
+                self.send_json(
+                    {"error": "Le service a refusé la suppression."}, 502)
+            return
+
         if route == "/api/autostart":
             code = autostart.appliquer("on" if payload.get("actif") else "off")
             if code != 0:
@@ -2328,6 +2395,8 @@ const I18N = {
     "videos.none": "Aucune vidéo assemblée. Lancez une actualisation.",
     "videos.download": "Télécharger",
     "clip.resume": "Reprendre", "clip.discard": "Écarter",
+    "clip.deleteSource": "Supprimer de la source", "clip.sourceDeleted": "Supprimé de la source",
+    "clip.deleteSource.confirm": "Supprimer ce clip de sa source (clé USB ou cloud de l'abonnement) ? La copie déjà téléchargée ici n'est pas touchée.",
     "refresh.starting": "Démarrage…", "refresh.errors": "Terminé avec des erreurs",
     "refresh.disconnected": "\\nConnexion interrompue.\\n",
   },
@@ -2433,6 +2502,8 @@ const I18N = {
     "videos.none": "No assembled video. Run a refresh.",
     "videos.download": "Download",
     "clip.resume": "Resume", "clip.discard": "Discard",
+    "clip.deleteSource": "Delete from source", "clip.sourceDeleted": "Deleted from source",
+    "clip.deleteSource.confirm": "Delete this clip from its source (USB drive or subscription cloud)? The copy already downloaded here is not affected.",
     "refresh.starting": "Starting…", "refresh.errors": "Finished with errors",
     "refresh.disconnected": "\\nConnection lost.\\n",
   },
@@ -3100,6 +3171,11 @@ function card(c) {
               onclick="toggle('${c.identity}', ${!c.excluded})">
         ${c.excluded ? t("clip.resume") : t("clip.discard")}
       </button>
+      <button class="act out" ${c.sourceDeleted || c.sourcePending ? "disabled" : ""}
+              onclick="supprimerSource('${c.identity}')">
+        ${c.sourcePending ? t("reglages.restarting")
+          : c.sourceDeleted ? t("clip.sourceDeleted") : t("clip.deleteSource")}
+      </button>
     </div>
   </div>`;
 }
@@ -3143,6 +3219,30 @@ async function toggle(identity, excluded) {
   const clip = data.clips.find((c) => c.identity === identity);
   if (clip) clip.excluded = excluded;
   render();
+}
+
+// Distinct de toggle() : celui-ci retire la copie distante (Sync Module ou
+// cloud selon la caméra), pas la copie locale déjà téléchargée. Peut prendre
+// jusqu'à une minute côté USB (voir AUDIT 28.73, délai de régénération du
+// manifeste par le Sync Module), d'où le bouton désactivé pendant l'appel.
+async function supprimerSource(identity) {
+  if (!confirm(t("clip.deleteSource.confirm"))) return;
+  const clip = data.clips.find((c) => c.identity === identity);
+  if (clip) clip.sourcePending = true;
+  render();
+  try {
+    const reponse = await fetch("/api/supprimer-source", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identity }) });
+    const resultat = await reponse.json();
+    if (resultat.error) alert(resultat.error);
+    else if (clip) clip.sourceDeleted = true;
+  } catch (erreur) {
+    alert(String(erreur));
+  } finally {
+    if (clip) clip.sourcePending = false;
+    render();
+  }
 }
 
 // --- connexion Blink -------------------------------------------------------
