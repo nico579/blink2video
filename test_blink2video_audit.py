@@ -1395,7 +1395,14 @@ class TestsE01Onboarding(unittest.TestCase):
 
     def test_E01_mini_smoke_precede_les_workers(self):
         """5.15/5.16 : échec de l'onboarding, aucune boucle de fond lancée."""
-        with mock.patch.object(blink_auth, "preflight",
+        # BLINK_HOME isole le verrou "start" (runtime.verrou) et le marqueur
+        # de raccourci de bureau de l'installation réelle : sans ça, ce test
+        # se met à dépendre de ce qui tourne déjà sur la machine (28.80/28.81
+        # - le verrou "start" reste tenu tant que l'instance vit, pas
+        # seulement le temps du démarrage).
+        with tempfile.TemporaryDirectory() as domicile, \
+             mock.patch.dict(os.environ, {"BLINK_HOME": domicile}), \
+             mock.patch.object(blink_auth, "preflight",
                                new=mock.AsyncMock(return_value=self.etat_non_authentifie)), \
              mock.patch.object(blink_cli, "accueillir", return_value=1) as accueil, \
              mock.patch.object(blink_cli, "_port_ouvert", return_value=False), \
@@ -1409,7 +1416,9 @@ class TestsE01Onboarding(unittest.TestCase):
     def test_E01_session_valide_saute_l_onboarding(self):
         """Session déjà valide : accueillir() n'est jamais appelé (5.5)."""
         authentifie = dict(self.etat_non_authentifie, authenticated=True, cameras=2)
-        with mock.patch.object(blink_auth, "preflight",
+        with tempfile.TemporaryDirectory() as domicile, \
+             mock.patch.dict(os.environ, {"BLINK_HOME": domicile}), \
+             mock.patch.object(blink_auth, "preflight",
                                new=mock.AsyncMock(return_value=authentifie)), \
              mock.patch.object(blink_cli, "accueillir") as accueil, \
              mock.patch.object(blink_cli, "_port_ouvert", return_value=False), \
@@ -1424,6 +1433,24 @@ class TestsE01Onboarding(unittest.TestCase):
         # La composition complète est bien tentée (au moins un appel demarrer).
         self.assertTrue(demarrer.called)
         self.assertGreaterEqual(executer_espionne.call_count, 1)
+
+    def test_raccourci_bureau_pose_une_seule_fois(self):
+        """28.81 : le raccourci de bureau n'est proposé qu'au tout premier
+        démarrage réussi, jamais aux suivants (marqueur sur disque)."""
+        authentifie = dict(self.etat_non_authentifie, authenticated=True, cameras=2)
+        with tempfile.TemporaryDirectory() as domicile, \
+             mock.patch.dict(os.environ, {"BLINK_HOME": domicile}), \
+             mock.patch.object(blink_auth, "preflight",
+                               new=mock.AsyncMock(return_value=authentifie)), \
+             mock.patch.object(blink_cli, "_port_ouvert", return_value=False), \
+             mock.patch.object(b2v.runtime, "demarrer") as demarrer, \
+             mock.patch.object(tray, "disponible", return_value=False), \
+             mock.patch("raccourci_bureau.creer") as creer, \
+             contextlib.redirect_stdout(io.StringIO()):
+            demarrer.return_value.pid = 4242
+            blink_cli.executer([["start"]])
+            blink_cli.executer([["start"]])
+        creer.assert_called_once()
 
 
 if __name__ == "__main__":

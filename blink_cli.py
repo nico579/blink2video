@@ -335,6 +335,29 @@ def _port_ouvert(port: int) -> bool:
         return prise.connect_ex(("127.0.0.1", port)) == 0
 
 
+MARQUEUR_RACCOURCI = ".blink_raccourci_cree"
+
+
+def _proposer_raccourci_bureau() -> None:
+    """Pose le raccourci de bureau au tout premier « start » réussi, jamais
+    ensuite : le marqueur empêche de le recréer si l'utilisateur l'a
+    supprimé volontairement par la suite. Best-effort : un échec ici (pas
+    d'environnement de bureau, permission refusée...) ne doit jamais faire
+    échouer le démarrage lui-même."""
+    marqueur = runtime.app_dir() / MARQUEUR_RACCOURCI
+    if marqueur.exists():
+        return
+    try:
+        marqueur.touch()
+    except OSError:
+        return
+    try:
+        import raccourci_bureau
+        raccourci_bureau.creer()
+    except Exception:
+        pass
+
+
 def accueillir(etat: dict, supplement: list, delai: float = 600.0) -> int:
     """Onboarding minimal : ouvre l'interface sur sa page de connexion et
     attend un succès avant de laisser « start » continuer (E-01, version
@@ -492,8 +515,11 @@ def executer(groupes: list) -> int:
                 # configuration enregistrée, et l'emporte (argparse retient la
                 # dernière occurrence d'une option).
                 n = runtime.LONGUEUR_BLOC_SERVE
-                return executer(runtime.decouper_verbes(
+                code = executer(runtime.decouper_verbes(
                     [*composition[:n], *supplement, *composition[n:]]))
+                if code == 0:
+                    _proposer_raccourci_bureau()
+                return code
         except runtime.BusyError:
             print("Démarrage déjà en cours ailleurs, ouverture de l'interface...")
             return ouvrir(())

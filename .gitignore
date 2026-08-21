@@ -10,6 +10,7 @@ blink_reglages.json
 blink_home.txt
 blink_langue.txt
 blink_suppression_auto.json
+.blink_raccourci_cree
 
 # Registres d'état : contiennent identifiants de compte, numéros de série,
 # noms de caméras et horaires de présence.
