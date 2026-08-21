@@ -2395,7 +2395,11 @@ const I18N = {
     "videos.none": "Aucune vidéo assemblée. Lancez une actualisation.",
     "videos.download": "Télécharger",
     "clip.resume": "Reprendre", "clip.discard": "Écarter",
-    "clip.deleteSource": "Supprimer de la source", "clip.sourceDeleted": "Supprimé de la source",
+    "clip.discard.title": "Retirer ce clip des vidéos assemblées (quotidienne, hebdomadaire, mensuelle). La copie téléchargée reste sur le disque.",
+    "clip.resume.title": "Réinclure ce clip dans les prochains assemblages.",
+    "clip.deleteSource": "Supprimer", "clip.sourceDeleted": "Supprimé",
+    "clip.deleteSource.pending": "Suppression…",
+    "clip.deleteSource.title": "Supprimer ce clip de sa source (clé USB ou cloud de l'abonnement). La copie déjà téléchargée ici n'est pas touchée. Peut prendre jusqu'à une minute pour l'USB.",
     "clip.deleteSource.confirm": "Supprimer ce clip de sa source (clé USB ou cloud de l'abonnement) ? La copie déjà téléchargée ici n'est pas touchée.",
     "refresh.starting": "Démarrage…", "refresh.errors": "Terminé avec des erreurs",
     "refresh.disconnected": "\\nConnexion interrompue.\\n",
@@ -2502,7 +2506,11 @@ const I18N = {
     "videos.none": "No assembled video. Run a refresh.",
     "videos.download": "Download",
     "clip.resume": "Resume", "clip.discard": "Discard",
-    "clip.deleteSource": "Delete from source", "clip.sourceDeleted": "Deleted from source",
+    "clip.discard.title": "Remove this clip from the assembled videos (daily, weekly, monthly). The downloaded copy stays on disk.",
+    "clip.resume.title": "Include this clip in future assemblies again.",
+    "clip.deleteSource": "Delete", "clip.sourceDeleted": "Deleted",
+    "clip.deleteSource.pending": "Deleting…",
+    "clip.deleteSource.title": "Delete this clip from its source (USB drive or subscription cloud). The copy already downloaded here is not affected. Can take up to a minute for USB.",
     "clip.deleteSource.confirm": "Delete this clip from its source (USB drive or subscription cloud)? The copy already downloaded here is not affected.",
     "refresh.starting": "Starting…", "refresh.errors": "Finished with errors",
     "refresh.disconnected": "\\nConnection lost.\\n",
@@ -3168,12 +3176,14 @@ function card(c) {
     <div class="meta">
       <div class="time line">${ligne}</div>
       <button class="act ${c.excluded ? "in" : "out"}"
+              title="${c.excluded ? t("clip.resume.title") : t("clip.discard.title")}"
               onclick="toggle('${c.identity}', ${!c.excluded})">
         ${c.excluded ? t("clip.resume") : t("clip.discard")}
       </button>
       <button class="act out" ${c.sourceDeleted || c.sourcePending ? "disabled" : ""}
+              title="${t("clip.deleteSource.title")}"
               onclick="supprimerSource('${c.identity}')">
-        ${c.sourcePending ? t("reglages.restarting")
+        ${c.sourcePending ? t("clip.deleteSource.pending")
           : c.sourceDeleted ? t("clip.sourceDeleted") : t("clip.deleteSource")}
       </button>
     </div>
