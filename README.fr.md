@@ -377,6 +377,7 @@ de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
 |---|---|
 | `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
+| `BLINK_BIND` | adresse d'écoute de `serve`, à défaut `127.0.0.1` (localhost uniquement). Mettre `0.0.0.0` pour joindre l'interface depuis d'autres machines du réseau. Aucune authentification sur l'interface web : réserver ça à un réseau domestique de confiance, ne jamais l'exposer sur internet |
 
 </details>
 

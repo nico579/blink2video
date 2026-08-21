@@ -356,6 +356,7 @@ nobody is listening. `--port` if you moved it.
 |---|---|
 | `BLINK_HOME` | data folder, defaulting to the executable's own |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` or `none`: how the Python environment is handled |
+| `BLINK_BIND` | address `serve` listens on, defaulting to `127.0.0.1` (localhost only). Set to `0.0.0.0` to reach the interface from other machines on your network. There is no authentication on the web UI: only do this on a trusted home network, never expose it to the internet |
 
 </details>
 
