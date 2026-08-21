@@ -3326,17 +3326,37 @@ async function appliquerSelection() {
       body: JSON.stringify({ exclure, inclure, supprimer }) });
     const resultat = await reponse.json();
     if (resultat.error) { alert(resultat.error); return; }
-    const echecs = Object.values(resultat.resultats || {})
-      .filter((statut) => statut !== "supprime" && statut !== "deja_absent").length;
+    // Écarter/Réintégrer : mise à jour optimiste, comme l'ancien toggle()
+    // (AUDIT 28.33/28.75). Le registre s'écrit en tâche de fond côté
+    // serveur pour ne jamais bloquer la réponse ; la relire tout de suite
+    // ici la course parfois, avant que l'écriture n'ait fini (constaté par
+    // Nico : « les écartés restent présents » jusqu'à un F5 manuel).
+    for (const identity of exclure) {
+      const clip = data.clips.find((c) => c.identity === identity);
+      if (clip) { clip.excluded = true; clip.excludedStaged = true; }
+    }
+    for (const identity of inclure) {
+      const clip = data.clips.find((c) => c.identity === identity);
+      if (clip) { clip.excluded = false; clip.excludedStaged = false; }
+    }
+    // Supprimer : l'appel était synchrone côté serveur, le résultat est
+    // donc fiable tout de suite, pas une supposition.
+    let echecs = 0;
+    for (const [identity, statut] of Object.entries(resultat.resultats || {})) {
+      const clip = data.clips.find((c) => c.identity === identity);
+      if (statut === "supprime" || statut === "deja_absent") {
+        if (clip) { clip.sourceDeleted = true; clip.supprimerStaged = false; }
+      } else {
+        echecs++;
+      }
+    }
     if (echecs) alert(tf("selection.partial", { n: echecs }));
+    render();
   } catch (erreur) {
     alert(String(erreur));
   } finally {
     bouton.disabled = false;
-    // Rechargement plutôt que mise à jour locale : le lot touche plusieurs
-    // clips, plusieurs journées réassemblées en arrière-plan, et l'état réel
-    // (déjà absent, échec) vient du serveur, pas d'une supposition côté page.
-    await load();
+    majBoutonAppliquer();
   }
 }
 
