@@ -43,3 +43,7 @@ __pycache__/
 
 # Vidéo de démonstration produite par « blink2video smoketest ».
 smoketest.mp4
+
+# Scripts d'essai ponctuels contre le compte Blink réel (endpoints non
+# documentés, reproductions manuelles) : jamais destinés au dépôt public.
+essai_*.py
