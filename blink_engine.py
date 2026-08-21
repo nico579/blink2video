@@ -431,11 +431,15 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
             # Le verbe qui ramène est celui qui annonce : « watch » regarde les
             # caméras, il n'a pas à parler des clips.
             pluriel = "s" if neufs_total > 1 else ""
-            runtime.toast(
-                "Blink",
-                f"{neufs_total} nouveau{'x' if neufs_total > 1 else ''} "
-                f"clip{pluriel} récupéré{pluriel}. Cliquez pour ouvrir.",
-                url="http://127.0.0.1:8765/",
-            )
+            # Suit la langue de la page (runtime.lire_langue(), voir tray.py) :
+            # une notification système reste visible même fenêtre fermée, elle
+            # doit parler la même langue que ce que l'utilisateur a choisi.
+            if runtime.lire_langue() == "en":
+                corps = (f"{neufs_total} new clip{'s' if neufs_total > 1 else ''} "
+                         "downloaded. Click to open.")
+            else:
+                corps = (f"{neufs_total} nouveau{'x' if neufs_total > 1 else ''} "
+                         f"clip{pluriel} récupéré{pluriel}. Cliquez pour ouvrir.")
+            runtime.toast("Blink", corps, url="http://127.0.0.1:8765/")
 
     return 1 if had_error else 0

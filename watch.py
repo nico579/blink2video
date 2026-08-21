@@ -127,6 +127,48 @@ def last_clip_per_camera(timezone) -> dict:
     return {name: moment.isoformat() for name, moment in latest.items()}
 
 
+# Suit la langue de la page (runtime.lire_langue(), voir tray.py) : ces
+# messages finissent dans une notification ou une boîte de dialogue Windows,
+# visibles même la page fermée, donc dans la langue choisie par l'utilisateur,
+# pas dans la locale système.
+MESSAGES = {
+    "fr": {
+        "module_hors_ligne": "Module « {nom} » hors ligne.",
+        "module_retour": "Module « {nom} » de nouveau en ligne.",
+        "camera_hors_ligne": "Caméra « {nom} » hors ligne.",
+        "camera_retour": "Caméra « {nom} » de nouveau en ligne.",
+        "camera_batterie": "Caméra « {nom} » : batterie « {etat} ».",
+        "camera_detection_coupee": "Caméra « {nom} » : détection coupée.",
+        "camera_detection_reactivee": "Caméra « {nom} » : détection réactivée.",
+        "systeme_desarme": "Système entièrement désarmé.",
+        "camera_silence": "Caméra « {nom} » : aucun clip depuis {jours} jour(s).",
+        "titre_echec": "Blink : surveillance en échec",
+        "titre_anomalies": "Blink : {n} anomalie(s)",
+        "titre_retour": "Blink : retour à la normale",
+        "hint_sourdine": "Pour ne plus être averti d'une caméra :",
+    },
+    "en": {
+        "module_hors_ligne": 'Module "{nom}" offline.',
+        "module_retour": 'Module "{nom}" back online.',
+        "camera_hors_ligne": 'Camera "{nom}" offline.',
+        "camera_retour": 'Camera "{nom}" back online.',
+        "camera_batterie": 'Camera "{nom}": battery "{etat}".',
+        "camera_detection_coupee": 'Camera "{nom}": detection disabled.',
+        "camera_detection_reactivee": 'Camera "{nom}": detection re-enabled.',
+        "systeme_desarme": "System fully disarmed.",
+        "camera_silence": 'Camera "{nom}": no clip for {jours} day(s).',
+        "titre_echec": "Blink: monitoring failed",
+        "titre_anomalies": "Blink: {n} issue(s)",
+        "titre_retour": "Blink: back to normal",
+        "hint_sourdine": "To stop being notified about a camera:",
+    },
+}
+
+
+def _msg(cle: str, **kw) -> str:
+    return MESSAGES[runtime.lire_langue()][cle].format(**kw)
+
+
 def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
     """Établit la liste des dégradations et des retours à la normale.
 
@@ -145,16 +187,16 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
         etait = next((m for m in previous.get("modules") or []
                       if m["name"] == module["name"]), None)
         if not module["online"] and (etait is None or etait.get("online")):
-            alerts.append(f"Module « {module['name']} » hors ligne.")
+            alerts.append(_msg("module_hors_ligne", nom=module["name"]))
         elif module["online"] and etait is not None and not etait.get("online"):
-            recoveries.append(f"Module « {module['name']} » de nouveau en ligne.")
+            recoveries.append(_msg("module_retour", nom=module["name"]))
 
     for name, etat in sorted(maintenant.items()):
         ancien = avant.get(name) or {}
         if not etat["online"] and (not ancien or ancien.get("online")):
-            alerts.append(f"Caméra « {name} » hors ligne.")
+            alerts.append(_msg("camera_hors_ligne", nom=name))
         elif etat["online"] and ancien and not ancien.get("online"):
-            recoveries.append(f"Caméra « {name} » de nouveau en ligne.")
+            recoveries.append(_msg("camera_retour", nom=name))
 
         # `not ancien` (premier passage, ou caméra jamais vue avant) compte
         # comme un « ok » implicite ailleurs dans cette fonction (en ligne,
@@ -164,16 +206,16 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
         # remonte à « ok » puis redescende.
         if etat["battery"] and etat["battery"] != "ok" and (
                 not ancien or ancien.get("battery") == "ok"):
-            alerts.append(f"Caméra « {name} » : batterie « {etat['battery']} ».")
+            alerts.append(_msg("camera_batterie", nom=name, etat=etat["battery"]))
 
         if ancien and ancien.get("armed") and not etat["armed"]:
-            alerts.append(f"Caméra « {name} » : détection coupée.")
+            alerts.append(_msg("camera_detection_coupee", nom=name))
         elif ancien and not ancien.get("armed") and etat["armed"]:
-            recoveries.append(f"Caméra « {name} » : détection réactivée.")
+            recoveries.append(_msg("camera_detection_reactivee", nom=name))
 
     if maintenant and not any(e["system_armed"] for e in maintenant.values()):
         if not avant or any(e.get("system_armed") for e in avant.values()):
-            alerts.append("Système entièrement désarmé.")
+            alerts.append(_msg("systeme_desarme"))
 
     # Silence prolongé : seulement pour une caméra armée et en ligne, sinon on
     # répéterait ce que les alertes précédentes ont déjà dit.
@@ -193,7 +235,7 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
         except ValueError:
             pass
         if jours >= SILENCE_DAYS > deja:
-            alerts.append(f"Caméra « {name} » : aucun clip depuis {jours} jour(s).")
+            alerts.append(_msg("camera_silence", nom=name, jours=jours))
 
     return alerts, recoveries
 
@@ -274,7 +316,7 @@ def _controler(args, timezone) -> None:
     except Exception as error:
         message = f"Impossible d'interroger Blink : {error}"
         journal(message)
-        popup("Blink : surveillance en échec", message)
+        popup(_msg("titre_echec"), message)
         return
 
     previous = md.load_json(WATCH_STATE, {})
@@ -297,11 +339,11 @@ def _controler(args, timezone) -> None:
     journal("; ".join(alerts + recoveries) or "rien a signaler")
     if alerts and not args.dry_run:
         corps = [f"- {ligne}" for ligne in alerts]
-        corps += ["", "Pour ne plus être averti d'une caméra :",
+        corps += ["", _msg("hint_sourdine"),
                   '  blink2video watch --ignore "nom de la caméra"']
-        popup(f"Blink : {len(alerts)} anomalie(s)", "\n".join(corps))
+        popup(_msg("titre_anomalies", n=len(alerts)), "\n".join(corps))
     for ligne in recoveries:
-        toast("Blink : retour à la normale", ligne)
+        toast(_msg("titre_retour"), ligne)
 
 
 def parse_args() -> argparse.Namespace:

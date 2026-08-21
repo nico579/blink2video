@@ -1746,16 +1746,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             runtime.ecrire_reglages(usb_minutes, cloud_minutes, port, timestamp, timezone_str,
                                     merge_jour, merge_semaine, merge_mois, download_auto)
             runtime.ecrire_dossier_stockage(storage_dir)
-            # Détaché, comme /api/update : ce processus fait partie de ce que
-            # « restart » va arrêter. Le verbe diffère de « update » puisqu'aucune
-            # nouvelle version n'est en jeu, seuls les réglages ont changé — mais
+            # Répondre AVANT de détacher « restart » : sous Windows, ce verbe
+            # fait un « taskkill /F /T » sur ce processus (runtime.py, arreter())
+            # - un nouveau processus indépendant, qui peut s'exécuter avant la
+            # ligne suivante. Détacher en premier a déjà fait perdre la réponse
+            # HTTP en pleine écriture (page reçue vide, JSON.parse en échec côté
+            # navigateur) ; envoyer d'abord retire cette course.
+            self.send_json({"ok": True})
+            # Comme /api/update : ce processus fait partie de ce que « restart »
+            # va arrêter. Le verbe diffère de « update » puisqu'aucune nouvelle
+            # version n'est en jeu, seuls les réglages ont changé - mais
             # « restart » relance « start » à neuf, donc les relit.
             runtime.demarrer(
                 runtime.self_command("restart"), cwd=str(runtime.app_dir()),
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.STDOUT,
                 start_new_session=(os.name != "nt"))
-            self.send_json({"ok": True})
             return
 
         if route == "/api/sourdine":
@@ -1784,16 +1790,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/stop":
-            # Même détachement que /api/reglages : --sans-relance pour que
+            # Même détachement que /api/reglages, et même raison de répondre
+            # avant : voir le commentaire de /api/reglages sur la course avec
+            # le « taskkill /F » de « restart ». --sans-relance pour que
             # « restart » s'arrête sans revenir, exactement ce qu'un bouton Stop
             # doit faire.
+            self.send_json({"ok": True})
             runtime.demarrer(
                 runtime.self_command("restart", "--sans-relance"),
                 cwd=str(runtime.app_dir()),
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.STDOUT,
                 start_new_session=(os.name != "nt"))
-            self.send_json({"ok": True})
             return
 
         if route == "/api/lang":
