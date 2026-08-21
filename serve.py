@@ -1959,6 +1959,10 @@ PAGE = """<!doctype html>
                    padding:7px 12px; cursor:pointer; }
   button:hover, select:hover { border-color:#4b5262; }
   button.primary { background:#3a5a86; border-color:#48699a; }
+  /* Rouge (même teinte que .out) plutôt que la couleur neutre des autres
+     boutons : n'apparaît qu'après une case cochée, donc facile à manquer
+     sans ce signal, l'action pouvant supprimer des clips de leur source. */
+  button.danger { background:var(--out); border-color:#c0432f; color:#fff; }
   label { color:var(--dim); display:flex; align-items:center; gap:7px; cursor:pointer; }
   /* Un display explicite l'emporte sur l'attribut hidden : sans cette règle,
      « voir les clips écartés » restait affiché dans le Direct et les vidéos
@@ -2125,7 +2129,7 @@ PAGE = """<!doctype html>
   <div class="maj">
     <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
-    <button id="applyButton" hidden onclick="appliquerSelection()"></button>
+    <button class="danger" id="applyButton" hidden onclick="appliquerSelection()"></button>
     <button class="primary" id="refresh" data-i18n="btn.refresh">↻ Actualiser</button>
     <button id="reglagesButton" data-i18n="btn.reglages" data-i18n-title="btn.reglages.title" title="Réglages">⚙ Réglages…</button>
   </div>
