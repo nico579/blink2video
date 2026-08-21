@@ -34,7 +34,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.9.7"
+VERSION = "0.9.8"
 
 
 # Source unique des verbes : leur ordre d'apparition dans l'aide, le programme
@@ -623,11 +623,19 @@ def arreter_processus(pid: int, avec_descendance: bool = False) -> None:
     : lui appliquer le même traitement tuerait ce terminal. C'est arrivé, et la
     victime a été la suite de tests elle-même, sur les runners.
 
-    Sous Windows la question ne se pose pas : « taskkill /T » descend l'arbre
-    d'un processus donné, sans toucher à ses frères ni à son parent."""
+    Sous Windows la distinction compte tout autant : « taskkill /T » descend
+    l'arbre du PID donné tel que Windows le voit, ce qui inclut n'importe quel
+    processus qui s'est retrouvé enfant du nôtre sans être un de nos workers,
+    par exemple le navigateur ouvert par webbrowser.open() quand aucune
+    fenêtre n'existait encore. Un « stop »/« restart » sur le processus
+    principal (avec_descendance=False) a fermé Chrome en entier de cette
+    façon : /T ne doit s'appliquer qu'à un enfant qu'on sait être un des
+    nôtres (avec_descendance=True)."""
     if os.name == "nt":
-        lancer(["taskkill", "/F", "/T", "/PID", str(pid)],
-               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        commande = ["taskkill", "/F", "/PID", str(pid)]
+        if avec_descendance:
+            commande.insert(2, "/T")
+        lancer(commande, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                stderr=subprocess.DEVNULL, check=False)
         return
     import signal
