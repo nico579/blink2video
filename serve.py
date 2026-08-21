@@ -321,6 +321,10 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
         # et de proposer explicitement de charger le reste.
         "window_days": None if depuis is None else DEFAULT_WINDOW_DAYS,
         "total_known": total,
+        # La galerie ne propose pas la case Supprimer pour une caméra déjà en
+        # suppression automatique (issue GitHub #1) : redondant, le clip sera
+        # de toute façon retiré de sa source au prochain téléchargement réussi.
+        "suppressionAuto": sorted(runtime.lire_suppression_auto()),
     }
 
 
@@ -1756,6 +1760,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if str(e.get("source") or "usb") != "cloud"
                 })
 
+                # Sync Module -> ids actuellement presents, remplis pendant
+                # operation() : la lecture du manifeste (payee de toute facon
+                # pour les clips vises) profite aussi a tout AUTRE clip connu
+                # du meme module, jamais visé par cette suppression.
+                ids_presents_par_module = {}
+
                 async def operation(blink):
                     manifestes = {}
                     for identity, entree, id_distant in cibles:
@@ -1777,6 +1787,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             cle = id(sync)
                             if cle not in manifestes:
                                 manifestes[cle] = await blink_models.read_local_manifest(sync)
+                                ids_presents_par_module[str(getattr(sync, "sync_id", ""))] = {
+                                    str(c.id) for c in manifestes[cle]}
                             cible_clip = next(
                                 (c for c in manifestes[cle] if str(c.id) == id_distant),
                                 None)
@@ -1795,16 +1807,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     for identity, _, _ in cibles:
                         resultats.setdefault(identity, f"echec: {type(error).__name__}")
 
-                # Marqué dans le registre (issue GitHub #1, AUDIT 28.76) : la
-                # galerie sait déjà, sans appel réseau, qu'il n'y a plus rien
-                # à supprimer là-bas pour ces clips. "deja_absent" compte
+                # Marqué dans le registre (issue GitHub #1, AUDIT 28.76/28.77) :
+                # la galerie sait déjà, sans appel réseau supplémentaire, qu'il
+                # n'y a plus rien à supprimer là-bas. "deja_absent" compte
                 # aussi : c'est exactement l'état que la case doit refléter.
                 marques = {identity for identity, statut in resultats.items()
                            if statut in ("supprime", "deja_absent")}
-                if marques:
+                if marques or ids_presents_par_module:
                     etat = blink_registre.load_download_state(self.paths["input"])
                     for entree in etat["clips"].values():
-                        if isinstance(entree, dict) and entree.get("path") in marques:
+                        if not isinstance(entree, dict) or entree.get("source_deleted"):
+                            continue
+                        if entree.get("path") in marques:
+                            entree["source_deleted"] = True
+                            continue
+                        # Reste des clips USB du même Sync Module : la lecture
+                        # du manifeste, déjà payée ci-dessus, dit aussi qu'ils
+                        # n'y sont plus, sans requête de plus.
+                        ids_presents = ids_presents_par_module.get(
+                            str(entree.get("sync_id") or ""))
+                        if ids_presents is None or str(entree.get("source") or "usb") != "usb":
+                            continue
+                        correspondance = re.search(
+                            r"_(\d+)_[0-9a-f]{12}\.mp4$", str(entree.get("path") or ""))
+                        id_connu = correspondance.group(1) if correspondance else str(
+                            entree.get("remote_id") or "")
+                        if id_connu and id_connu not in ids_presents:
                             entree["source_deleted"] = True
                     blink_registre.save_download_state(self.paths["input"], etat)
 
@@ -2420,7 +2448,7 @@ const I18N = {
     "clip.resume": "Reprendre", "clip.discard": "Écarter",
     "clip.discard.title": "Retirer ce clip des vidéos assemblées (quotidienne, hebdomadaire, mensuelle). La copie téléchargée reste sur le disque.",
     "clip.resume.title": "Réinclure ce clip dans les prochains assemblages.",
-    "clip.deleteSource": "Supprimer", "clip.sourceDeleted": "Supprimé",
+    "clip.deleteSource": "Supprimer",
     "clip.deleteSource.pending": "Suppression…",
     "clip.deleteSource.title": "Supprimer ce clip de sa source (clé USB ou cloud de l'abonnement). La copie déjà téléchargée ici n'est pas touchée. Peut prendre jusqu'à une minute pour l'USB.",
     "selection.apply": "Appliquer ({n})",
@@ -2533,7 +2561,7 @@ const I18N = {
     "clip.resume": "Resume", "clip.discard": "Discard",
     "clip.discard.title": "Remove this clip from the assembled videos (daily, weekly, monthly). The downloaded copy stays on disk.",
     "clip.resume.title": "Include this clip in future assemblies again.",
-    "clip.deleteSource": "Delete", "clip.sourceDeleted": "Deleted",
+    "clip.deleteSource": "Delete",
     "clip.deleteSource.pending": "Deleting…",
     "clip.deleteSource.title": "Delete this clip from its source (USB drive or subscription cloud). The copy already downloaded here is not affected. Can take up to a minute for USB.",
     "selection.apply": "Apply ({n})",
@@ -3207,12 +3235,12 @@ function card(c) {
                onchange="stagerExclusion('${c.identity}', this.checked)">
         ${t("clip.discard")}
       </label>
+      ${c.sourceDeleted || (data.suppressionAuto || []).includes(c.camera) ? "" : `
       <label class="act" title="${t("clip.deleteSource.title")}">
-        <input type="checkbox" ${c.sourceDeleted ? "disabled checked" : ""}
-               ${c.supprimerStaged ? "checked" : ""}
+        <input type="checkbox" ${c.supprimerStaged ? "checked" : ""}
                onchange="stagerSuppression('${c.identity}', this.checked)">
-        ${c.sourceDeleted ? t("clip.sourceDeleted") : t("clip.deleteSource")}
-      </label>
+        ${t("clip.deleteSource")}
+      </label>`}
     </div>
   </div>`;
 }
