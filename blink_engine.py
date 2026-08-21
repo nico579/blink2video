@@ -137,7 +137,10 @@ class _HubCloud:
 
 
 async def download_clip(blink: Blink, clip, target: Path, overwrite: bool) -> str:
-    """Prépare puis télécharge un clip, sans jamais le supprimer du hub."""
+    """Prépare puis télécharge un clip, sans jamais le supprimer du hub.
+
+    La suppression éventuelle (issue GitHub #1) est décidée par l'appelant,
+    après coup : voir un_passage() et runtime.lire_suppression_auto()."""
     # md.valid_mp4, pas une simple taille non nulle (revue de code du
     # 0eab463, bug #4) : un fichier déjà présent mais corrompu (écriture
     # interrompue, disque en cause) était sinon tenu pour acquis et jamais
@@ -213,6 +216,9 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
     # Le registre attend un module pour former l'identité. Le cloud n'en
     # dépend pas : à défaut, le réseau du clip en tient lieu, ce qui suffit,
     # l'identité réelle restant la caméra et l'instant.
+    # Issue GitHub #1 : par caméra, jamais globalement (voir un_passage()
+    # pour le pendant USB).
+    suppression_auto = runtime.lire_suppression_auto()
     downloaded = adopted = failed = 0
     for position, clip in enumerate(sorted(inedits, key=blink_models.clip_datetime_utc), start=1):
         sync = _HubCloud(clip.network_id)
@@ -243,6 +249,15 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
                                   target, source="cloud")
                 blink_registre.save_download_state(output, state)
                 downloaded += 1
+                if clip.name in suppression_auto:
+                    # target valide (download_to a deja verifie md.valid_mp4)
+                    # avant qu'on retire la copie cloud.
+                    if await clip.delete_video(blink):
+                        print("    Supprimé du cloud (caméra en suppression "
+                              "automatique).")
+                    else:
+                        print("    ! Échec de la suppression sur le cloud "
+                              "(clip conservé là-bas).")
             else:
                 failed += 1
                 categorie, detail = getattr(
@@ -335,6 +350,10 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
 
                 clips = blink_models.filter_clips(clips, args.camera, args.since)
                 blink_models.print_clip_summary(clips)
+                # Issue GitHub #1 : par camera, jamais globalement, pour laisser
+                # une camera encore incertaine en conservation pendant qu'une
+                # autre, deja eprouvee, libere sa memoire tampon.
+                suppression_auto = runtime.lire_suppression_auto()
 
                 if args.command != "download" or not clips:
                     continue
@@ -398,6 +417,16 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                         downloaded += 1
                         blink_registre.remember_download(state, sync, name, clip, output, target)
                         blink_registre.save_download_state(output, state)
+                        if clip.name in suppression_auto:
+                            # target valide (download_clip ne renvoie
+                            # "downloaded" qu'après md.valid_mp4) : la copie
+                            # locale existe déjà avant qu'on libère le hub.
+                            if await clip.delete_video(blink):
+                                print("    Supprimé du Sync Module (caméra en "
+                                      "suppression automatique).")
+                            else:
+                                print("    ! Échec de la suppression sur le "
+                                      "Sync Module (clip conservé là-bas).")
                     elif result == "skipped":
                         skipped += 1
                         if target.exists() and md.valid_mp4(target):

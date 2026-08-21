@@ -34,7 +34,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.8.10"
+VERSION = "0.9.0"
 
 
 # Source unique des verbes : leur ordre d'apparition dans l'aide, le programme
@@ -189,6 +189,46 @@ def ecrire_langue(code: str) -> None:
     temporaire = cible.with_name(f"{cible.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     try:
         temporaire.write_text("en" if code == "en" else "fr", encoding="utf-8")
+        temporaire.replace(cible)
+    finally:
+        temporaire.unlink(missing_ok=True)
+
+
+SUPPRESSION_AUTO = "blink_suppression_auto.json"
+
+
+def lire_suppression_auto() -> set:
+    """Caméras dont les clips USB sont supprimés du Sync Module une fois
+    téléchargés avec succès (issue GitHub #1 : libérer la mémoire tampon).
+
+    Par caméra, pas globalement : une caméra encore incertaine (peu de recul
+    sur la fiabilité du téléchargement) doit pouvoir rester en conservation
+    pendant qu'une autre, déjà éprouvée, libère sa mémoire. Fichier absent ou
+    illisible : ensemble vide, personne n'est supprimé par défaut."""
+    import json
+
+    try:
+        contenu = (app_dir() / SUPPRESSION_AUTO).read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    try:
+        cameras = json.loads(contenu)
+    except json.JSONDecodeError:
+        return set()
+    if not isinstance(cameras, list):
+        return set()
+    return {str(c) for c in cameras if isinstance(c, str)}
+
+
+def ecrire_suppression_auto(cameras: set) -> None:
+    """Enregistre l'ensemble des caméras en suppression automatique (USB)."""
+    import json
+    import uuid
+
+    cible = app_dir() / SUPPRESSION_AUTO
+    temporaire = cible.with_name(f"{cible.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        temporaire.write_text(json.dumps(sorted(cameras), ensure_ascii=False), encoding="utf-8")
         temporaire.replace(cible)
     finally:
         temporaire.unlink(missing_ok=True)

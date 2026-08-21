@@ -1377,6 +1377,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"cameras": cameras, "ignored": sorted(etat.get("ignored") or [])})
             return
 
+        if route == "/api/suppression-auto":
+            # Toutes les caméras connues, qu'elles viennent de la clé ou du
+            # cloud de l'abonnement : selon la source du clip téléchargé,
+            # blink_engine.py supprime du Sync Module ou du cloud (issue
+            # GitHub #1, voir runtime.lire_suppression_auto()).
+            cameras = sorted(provenances(read_entries(self.paths)))
+            self.send_json({"cameras": cameras,
+                             "actives": sorted(runtime.lire_suppression_auto())})
+            return
+
         if route == "/api/clips":
             # ?all=1 lève explicitement la fenêtre par défaut : l'historique
             # complet reste à un clic, jamais perdu, seulement pas chargé
@@ -1789,6 +1799,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"ok": True})
             return
 
+        if route == "/api/suppression-auto":
+            camera = str(payload.get("camera", "")).strip()
+            actif = bool(payload.get("actif"))
+            if not camera:
+                self.send_json({"error": "Nom de caméra manquant."}, 400)
+                return
+            # Pas de redémarrage : un_passage() (blink_engine.py) relit ce
+            # fichier à chaque tour, même principe que runtime.lire_langue().
+            cameras = runtime.lire_suppression_auto()
+            if actif:
+                cameras.add(camera)
+            else:
+                cameras.discard(camera)
+            runtime.ecrire_suppression_auto(cameras)
+            self.send_json({"ok": True})
+            return
+
         if route == "/api/stop":
             # Même détachement que /api/reglages, et même raison de répondre
             # avant : voir le commentaire de /api/reglages sur la course avec
@@ -2158,6 +2185,11 @@ PAGE = """<!doctype html>
     <legend data-i18n="reglages.alertes">Mise en sourdine des alertes</legend>
     <div id="sourdineListe" class="ligneCoches sub tiny" data-i18n="sourdine.loading">Chargement…</div>
   </fieldset>
+  <fieldset>
+    <legend data-i18n="reglages.suppressionAuto" data-i18n-title="suppressionAuto.hint"
+            title="Une fois un clip téléchargé avec succès, il est supprimé de sa source (clé USB ou cloud de l'abonnement selon la caméra).">Suppression automatique après téléchargement</legend>
+    <div id="suppressionAutoListe" class="ligneCoches sub tiny" data-i18n="suppressionAuto.loading">Chargement…</div>
+  </fieldset>
   <div class="row row-boutons">
     <button class="primary" id="reglagesApply" data-i18n="reglages.apply"
             data-i18n-title="reglages.hint"
@@ -2238,6 +2270,7 @@ const I18N = {
     "reglages.mergeSemaine": "Hebdomadaire", "reglages.mergeMois": "Mensuelle",
     "reglages.archivage.hint": "Hebdomadaire et mensuelle sont assemblées à partir de la quotidienne : décocher « Quotidienne » désactive aussi les deux autres.",
     "reglages.alertes": "Mise en sourdine des alertes",
+    "reglages.suppressionAuto": "Suppression automatique après téléchargement",
     "reglages.hint": "Les réglages ne prennent effet qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le port redirige cette page vers la nouvelle adresse.",
     "reglages.apply": "Appliquer", "reglages.restarting": "Redémarrage…",
     "reglages.restarting.settings": "Redémarrage avec les nouveaux réglages…",
@@ -2250,6 +2283,10 @@ const I18N = {
     "stop.stopped": "blink2video est arrêté. Relancez l'application pour reprendre.",
     "sourdine.loading": "Chargement…", "sourdine.unavailable": "Liste des caméras indisponible.",
     "sourdine.none": "Aucune caméra connue pour l'instant.",
+    "suppressionAuto.loading": "Chargement…",
+    "suppressionAuto.unavailable": "Liste des caméras indisponible.",
+    "suppressionAuto.none": "Aucune caméra connue pour l'instant.",
+    "suppressionAuto.hint": "Une fois un clip téléchargé avec succès, il est supprimé de sa source (clé USB ou cloud de l'abonnement selon la caméra).",
     "phase.download_clips": "Téléchargement des clips",
     "phase.prepare_clips": "Préparation des clips",
     "phase.assemble_videos": "Assemblage des vidéos",
@@ -2338,6 +2375,7 @@ const I18N = {
     "reglages.mergeSemaine": "Weekly", "reglages.mergeMois": "Monthly",
     "reglages.archivage.hint": "Weekly and Monthly are assembled from the Daily: unchecking \u201cDaily\u201d also disables the other two.",
     "reglages.alertes": "Mute alerts",
+    "reglages.suppressionAuto": "Automatic deletion after download",
     "reglages.hint": "Settings only take effect on restart: \u201cApply\u201d saves and restarts. Changing the port redirects this page to the new address.",
     "reglages.apply": "Apply", "reglages.restarting": "Restarting…",
     "reglages.restarting.settings": "Restarting with the new settings…",
@@ -2350,6 +2388,10 @@ const I18N = {
     "stop.stopped": "blink2video is stopped. Restart the application to resume.",
     "sourdine.loading": "Loading…", "sourdine.unavailable": "Camera list unavailable.",
     "sourdine.none": "No known camera yet.",
+    "suppressionAuto.loading": "Loading…",
+    "suppressionAuto.unavailable": "Camera list unavailable.",
+    "suppressionAuto.none": "No known camera yet.",
+    "suppressionAuto.hint": "Once a clip is successfully downloaded, it is deleted from its source (USB drive or subscription cloud, depending on the camera).",
     "phase.download_clips": "Downloading clips",
     "phase.prepare_clips": "Preparing clips",
     "phase.assemble_videos": "Assembling videos",
@@ -2453,6 +2495,7 @@ function setLang(code, persist) {
   // Reconstruire immédiatement plutôt que de laisser la liste figée ainsi
   // jusqu'à la prochaine ouverture du panneau.
   if (typeof chargerSourdine === "function" && $("reglages")?.open) chargerSourdine();
+  if (typeof chargerSuppressionAuto === "function" && $("reglages")?.open) chargerSuppressionAuto();
   if (persist) localStorage.setItem("lang", _lang);
   // Envoyé à chaque appel, pas seulement un choix explicite (persist) :
   // le menu du systray (tray.py) lit cette valeur pour s'afficher dans la
@@ -3306,6 +3349,7 @@ $("reglagesButton").onclick = async () => {
     appliquerDependanceDownloadAuto();
   } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
   chargerSourdine();
+  chargerSuppressionAuto();
   $("reglages").showModal();
 };
 $("reglagesClose").onclick = () => $("reglages").close();
@@ -3385,6 +3429,54 @@ async function chargerSourdine() {
         const reponse = await fetch("/api/sourdine", { method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ camera, ignored: case_.checked }) });
+        const resultat = await reponse.json();
+        if (resultat.error) {
+          alert(resultat.error);
+          case_.checked = !case_.checked;
+        }
+      } catch (erreur) {
+        alert(String(erreur));
+        case_.checked = !case_.checked;
+      } finally {
+        case_.disabled = false;
+      }
+    };
+    label.appendChild(case_);
+    label.append(` ${camera}`);
+    conteneur.appendChild(label);
+  }
+}
+
+// Même motif que chargerSourdine() : chaque case s'applique tout de suite,
+// pas de redémarrage. Liste distincte (issue GitHub #1) : seules les
+// caméras vues sur la clé USB ont un sens ici, le cloud de l'abonnement
+// n'est jamais concerné par cette suppression.
+async function chargerSuppressionAuto() {
+  const conteneur = $("suppressionAutoListe");
+  conteneur.textContent = t("suppressionAuto.loading");
+  let etat;
+  try {
+    etat = await (await fetch("/api/suppression-auto")).json();
+  } catch (erreur) {
+    conteneur.textContent = t("suppressionAuto.unavailable");
+    return;
+  }
+  if (!etat.cameras.length) {
+    conteneur.textContent = t("suppressionAuto.none");
+    return;
+  }
+  conteneur.innerHTML = "";
+  for (const camera of etat.cameras) {
+    const label = document.createElement("label");
+    const case_ = document.createElement("input");
+    case_.type = "checkbox";
+    case_.checked = etat.actives.includes(camera);
+    case_.onchange = async () => {
+      case_.disabled = true;
+      try {
+        const reponse = await fetch("/api/suppression-auto", { method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ camera, actif: case_.checked }) });
         const resultat = await reponse.json();
         if (resultat.error) {
           alert(resultat.error);

@@ -142,6 +142,25 @@ class CloudClip:
             if self.download_issue is not None:
                 target.unlink(missing_ok=True)
 
+    async def delete_video(self, blink: Blink) -> bool:
+        """Supprime ce clip du cloud de l'abonnement (issue GitHub #1).
+
+        Endpoint non documenté par blinkpy (aucune méthode équivalente côté
+        cloud), identifié et vérifié manuellement contre le compte réel :
+        POST /api/v1/accounts/{account_id}/media/delete avec la liste des
+        identifiants à supprimer. Le code de retour 711 est la confirmation
+        du service ; tout le reste (erreur réseau, code différent) compte
+        comme un échec plutôt qu'un succès supposé."""
+        url = f"{blink.urls.base_url}/api/v1/accounts/{blink.account_id}/media/delete"
+        try:
+            resultat = await blink.auth.query(
+                url=url, headers=blink.auth.header, reqtype="post",
+                data=json.dumps({"media_list": [self.id]}),
+            )
+        except Exception:
+            return False
+        return isinstance(resultat, dict) and resultat.get("code") == 711
+
 
 # get_videos_metadata (blinkpy) boucle `for page in range(1, stop)` et
 # s'arrête déjà de lui-même dès qu'une page revient vide - `stop` n'est donc
