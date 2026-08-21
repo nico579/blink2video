@@ -48,6 +48,7 @@ import autostart
 import blink_auth
 import blink_engine
 import blink_models
+import blink_registre
 import maj
 import merge_daily as md
 import watch
@@ -291,6 +292,7 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
             "source": source,
             "origine": ETIQUETTES_SOURCE.get(str(entry.get("source") or "usb"),
                                              str(entry.get("source"))),
+            "sourceDeleted": bool(entry.get("source_deleted")),
             "duration": float(seconds or 0.0),
             # Pas de « modèle » : l'API Blink n'expose qu'un nom de code interne
             # (« owl », « catalina ») dont seul le premier est documenté. La
@@ -1792,6 +1794,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except Exception as error:
                     for identity, _, _ in cibles:
                         resultats.setdefault(identity, f"echec: {type(error).__name__}")
+
+                # Marqué dans le registre (issue GitHub #1, AUDIT 28.76) : la
+                # galerie sait déjà, sans appel réseau, qu'il n'y a plus rien
+                # à supprimer là-bas pour ces clips. "deja_absent" compte
+                # aussi : c'est exactement l'état que la case doit refléter.
+                marques = {identity for identity, statut in resultats.items()
+                           if statut in ("supprime", "deja_absent")}
+                if marques:
+                    etat = blink_registre.load_download_state(self.paths["input"])
+                    for entree in etat["clips"].values():
+                        if isinstance(entree, dict) and entree.get("path") in marques:
+                            entree["source_deleted"] = True
+                    blink_registre.save_download_state(self.paths["input"], etat)
 
             self.send_json({"ok": True, "resultats": resultats})
             return

@@ -255,6 +255,13 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
                     if await clip.delete_video(blink):
                         print("    Supprimé du cloud (caméra en suppression "
                               "automatique).")
+                        # Marqué dans le registre (issue GitHub #1, AUDIT
+                        # 28.76) : la galerie sait déjà, sans appel réseau,
+                        # qu'il n'y a plus rien à supprimer là-bas pour ce clip.
+                        state["clips"][
+                            blink_registre.state_key(sync, clip, source="cloud")
+                        ]["source_deleted"] = True
+                        blink_registre.save_download_state(output, state)
                     else:
                         print("    ! Échec de la suppression sur le cloud "
                               "(clip conservé là-bas).")
@@ -424,6 +431,13 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                             if await clip.delete_video(blink):
                                 print("    Supprimé du Sync Module (caméra en "
                                       "suppression automatique).")
+                                # Marqué dans le registre (issue GitHub #1,
+                                # AUDIT 28.76) : la galerie sait déjà, sans
+                                # appel réseau, qu'il n'y a plus rien à
+                                # supprimer là-bas pour ce clip.
+                                state["clips"][blink_registre.state_key(sync, clip)][
+                                    "source_deleted"] = True
+                                blink_registre.save_download_state(output, state)
                             else:
                                 print("    ! Échec de la suppression sur le "
                                       "Sync Module (clip conservé là-bas).")
