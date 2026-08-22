@@ -117,7 +117,10 @@ votre machine.
 
 Le binaire publié n'est ni signé ni notarisé : sous macOS, Gatekeeper refuse le
 premier lancement d'une archive téléchargée par un navigateur, d'où le `xattr`
-du tableau. Un clic droit puis « Ouvrir » fait la même chose.
+du tableau. Un clic droit puis « Ouvrir » fait la même chose. Si le message
+est « Apple n'a pas pu vérifier [...] logiciel malveillant », c'est ce contrôle,
+pas une détection réelle de malware : ça signifie juste qu'aucun compte
+développeur Apple (99 $/an) n'a signé le binaire.
 
 </details>
 

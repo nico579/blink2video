@@ -104,7 +104,10 @@ machine.
 
 The published binary is neither signed nor notarized: on macOS, Gatekeeper
 refuses the first run of an archive downloaded through a browser, hence the
-`xattr` in the table. Right-click then "Open" does the same.
+`xattr` in the table. Right-click then "Open" does the same. If you see
+"Apple could not verify [...] is free of malware", that's this check, not an
+actual malware detection: it just means no $99/year Apple developer account
+signed the binary.
 
 </details>
 
