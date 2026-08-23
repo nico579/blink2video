@@ -472,6 +472,16 @@ def resource_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def est_relatif_a(chemin: Path, racine: Path) -> bool:
+    """Équivalent de Path.is_relative_to, absent avant Python 3.9 (build
+    Windows 7, Python 3.8 : voir build-win7.yml)."""
+    try:
+        chemin.relative_to(racine)
+    except ValueError:
+        return False
+    return True
+
+
 # Une fiche par instance en cours, nommée d'après le processus qui la tient.
 # Un fichier unique aurait suffi tant qu'une seule instance tourne, mais rien ne
 # l'interdit : celle du démarrage automatique et une autre lancée à la main

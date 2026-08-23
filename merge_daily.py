@@ -371,7 +371,7 @@ def load_groups(input_dir: Path, timezone: ZoneInfo) -> dict:
             if entry.get("excluded"):
                 continue
             source = (root / entry["path"]).resolve()
-            if not source.is_relative_to(root) or not valid_mp4(source):
+            if not runtime.est_relatif_a(source, root) or not valid_mp4(source):
                 continue
         except (KeyError, TypeError, OSError):
             continue
@@ -447,7 +447,7 @@ def resolve_identity(
     path = Path(value.strip()).resolve()
     roots = (input_dir.resolve(), normalized_dir.resolve(), excluded_dir.resolve())
     for root in roots:
-        if path.is_relative_to(root):
+        if runtime.est_relatif_a(path, root):
             return path.relative_to(root).as_posix()
     raise RuntimeError(
         "Chemin situé hors de "

@@ -1274,7 +1274,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         for root in roots:
             candidate = (root / relative).resolve()
-            if candidate.is_relative_to(root.resolve()) and candidate.is_file():
+            if runtime.est_relatif_a(candidate, root.resolve()) and candidate.is_file():
                 return candidate
         return None
 
