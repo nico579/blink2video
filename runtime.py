@@ -34,7 +34,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.9.13"
+VERSION = "0.9.14"
 
 
 # Source unique des verbes : leur ordre d'apparition dans l'aide, le programme
@@ -477,6 +477,54 @@ def resource_dir() -> Path:
 INSTANCES = Path(".blink_run")
 
 
+def identite_processus(pid: int) -> str | None:
+    """Identité stable d'un processus vivant : sa vraie date de démarrage
+    aupres de l'OS, jamais réattribuée contrairement au pid seul.
+
+    Un verrou ou une marque d'avancement (AUDIT-2026-08-13, 28.82/28.84)
+    n'enregistrait que le pid de son propriétaire : après un redémarrage,
+    Windows réattribue vite les numéros de pid à d'autres processus, sans
+    rapport avec le nôtre. `processus_vivant(pid)` répondait alors « oui »
+    à tort, pour toujours (aucun garde-fou sur l'âge, volontairement, pour
+    ne jamais voler le verrou d'un processus réellement vivant) : le verrou
+    restait bloqué indéfiniment, tenu par un fantôme. Comparer cette
+    identité à l'ouverture puis à chaque relecture distingue « même
+    processus, toujours vivant » de « pid recyclé par quelqu'un d'autre »."""
+    if pid <= 0:
+        return None
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return None
+            try:
+                creation, exit_t, kernel_t, user_t = (
+                    wintypes.FILETIME(), wintypes.FILETIME(),
+                    wintypes.FILETIME(), wintypes.FILETIME(),
+                )
+                ok = ctypes.windll.kernel32.GetProcessTimes(
+                    handle, ctypes.byref(creation), ctypes.byref(exit_t),
+                    ctypes.byref(kernel_t), ctypes.byref(user_t))
+                if not ok:
+                    return None
+                return f"{creation.dwLowDateTime}:{creation.dwHighDateTime}"
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except OSError:
+            return None
+    resultat = lancer(["ps", "-o", "lstart=", "-p", str(pid)],
+                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                      stderr=subprocess.DEVNULL, text=True, errors="replace",
+                      check=False)
+    valeur = (resultat.stdout or "").strip()
+    return valeur or None
+
+
 def processus_vivant(pid: int) -> bool:
     """Vrai si ce numéro désigne un processus existant.
 
@@ -843,11 +891,16 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
     ne vole en revanche jamais le verrou d'un processus vivant sur le seul
     critère de son âge (B-05) : un passage de téléchargement peut légitimement
     dépasser dix minutes sur un gros clip, et un âge à lui seul ne prouve rien.
-    Reste ouvert le cas d'un PID recyclé par un processus non lié pendant que
-    le vrai propriétaire est mort : sans l'heure de création du processus,
-    non disponible ici sans dépendance supplémentaire, ce cas ne peut être
-    tranché automatiquement et n'est donc pas couvert (limite documentée,
-    voir AUDIT-2026-08-13.md).
+
+    Le cas d'un PID recyclé par un processus non lié pendant que le vrai
+    propriétaire est mort - longtemps documenté comme non couvert ici, et
+    constaté en réel (AUDIT-2026-08-13, 28.82/28.84 : la boucle merge est
+    restée bloquée plus de 15h après un redémarrage Windows qui a dû
+    réattribuer le pid) - est désormais tranché via `identite_processus()` :
+    la date de démarrage réelle du processus, donnée par l'OS, est comparée
+    à celle enregistrée dans le verrou. Un pid vivant dont l'identité ne
+    correspond plus n'est pas le même processus : le verrou est traité comme
+    abandonné, purgé comme n'importe quelle marque périmée.
 
     `attente` donne le temps pendant lequel on réessaie avant de renoncer. Un
     direct dure quelques minutes ; sans attente, une boucle qui tombe dessus
@@ -859,7 +912,8 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
     jeton = uuid.uuid4().hex
     limite = time.time() + max(attente, 0)
     contenu = json.dumps(
-        {"owner": owner, "pid": os.getpid(), "jeton": jeton, "at": time.time()}
+        {"owner": owner, "pid": os.getpid(), "jeton": jeton, "at": time.time(),
+         "identite": identite_processus(os.getpid())}
     ).encode("utf-8")
 
     while True:
@@ -892,8 +946,21 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
             # lecture (son propriétaire vient de le libérer) : retenter tout
             # de suite, rien à attendre.
             continue
-        if not processus_vivant(int(presente.get("pid") or 0)):
-            # Propriétaire mort : purge sous mutex, pas par un unlink direct.
+        pid_verrou = int(presente.get("pid") or 0)
+        identite_enregistree = presente.get("identite")
+        # Vivant ET la même identité : un pid recyclé par un autre processus
+        # après la mort du vrai propriétaire ne doit pas passer pour lui
+        # (AUDIT-2026-08-13, 28.82/28.84). Une marque sans "identite" vient
+        # d'un ancien format (avant ce correctif) : on ne peut alors rien
+        # comparer, on retombe sur l'ancien comportement plutôt que de purger
+        # à tort un verrou légitime.
+        meme_processus = (
+            identite_enregistree is None
+            or identite_processus(pid_verrou) == identite_enregistree
+        )
+        if not (processus_vivant(pid_verrou) and meme_processus):
+            # Propriétaire mort, ou pid recyclé par quelqu'un d'autre : purge
+            # sous mutex, pas par un unlink direct.
             # L'ancien protocole (lire, conclure « mort », supprimer) laissait
             # une fenêtre entre la lecture et la suppression : un second
             # processus arrivé au même verdict pouvait y supprimer, à la
@@ -927,7 +994,7 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
         if time.time() >= limite:
             age = time.time() - float(presente.get("at") or 0)
             raise BusyError(f"déjà réservé par « {presente.get('owner')} » "
-                            f"depuis {int(age)} s")
+                            f"(pid {presente.get('pid')}) depuis {int(age)} s")
         time.sleep(1)
 
     try:

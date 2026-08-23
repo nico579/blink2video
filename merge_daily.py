@@ -728,18 +728,61 @@ def run_ffmpeg_batch(
     drain.start()
 
     total = sum(clip.duration for clip in batch) or 1.0
-    for line in process.stdout:
-        if on_progress is None:
-            continue
-        name, _, value = line.strip().partition("=")
-        # out_time_us et out_time_ms sont tous deux en microsecondes ; le
-        # second est mal nommé et conservé par compatibilité.
-        if name in ("out_time_us", "out_time_ms") and value.isdigit():
-            on_progress(min(int(value) / 1_000_000 / total, 1.0))
 
-    process.wait()
+    # Chien de garde : un ffmpeg qui se bloque (constaté en réel, AUDIT-2026-
+    # 08-13 28.82) laissait sinon `process.wait()` - et la lecture de
+    # `process.stdout` avant lui - attendre indéfiniment. La boucle merge
+    # entière restait alors figée en silence, sans erreur ni log, jusqu'à un
+    # arrêt manuel.
+    #
+    # Le seuil porte sur l'ABSENCE de progression, pas sur une durée totale
+    # fixe : `-progress pipe:1` écrit plusieurs lignes par seconde tant que
+    # l'encodage avance, quelle que soit la vitesse de la machine ou sa
+    # charge du moment. Un délai fixe proportionnel à la durée du lot aurait
+    # fallu deviner un facteur de vitesse (PC lent, machine chargée par
+    # ailleurs...) forcément arbitraire ; ici, peu importe que ce lot prenne
+    # 10 secondes ou 2 heures du moment que ça continue d'avancer, seul un
+    # silence prolongé est suspect.
+    SILENCE_MAX = 300.0  # 5 min sans la moindre ligne : ffmpeg est bloqué.
+    dernier_signe = time.monotonic()
+    signe_verrou = threading.Lock()
+    termine = threading.Event()
+    tue_par_silence = False
+
+    def surveiller() -> None:
+        nonlocal tue_par_silence
+        while not termine.wait(10):
+            with signe_verrou:
+                silence = time.monotonic() - dernier_signe
+            if silence > SILENCE_MAX:
+                tue_par_silence = True
+                process.kill()
+                return
+
+    chien_de_garde = threading.Thread(target=surveiller, daemon=True)
+    chien_de_garde.start()
+    try:
+        for line in process.stdout:
+            with signe_verrou:
+                dernier_signe = time.monotonic()
+            if on_progress is None:
+                continue
+            name, _, value = line.strip().partition("=")
+            # out_time_us et out_time_ms sont tous deux en microsecondes ; le
+            # second est mal nommé et conservé par compatibilité.
+            if name in ("out_time_us", "out_time_ms") and value.isdigit():
+                on_progress(min(int(value) / 1_000_000 / total, 1.0))
+        process.wait()
+    finally:
+        termine.set()
+        chien_de_garde.join(timeout=5)
     drain.join(timeout=5)
     stderr = "".join(part for part in captured if part).strip()
+    if tue_par_silence:
+        return False, (
+            f"FFmpeg silencieux plus de {int(SILENCE_MAX)} s, processus tué "
+            f"(reprise au prochain passage)"
+        )
     if process.returncode != 0 or not valid_mp4(output_path):
         return False, stderr or "FFmpeg n'a pas produit un MP4 valide"
     return True, ""

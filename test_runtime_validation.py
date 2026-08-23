@@ -111,6 +111,51 @@ class VerrouTests(unittest.TestCase):
                 self.assertEqual(contenu["owner"], "sauveteur")
         self.assertFalse(cible.exists())
 
+    def test_verrou_pid_recycle_identite_differente_est_recupere(self) -> None:
+        """AUDIT-2026-08-13, 28.82/28.84 : constaté en réel, la boucle merge
+        est restée bloquée plus de 15h après un redémarrage Windows. Un pid
+        vivant (recyclé par un autre processus après la mort du vrai
+        propriétaire) ne doit pas passer pour lui : seule l'identité
+        (date de démarrage réelle, jamais recyclée) fait foi."""
+        cible = self.fichier("pid-recycle")
+        cible.write_text(json.dumps(
+            {"owner": "fantome", "pid": os.getpid(), "jeton": "perime",
+             "at": time.time(), "identite": "identite-qui-ne-correspond-a-rien"}
+        ), encoding="utf-8")
+        with runtime.verrou("pid-recycle", "sauveteur"):
+            self.assertTrue(cible.exists())
+            contenu = json.loads(cible.read_text(encoding="utf-8"))
+            self.assertEqual(contenu["owner"], "sauveteur")
+        self.assertFalse(cible.exists())
+
+    def test_verrou_meme_identite_reste_protege(self) -> None:
+        """Contrepoint du precedent (B-05) : un pid vivant dont l'identite
+        correspond vraiment ne doit toujours pas etre vole."""
+        cible = self.fichier("meme-identite")
+        identite = runtime.identite_processus(os.getpid())
+        cible.write_text(json.dumps(
+            {"owner": "legitime", "pid": os.getpid(), "jeton": "valide",
+             "at": time.time(), "identite": identite}
+        ), encoding="utf-8")
+        with self.assertRaises(runtime.BusyError):
+            with runtime.verrou("meme-identite", "voleur", attente=0):
+                pass
+        cible.unlink()
+
+    def test_verrou_ancien_format_sans_identite_reste_protege(self) -> None:
+        """Une marque ecrite avant ce correctif n'a pas de champ "identite" :
+        rien a comparer, donc pas de purge a tort - ancien comportement
+        conserve pour ce cas."""
+        cible = self.fichier("ancien-format")
+        cible.write_text(json.dumps(
+            {"owner": "legitime", "pid": os.getpid(), "jeton": "valide",
+             "at": time.time()}
+        ), encoding="utf-8")
+        with self.assertRaises(runtime.BusyError):
+            with runtime.verrou("ancien-format", "voleur", attente=0):
+                pass
+        cible.unlink()
+
     def test_verrou_corrompu_leve_busyerror_au_lieu_de_boucler(self) -> None:
         """Bug #3, revue de code du 0eab463 : un fichier de verrou présent
         mais illisible (JSON corrompu) bouclait indéfiniment en ignorant
