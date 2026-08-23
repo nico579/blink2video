@@ -17,6 +17,8 @@ réimplémente aucune règle, elle appelle les mêmes fonctions que la ligne de
 commande.
 """
 
+from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotations "X | None" ne s'évaluent qu'à l'écriture des chaînes, jamais à l'exécution.
+
 import argparse
 import asyncio
 import datetime as dt

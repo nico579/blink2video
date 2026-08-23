@@ -19,6 +19,8 @@ Aucun effet sur vos données : tout se passe dans un dossier temporaire désign�
 par BLINK_HOME, avec un dossier de travail distinct de la racine de données.
 """
 
+from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotations "X | None" ne s'évaluent qu'à l'écriture des chaînes, jamais à l'exécution.
+
 import atexit
 import json
 import os

@@ -5,6 +5,8 @@ Extrait de blink2video.py à l'étape 8 du plan de remédiation
 session, jamais les clips ni le registre. Il suppose que runtime.bootstrap()
 a déjà tourné (l'appelant décide quand : voir blink_cli.py et O-06/8.7)."""
 
+from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotations "X | None" ne s'évaluent qu'à l'écriture des chaînes, jamais à l'exécution.
+
 import getpass
 import json
 import os

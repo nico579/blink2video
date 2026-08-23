@@ -17,6 +17,8 @@ qui se relance par sys.executable + chemin de script fonctionne parfaitement en
 développement et échoue une fois figé.
 """
 
+from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotations "int | None" ne s'évaluent qu'à l'écriture des chaînes, jamais à l'exécution.
+
 import argparse
 import contextlib
 import importlib.util

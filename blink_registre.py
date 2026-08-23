@@ -5,6 +5,8 @@ Extrait de blink2video.py à l'étape 8 (AUDIT-2026-08-13.md, section 20, 8.3).
 Ne connaît ni la session Blink, ni comment un clip se télécharge : uniquement
 comment le savoir, l'identifier et l'écrire de façon durable."""
 
+from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotations "X | None" ne s'évaluent qu'à l'écriture des chaînes, jamais à l'exécution.
+
 import bisect
 import datetime as dt
 import hashlib

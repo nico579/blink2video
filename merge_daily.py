@@ -15,6 +15,8 @@ et tourne avec TZ=UTC0, ce qui évite toute dépendance à une base de fuseaux
 horaires IANA côté ffmpeg/OS (peu fiable sous Windows).
 """
 
+from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotations "X | None" ne s'évaluent qu'à l'écriture des chaînes, jamais à l'exécution.
+
 import argparse
 import datetime as dt
 import hashlib
