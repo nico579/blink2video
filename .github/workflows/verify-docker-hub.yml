@@ -1,0 +1,47 @@
+name: Verifier l'image Docker Hub
+
+# Verification manuelle a la demande, separee de release.yml et ci.yml : ceux-la
+# testent une image construite localement dans le job, jamais celle vraiment
+# publiee sur Docker Hub. Utile apres coup (verifier un push, une architecture,
+# un tag) sans reconstruire les trois binaires pour autant.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag a verifier (ex : latest, 0.9.15)"
+        required: true
+        default: "latest"
+
+jobs:
+  verifier:
+    name: pull + smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Tirer l'image publiee
+        run: docker pull "nico579dock/blink2video:${{ github.event.inputs.tag }}"
+
+      - name: Demarrer le conteneur
+        run: |
+          docker run -d --name verif -p 127.0.0.1:8765:8765 \
+            "nico579dock/blink2video:${{ github.event.inputs.tag }}"
+
+      - name: Attendre que la page reponde
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8765/ -o page.html; then break; fi
+            sleep 1
+          done
+          grep -q "blink2video" page.html || { echo "page inattendue"; cat page.html; docker logs verif; exit 1; }
+
+      - name: Verifier que ffmpeg sait incruster du texte
+        run: docker exec verif ffmpeg -hide_banner -filters | grep -q drawtext             || { echo "drawtext absent"; docker logs verif; exit 1; }
+
+      - name: Journal du conteneur (pour verification manuelle)
+        if: always()
+        run: docker logs verif
+
+      - name: Nettoyer
+        if: always()
+        run: docker stop verif && docker rm verif
