@@ -3,9 +3,13 @@ FROM python:3.12-slim
 # Le ffmpeg livre par imageio-ffmpeg pour Linux est compile sans libfreetype,
 # donc sans le filtre drawtext qui incruste l'heure dans l'image (voir
 # find_ffmpeg() dans merge_daily.py, et le meme choix dans .github/ci.yml).
-# Celui de la distribution l'a.
+# Celui de la distribution l'a. procps fournit `ps`, absent de l'image
+# -slim : runtime.identite_processus()/processus_vivant() l'utilisent pour
+# distinguer un pid vivant d'un pid recycle et detecter les zombies
+# (AUDIT-2026-08-13, 28.84/28.85) - sans lui l'appli degrade proprement au
+# lieu de planter, mais perd cette protection en conteneur.
 RUN apt-get update -qq \
-    && apt-get install -y -qq --no-install-recommends ffmpeg \
+    && apt-get install -y -qq --no-install-recommends ffmpeg procps \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

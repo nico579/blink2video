@@ -92,6 +92,24 @@ class ValidationJoursTests(unittest.TestCase):
                     runtime.jours_non_negatifs(valeur)
 
 
+class ProcessusSansPsTests(unittest.TestCase):
+    """AUDIT-2026-08-13, 28.85 : `ps` absent (python:3.12-slim, sans procps)
+    plantait toute l'appli des le premier "start" en conteneur - constate en
+    reel sur l'image Docker Hub. Reproduit ici l'environnement POSIX sans
+    dependre d'une vraie machine sans `ps`."""
+
+    def test_identite_processus_sans_ps_degrade_sans_planter(self) -> None:
+        with mock.patch.object(runtime.os, "name", "posix"), \
+             mock.patch.object(runtime, "lancer", side_effect=FileNotFoundError(2, "No such file or directory", "ps")):
+            self.assertIsNone(runtime.identite_processus(os.getpid()))
+
+    def test_processus_vivant_sans_ps_reste_vivant(self) -> None:
+        with mock.patch.object(runtime.os, "name", "posix"), \
+             mock.patch.object(runtime.os, "kill", return_value=None), \
+             mock.patch.object(runtime, "lancer", side_effect=FileNotFoundError(2, "No such file or directory", "ps")):
+            self.assertTrue(runtime.processus_vivant(os.getpid()))
+
+
 class VerrouTests(unittest.TestCase):
     """B-05 : acquisition atomique, jamais de vol d'un propriétaire vivant,
     récupération d'un verrou abandonné par un processus mort."""

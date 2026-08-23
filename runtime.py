@@ -34,7 +34,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.9.15"
+VERSION = "0.9.16"
 
 
 # Source unique des verbes : leur ordre d'apparition dans l'aide, le programme
@@ -517,10 +517,19 @@ def identite_processus(pid: int) -> str | None:
                 ctypes.windll.kernel32.CloseHandle(handle)
         except OSError:
             return None
-    resultat = lancer(["ps", "-o", "lstart=", "-p", str(pid)],
-                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                      stderr=subprocess.DEVNULL, text=True, errors="replace",
-                      check=False)
+    try:
+        resultat = lancer(["ps", "-o", "lstart=", "-p", str(pid)],
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL, text=True, errors="replace",
+                          check=False)
+    except OSError:
+        # `ps` absent (constate en reel : l'image python:3.12-slim ne
+        # l'installe pas par defaut, contrairement a une distribution
+        # complete) : aucune comparaison possible, pas une raison de planter
+        # l'appli entiere. `verrou()` retombe alors sur l'ancien
+        # comportement (identite None = rien a comparer), moins protege
+        # contre un pid recycle mais fonctionnel.
+        return None
     valeur = (resultat.stdout or "").strip()
     return valeur or None
 
@@ -544,10 +553,18 @@ def processus_vivant(pid: int) -> bool:
         # récupère, et le signal zéro lui parvient encore : sans ce second
         # examen, « stop » annonce que sa cible a survécu alors qu'elle est
         # morte, ce qu'un runner a montré aussitôt.
-        etat = lancer(["ps", "-o", "state=", "-p", str(pid)],
-                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                      stderr=subprocess.DEVNULL, text=True, errors="replace",
-                      check=False)
+        try:
+            etat = lancer(["ps", "-o", "state=", "-p", str(pid)],
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL, text=True, errors="replace",
+                          check=False)
+        except OSError:
+            # `ps` absent (ex. python:3.12-slim, constate en reel via
+            # identite_processus - AUDIT-2026-08-13, 28.85) : le signal 0 a
+            # deja confirme que le pid existe, on ne peut juste pas trancher
+            # zombie ou non. On le traite comme vivant, comme avant l'ajout
+            # de cette verification.
+            return True
         return not (etat.stdout or "").strip().startswith("Z")
     resultat = lancer(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
