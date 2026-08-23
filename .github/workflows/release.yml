@@ -122,6 +122,57 @@ jobs:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}.*
 
+  # Image publiee sur Docker Hub, en plus des trois binaires. Job separe du
+  # matriciel "build" : un echec ici (secrets Docker Hub absents ou invalides)
+  # ne doit jamais empecher la publication des binaires, qui n'en dependent
+  # pas. Necessite deux secrets du depot (Settings > Secrets and variables >
+  # Actions) : DOCKERHUB_USERNAME et DOCKERHUB_TOKEN (jeton d'acces cree sur
+  # hub.docker.com > Account Settings > Security, jamais le mot de passe du
+  # compte).
+  docker:
+    name: publier l'image Docker
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # DOCKERHUB_USERNAME et DOCKERHUB_TOKEN vivent dans l'environnement GitHub
+    # "docker" (Settings > Environments), pas en secrets de repo : sans cette
+    # ligne, un job ne voit que les secrets de repo, jamais ceux d'un
+    # environnement, meme du meme nom.
+    environment: docker
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Deduire la version (sans le "v")
+        id: etiquette
+        shell: bash
+        run: |
+          etiquette="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "version=${etiquette#v}" >> "$GITHUB_OUTPUT"
+
+      # QEMU emule les autres architectures sur le runner amd64 de GitHub,
+      # pour que buildx puisse construire l'image arm64 (Raspberry Pi, Apple
+      # Silicon sous Docker Desktop) sans machine arm dediee. Buildx est le
+      # constructeur multi-plateforme de Docker depuis 2019 ; sans lui,
+      # "docker build" ne produit qu'une image pour l'architecture du runner.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Connexion Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Construire et publier (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            nico579dock/blink2video:latest
+            nico579dock/blink2video:${{ steps.etiquette.outputs.version }}
+
   publish:
     name: publier la release
     needs: build

@@ -133,6 +133,14 @@ cd blink2video
 docker compose up -d
 ```
 
+Ou, sans cloner, avec l'image publiée sur
+[Docker Hub](https://hub.docker.com/r/nico579dock/blink2video) :
+
+```bash
+docker run -d --name blink2video --restart unless-stopped \
+  -p 127.0.0.1:8765:8765 -v blink_data:/data nico579dock/blink2video
+```
+
 Ouvrez `http://127.0.0.1:8765` et connectez-vous de la même façon. Réglages,
 session et clips persistent dans un volume nommé (`blink_data`), séparé de
 l'image : reconstruire l'image ne perd jamais rien.

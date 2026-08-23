@@ -120,6 +120,14 @@ cd blink2video
 docker compose up -d
 ```
 
+Or, without cloning, using the image published on
+[Docker Hub](https://hub.docker.com/r/nico579dock/blink2video):
+
+```bash
+docker run -d --name blink2video --restart unless-stopped \
+  -p 127.0.0.1:8765:8765 -v blink_data:/data nico579dock/blink2video
+```
+
 Open `http://127.0.0.1:8765` and sign in the same way. Settings, the session
 and clips persist in a named volume (`blink_data`), separate from the image,
 so rebuilding the image never loses anything.
