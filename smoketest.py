@@ -96,7 +96,10 @@ def main() -> int:
                 "clip d'essai fabriqué, entièrement noir")
 
         import datetime as dt
-        from zoneinfo import ZoneInfo
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:  # Python 3.8 (build Windows 7, voir build-win7.yml) : pas de zoneinfo en stdlib.
+            from backports.zoneinfo import ZoneInfo
 
         fuseau = ZoneInfo(args.timezone)
         maintenant = dt.datetime.now(dt.timezone.utc)

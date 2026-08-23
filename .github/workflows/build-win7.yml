@@ -1,0 +1,61 @@
+name: Build Windows 7 (experimental, Python 3.8)
+
+# Experience : Python 3.9+ a abandonne Windows 7 (necessite 8.1+, voir
+# bpo-41412/bpo-40740), ce qui rend le build officiel (Python 3.12,
+# release.yml) inutilisable sur cet OS ("api-ms-win-core-path-l1-1-0.dll
+# manquant"). Python 3.8, dernier a supporter Windows 7 SP1, n'a pas ce
+# probleme. Ce workflow construit un bundle equivalent avec ce Python plus
+# ancien pour verifier que ca marche, avant d'envisager de l'integrer a
+# release.yml.
+#
+# Declenchement manuel uniquement : experimental, pas encore une cible
+# officiellement maintenue (Python 3.8 est en fin de vie depuis octobre 2024,
+# plus de correctifs de securite en amont).
+#
+# Limite connue : le runner windows-latest de GitHub est Windows Server
+# 2022+, jamais Windows 7. Ce workflow verifie donc que le bundle se
+# construit et s'execute sous Python 3.8, pas qu'il demarre reellement sous
+# Windows 7 : ca reste a confirmer par un humain sur la vraie machine.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: build windows-latest (Python 3.8)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.8"
+
+      - name: Construire le bundle
+        run: python build.py
+
+      - name: Verifier que l'executable repond
+        shell: bash
+        run: dist/blink2video/blink2video.exe --help
+
+      - name: Verifier que ffmpeg sait incruster du texte
+        shell: bash
+        run: |
+          embarque=$(find dist/blink2video -iname 'ffmpeg*' -type f | head -1)
+          test -n "$embarque" || { echo "ffmpeg absent du bundle"; exit 1; }
+          "$embarque" -hide_banner -filters | grep -q drawtext \
+            || { echo "le ffmpeg embarque ne sait pas incruster de texte"; exit 1; }
+
+      - name: Eprouver la chaine video depuis le bundle
+        shell: bash
+        env:
+          BLINK_TEST_BUNDLE: dist/blink2video/blink2video.exe
+        run: |
+          python -m pip install --quiet aiohttp blinkpy tzdata imageio-ffmpeg 'backports.zoneinfo; python_version < "3.9"'
+          python tests.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blink2video-windows7-x86_64-python3.8
+          path: dist/blink2video

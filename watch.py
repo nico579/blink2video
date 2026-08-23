@@ -377,7 +377,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    from zoneinfo import ZoneInfo
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:  # Python 3.8 (build Windows 7, voir build-win7.yml) : pas de zoneinfo en stdlib.
+        from backports.zoneinfo import ZoneInfo
 
     args = parse_args()
     timezone = ZoneInfo(args.timezone)

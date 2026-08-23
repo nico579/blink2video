@@ -34,7 +34,10 @@ import uuid
 import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+try:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+except ImportError:  # Python 3.8 (build Windows 7, voir build-win7.yml) : pas de zoneinfo en stdlib.
+    from backports.zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Avant tout import de dépendance : c'est ici qu'un environnement isolé
 # est préparé et le programme relancé dedans si nécessaire.
