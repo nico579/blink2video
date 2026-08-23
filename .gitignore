@@ -19,6 +19,7 @@ blink_suppression_auto.json
 .blink_*.lock
 watch.log
 maj.log
+merge.log
 
 # Images de surveillance du domicile. Rien de tout cela n'a vocation à
 # quitter la machine.

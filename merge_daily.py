@@ -1181,6 +1181,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def journal(ligne: str) -> None:
+    """Trace horodatée : lancé par le planificateur, le script n'a pas de
+    console (AUDIT-2026-08-23, blocage silencieux de la boucle merge)."""
+    moment = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with (BASE_DIR / "merge.log").open("a", encoding="utf-8") as fichier:
+            fichier.write(f"{moment}  {ligne}\n")
+    except OSError:
+        pass
+
+
 def main() -> int:
     args = parse_args()
     def travail():
@@ -1197,11 +1208,12 @@ def main() -> int:
             # Un assemblage déjà en cours fait le même travail : le doubler
             # réencoderait les mêmes clips et brouillerait le registre.
             print(f"Assemblage déjà en cours ({erreur}). Rien à faire.")
+            journal(f"assemblage deja en cours : {erreur}")
             return 0
         runtime.marquer("merge")
         return code
 
-    return runtime.repeter(travail, args.loop)
+    return runtime.repeter(travail, args.loop, journal)
 
 
 def _executer(args) -> int:
