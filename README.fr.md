@@ -80,9 +80,6 @@ système.
 | Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, puis `./blink2video` |
 | macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, puis `./blink2video` |
 
-Windows 7 SP1 x64 dispose d'une [édition expérimentale séparée](WINDOWS7.md),
-à éprouver dans une VM avant toute publication.
-
 **2. Le lancer.** Double-clic sur l'exécutable (ou `./blink2video` depuis un
 terminal). Aucun argument nécessaire : sans session valide, un onglet s'ouvre
 tout seul sur une page de connexion — votre adresse, votre mot de passe, puis

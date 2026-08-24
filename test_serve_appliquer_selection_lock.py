@@ -15,10 +15,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:  # Python 3.8, édition Windows 7
-    from backports.zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo
 
 os.environ["BLINK_BOOTSTRAP"] = "none"
 _TEST_HOME = tempfile.TemporaryDirectory(prefix="blink-toggle-lock-")

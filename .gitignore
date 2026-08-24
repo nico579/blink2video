@@ -40,9 +40,6 @@ _vendor/
 build/
 dist/
 build_venv/
-build-win7/
-dist-win7/
-build_venv_win7/
 __pycache__/
 *.pyc
 

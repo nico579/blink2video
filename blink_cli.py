@@ -26,14 +26,13 @@ import blink_registre
 
 def parse_args() -> argparse.Namespace:
     programme = Path(sys.argv[0]).stem or "blink2video"
-    version = runtime.version_affichee()
     parser = argparse.ArgumentParser(
         prog=programme,
         # Les verbes vont dans la description, pas dans un groupe d'arguments :
         # les déclarer à argparse en ferait de faux positionnels, qui
         # pollueraient la ligne d'usage et fausseraient l'analyse.
         description=(
-            f"blink2video {version}\n\n"
+            f"blink2video {runtime.VERSION}\n\n"
             "Gestion des caméras Blink depuis un ordinateur : direct, "
             "armement, archive horodatée.\n\nVerbes :\n"
             + "".join(f"  {nom:11} {verbe.fr}\n"
@@ -57,7 +56,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version",
-                        version=f"blink2video {version}")
+                        version=f"blink2video {runtime.VERSION}")
     parser.add_argument(
         "command",
         nargs="?",

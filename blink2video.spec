@@ -8,7 +8,6 @@
 # dossier se compresse tout aussi bien pour la diffusion, et démarre
 # instantanément.
 
-import os
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
@@ -20,9 +19,6 @@ APP_ICON = SRC / "assets" / "blink2video.png"
 # assets/ pour que le chemin lu au démarrage (runtime.resource_dir() /
 # "assets" / ...) soit le même, figé ou depuis les sources.
 FAVICON = SRC / "assets" / "blink2video.ico"
-# Marqueur absent des bundles officiels. L'édition Windows 7 s'en sert pour
-# s'identifier et pour refuser une mise à jour vers le runtime Python 3.12.
-WIN7_MARKER = SRC / "assets" / "windows7-build.txt"
 
 # ffmpeg est propre à la plateforme : on demande le binaire à imageio_ffmpeg,
 # installé dans l'environnement de construction, qui fournit celui de l'hôte.
@@ -75,9 +71,7 @@ analysis = Analysis(
     # ZoneInfo("Europe/Paris") échoue et tout l'horodatage avec.
     datas=(collect_data_files("tzdata", include_py_files=False)
            + ([(str(APP_ICON), ".")] if APP_ICON.exists() else [])
-           + ([(str(FAVICON), "assets")] if FAVICON.exists() else [])
-           + ([(str(WIN7_MARKER), ".")]
-              if os.environ.get("BLINK_BUILD_TARGET") == "windows7" else [])),
+           + ([(str(FAVICON), "assets")] if FAVICON.exists() else [])),
     # Les verbes sont résolus par importlib au moment de l'appel : l'analyse
     # statique de PyInstaller ne peut pas les voir, il faut les nommer.
     # Déduits de runtime.VERBES : les verbes sont résolus par importlib au

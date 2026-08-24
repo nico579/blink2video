@@ -1,110 +1,76 @@
-"""Construit le bundle autonome dans un environnement isolé jetable.
+"""Construit le bundle autonome, dans un environnement isolé jetable.
 
 Pourquoi un environnement dédié à la construction, distinct de celui
 d'exécution : PyInstaller embarque ce qu'il trouve. Construire depuis
 l'installation Python courante ferait entrer dans le bundle tout ce qui traîne
-dans site-packages, sans rapport avec l'outil.
+dans site-packages, sans rapport avec l'outil. Un environnement neuf ne
+contient que les quatre dépendances déclarées, et le résultat est reproductible
+d'une machine à l'autre.
 
-Le profil normal suit les dépendances courantes. Le profil ``--win7`` est une
-cible legacy séparée et reproductible : CPython 3.8.10 x64, dépendances figées
-et roue blinkpy 0.25.9 dont seules les métadonnées sont rétroportées.
+Le venv de construction est isolé de celui d'exécution (~/.blink2video/venv) parce
+qu'il contient PyInstaller, qui n'a rien à faire dans l'environnement de tous
+les jours.
 
-    python build.py                   construit le bundle normal
-    python build.py --propre          le reconstruit depuis zéro
-    python build.py --win7 --propre   construit le candidat Windows 7
+    python build.py            construit
+    python build.py --propre   reconstruit tout depuis zéro
 """
 
 import argparse
-import inspect
-import os
 import shutil
-import struct
 import subprocess
 import sys
 from pathlib import Path
 
-from build_blinkpy_win7 import WIN7_VERSION, WIN7_WHEEL
-
 
 BASE_DIR = Path(__file__).resolve().parent
-SPEC = BASE_DIR / "blink2video.spec"
+VENV = BASE_DIR / "build_venv"
+PYTHON = VENV / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+SORTIE = BASE_DIR / "dist" / "blink2video"
 
-# Profil ordinaire : comportement historique volontairement inchangé.
+# Dépendances d'exécution, plus PyInstaller. Volontairement non figées : ce
+# n'est pas un logiciel distribué à des tiers, et un verrouillage de versions
+# demanderait un entretien que personne ne fera.
 PAQUETS = ["aiohttp", "blinkpy", "tzdata", "imageio-ffmpeg", "pyinstaller",
            "Pillow", "pystray", 'backports.zoneinfo; python_version < "3.9"']
-
-# Profil Windows 7 : jamais mélangé au venv ni aux sorties officielles.
-WIN7_PYTHON = (3, 8, 10)
-WIN7_VENV = BASE_DIR / "build_venv_win7"
-WIN7_WORK = BASE_DIR / "build-win7"
-WIN7_DIST = BASE_DIR / "dist-win7"
-WIN7_REQUIREMENTS = BASE_DIR / "requirements-win7.txt"
 
 
 # Compilation complète de secours, quand celle fournie par imageio-ffmpeg ne
 # sait pas incruster de texte. C'est le cas sous Linux, où elle est produite
 # sans libfreetype. Variante « gpl » : c'est celle qui embarque libfreetype.
-FFMPEG_SECOURS = (
-    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
-    "ffmpeg-master-latest-linux64-gpl.tar.xz"
-)
+#
+# Le nom de fichier compte le numéro de version ffmpeg (« n7.1 », « n8.1»...),
+# qui change à chaque nouvelle compilation publiée sous le tag « latest » :
+# l'ancien nom devient introuvable (404) sans que le tag lui-même ne bouge.
+# C'est ce qui a cassé ce lien (n7.1 n'existe plus, remplacé par n9.0).
+# « master-latest », sans numéro, est la variante que BtbN publie justement
+# pour ne pas dépendre d'un nom qui se déplace.
+FFMPEG_SECOURS = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
+                  "ffmpeg-master-latest-linux64-gpl.tar.xz")
 
 
-def _chemins(win7: bool) -> tuple:
-    if win7:
-        return WIN7_VENV, WIN7_WORK, WIN7_DIST
-    return BASE_DIR / "build_venv", BASE_DIR / "build", BASE_DIR / "dist"
+def ffmpeg_utilisable() -> str:
+    """Choisit le ffmpeg à embarquer, en exigeant qu'il sache écrire du texte.
 
-
-def _python(venv: Path) -> Path:
-    return venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-
-
-def verifier_interpreteur_win7() -> None:
-    """Refuse un runtime dont les DLL ne sont pas celles garanties pour Win7."""
-    erreurs = []
-    if sys.platform != "win32":
-        erreurs.append("la construction doit tourner sous Windows")
-    if sys.version_info[:3] != WIN7_PYTHON:
-        erreurs.append(
-            "CPython 3.8.10 exact est requis "
-            f"(reçu {sys.version_info.major}.{sys.version_info.minor}."
-            f"{sys.version_info.micro})"
-        )
-    if struct.calcsize("P") != 8:
-        erreurs.append("un interpréteur x86-64 est requis")
-    if sys.implementation.name != "cpython":
-        erreurs.append("l'interpréteur doit être CPython")
-    if erreurs:
-        raise SystemExit("Build Windows 7 refusé : " + "; ".join(erreurs) + ".")
-
-
-def ffmpeg_utilisable(python: Path, travail: Path) -> str:
-    """Choisit le ffmpeg à embarquer, en exigeant qu'il sache écrire du texte."""
+    L'outil incruste l'heure dans l'image : un ffmpeg sans le filtre drawtext
+    le rend inutile. Plutôt que de changer de méthode d'horodatage pour
+    contourner une compilation incomplète, on embarque une compilation
+    complète. Le rendu reste identique sur les trois systèmes, et il n'y a
+    qu'un seul chemin de code à entretenir."""
+    import subprocess as sp
 
     def sait_ecrire(binaire: str) -> bool:
         try:
-            sortie = subprocess.run(
-                [binaire, "-hide_banner", "-filters"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                errors="replace",
-                timeout=60,
-                check=False,
-            ).stdout
+            sortie = sp.run([binaire, "-hide_banner", "-filters"],
+                            stdout=sp.PIPE, stderr=sp.DEVNULL, text=True,
+                            errors="replace", timeout=60, check=False).stdout
         except Exception:
             return False
         return "drawtext" in (sortie or "")
 
     try:
-        resultat = subprocess.run(
-            [str(python), "-c",
-             "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())"],
-            stdout=subprocess.PIPE,
-            text=True,
-            check=True,
-        ).stdout.strip()
+        resultat = sp.run([str(PYTHON), "-c",
+                           "import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())"],
+                          stdout=sp.PIPE, text=True, check=True).stdout.strip()
     except Exception:
         resultat = ""
 
@@ -121,7 +87,7 @@ def ffmpeg_utilisable(python: Path, travail: Path) -> str:
     import tarfile
     import urllib.request
 
-    archive = travail / "ffmpeg-linux.tar.xz"
+    archive = BASE_DIR / "build" / "ffmpeg-linux.tar.xz"
     archive.parent.mkdir(parents=True, exist_ok=True)
     if not archive.exists():
         urllib.request.urlretrieve(FFMPEG_SECOURS, archive)
@@ -143,124 +109,42 @@ def executer(commande: list, titre: str) -> None:
         raise SystemExit(f"Échec : {titre}")
 
 
-def installer_win7(python: Path, travail: Path) -> None:
-    """Installe le verrou Python 3.8 et la roue blinkpy reconditionnée."""
-    executer(
-        [str(python), "-m", "pip", "install", "--quiet", "--upgrade",
-         "pip==25.0.1"],
-        "installation de pip compatible Python 3.8",
-    )
-    executer(
-        [str(python), "-m", "pip", "install", "--quiet", "--requirement",
-         str(WIN7_REQUIREMENTS)],
-        "installation du verrou Windows 7",
-    )
-    roues = travail / "wheels"
-    executer(
-        [str(python), str(BASE_DIR / "build_blinkpy_win7.py"), str(roues)],
-        "rétroportage des métadonnées blinkpy 0.25.9",
-    )
-    executer(
-        [str(python), "-m", "pip", "install", "--quiet", "--force-reinstall",
-         "--no-deps", str(roues / WIN7_WHEEL)],
-        "installation de blinkpy pour Windows 7",
-    )
-    executer([str(python), "-m", "pip", "check"],
-             "cohérence des dépendances Windows 7")
-
-
-def verifier_blinkpy_win7(python: Path) -> None:
-    """Prouve que pip n'a ni rétrogradé blinkpy ni perdu son API moderne."""
-    programme = """
-import compileall
-import inspect
-from importlib.metadata import distribution, version
-from blinkpy.auth import Auth, BlinkTwoFARequiredError
-from blinkpy.blinkpy import Blink
-from blinkpy.camera import BlinkCamera
-from blinkpy.livestream import BlinkLiveStream
-
-attendue = %r
-obtenue = version("blinkpy")
-assert obtenue == attendue, (obtenue, attendue)
-assert inspect.iscoroutinefunction(Blink.start)
-for classe, noms in (
-    (Blink, ("send_2fa_code", "get_videos_metadata", "do_http_get")),
-    (BlinkCamera, ("init_livestream",)),
-    (BlinkLiveStream, ("start", "feed", "recv", "stop")),
-):
-    for nom in noms:
-        assert hasattr(classe, nom), "%%s.%%s absent" %% (classe.__name__, nom)
-assert "callback" in inspect.signature(Auth.__init__).parameters
-racine = distribution("blinkpy").locate_file("blinkpy")
-assert compileall.compile_dir(str(racine), quiet=1)
-print("blinkpy %%s : API moderne compilée sous Python 3.8" %% obtenue)
-""" % WIN7_VERSION
-    executer([str(python), "-c", inspect.cleandoc(programme)],
-             "validation du rétroportage blinkpy")
-
-
 def main() -> int:
+    import os
+
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--propre",
-        action="store_true",
-        help="supprimer l'environnement et les sorties de ce profil avant de commencer",
-    )
-    parser.add_argument(
-        "--win7",
-        action="store_true",
-        help="construire l'édition legacy Windows 7 (CPython 3.8.10 x64)",
-    )
+    parser.add_argument("--propre", action="store_true",
+                        help="supprimer l'environnement de construction et les "
+                             "sorties précédentes avant de commencer")
     args = parser.parse_args()
 
-    if args.win7:
-        verifier_interpreteur_win7()
-    venv, travail, dist = _chemins(args.win7)
-    python = _python(venv)
-    sortie = dist / "blink2video"
-
     if args.propre:
-        for dossier in (venv, travail, dist):
+        for dossier in (VENV, BASE_DIR / "build", BASE_DIR / "dist"):
             if dossier.exists():
                 print(f"Suppression de {dossier.name}...")
                 shutil.rmtree(dossier, ignore_errors=True)
 
-    if not python.exists():
-        executer([sys.executable, "-m", "venv", str(venv)],
+    if not PYTHON.exists():
+        executer([sys.executable, "-m", "venv", str(VENV)],
                  "création de l'environnement de construction")
-
-    if args.win7:
-        installer_win7(python, travail)
-        verifier_blinkpy_win7(python)
-    else:
-        executer([str(python), "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
-                 "mise à jour de pip")
-        executer([str(python), "-m", "pip", "install", "--quiet", *PAQUETS],
-                 "installation des dépendances")
-
-    ffmpeg = ffmpeg_utilisable(python, travail)
+    executer([str(PYTHON), "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
+             "mise à jour de pip")
+    executer([str(PYTHON), "-m", "pip", "install", "--quiet", *PAQUETS],
+             "installation des dépendances")
+    ffmpeg = ffmpeg_utilisable()
     print(f"\nffmpeg embarqué : {ffmpeg}")
     os.environ["BLINK_FFMPEG"] = ffmpeg
-    os.environ.pop("BLINK_BUILD_TARGET", None)
-    if args.win7:
-        os.environ["BLINK_BUILD_TARGET"] = "windows7"
+    executer([str(PYTHON), "-m", "PyInstaller", "--noconfirm", "--clean",
+              str(BASE_DIR / "blink2video.spec")],
+             "construction du bundle")
 
-    commande = [
-        str(python), "-m", "PyInstaller", "--noconfirm", "--clean",
-        "--distpath", str(dist), "--workpath", str(travail), str(SPEC),
-    ]
-    executer(commande, "construction du bundle")
-
-    executable = sortie / ("blink2video.exe" if sys.platform == "win32" else "blink2video")
+    executable = SORTIE / ("blink2video.exe" if sys.platform == "win32" else "blink2video")
+    # Rappel utile : le bundle produit ne vaut que pour la plateforme courante.
     if not executable.exists():
         raise SystemExit(f"Bundle introuvable : {executable}")
-    if args.win7:
-        executer([str(python), str(BASE_DIR / "verify_win7_bundle.py"), str(sortie)],
-                 "contrôle statique du bundle Windows 7")
 
-    taille = sum(f.stat().st_size for f in sortie.rglob("*") if f.is_file())
-    print(f"\nBundle construit : {sortie}")
+    taille = sum(f.stat().st_size for f in SORTIE.rglob("*") if f.is_file())
+    print(f"\nBundle construit : {SORTIE}")
     print(f"  exécutable : {executable.name}")
     print(f"  taille     : {taille / 1024 / 1024:.0f} Mo")
     print("\nLes données (Blink_Clips, Blink_Daily…) se créeront à côté de "

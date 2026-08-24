@@ -56,7 +56,7 @@ jobs:
         run: >-
           python -B -m unittest -v
           test_blink2video_audit.py test_runtime_validation.py
-          test_stage2_identity.py test_windows7_build.py
+          test_stage2_identity.py
 
   tester:
     name: chaîne vidéo ${{ matrix.os }}
