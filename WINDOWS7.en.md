@@ -64,8 +64,7 @@ blink2video.exe merge
 blink2video.exe serve
 ```
 
-`--version` must include `Windows 7` (the current label is
-`Windows 7 expérimental`). Then check 2FA, Gen2 USB
+`--version` must include `Windows 7 experimental`. Then check 2FA, Gen2 USB
 and cloud downloads, live view, and finally `start`, `stop` and `autostart`.
 Use Firefox ESR 115 or Chromium 109 for the web UI; IE11 is not a target.
 
