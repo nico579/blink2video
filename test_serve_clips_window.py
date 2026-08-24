@@ -13,7 +13,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # Python 3.8, édition Windows 7
+    from backports.zoneinfo import ZoneInfo
 
 os.environ["BLINK_BOOTSTRAP"] = "none"
 _TEST_HOME = tempfile.TemporaryDirectory(prefix="blink-window-")

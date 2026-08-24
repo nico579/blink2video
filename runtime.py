@@ -37,6 +37,7 @@ from typing import NamedTuple
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
 VERSION = "0.9.16"
+WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
 # Source unique des verbes : leur ordre d'apparition dans l'aide, le programme
@@ -470,6 +471,17 @@ def resource_dir() -> Path:
     if frozen():
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)).resolve()
     return Path(__file__).resolve().parent
+
+
+def build_windows7() -> bool:
+    """Vrai uniquement dans le bundle legacy marqué au moment du build."""
+    return frozen() and (resource_dir() / WINDOWS7_BUILD_MARKER).is_file()
+
+
+def version_affichee() -> str:
+    """Version numérique stable, complétée par la saveur du bundle legacy."""
+    suffixe = " (Windows 7 expérimental)" if build_windows7() else ""
+    return VERSION + suffixe
 
 
 def est_relatif_a(chemin: Path, racine: Path) -> bool:

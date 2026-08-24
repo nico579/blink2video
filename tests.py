@@ -270,11 +270,20 @@ def test_verbes() -> None:
     # enregistrée dans SUITE_HOME, l'onboarding attend une connexion qui ne
     # viendra pas ; BLINK_ONBOARDING_TIMEOUT (3 s dans environnement_test)
     # borne cette attente pour que le test reste rapide et déterministe.
+    # Le port par défaut peut déjà appartenir à l'installation réelle de la
+    # machine qui lance la suite. Une racine propre ne suffit pas : accueillir()
+    # verrait ce serveur et l'ouvrirait au lieu de démarrer son onboarding.
+    # Un réglage propre au bac à sable garde aussi ce parcours hermétique.
+    racine_onboarding = _BAC_RACINE / "onboarding"
+    racine_onboarding.mkdir(exist_ok=True)
+    (racine_onboarding / runtime.REGLAGES).write_text(
+        json.dumps({"port": port_dynamique()}), encoding="utf-8"
+    )
     sans = subprocess.run(
         commande_blink(),
         cwd=str(SUITE_CWD), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-        env=environnement_test(SUITE_HOME), check=False, timeout=30,
+        env=environnement_test(racine_onboarding), check=False, timeout=30,
     )
     verifier(
         sans.returncode != 0 and "Aucune session Blink valide" in sans.stdout,
@@ -286,11 +295,17 @@ def test_verbes() -> None:
     # l'onboarding par un échec de port plutôt que par le délai qu'on veut
     # précisément vérifier. « start » suit le même chemin que « sans
     # argument » (blink2video.route), donc l'équivalence reste couverte.
+    racine_start = _BAC_RACINE / "onboarding-start"
+    racine_start.mkdir(exist_ok=True)
+    port_start = port_dynamique()
+    (racine_start / runtime.REGLAGES).write_text(
+        json.dumps({"port": port_start}), encoding="utf-8"
+    )
     avec_start = subprocess.run(
-        commande_blink("start", "--port", str(port_dynamique())),
+        commande_blink("start", "--port", str(port_start)),
         cwd=str(SUITE_CWD), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-        env=environnement_test(SUITE_HOME), check=False, timeout=30,
+        env=environnement_test(racine_start), check=False, timeout=30,
     )
     # « Abandon » : mot commun, sans accent, aux deux messages de fin de
     # délai d'accueillir() (port qui ne répond pas, ou authentification
