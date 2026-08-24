@@ -53,7 +53,8 @@ jobs:
           $ffmpeg = Get-ChildItem dist-win7\blink2video -Recurse -File -Filter 'ffmpeg*.exe' | Select-Object -First 1
           if (-not $ffmpeg) { throw 'ffmpeg absent du bundle' }
           $filtres = & $ffmpeg.FullName -hide_banner -filters 2>&1
-          if ($filtres -notmatch 'drawtext') { throw 'drawtext absent du ffmpeg embarqué' }
+          if ($LASTEXITCODE -ne 0) { throw "ffmpeg -filters a échoué ($LASTEXITCODE)" }
+          if (($filtres -join "`n") -notmatch 'drawtext') { throw 'drawtext absent du ffmpeg embarqué' }
 
       # Les tests passent par le binaire à distribuer et utilisent le même venv
       # verrouillé ; aucune seconde résolution pip ne peut rétrograder blinkpy.
