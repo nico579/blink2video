@@ -30,8 +30,11 @@ BASE_DIR = Path(__file__).resolve().parent
 SPEC = BASE_DIR / "blink2video.spec"
 
 # Profil ordinaire : comportement historique volontairement inchangé.
-PAQUETS = ["aiohttp", "blinkpy", "tzdata", "imageio-ffmpeg", "pyinstaller",
-           "Pillow", "pystray", 'backports.zoneinfo; python_version < "3.9"']
+PAQUETS = [
+    "aiohttp", "blinkpy", "certifi", "tzdata", "imageio-ffmpeg",
+    "pyinstaller", "Pillow", "pystray",
+    'backports.zoneinfo; python_version < "3.9"',
+]
 
 # Profil Windows 7 : jamais mélangé au venv ni aux sorties officielles.
 WIN7_PYTHON = (3, 8, 10)

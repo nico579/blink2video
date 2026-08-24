@@ -427,6 +427,20 @@ class TestsDefautsSynchrones(BacASable):
         self.assertEqual(ecrit.get("refresh_token"), "frais")
         self.assertNotIn("password", ecrit)
 
+    def test_win7_tls_ajoute_certifi_sans_remplacer_le_contexte_sur(self):
+        """Win7 : les racines récentes complètent les contrôles TLS standards."""
+        contexte = mock.Mock()
+        with mock.patch.object(
+            blink_auth.ssl, "create_default_context", return_value=contexte
+        ) as creer, mock.patch.object(
+            blink_auth.certifi, "where", return_value="racines-certifi.pem"
+        ):
+            self.assertIs(blink_auth.contexte_tls(), contexte)
+        creer.assert_called_once_with()
+        contexte.load_verify_locations.assert_called_once_with(
+            cafile="racines-certifi.pem"
+        )
+
     def test_I10_session_json_tableau_est_refusee_sans_exception(self):
         """I-10 : une racine JSON valide mais non objet doit être tolérée."""
         session = self.home / "blink_auth.json"
