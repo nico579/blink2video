@@ -7,7 +7,7 @@ name: Release (build 3 OS)
 # machine Linux sous la main.
 #
 # Déclenchement :
-#   - poussée d'une étiquette v*   (git tag v1.0.0 && git push origin v1.0.0)
+#   - poussée d'une étiquette stable vX.Y.Z
 #   - manuel, en indiquant l'étiquette
 #
 # Fichiers produits :
@@ -18,7 +18,7 @@ name: Release (build 3 OS)
 on:
   push:
     tags:
-      - 'v*'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       tag:
@@ -35,6 +35,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -73,6 +75,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: actions/setup-python@v6
         with:
@@ -105,7 +109,7 @@ jobs:
         env:
           BLINK_TEST_BUNDLE: ${{ matrix.exe }}
         run: |
-          python -m pip install --quiet aiohttp blinkpy tzdata imageio-ffmpeg
+          python -m pip install --quiet aiohttp blinkpy certifi tzdata imageio-ffmpeg
           python tests.py
 
       - name: Empaqueter (zip)
@@ -141,6 +145,8 @@ jobs:
     environment: docker
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Deduire la version (sans le "v")
         id: etiquette

@@ -44,7 +44,7 @@ jobs:
       # imports de serve.py/watch.py déjà existants), ce qui a suffi à révéler
       # ce trou dès la première exécution réelle de ce job.
       - name: Installer les dépendances minimales
-        run: python -m pip install --quiet aiohttp blinkpy tzdata
+        run: python -m pip install --quiet aiohttp blinkpy certifi tzdata
 
       # Les anomalies confirmées sont des expectedFailure nommés par leur ID
       # d'audit. Un correctif qui passe sans retirer ce marqueur devient un
@@ -82,7 +82,7 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
       - name: Installer les dépendances
-        run: python -m pip install --quiet aiohttp blinkpy tzdata imageio-ffmpeg
+        run: python -m pip install --quiet aiohttp blinkpy certifi tzdata imageio-ffmpeg
 
       - name: Compiler tous les modules
         # Tout le dépôt, et non une liste de fichiers : celle-ci citait encore
@@ -168,7 +168,7 @@ jobs:
         env:
           BLINK_TEST_BUNDLE: ${{ matrix.exe }}
         run: |
-          python -m pip install --quiet aiohttp blinkpy tzdata imageio-ffmpeg
+          python -m pip install --quiet aiohttp blinkpy certifi tzdata imageio-ffmpeg
           python tests.py
 
       - uses: actions/upload-artifact@v4

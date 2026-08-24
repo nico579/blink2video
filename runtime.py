@@ -331,6 +331,8 @@ DELEGUES = {nom: verbe.module for nom, verbe in VERBES.items()
 DEPENDANCES = {
     "aiohttp": "aiohttp",
     "blinkpy": "blinkpy",
+    # blink_auth complète le magasin TLS système avec ces racines à jour.
+    "certifi": "certifi",
     # Windows n'embarque aucune base de fuseaux horaires : sans ce paquet,
     # ZoneInfo("Europe/Paris") échoue et tout l'horodatage avec.
     "tzdata": "tzdata",

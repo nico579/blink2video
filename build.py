@@ -23,13 +23,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from build_blinkpy_win7 import WIN7_VERSION, WIN7_WHEEL
-
-
 BASE_DIR = Path(__file__).resolve().parent
 SPEC = BASE_DIR / "blink2video.spec"
 
-# Profil ordinaire : comportement historique volontairement inchangé.
+# Profil ordinaire : versions courantes et chemins historiques inchangés.
 PAQUETS = [
     "aiohttp", "blinkpy", "certifi", "tzdata", "imageio-ffmpeg",
     "pyinstaller", "Pillow", "pystray",
@@ -80,6 +77,38 @@ def verifier_interpreteur_win7() -> None:
         erreurs.append("l'interpréteur doit être CPython")
     if erreurs:
         raise SystemExit("Build Windows 7 refusé : " + "; ".join(erreurs) + ".")
+
+
+def verifier_python_win7(python: Path) -> None:
+    """Refuse aussi un ancien venv Win7 créé avec un autre interpréteur."""
+    programme = (
+        "import struct,sys; "
+        "print('%d.%d.%d|%d|%s' % "
+        "(sys.version_info.major, sys.version_info.minor, sys.version_info.micro, "
+        "struct.calcsize('P') * 8, sys.implementation.name))"
+    )
+    attendu = ".".join(str(partie) for partie in WIN7_PYTHON) + "|64|cpython"
+    try:
+        resultat = subprocess.run(
+            [str(python), "-c", programme],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except OSError as erreur:
+        raise SystemExit(
+            f"Build Windows 7 refusé : environnement illisible ({erreur}). "
+            "Relancer avec --propre."
+        ) from erreur
+    obtenu = (resultat.stdout or "").strip()
+    if resultat.returncode != 0 or obtenu != attendu:
+        detail = obtenu or (resultat.stderr or "").strip() or "identité inconnue"
+        raise SystemExit(
+            f"Build Windows 7 refusé : l'environnement utilise {detail}, "
+            f"attendu {attendu}. Relancer avec --propre."
+        )
 
 
 def ffmpeg_utilisable(python: Path, travail: Path) -> str:
@@ -148,6 +177,8 @@ def executer(commande: list, titre: str) -> None:
 
 def installer_win7(python: Path, travail: Path) -> None:
     """Installe le verrou Python 3.8 et la roue blinkpy reconditionnée."""
+    from build_blinkpy_win7 import WIN7_WHEEL
+
     executer(
         [str(python), "-m", "pip", "install", "--quiet", "--upgrade",
          "pip==25.0.1"],
@@ -174,6 +205,8 @@ def installer_win7(python: Path, travail: Path) -> None:
 
 def verifier_blinkpy_win7(python: Path) -> None:
     """Prouve que pip n'a ni rétrogradé blinkpy ni perdu son API moderne."""
+    from build_blinkpy_win7 import WIN7_VERSION
+
     programme = """
 import compileall
 import inspect
@@ -234,6 +267,7 @@ def main() -> int:
                  "création de l'environnement de construction")
 
     if args.win7:
+        verifier_python_win7(python)
         installer_win7(python, travail)
         verifier_blinkpy_win7(python)
     else:

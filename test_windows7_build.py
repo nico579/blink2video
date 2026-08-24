@@ -23,11 +23,50 @@ class Windows7BuildTests(unittest.TestCase):
         self.assertEqual(build.WIN7_PYTHON, (3, 8, 10))
         self.assertEqual(build_blinkpy_win7.WIN7_VERSION, "0.25.9+win7.1")
 
+    def test_certifi_is_a_direct_common_dependency(self):
+        requirements = {
+            ligne.strip()
+            for ligne in (Path(__file__).parent / "requirements.txt")
+            .read_text(encoding="utf-8")
+            .splitlines()
+            if ligne.strip() and not ligne.lstrip().startswith("#")
+        }
+        self.assertIn("certifi", requirements)
+        self.assertIn("certifi", build.PAQUETS)
+        self.assertEqual(runtime.DEPENDANCES.get("certifi"), "certifi")
+
+    def test_workflows_build_both_profiles_from_main_only(self):
+        workflows = Path(__file__).parent / ".github" / "workflows"
+        win7 = (workflows / "build-win7.yml").read_text(encoding="utf-8")
+        release = (workflows / "release.yml").read_text(encoding="utf-8")
+
+        self.assertIn("  pull_request:\n    branches:\n      - main", win7)
+        self.assertIn("  push:\n    branches:\n      - main", win7)
+        self.assertNotIn("      - windows7-experimental", win7)
+        self.assertIn("      - 'v[0-9]+.[0-9]+.[0-9]+'", release)
+        self.assertNotIn("      - 'v*'", release)
+        self.assertEqual(
+            release.count("ref: ${{ github.event.inputs.tag || github.ref }}"),
+            3,
+        )
+
     def test_win7_build_rejects_another_platform(self):
         with mock.patch.object(build.sys, "platform", "linux"):
             with self.assertRaises(SystemExit) as erreur:
                 build.verifier_interpreteur_win7()
         self.assertIn("Windows", str(erreur.exception))
+
+    def test_win7_build_rejects_an_existing_venv_from_another_python(self):
+        resultat = mock.Mock(
+            returncode=0,
+            stdout="3.8.20|64|cpython\n",
+            stderr="",
+        )
+        with mock.patch.object(build.subprocess, "run", return_value=resultat):
+            with self.assertRaises(SystemExit) as erreur:
+                build.verifier_python_win7(Path("python.exe"))
+        self.assertIn("3.8.20|64|cpython", str(erreur.exception))
+        self.assertIn("--propre", str(erreur.exception))
 
     def test_marker_identifies_only_frozen_bundle(self):
         with tempfile.TemporaryDirectory() as dossier:

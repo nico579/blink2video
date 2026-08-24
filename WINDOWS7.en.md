@@ -16,9 +16,14 @@ no longer receives newer root authorities.
 ## Build the artifact
 
 Open **Actions → Build Windows 7 (experimental) → Run workflow** on GitHub.
-Download the resulting `blink2video-windows7-x86_64-experimental` artifact. It
-is deliberately kept out of releases until it starts successfully on a real
-Windows 7 system.
+Download the resulting `blink2video-windows7-x86_64-experimental` artifact. The
+workflow also runs on every change to `main`, alongside the regular edition
+checks.
+
+The [experimental.3 prerelease](https://github.com/nico579/blink2video/releases/tag/v0.9.16-win7-experimental.3)
+has been validated on Windows 7 SP1 x64 for startup, Blink login, 2FA and clip
+loading. Its SHA-256 is
+`C6926E89A20D9A00776AD0D865B1ACF2DD37060B1F67F829D7189C97D1510400`.
 
 A local build requires 64-bit Windows and the official python.org **CPython
 3.8.10** interpreter:
@@ -28,7 +33,8 @@ python build.py --win7 --propre
 ```
 
 The legacy venv and outputs are isolated in `build_venv_win7`, `build-win7`
-and `dist-win7`.
+and `dist-win7`. Both editions share the same application sources in `main`;
+only this legacy build envelope is separate.
 
 ## Prepare the VM
 

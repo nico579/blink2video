@@ -81,7 +81,8 @@ système.
 | macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, puis `./blink2video` |
 
 Windows 7 SP1 x64 dispose d'une [édition expérimentale séparée](WINDOWS7.md),
-à éprouver dans une VM avant toute publication.
+dont la [préversion experimental.3](https://github.com/nico579/blink2video/releases/tag/v0.9.16-win7-experimental.3)
+a été validée sur une installation réelle.
 
 **2. Le lancer.** Double-clic sur l'exécutable (ou `./blink2video` depuis un
 terminal). Aucun argument nécessaire : sans session valide, un onglet s'ouvre

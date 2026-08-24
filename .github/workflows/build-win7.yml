@@ -1,13 +1,16 @@
 name: Build Windows 7 (experimental)
 
-# Cible legacy volontairement séparée de la release stable. Le runner prouve
-# que le bundle Python 3.8 se construit et s'exécute, mais seule une vraie VM
-# Windows 7 SP1 peut certifier les DLL du système et le lancement final.
+# Le code applicatif est commun avec l'édition stable ; seuls le runtime, les
+# dépendances et les répertoires de construction de ce profil legacy diffèrent.
+# Le runner complète la validation déjà effectuée sur une vraie machine Win7.
 on:
   workflow_dispatch:
   push:
     branches:
-      - windows7-experimental
+      - main
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -33,6 +36,14 @@ jobs:
 
       - name: Construire le bundle legacy propre
         run: python build.py --win7 --propre
+
+      - name: Tests applicatifs sous Python 3.8
+        env:
+          BLINK_BOOTSTRAP: none
+        run: >-
+          .\build_venv_win7\Scripts\python.exe -B -m unittest -v
+          test_blink2video_audit.py test_runtime_validation.py
+          test_stage2_identity.py test_windows7_build.py
 
       - name: Vérifier le verrou et les imports PE
         shell: pwsh

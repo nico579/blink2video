@@ -18,8 +18,13 @@ racines récentes ne sont plus distribuées à cette ancienne installation.
 
 Dans GitHub, ouvrir **Actions → Build Windows 7 (experimental) → Run workflow**.
 Le résultat téléchargeable s'appelle
-`blink2video-windows7-x86_64-experimental`. Il n'est volontairement pas ajouté
-aux releases tant qu'il n'a pas démarré sur une vraie machine Windows 7.
+`blink2video-windows7-x86_64-experimental`. Ce workflow est aussi exécuté à
+chaque évolution de `main`, parallèlement aux contrôles des éditions normales.
+
+La [préversion experimental.3](https://github.com/nico579/blink2video/releases/tag/v0.9.16-win7-experimental.3)
+a été validée sur Windows 7 SP1 x64 : démarrage, connexion Blink, 2FA et lecture
+des clips. Son SHA-256 est
+`C6926E89A20D9A00776AD0D865B1ACF2DD37060B1F67F829D7189C97D1510400`.
 
 En local, la construction exige Windows x64 et l'interpréteur **CPython 3.8.10
 officiel de python.org** :
@@ -29,7 +34,9 @@ python build.py --win7 --propre
 ```
 
 Les environnements et sorties restent séparés du build normal dans
-`build_venv_win7`, `build-win7` et `dist-win7`.
+`build_venv_win7`, `build-win7` et `dist-win7`. Les deux éditions partagent les
+mêmes sources applicatives dans `main` ; seule cette enveloppe de construction
+legacy est distincte.
 
 ## Préparer la VM
 
