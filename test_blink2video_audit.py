@@ -44,6 +44,7 @@ import blink_models  # noqa: E402
 import blink_registre  # noqa: E402
 import runtime  # noqa: E402 - bootstrap neutralisé avant import
 import tray  # noqa: E402
+import watch  # noqa: E402
 
 
 class FauxClip:
@@ -458,6 +459,42 @@ class TestsDefautsSynchrones(BacASable):
 
         asyncio.run(utiliser())
         session.close.assert_awaited_once_with()
+
+    def test_win7_watch_reutilise_la_session_tls_et_la_ferme(self):
+        """La surveillance doit conserver les racines certifi après le login."""
+        session = SimpleNamespace(close=mock.AsyncMock())
+        blink = SimpleNamespace(
+            refresh=mock.AsyncMock(side_effect=RuntimeError("panne simulée"))
+        )
+        connecter = mock.AsyncMock(return_value=blink)
+        attendre = mock.AsyncMock()
+
+        with mock.patch.object(
+            blink_auth, "session_http", return_value=session
+        ) as fabriquer, mock.patch.object(
+            blink_auth,
+            "session_http_temporaire",
+            wraps=blink_auth.session_http_temporaire,
+        ) as temporaire, mock.patch.object(
+            blink_auth, "connect_saved", new=connecter
+        ), mock.patch.object(
+            blink_auth.asyncio, "sleep", new=attendre
+        ), mock.patch.object(
+            watch,
+            "ClientSession",
+            side_effect=AssertionError("session directe interdite"),
+            create=True,
+        ) as directe:
+            with self.assertRaisesRegex(RuntimeError, "panne simulée"):
+                asyncio.run(watch.read_state(object()))
+
+        fabriquer.assert_called_once_with()
+        temporaire.assert_called_once_with()
+        connecter.assert_awaited_once_with(session)
+        blink.refresh.assert_awaited_once_with(force=True)
+        session.close.assert_awaited_once_with()
+        attendre.assert_awaited_once_with(0.250)
+        directe.assert_not_called()
 
     def test_I10_session_json_tableau_est_refusee_sans_exception(self):
         """I-10 : une racine JSON valide mais non objet doit être tolérée."""
