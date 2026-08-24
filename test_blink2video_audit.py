@@ -44,6 +44,7 @@ import blink_models  # noqa: E402
 import blink_registre  # noqa: E402
 import runtime  # noqa: E402 - bootstrap neutralisé avant import
 import tray  # noqa: E402
+import watch  # noqa: E402
 
 
 class FauxClip:
@@ -426,6 +427,74 @@ class TestsDefautsSynchrones(BacASable):
             ecrit = json.loads(session.read_text(encoding="utf-8"))
         self.assertEqual(ecrit.get("refresh_token"), "frais")
         self.assertNotIn("password", ecrit)
+
+    def test_win7_tls_ajoute_certifi_sans_remplacer_le_contexte_sur(self):
+        """Win7 : les racines récentes complètent les contrôles TLS standards."""
+        contexte = mock.Mock()
+        with mock.patch.object(
+            blink_auth.ssl, "create_default_context", return_value=contexte
+        ) as creer, mock.patch.object(
+            blink_auth.certifi, "where", return_value="racines-certifi.pem"
+        ):
+            self.assertIs(blink_auth.contexte_tls(), contexte)
+        creer.assert_called_once_with()
+        contexte.load_verify_locations.assert_called_once_with(
+            cafile="racines-certifi.pem"
+        )
+
+    def test_win7_session_tls_attend_la_fermeture_du_transport(self):
+        """Python 3.8 : la boucle ne doit pas mourir avant le transport SSL."""
+        session = mock.Mock()
+        session.close = mock.AsyncMock()
+
+        async def utiliser():
+            with mock.patch.object(
+                blink_auth, "session_http", return_value=session
+            ), mock.patch.object(
+                blink_auth.asyncio, "sleep", new=mock.AsyncMock()
+            ) as attendre:
+                async with blink_auth.session_http_temporaire() as recue:
+                    self.assertIs(recue, session)
+                attendre.assert_awaited_once_with(0.250)
+
+        asyncio.run(utiliser())
+        session.close.assert_awaited_once_with()
+
+    def test_win7_watch_reutilise_la_session_tls_et_la_ferme(self):
+        """La surveillance doit conserver les racines certifi après le login."""
+        session = SimpleNamespace(close=mock.AsyncMock())
+        blink = SimpleNamespace(
+            refresh=mock.AsyncMock(side_effect=RuntimeError("panne simulée"))
+        )
+        connecter = mock.AsyncMock(return_value=blink)
+        attendre = mock.AsyncMock()
+
+        with mock.patch.object(
+            blink_auth, "session_http", return_value=session
+        ) as fabriquer, mock.patch.object(
+            blink_auth,
+            "session_http_temporaire",
+            wraps=blink_auth.session_http_temporaire,
+        ) as temporaire, mock.patch.object(
+            blink_auth, "connect_saved", new=connecter
+        ), mock.patch.object(
+            blink_auth.asyncio, "sleep", new=attendre
+        ), mock.patch.object(
+            watch,
+            "ClientSession",
+            side_effect=AssertionError("session directe interdite"),
+            create=True,
+        ) as directe:
+            with self.assertRaisesRegex(RuntimeError, "panne simulée"):
+                asyncio.run(watch.read_state(object()))
+
+        fabriquer.assert_called_once_with()
+        temporaire.assert_called_once_with()
+        connecter.assert_awaited_once_with(session)
+        blink.refresh.assert_awaited_once_with(force=True)
+        session.close.assert_awaited_once_with()
+        attendre.assert_awaited_once_with(0.250)
+        directe.assert_not_called()
 
     def test_I10_session_json_tableau_est_refusee_sans_exception(self):
         """I-10 : une racine JSON valide mais non objet doit être tolérée."""

@@ -9,6 +9,10 @@ backported to Python 3.8, with the latest dependencies still available for that
 runtime. The original PyPI wheel is checked against its SHA-256 before it is
 modified.
 
+The Mozilla CA store supplied by `certifi` supplements the Windows 7 store, so
+Blink connections remain strictly verified even when that legacy installation
+no longer receives newer root authorities.
+
 ## Build the artifact
 
 Open **Actions → Build Windows 7 (experimental) → Run workflow** on GitHub.

@@ -79,10 +79,13 @@ def verifier(bundle: Path) -> list:
 
     if not (bundle / "_internal" / "windows7-build.txt").is_file():
         erreurs.append("marqueur windows7-build.txt absent du bundle")
+    racines = bundle / "_internal" / "certifi" / "cacert.pem"
+    if not racines.is_file() or racines.stat().st_size < 100_000:
+        erreurs.append("magasin de certificats certifi absent ou incomplet")
     if not erreurs:
         print(
-            f"OK : Python 3.8, marqueur Win7 et {len(binaires)} binaires PE "
-            f"sans {DLL_INTERDITE}."
+            f"OK : Python 3.8, marqueur Win7, racines TLS et {len(binaires)} "
+            f"binaires PE sans {DLL_INTERDITE}."
         )
     return erreurs
 

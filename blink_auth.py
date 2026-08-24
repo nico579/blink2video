@@ -7,16 +7,20 @@ a déjà tourné (l'appelant décide quand : voir blink_cli.py et O-06/8.7)."""
 
 from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotations "X | None" ne s'évaluent qu'à l'écriture des chaînes, jamais à l'exécution.
 
+import asyncio
+from contextlib import asynccontextmanager
 import getpass
 import json
 import os
+import ssl
 import stat as stat_module
 import time
 import uuid
 
 import runtime
 
-from aiohttp import ClientSession
+import certifi
+from aiohttp import ClientSession, TCPConnector
 
 from blinkpy.auth import Auth, BlinkTwoFARequiredError
 from blinkpy.blinkpy import Blink
@@ -36,6 +40,37 @@ AUTH_FIELDS = (
     "username", "token", "expires_in", "expiration_date", "refresh_token",
     "host", "region_id", "client_id", "account_id", "user_id", "hardware_id",
 )
+
+
+def contexte_tls() -> ssl.SSLContext:
+    """Étend les racines système avec le magasin Mozilla livré par certifi.
+
+    Windows 7 ne reçoit plus forcément les nouvelles autorités racines. On
+    conserve son magasin (notamment utile derrière un proxy d'entreprise) et
+    on lui ajoute celui de certifi, sans jamais désactiver la validation TLS ni
+    le contrôle du nom d'hôte.
+    """
+    contexte = ssl.create_default_context()
+    contexte.load_verify_locations(cafile=certifi.where())
+    return contexte
+
+
+def session_http() -> ClientSession:
+    """Crée une session aiohttp dont toutes les requêtes utilisent ce magasin."""
+    return ClientSession(connector=TCPConnector(ssl=contexte_tls()))
+
+
+@asynccontextmanager
+async def session_http_temporaire():
+    """Ferme aussi le transport SSL avant que la boucle courte disparaisse."""
+    session = session_http()
+    try:
+        yield session
+    finally:
+        await session.close()
+        # aiohttp recommande 250 ms pour laisser asyncio fermer ses transports
+        # SSL ; nécessaire notamment avec la ProactorEventLoop de Python 3.8.
+        await asyncio.sleep(0.250)
 
 
 def load_saved_session() -> dict | None:
@@ -236,7 +271,7 @@ async def preflight() -> dict:
     etat = {"authenticated": False, "networks": 0, "sync_modules": 0,
             "cameras": 0, "cloud_only": False, "error": None}
     try:
-        async with ClientSession() as session:
+        async with session_http_temporaire() as session:
             blink = await connect_saved(session)
             if blink is None:
                 return etat

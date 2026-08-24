@@ -1,10 +1,13 @@
 name: Build Windows 7 (experimental)
 
-# Cible legacy volontairement séparée des releases. Le runner prouve que le
-# bundle Python 3.8 se construit et s'exécute, mais seule une vraie VM Windows
-# 7 SP1 peut certifier les DLL du système et le lancement final.
+# Cible legacy volontairement séparée de la release stable. Le runner prouve
+# que le bundle Python 3.8 se construit et s'exécute, mais seule une vraie VM
+# Windows 7 SP1 peut certifier les DLL du système et le lancement final.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - windows7-experimental
 
 permissions:
   contents: read
@@ -36,6 +39,23 @@ jobs:
         run: |
           .\build_venv_win7\Scripts\python.exe -m pip check
           .\build_venv_win7\Scripts\python.exe verify_win7_bundle.py dist-win7\blink2video
+
+      - name: Vérifier TLS Blink avec les racines embarquées
+        shell: pwsh
+        run: |
+          @'
+          import asyncio
+          import blink_auth
+
+          async def main():
+              async with blink_auth.session_http_temporaire() as session:
+                  async with session.get(
+                      "https://api.oauth.blink.com", allow_redirects=False
+                  ) as response:
+                      print("TLS Blink OK, HTTP", response.status)
+
+          asyncio.run(main())
+          '@ | .\build_venv_win7\Scripts\python.exe -
 
       - name: Vérifier que l'exécutable répond et s'identifie
         shell: pwsh

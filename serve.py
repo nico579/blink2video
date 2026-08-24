@@ -47,8 +47,6 @@ import runtime
 
 runtime.bootstrap()
 
-from aiohttp import ClientSession
-
 import autostart
 import blink_auth
 import blink_engine
@@ -572,7 +570,7 @@ class BlinkSession:
 
             async def run():
                 if self.blink is None:
-                    self.session = ClientSession()
+                    self.session = blink_auth.session_http()
                     self.blink = await blink_auth.connect_saved(self.session)
                 if self.blink is None:
                     raise RuntimeError(
@@ -639,7 +637,7 @@ class LoginFlow:
             return await self.queue.get()
 
         try:
-            async with ClientSession() as session:
+            async with blink_auth.session_http_temporaire() as session:
                 blink = await blink_auth.login(session, username, password, ask_code)
         except Exception as error:  # remonter la cause plutôt que planter le serveur
             return {"status": "error", "message": f"{type(error).__name__}: {error}"}

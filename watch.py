@@ -38,8 +38,6 @@ import runtime
 
 runtime.bootstrap()
 
-from aiohttp import ClientSession
-
 import blink_auth
 import merge_daily as md
 
@@ -58,7 +56,7 @@ SILENCE_DAYS = 2
 
 async def read_state(timezone) -> dict:
     """Photographie l'installation : caméras, module, dernier clip connu."""
-    async with ClientSession() as session:
+    async with blink_auth.session_http_temporaire() as session:
         blink = await blink_auth.connect_saved(session)
         if blink is None:
             raise RuntimeError(

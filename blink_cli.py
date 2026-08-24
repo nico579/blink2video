@@ -113,13 +113,11 @@ async def main(args: argparse.Namespace) -> int:
     # Lazy : seuls login/list/download/start (via ce chemin) paient le coût
     # d'aiohttp et de blinkpy (O-06/8.7/8.8).
     runtime.bootstrap()
-    from aiohttp import ClientSession
-
     import blink_auth
     import blink_engine
     import blink_models
 
-    async with ClientSession() as session:
+    async with blink_auth.session_http_temporaire() as session:
         blink = await blink_auth.connect(session)
         if blink is None:
             print("\nÉchec de la connexion Blink.")
