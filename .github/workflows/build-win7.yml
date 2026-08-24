@@ -48,7 +48,7 @@ jobs:
           import blink_auth
 
           async def main():
-              async with blink_auth.session_http() as session:
+              async with blink_auth.session_http_temporaire() as session:
                   async with session.get(
                       "https://api.oauth.blink.com", allow_redirects=False
                   ) as response:

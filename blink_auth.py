@@ -7,6 +7,8 @@ a déjà tourné (l'appelant décide quand : voir blink_cli.py et O-06/8.7)."""
 
 from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotations "X | None" ne s'évaluent qu'à l'écriture des chaînes, jamais à l'exécution.
 
+import asyncio
+from contextlib import asynccontextmanager
 import getpass
 import json
 import os
@@ -56,6 +58,19 @@ def contexte_tls() -> ssl.SSLContext:
 def session_http() -> ClientSession:
     """Crée une session aiohttp dont toutes les requêtes utilisent ce magasin."""
     return ClientSession(connector=TCPConnector(ssl=contexte_tls()))
+
+
+@asynccontextmanager
+async def session_http_temporaire():
+    """Ferme aussi le transport SSL avant que la boucle courte disparaisse."""
+    session = session_http()
+    try:
+        yield session
+    finally:
+        await session.close()
+        # aiohttp recommande 250 ms pour laisser asyncio fermer ses transports
+        # SSL ; nécessaire notamment avec la ProactorEventLoop de Python 3.8.
+        await asyncio.sleep(0.250)
 
 
 def load_saved_session() -> dict | None:
@@ -256,7 +271,7 @@ async def preflight() -> dict:
     etat = {"authenticated": False, "networks": 0, "sync_modules": 0,
             "cameras": 0, "cloud_only": False, "error": None}
     try:
-        async with session_http() as session:
+        async with session_http_temporaire() as session:
             blink = await connect_saved(session)
             if blink is None:
                 return etat

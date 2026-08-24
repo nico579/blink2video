@@ -441,6 +441,24 @@ class TestsDefautsSynchrones(BacASable):
             cafile="racines-certifi.pem"
         )
 
+    def test_win7_session_tls_attend_la_fermeture_du_transport(self):
+        """Python 3.8 : la boucle ne doit pas mourir avant le transport SSL."""
+        session = mock.Mock()
+        session.close = mock.AsyncMock()
+
+        async def utiliser():
+            with mock.patch.object(
+                blink_auth, "session_http", return_value=session
+            ), mock.patch.object(
+                blink_auth.asyncio, "sleep", new=mock.AsyncMock()
+            ) as attendre:
+                async with blink_auth.session_http_temporaire() as recue:
+                    self.assertIs(recue, session)
+                attendre.assert_awaited_once_with(0.250)
+
+        asyncio.run(utiliser())
+        session.close.assert_awaited_once_with()
+
     def test_I10_session_json_tableau_est_refusee_sans_exception(self):
         """I-10 : une racine JSON valide mais non objet doit être tolérée."""
         session = self.home / "blink_auth.json"

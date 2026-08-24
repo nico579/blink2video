@@ -637,7 +637,7 @@ class LoginFlow:
             return await self.queue.get()
 
         try:
-            async with blink_auth.session_http() as session:
+            async with blink_auth.session_http_temporaire() as session:
                 blink = await blink_auth.login(session, username, password, ask_code)
         except Exception as error:  # remonter la cause plutôt que planter le serveur
             return {"status": "error", "message": f"{type(error).__name__}: {error}"}

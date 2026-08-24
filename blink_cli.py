@@ -117,7 +117,7 @@ async def main(args: argparse.Namespace) -> int:
     import blink_engine
     import blink_models
 
-    async with blink_auth.session_http() as session:
+    async with blink_auth.session_http_temporaire() as session:
         blink = await blink_auth.connect(session)
         if blink is None:
             print("\nÉchec de la connexion Blink.")
