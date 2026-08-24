@@ -6,6 +6,7 @@ camera la montrait deja faible."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 import unittest
@@ -18,6 +19,29 @@ except ImportError:  # Python 3.8, édition Windows 7
 
 import merge_daily as md
 import watch
+
+
+class TestsSessionTls(unittest.TestCase):
+    def test_read_state_reutilise_la_session_tls_et_la_ferme(self):
+        class ArretAttendu(Exception):
+            pass
+
+        session = object()
+        contexte = mock.AsyncMock()
+        contexte.__aenter__.return_value = session
+        contexte.__aexit__.return_value = False
+        fabrique = mock.Mock(return_value=contexte)
+        connexion = mock.AsyncMock(side_effect=ArretAttendu)
+
+        with mock.patch.object(
+            watch.blink_auth, "session_http_temporaire", fabrique
+        ), mock.patch.object(watch.blink_auth, "connect_saved", connexion):
+            with self.assertRaises(ArretAttendu):
+                asyncio.run(watch.read_state(ZoneInfo("UTC")))
+
+        fabrique.assert_called_once_with()
+        connexion.assert_awaited_once_with(session)
+        contexte.__aexit__.assert_awaited_once()
 
 
 class TestsDerniereActivite(unittest.TestCase):
