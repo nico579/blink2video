@@ -1,0 +1,3 @@
+blink2video Windows 7 experimental build
+CPython 3.8.10 x86-64
+blinkpy 0.25.9+win7.1

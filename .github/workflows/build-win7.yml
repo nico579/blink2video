@@ -1,0 +1,75 @@
+name: Build Windows 7 (experimental)
+
+# Cible legacy volontairement séparée des releases. Le runner prouve que le
+# bundle Python 3.8 se construit et s'exécute, mais seule une vraie VM Windows
+# 7 SP1 peut certifier les DLL du système et le lancement final.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: CPython 3.8.10 x64
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # 3.8.10 est le dernier installateur Windows officiel de Python 3.8 et
+      # le dernier runtime CPython explicitement compatible Windows 7.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.8.10"
+          architecture: x64
+
+      - name: Compiler les sources avec le parseur Python 3.8
+        run: python -m compileall -q .
+
+      - name: Construire le bundle legacy propre
+        run: python build.py --win7 --propre
+
+      - name: Vérifier le verrou et les imports PE
+        shell: pwsh
+        run: |
+          .\build_venv_win7\Scripts\python.exe -m pip check
+          .\build_venv_win7\Scripts\python.exe verify_win7_bundle.py dist-win7\blink2video
+
+      - name: Vérifier que l'exécutable répond et s'identifie
+        shell: pwsh
+        run: |
+          $version = .\dist-win7\blink2video\blink2video.exe --version
+          $version
+          if ($version -notmatch 'Windows 7') { throw 'édition Win7 non identifiée' }
+          .\dist-win7\blink2video\blink2video.exe --help
+          .\dist-win7\blink2video\blink2video.exe watch --help
+          .\dist-win7\blink2video\blink2video.exe serve --help
+
+      - name: Vérifier le ffmpeg autonome et drawtext
+        shell: pwsh
+        run: |
+          $ffmpeg = Get-ChildItem dist-win7\blink2video -Recurse -File -Filter 'ffmpeg*.exe' | Select-Object -First 1
+          if (-not $ffmpeg) { throw 'ffmpeg absent du bundle' }
+          $filtres = & $ffmpeg.FullName -hide_banner -filters 2>&1
+          if ($LASTEXITCODE -ne 0) { throw "ffmpeg -filters a échoué ($LASTEXITCODE)" }
+          if (($filtres -join "`n") -notmatch 'drawtext') { throw 'drawtext absent du ffmpeg embarqué' }
+
+      # Les tests passent par le binaire à distribuer et utilisent le même venv
+      # verrouillé ; aucune seconde résolution pip ne peut rétrograder blinkpy.
+      - name: Éprouver la chaîne vidéo depuis le bundle
+        shell: pwsh
+        env:
+          BLINK_TEST_BUNDLE: dist-win7/blink2video/blink2video.exe
+        run: .\build_venv_win7\Scripts\python.exe tests.py
+
+      - name: Empaqueter
+        shell: pwsh
+        run: Compress-Archive -Path dist-win7\blink2video -DestinationPath dist-win7\blink2video-windows7-x86_64-experimental.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blink2video-windows7-x86_64-experimental
+          path: dist-win7/blink2video-windows7-x86_64-experimental.zip
+          retention-days: 30

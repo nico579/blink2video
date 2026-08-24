@@ -43,6 +43,11 @@ CACHE = Path(".blink_maj.json")
 # interroger GitHub à chaque ouverture de page.
 FRAICHEUR = 6 * 3600
 PREFIXE_TRAVAIL = ".blink_maj_"
+MESSAGE_WINDOWS7 = (
+    "Mise à jour automatique désactivée pour l'édition Windows 7 "
+    "expérimentale : une archive Windows standard réinstallerait Python 3.12 "
+    "et ne démarrerait plus sur ce système."
+)
 
 
 # ------------------------------------------------------------------ détection
@@ -70,6 +75,11 @@ def _archive_de_ce_systeme(assets: list) -> dict:
     arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x86_64"
     for asset in assets:
         nom = str(asset.get("name", ""))
+        # L'artefact Windows 7 reste manuel. Même s'il est ajouté par erreur à
+        # une release, un Windows récent ne doit pas le choisir à la place de
+        # l'archive officielle, qui porte elle aussi « windows » dans son nom.
+        if marque == "windows" and "windows7" in nom.lower():
+            continue
         if marque in nom and (arch in nom or marque == "macos"):
             return {"nom": nom, "url": asset.get("browser_download_url"),
                     "taille": int(asset.get("size") or 0)}
@@ -93,6 +103,9 @@ def disponible(force: bool = False, reseau: bool = True) -> dict:
     machine est hors ligne : une mise à jour signalée hier reste vraie. Sans
     `reseau`, on se contente de ce cache : c'est ainsi que l'interface répond,
     une requête de page n'ayant pas à attendre GitHub."""
+    if runtime.build_windows7():
+        return {}
+
     fichier = runtime.app_dir() / CACHE
     cache = {}
     try:
@@ -405,6 +418,9 @@ def _depuis_les_sources() -> int:
 
 def installer(force: bool = False) -> int:
     """Premier temps : chercher, télécharger, vérifier, puis passer la main."""
+    if runtime.build_windows7():
+        print(MESSAGE_WINDOWS7)
+        return 0
     if not runtime.frozen():
         return _depuis_les_sources()
 
@@ -465,6 +481,9 @@ def main() -> int:
 
     if arguments.finaliser:
         return finaliser(Path(arguments.finaliser))
+    if runtime.build_windows7():
+        print(MESSAGE_WINDOWS7)
+        return 0
     if arguments.check:
         neuve = disponible(force=True)
         if neuve:
