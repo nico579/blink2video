@@ -242,11 +242,18 @@ def arreter(arguments: list = ()) -> int:
         # déjà fait « arrêter » un service tiers et une messagerie sur la
         # machine d'un utilisateur. On vérifie l'identité avant de tuer quoi
         # que ce soit, jamais seulement l'existence du PID.
-        membres = [fiche["pid"], *(fiche.get("enfants") or [])]
-        for membre in membres:
+        membres = [(pid, None) for pid in
+                   [fiche["pid"], *(fiche.get("enfants") or [])]]
+        # Un ffmpeg de fusion (merge_daily.run_ffmpeg_batch/concat_copy) est un
+        # vrai enfant du PID principal, mais celui-ci n'a jamais droit au
+        # taskkill /T (protection du navigateur, voir arreter_processus) : sans
+        # ça ffmpeg resterait orphelin, tournant jusqu'à sa fin après « stop ».
+        # Empreinte dédiée : sa ligne de commande ne porte jamais « blink2video ».
+        membres += [(pid, ["ffmpeg"]) for pid in (fiche.get("travailleurs") or [])]
+        for membre, empreinte in membres:
             if not runtime.processus_vivant(int(membre)):
                 continue
-            if not runtime.processus_correspond(int(membre)):
+            if not runtime.processus_correspond(int(membre), empreinte):
                 print(f"  PID {membre} ne correspond plus à cette instance "
                       f"(numéro réattribué à un autre logiciel) : ignoré.")
                 continue
@@ -260,7 +267,8 @@ def arreter(arguments: list = ()) -> int:
         # membre dont le PID existe mais ne correspond plus à cette instance
         # (ci-dessus) ne compte pas comme un survivant : c'est notre
         # processus à nous qui est bien mort, seul son numéro a été repris.
-        survivants = [str(m) for m in membres if runtime.processus_correspond(int(m))]
+        survivants = [str(m) for m, empreinte in membres
+                      if runtime.processus_correspond(int(m), empreinte)]
         if survivants:
             restants.extend(survivants)
             continue

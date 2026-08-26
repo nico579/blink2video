@@ -662,6 +662,39 @@ class TestsDefautsSynchrones(BacASable):
         self.assertEqual(code, 0)
         self.assertFalse(fiche.exists())
 
+    def test_stop_tue_le_travailleur_ffmpeg_de_la_fusion(self):
+        """Un ffmpeg de fusion (merge_daily.run_ffmpeg_batch/concat_copy) est
+        un vrai enfant du PID principal, mais celui-ci n'a jamais droit au
+        taskkill /T (protection du navigateur, voir arreter_processus) : sans
+        inscription dédiée, ffmpeg restait orphelin et tournait jusqu'à sa fin
+        après « stop » (signalé sur Reddit, 2026-08-26). Sa ligne de commande
+        ne porte jamais « blink2video » : il lui faut sa propre empreinte,
+        jamais celle par défaut du projet."""
+        fiche = self.home / "instance.json"
+        fiche.write_text("{}", encoding="utf-8")
+        instance = {"pid": 111, "depuis": "maintenant", "verbes": [["watch", "--loop"]],
+                    "enfants": [], "travailleurs": [333], "fiche": fiche}
+
+        def correspond(pid, marqueurs=None):
+            if int(pid) == 333:
+                return marqueurs == ["ffmpeg"]
+            return True
+
+        with mock.patch.object(runtime, "lire_instances", return_value=[instance]), \
+             mock.patch.object(runtime, "arreter_processus") as tuer, \
+             mock.patch.object(runtime, "processus_vivant", return_value=True), \
+             mock.patch.object(runtime, "processus_correspond", side_effect=correspond), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = blink_cli.arreter([])
+        tuer.assert_any_call(333, avec_descendance=True)
+        # processus_correspond figé sur True (comme I-14 ci-dessus) : le
+        # membre « survit » toujours à sa propre vérification post-arrêt,
+        # sans lien avec le mock de arreter_processus. Ce que ce test vérifie
+        # est en amont, la ligne assert_any_call : le travailleur n'est tué
+        # qu'après avoir passé sa propre empreinte, jamais celle du projet.
+        self.assertEqual(code, 1)
+        self.assertTrue(fiche.exists())
+
     def test_E01_sans_argument_selectionne_start(self):
         """E-01/5.1 : l'absence d'argument emprunte le même dispatch que
         « start », préflight compris (blink2video.route, pas parse_args)."""

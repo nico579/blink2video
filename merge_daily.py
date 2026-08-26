@@ -724,7 +724,17 @@ def run_ffmpeg_batch(
         # tampon avant de rendre la main, et l'avancement arrive par paquets.
         bufsize=1,
         env=env,
+        # Sa propre session hors Windows, comme les verbes lancés côte à côte
+        # (voir blink_cli.executer) : avec_descendance=True sur ce PID fera
+        # os.killpg(getpgid(pid)) (runtime.arreter_processus), qui viserait
+        # sinon le groupe entier du terminal ayant lancé le parent.
+        start_new_session=(sys.platform != "win32"),
     )
+    # Inscrit pour qu'un « stop » ailleurs le tue directement : le PID
+    # principal qui nous a lancés n'a lui-même jamais droit au taskkill /T
+    # (protection du navigateur, voir arreter_processus), donc sans ça cet
+    # ffmpeg resterait orphelin et tournerait jusqu'à sa fin.
+    runtime.inscrire_travailleur(process.pid)
 
     # stderr est vidé par un fil dédié : s'il se remplit pendant qu'on lit
     # stdout, ffmpeg se bloque sur son écriture et le tout s'immobilise.
@@ -781,6 +791,7 @@ def run_ffmpeg_batch(
     finally:
         termine.set()
         chien_de_garde.join(timeout=5)
+        runtime.retirer_travailleur(process.pid)
     drain.join(timeout=5)
     stderr = "".join(part for part in captured if part).strip()
     if tue_par_silence:
@@ -818,7 +829,7 @@ def concat_copy(ffmpeg: str, parts: list, destination: Path) -> tuple[bool, str]
             "-c", "copy", "-movflags", "+faststart",
             str(destination),
         ]
-        result = runtime.lancer(
+        process = runtime.demarrer(
             command,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -826,10 +837,21 @@ def concat_copy(ffmpeg: str, parts: list, destination: Path) -> tuple[bool, str]
             text=True,
             encoding="utf-8",
             errors="replace",
-            check=False,
+            # Même raison que run_ffmpeg_batch : sans session propre hors
+            # Windows, le killpg de arreter_processus viserait le groupe du
+            # terminal ayant lancé le parent plutôt que ce seul processus.
+            start_new_session=(sys.platform != "win32"),
         )
-        if result.returncode != 0 or not valid_mp4(destination):
-            message = result.stderr.strip() or "FFmpeg n'a pas produit un MP4 valide"
+        # Même inscription que run_ffmpeg_batch, même raison : ce concat final
+        # est un vrai enfant du processus courant, mais taskkill /T ne
+        # s'applique jamais au PID principal (protection du navigateur).
+        runtime.inscrire_travailleur(process.pid)
+        try:
+            _, stderr = process.communicate()
+        finally:
+            runtime.retirer_travailleur(process.pid)
+        if process.returncode != 0 or not valid_mp4(destination):
+            message = (stderr or "").strip() or "FFmpeg n'a pas produit un MP4 valide"
             return False, message
         return True, ""
     finally:

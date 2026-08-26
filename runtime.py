@@ -705,6 +705,49 @@ def lire_instances() -> list:
     return vivantes
 
 
+def _fiche_courante() -> Path:
+    return app_dir() / INSTANCES / f"{os.getpid()}.json"
+
+
+def inscrire_travailleur(pid: int) -> None:
+    """Ajoute un PID de travailleur (ffmpeg en cours de fusion) à la fiche du
+    processus courant.
+
+    Un ffmpeg lancé en fusion est un vrai enfant de ce processus, mais
+    `arreter()` ne lui applique jamais taskkill /T sur son propre PID (voir
+    arreter_processus) : cette protection, ajoutée pour ne pas emporter un
+    navigateur adopté par erreur, laissait aussi ffmpeg orphelin et tournant
+    jusqu'à sa fin après un « stop ». L'inscrire ici lui donne une entrée que
+    « stop » sait tuer directement, sans dépendre du taskkill du parent.
+
+    Silencieux si la fiche n'existe pas encore : un appel direct aux
+    fonctions de fusion hors supervision de blink_cli (tests, script) n'a
+    simplement rien à enregistrer."""
+    fiche = _fiche_courante()
+    try:
+        donnees = json.loads(fiche.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    travailleurs = set(donnees.get("travailleurs") or [])
+    travailleurs.add(pid)
+    donnees["travailleurs"] = sorted(travailleurs)
+    fiche.write_text(json.dumps(donnees, ensure_ascii=False), encoding="utf-8")
+
+
+def retirer_travailleur(pid: int) -> None:
+    """Symétrique d'inscrire_travailleur : à appeler que le lot ait réussi,
+    échoué, ou ait été tué par le chien de garde silence de run_ffmpeg_batch."""
+    fiche = _fiche_courante()
+    try:
+        donnees = json.loads(fiche.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    travailleurs = set(donnees.get("travailleurs") or [])
+    travailleurs.discard(pid)
+    donnees["travailleurs"] = sorted(travailleurs)
+    fiche.write_text(json.dumps(donnees, ensure_ascii=False), encoding="utf-8")
+
+
 def arreter_processus(pid: int, avec_descendance: bool = False) -> None:
     """Arrête un processus, et sa descendance si on le demande.
 
