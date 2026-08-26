@@ -65,8 +65,14 @@ ENTREE = "blink2video"
 # rien quand rien n'a changé. Verbeux à lire, jamais à taper.
 REGLAGES = "blink_reglages.json"
 REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": True,
-                   "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": True,
-                   "merge_mois": True, "download_auto": True}
+                   "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": False,
+                   "merge_mois": False, "download_auto": True}
+# Hebdo et mensuel réencodaient par défaut la même matière que le quotidien
+# (chaque assemblage ré-encode ses clips, jamais un simple regroupement de
+# fichiers) : sur une installation neuve, ce triplement silencieux de
+# l'espace et du temps CPU surprenait plus qu'il n'aidait. Quotidien reste
+# seul par défaut ; les deux autres restent un choix explicite dans les
+# réglages (signalé sur Reddit, 2026-08-26).
 # Nombre d'éléments du bloc fixe en tête de standard() : serve, --port,
 # valeur, --timezone, valeur. blink_cli.route() s'appuie sur cette longueur
 # pour greffer le supplément de « start » juste après (voir standard()).

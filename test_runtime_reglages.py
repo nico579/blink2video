@@ -113,13 +113,17 @@ class TestsReglages(unittest.TestCase):
         self.assertEqual(runtime.lire_reglages()["timezone"], runtime.REGLAGES_DEFAUT["timezone"])
 
     def test_standard_reprend_les_verbes_historiques_avec_reglages_par_defaut(self):
+        # Hebdo et mensuel sont désactivés par défaut (chacun ré-encode la
+        # même matière que le quotidien) : une installation neuve n'a que
+        # --no-weekly --no-monthly à ajouter ici, jamais les deux réglages.
         self.assertEqual(
             runtime.standard(),
             ("serve", "--port", "8765", "--timezone", "Europe/Paris",
              "watch", "--loop", "10",
              "download", "--from", "usb", "--loop", "10",
              "download", "--from", "cloud", "--loop", "1",
-             "merge", "--loop", "5", "--timezone", "Europe/Paris"))
+             "merge", "--loop", "5", "--timezone", "Europe/Paris",
+             "--no-weekly", "--no-monthly"))
 
     def test_standard_reflete_les_reglages_enregistres(self):
         runtime.ecrire_reglages(usb_minutes=20, cloud_minutes=3, port=9090, timestamp=True,
