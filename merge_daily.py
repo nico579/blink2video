@@ -866,7 +866,18 @@ def progress_printer(label: str):
     en ligne de commande. Dans un tube (serve.py qui relit la sortie), un
     simple retour chariot n'émettrait aucune ligne et rien n'arriverait avant
     la fin : on écrit alors des lignes complètes, que le lecteur reconnaît à
-    leur forme et n'ajoute pas au journal."""
+    leur forme et n'ajoute pas au journal.
+
+    Sous pythonw.exe (raccourcis de démarrage automatique, voir
+    autostart.py), sys.stdout vaut None : chaque fusion y échouait dès le
+    premier lot, avant même d'encoder quoi que ce soit, `sys.stdout.isatty()`
+    levant une AttributeError aussitôt rattrapée par la boucle --loop puis
+    retentée sans jamais aboutir (repéré en réel le 27 août 2026 : « tour
+    interrompu par une erreur » toutes les 5 min pendant des heures). Aucun
+    flux vers lequel écrire : le rapporteur ne fait rien plutôt que de
+    retenter un print() tout aussi voué à échouer."""
+    if sys.stdout is None:
+        return lambda fraction: None
     interactive = sys.stdout.isatty()
     state = {"percent": -1, "when": 0.0}
 
