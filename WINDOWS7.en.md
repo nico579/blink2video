@@ -20,10 +20,13 @@ Download the resulting `blink2video-windows7-x86_64-experimental` artifact. The
 workflow also runs on every change to `main`, alongside the regular edition
 checks.
 
-The [experimental.3 prerelease](https://github.com/nico579/blink2video/releases/tag/v0.9.16-win7-experimental.3)
-has been validated on Windows 7 SP1 x64 for startup, Blink login, 2FA and clip
-loading. Its SHA-256 is
-`C6926E89A20D9A00776AD0D865B1ACF2DD37060B1F67F829D7189C97D1510400`.
+The [experimental.1 prerelease](https://github.com/nico579/blink2video/releases/tag/v0.10.0-win7-experimental.1)
+matches the v0.10.0 code, built and automatically verified (startup, ffmpeg,
+Blink TLS, the full test suite). Its SHA-256 is
+`4B9331AE25B429BBC83865AA6E18E0613514FA28B9F25DBC52C17154F358E6AB`.
+Manual validation on a real Windows 7 SP1 VM (startup, Blink login, 2FA, clip
+loading) is still pending before treating it as thoroughly proven as the
+previous experimental.3.
 
 A local build requires 64-bit Windows and the official python.org **CPython
 3.8.10** interpreter:
