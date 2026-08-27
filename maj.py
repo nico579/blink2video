@@ -460,9 +460,17 @@ def installer(force: bool = False) -> int:
     # celle-ci sans se scier la branche. Détachée, car ce processus fait partie
     # de ce qu'elle va arrêter.
     print("Passage à la nouvelle version…")
+    # BLINK_HOME force le dossier de données de la version relancée, celle-ci
+    # tournant depuis un dossier temporaire dont l'ancre naturelle ignore le
+    # blink_home.txt de l'installation réelle. Imposer `installe` tel quel
+    # ramenait le dossier de données à celui de l'exécutable à chaque mise à
+    # jour, même quand l'utilisateur l'avait explicitement redirigé ailleurs
+    # (signalé sur Reddit, 2026-08-26) : app_dir_depuis suit ce pointeur
+    # depuis `installe` au lieu de l'imposer lui-même.
+    reel = runtime.app_dir_depuis(installe)
     runtime.demarrer(
         [str(_executable(dossier)), "update", "--finaliser", str(installe)],
-        cwd=str(dossier), env=dict(os.environ, BLINK_HOME=str(installe)),
+        cwd=str(dossier), env=dict(os.environ, BLINK_HOME=str(reel)),
         stdin=subprocess.DEVNULL,
         stdout=(installe / "maj.log").open("ab"), stderr=subprocess.STDOUT,
         start_new_session=(os.name != "nt"))

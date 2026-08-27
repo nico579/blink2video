@@ -42,6 +42,7 @@ import blink_cli  # noqa: E402
 import blink_engine  # noqa: E402
 import blink_models  # noqa: E402
 import blink_registre  # noqa: E402
+import maj  # noqa: E402
 import runtime  # noqa: E402 - bootstrap neutralisé avant import
 import tray  # noqa: E402
 import watch  # noqa: E402
@@ -694,6 +695,54 @@ class TestsDefautsSynchrones(BacASable):
         # qu'après avoir passé sa propre empreinte, jamais celle du projet.
         self.assertEqual(code, 1)
         self.assertTrue(fiche.exists())
+
+    def test_maj_annonce_le_bon_dossier_de_donnees_a_la_relance(self):
+        """Bug corrige le 27 aout 2026 (signale sur Reddit) : pendant une
+        mise a jour, BLINK_HOME etait force sur le dossier d'installation
+        lui-meme pour la version relancee, ramenant le dossier de donnees a
+        celui de l'executable meme quand l'utilisateur l'avait explicitement
+        redirige ailleurs via le panneau de reglages. installer() doit
+        annoncer le dossier reellement en vigueur (pointeur suivi), pas le
+        dossier d'installation brut."""
+        installe = self.racine / "installe"
+        installe.mkdir()
+        (installe / "blink2video.exe").write_text("", encoding="utf-8")
+        reel = self.racine / "stockage_redirige"
+        (installe / runtime.POINTEUR_STOCKAGE).write_text(str(reel), encoding="utf-8")
+
+        neuve = {
+            "version": "9.9.9",
+            "archive": {"nom": "archive.zip",
+                        "url": "https://example.invalid/archive.zip",
+                        "taille": 10},
+        }
+        dossier_extrait = self.racine / "extrait"
+        dossier_extrait.mkdir()
+
+        with mock.patch.object(runtime, "build_windows7", return_value=False), \
+             mock.patch.object(runtime, "frozen", return_value=True), \
+             mock.patch("sys.executable", str(installe / "blink2video.exe")), \
+             mock.patch.object(maj, "disponible", return_value=neuve), \
+             mock.patch.object(maj, "_telecharger"), \
+             mock.patch.object(maj, "_extraire", return_value=dossier_extrait), \
+             mock.patch.object(maj, "_rendre_executable"), \
+             mock.patch.object(maj, "_verifier", return_value=True), \
+             mock.patch.object(runtime, "demarrer") as demarrer, \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = maj.installer()
+
+        self.assertEqual(code, 0)
+        demarrer.assert_called_once()
+        env_passe = demarrer.call_args.kwargs["env"]
+        # demarrer() est simulé : le vrai fichier maj.log qu'installer() a
+        # ouvert pour son stdout ne serait jamais fermé par un Popen réel.
+        # tearDown() efface ce dossier temporaire juste après ce test :
+        # sous Windows, le fichier encore ouvert bloquerait ce nettoyage.
+        demarrer.call_args.kwargs["stdout"].close()
+        # Le point du bug : BLINK_HOME ne doit jamais valoir `installe` tel
+        # quel des lors qu'un pointeur y redirige le stockage.
+        self.assertEqual(env_passe["BLINK_HOME"], str(reel.resolve()))
+        self.assertNotEqual(env_passe["BLINK_HOME"], str(installe))
 
     def test_E01_sans_argument_selectionne_start(self):
         """E-01/5.1 : l'absence d'argument emprunte le même dispatch que

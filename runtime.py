@@ -429,6 +429,30 @@ def _dossier_ancre() -> Path:
     return Path(__file__).resolve().parent
 
 
+def app_dir_depuis(ancre: Path) -> Path:
+    """Dossier de données qu'annoncerait app_dir(), mais à partir d'une ancre
+    donnée plutôt que celle de ce processus (BLINK_HOME mis à part).
+
+    Sert à maj.py : la version fraîchement extraite tourne depuis un dossier
+    temporaire, dont l'ancre naturelle ne connaît pas `blink_home.txt` de
+    l'installation réelle. Elle a besoin d'annoncer le bon dossier à la
+    version relancée sans pour autant l'enfermer dans l'ancre elle-même si
+    l'utilisateur a redirigé son stockage : suivre le pointeur depuis l'ancre
+    fournie donne l'un ou l'autre correctement, contrairement à imposer
+    l'ancre elle-même sans le lire (BLINK_HOME l'écraserait alors, y compris
+    pour un stockage explicitement redirigé ailleurs - c'est ce qui, en
+    pratique, ramenait le dossier de données à celui de l'exécutable après
+    chaque mise à jour, signalé sur Reddit, 2026-08-26)."""
+    pointeur = ancre / POINTEUR_STOCKAGE
+    try:
+        cible = pointeur.read_text(encoding="utf-8").strip()
+    except OSError:
+        cible = ""
+    if cible:
+        return Path(cible).expanduser().resolve()
+    return ancre
+
+
 def app_dir() -> Path:
     """Dossier des données : clips, vidéos, registres, journaux.
 
@@ -440,14 +464,7 @@ def app_dir() -> Path:
     forced = os.environ.get("BLINK_HOME")
     if forced:
         return Path(forced).expanduser().resolve()
-    pointeur = _dossier_ancre() / POINTEUR_STOCKAGE
-    try:
-        cible = pointeur.read_text(encoding="utf-8").strip()
-    except OSError:
-        cible = ""
-    if cible:
-        return Path(cible).expanduser().resolve()
-    return _dossier_ancre()
+    return app_dir_depuis(_dossier_ancre())
 
 
 def lire_dossier_stockage() -> str:

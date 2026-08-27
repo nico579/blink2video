@@ -65,6 +65,27 @@ class TestsDossierStockage(unittest.TestCase):
         runtime.ecrire_dossier_stockage(str(cible))
         self.assertEqual(runtime.lire_dossier_stockage(), str(cible.resolve()))
 
+    def test_app_dir_depuis_sans_pointeur_rend_l_ancre_fournie(self):
+        # maj.py l'appelle avec le dossier d'installation réel, pas
+        # forcément celui que _dossier_ancre() calculerait pour CE
+        # processus (tournant depuis un dossier temporaire) : l'ancre est
+        # donc un paramètre explicite, jamais relu depuis _dossier_ancre().
+        autre_ancre = self.ancre / "installation_reelle"
+        autre_ancre.mkdir()
+        self.assertEqual(runtime.app_dir_depuis(autre_ancre), autre_ancre)
+
+    def test_app_dir_depuis_suit_le_pointeur_de_l_ancre_fournie(self):
+        # Bug corrigé le 27 août 2026 (signalé sur Reddit) : maj.py forçait
+        # BLINK_HOME sur le dossier d'installation lui-même pendant une mise
+        # à jour, ramenant le dossier de données à celui de l'exécutable
+        # même quand l'utilisateur l'avait explicitement redirigé ailleurs.
+        autre_ancre = self.ancre / "installation_reelle"
+        autre_ancre.mkdir()
+        cible = self.ancre / "stockage_redirige"
+        (autre_ancre / runtime.POINTEUR_STOCKAGE).write_text(
+            str(cible), encoding="utf-8")
+        self.assertEqual(runtime.app_dir_depuis(autre_ancre), cible.resolve())
+
 
 if __name__ == "__main__":
     unittest.main()
