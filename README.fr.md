@@ -53,13 +53,17 @@ l'interface dit de quand elles datent.
 
 ![L'onglet Clips](Screenshots/serve0.fr.PNG)
 
-Les clips du plus récent au plus ancien, un seul bouton Filtre pour la caméra
-et la période ensemble : préréglages rapides (aujourd'hui, cette semaine, ce
-mois-ci, 2 derniers mois, ou tout l'historique) ou une plage personnalisée à
-l'heure près, pour retrouver un incident précis sans défiler tout l'historique
-d'une caméra toujours armée. Le filtre choisi reste mémorisé d'une visite à
-l'autre. Chaque carte donne la caméra, la durée, la date et le modèle, et le bouton
-« Écarter » retire le clip de toutes les vidéos assemblées.
+Les clips du plus récent au plus ancien. Chaque carte donne la caméra, la
+durée, la date et le modèle, et le bouton « Écarter » retire le clip de
+toutes les vidéos assemblées.
+
+![Le panneau de filtre](Screenshots/filtre.fr.PNG)
+
+Un seul bouton Filtre pour la caméra et la période ensemble : préréglages
+rapides (aujourd'hui, cette semaine, ce mois-ci, 2 derniers mois, ou tout
+l'historique) ou une plage personnalisée à l'heure près, pour retrouver un
+incident précis sans défiler tout l'historique d'une caméra toujours armée.
+Le filtre choisi reste mémorisé d'une visite à l'autre.
 
 ![Le panneau de réglages](Screenshots/settings.fr.PNG)
 

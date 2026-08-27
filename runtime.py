@@ -36,7 +36,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.9.16"
+VERSION = "0.10.0"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
