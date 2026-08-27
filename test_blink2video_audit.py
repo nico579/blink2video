@@ -394,6 +394,23 @@ class TestsDefautsSynchrones(BacASable):
             "le-plus-recent",
         )
 
+    def test_bug7_updated_at_malforme_ne_casse_pas_la_sauvegarde(self):
+        """Revue du 27/08, bug 7 : un fichier de session par ailleurs valide
+        contenant "updated_at": "invalide" faisait lever ValueError à
+        float(), y compris depuis le callback automatique de
+        rafraîchissement Blink. Traité comme aucune préférence connue (0) :
+        la nouvelle sauvegarde doit l'emporter, pas planter."""
+        session = self.home / "blink_auth.json"
+        session.write_text(json.dumps({
+            "token": "ancien", "updated_at": "invalide",
+        }), encoding="utf-8")
+        blink = SimpleNamespace(auth=SimpleNamespace(
+            login_attributes={"token": "nouveau"}))
+        with mock.patch.object(blink_auth, "CONFIG", session):
+            blink_auth.save_session(blink)
+        self.assertEqual(
+            json.loads(session.read_text(encoding="utf-8"))["token"], "nouveau")
+
     def test_sauvegarde_session_attend_le_verrou_avant_d_ecrire(self):
         """Bug #7, revue de code du 0eab463 : lecture-decision-ecriture
         passe desormais par runtime.verrou() - une sauvegarde concurrente ne

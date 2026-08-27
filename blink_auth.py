@@ -214,9 +214,19 @@ def save_session(blink: Blink) -> None:
                     precedent = json.loads(CONFIG.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError):
                     precedent = None
-            if (isinstance(precedent, dict)
-                    and float(precedent.get("updated_at") or 0) > data["updated_at"]):
-                return
+            if isinstance(precedent, dict):
+                # Un updated_at mal formé (fichier trafiqué à la main, JSON
+                # partiellement écrit puis récupéré) ne doit pas empêcher la
+                # sauvegarde : traité comme aucune préférence connue (0),
+                # pas comme une exception qui remonte jusqu'au callback de
+                # rafraîchissement automatique de Blink (revue du 27/08,
+                # bug 7).
+                try:
+                    precedent_updated_at = float(precedent.get("updated_at") or 0)
+                except (TypeError, ValueError):
+                    precedent_updated_at = 0
+                if precedent_updated_at > data["updated_at"]:
+                    return
 
             CONFIG.parent.mkdir(parents=True, exist_ok=True)
             temporary = CONFIG.with_name(
