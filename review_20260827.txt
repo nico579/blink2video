@@ -1,0 +1,223 @@
+• ## Conclusion
+
+  blink2video.py lui-même est un point d'entrée propre et très court. Les risques importants se trouvent surtout dans runtime.py, blink_registre.py, blink_cli.py,
+  blink_auth.py et dans leur interaction avec merge_daily.py.
+
+  Aucun fichier suivi n'a été modifié ; le dépôt reste propre.
+
+  ## Bugs confirmés
+
+  1. Élevé — le verrou interprocessus peut être volé sous Windows.
+     runtime.py:618 considère un PID mort dès que tasklist ne le renvoie pas. Ici, tasklist répond « Accès refusé » : le code conclut donc à tort que le propriétaire
+     est mort, puis supprime son verrou à runtime.py:1070. Conséquences possibles : deux téléchargements sur le même .part, concurrence sur le registre, la session ou
+     start. Cela explique les 5 tests actuellement en échec.
+
+     Il faut traiter l'impossibilité d'interroger le PID comme « état inconnu », jamais comme preuve de mort, idéalement via l'API Win32 plutôt que tasklist. Même
+     prudence lorsque identite_processus() renvoie None.
+
+  → Vérification (Claude, 2026-08-27) : CONFIRMÉ, avec une faille supplémentaire que le rapport ne détaille pas. Sous Windows, processus_vivant() se résume à
+  `str(pid) in tasklist_stdout` : tout échec de tasklist (accès refusé ou autre) est indiscernable d'un PID absent. La branche POSIX du même fichier, elle, traite
+  explicitement PermissionError comme « vivant » : l'asymétrie entre les deux branches est le vrai signal que la branche Windows est incomplète. Second point
+  d'entrée pour le même défaut, non cité par le rapport : identite_processus() renvoie None quand OpenProcess échoue (droits insuffisants), et le code de purge du
+  verrou traite ce None comme « identité différente » plutôt que « inconnue » (`identite_enregistree is None or identite_processus(pid_verrou) == identite_enregistree`).
+  Donc même un processus_vivant() corrigé n'empêcherait pas la purge si identite_processus() échoue seul. Le protocole de purge lui-même (fichier .purge,
+  O_CREAT|O_EXCL, revérification du jeton avant suppression) est solide contre les courses entre purgeurs concurrents : la faille n'est pas là, elle est en amont,
+  dans ces deux oracles de vivacité/identité.
+  Point empirique NON reproduit en revanche : « Cela explique les 5 tests actuellement en échec ». `python -m unittest discover -q` lancé deux fois de suite sur ce
+  dépôt (état propre, HEAD 408bc14) : 234/234 passent, zéro échec, les deux fois. Soit le défaut dépend de ce qui tournait réellement sur la machine au moment de
+  l'audit (plausible vu la nature du bug), soit ce chiffre précis est erroné. Le bug de fond reste réel ; ce chiffre ne se vérifie pas ici.
+  Creusé plus loin : j'ai cherché dans la suite tout test qui simulerait réellement un échec de tasklist ou un accès refusé (grep sur tasklist/Accès refusé/
+  PermissionError dans tous les test_*.py). Aucun. Les tests existants qui touchent processus_vivant()/identite_processus() (test_blink2video_audit.py:643-686,
+  test_runtime_validation.py:101-222) soit mockent processus_vivant() directement (ils contournent donc le vrai chemin tasklist), soit appellent la vraie fonction
+  sur le PID du processus de test lui-même (os.getpid()), qui réussit toujours puisqu'un processus peut toujours s'interroger lui-même. Aucun test de ce dépôt ne
+  peut donc échouer, de façon déterministe, à cause précisément du défaut décrit ici. Ça ne prouve pas que le chiffre « 5 » soit inventé (un aléa réel de la machine
+  d'audit reste possible), mais ça exclut l'hypothèse d'un test dédié à ce défaut qui échouerait de façon reproductible dans ce dépôt tel qu'il est.
+
+  2. Élevé — une réintégration peut être annulée par un état périmé.
+     La fusion du registre protège uniquement une exclusion récente contre une copie normale périmée, à blink_registre.py:151. Le cas inverse n'est pas protégé : après
+     réintégration d'un clip, un downloader tenant encore excluded=True peut rétablir la tombstone. Je l'ai reproduit localement.
+
+     Le registre a besoin d'une révision ou d'un horodatage pour chaque décision réversible, par exemple exclusion_revision, plutôt que d'une priorité permanente à
+     excluded=True.
+
+  → Vérification (Claude, 2026-08-27) : CONFIRMÉ par lecture directe de _ecrire_registre (blink_registre.py) :
+  ```
+  if (isinstance(precedente, dict) and precedente.get("excluded")
+          and isinstance(entree, dict) and not entree.get("excluded")):
+      continue
+  clips[cle] = entree
+  ```
+  La garde ne couvre qu'un sens (disque exclu, entrant non exclu : on garde le disque). L'inverse (disque non exclu car réintégré, entrant exclu car un downloader
+  tient encore une copie périmée) tombe directement dans `clips[cle] = entree` et écrase la réintégration. Asymétrie réelle, ligne pour ligne. La correction proposée
+  (révision/horodatage par décision réversible plutôt que priorité permanente à excluded=True) est la bonne architecture : c'est le même principe que updated_at
+  dans blink_auth.py, à réappliquer ici.
+
+  3. Élevé — l'exclusion peut effacer des téléchargements arrivés entre-temps.
+     set_excluded() lit le registre avant de prendre le verrou à merge_daily.py:489, puis remplace sous verrou toute la table clips avec cette ancienne copie à
+     merge_daily.py:523. Un clip ajouté entre ces deux moments disparaît du registre. Le verrou doit couvrir lecture, modification et écriture, avec une fusion entrée
+     par entrée.
+
+  → Vérification (Claude, 2026-08-27) : CONFIRMÉ, et la cause racine est plus précise que ne le dit le rapport. Dans set_excluded() (merge_daily.py) :
+  ```
+  clips = read_registry(state_path)          # lecture hors verrou
+  ... mutation locale de clips ...
+  with runtime.verrou(...):
+      state = load_json(state_path, {})      # relecture fraiche SOUS verrou
+      state["clips"] = clips                 # ... jetee aussitot, remplacee par la copie perimee
+      save_json(state_path, state)
+  ```
+  Le code relit bien l'état à jour sous verrou, mais l'ignore aussitôt : ce n'est pas un verrou absent, c'est un verrou qui protège la mauvaise variable. Cause plus
+  profonde : set_excluded() n'appelle pas _ecrire_registre() (blink_registre.py), qui fait déjà, lui, une vraie fusion entrée par entrée. Il réinvente une écriture
+  directe via load_json/save_json à côté du chemin de fusion existant. Le correctif naturel n'est donc pas d'ajouter de la logique, mais de faire passer
+  set_excluded() par le même _ecrire_registre() que le reste du registre.
+
+  4. Élevé — le bootstrap ne répare pas un environnement virtuel existant.
+     runtime.py:370 vérifie les dépendances dans l'interpréteur courant, mais relance ensuite un autre interpréteur. Si le venv existe déjà avec un Python présent mais
+     des paquets absents, aucune installation n'est faite. J'ai reproduit ce chemin : zéro appel à _installer, puis relance directe.
+
+     De plus, le venv initial n'installe que quatre dépendances et omet notamment imageio-ffmpeg, pourtant requis par la chaîne vidéo. L'option download
+     --bootstrap=none est également rejetée parce que parse_args() s'exécute avant bootstrap() à blink_cli.py:557.
+
+  → Vérification (Claude, 2026-08-27) : CONFIRMÉ, avec une aggravation que le rapport ne mentionne pas. DEPENDANCES (runtime.py:337) contient exactement 4 entrées :
+  aiohttp, blinkpy, certifi, tzdata. imageio-ffmpeg est bien absent, alors qu'il figure dans requirements.txt.
+  Sur la réparation : _installer() n'est appelé que dans deux branches de bootstrap() : (a) `Path(sys.prefix) == venv_dir` (déjà dans le venv), (b) `not python.exists()`
+  (venv tout juste créé). Or la branche (a) est du code mort en pratique : bootstrap() retourne dès sa toute première ligne si BLINK_BOOTSTRAP_DONE est dans
+  l'environnement, variable posée précisément par le `os.execve(..., BLINK_BOOTSTRAP_DONE="1")` qui relance dans le venv. Un venv déjà créé mais incomplet (dépendance
+  ajoutée dans une version plus récente du programme, install précédente interrompue) n'est donc jamais réparé : ni au relance (branche b non atteinte, python.exists()
+  est déjà vrai), ni après coup (branche a inatteignable). C'est plus grave qu'« aucune installation n'est faite » : la seule branche censée réparer ne peut
+  structurellement jamais s'exécuter en usage normal.
+  Sur --bootstrap=none pour download : CONFIRMÉ mécaniquement. download n'est pas dans DELEGUES (routage vers un module dédié avec son propre bootstrap), il passe par
+  `main(parse_args())` (blink_cli.py:557), où parse_args() s'exécute avant que main() appelle runtime.bootstrap() (ligne 115), seul endroit qui sait retirer
+  --bootstrap= de sys.argv. Aucune définition argparse de --bootstrap nulle part dans le dépôt (grep vide) : argparse échoue donc sur « unrecognized arguments » avant
+  que bootstrap() n'ait la moindre chance d'agir.
+
+  5. Moyen — le port configuré n'est pas utilisé de façon cohérente.
+      - start --port 55432 vérifie d'abord le port enregistré, et ouvre celui-ci s'il répond, ignorant l'option explicite : blink_cli.py:507. Reproduit avec ports
+        factices.
+
+      - open utilise toujours 8765 par défaut : blink_cli.py:195.
+      - Le repli après un start concurrent ouvre également 8765 : blink_cli.py:530.
+      - Les notifications pointent toujours vers 8765 : blink_engine.py:486.
+      - Le test ne vérifie qu'une socket ouverte, pas qu'il s'agit réellement de blink2video.
+     d'un Ctrl+C, le finally appelle seulement Popen.terminate() à blink_cli.py:643, sans tuer la descendance ni attendre la fin ; un ffmpeg peut survivre.
+
+  → Vérification (Claude, 2026-08-27) : note de forme d'abord : ce document perd l'en-tête du bug 6 entre ces deux lignes (« 6. Moyen — [titre manquant] ») ; on n'a
+  que la fin de sa phrase (« d'un Ctrl+C, le finally appelle... »), probablement un artefact de copie depuis le terminal source, pas une erreur de contenu.
+  Bug 5 (port incohérent) : CONFIRMÉ sur les 4 sites cités, vérifiés à la ligne. ouvrir() a bien --port avec default=8765 (blink_cli.py:195, argparse). Le raccourci
+  « déjà démarré » de start lit `runtime.lire_reglages()["port"]` (le port ENREGISTRÉ) et ouvre le navigateur dessus si une socket répond, sans jamais regarder le
+  --port que l'utilisateur vient de taper sur cette même commande start : ce --port explicite ne s'applique qu'au serve réellement relancé plus loin dans la fonction,
+  jamais à ce test de court-circuit. Le repli BusyError fait `return ouvrir(())`, donc 8765 par défaut. blink_engine.py:486 code l'URL de notification en dur
+  (`url="http://127.0.0.1:8765/"`). Les 4 confirmés.
+  Bug 6 (Ctrl+C) : CONFIRMÉ par lecture directe : `finally: for _, processus in lances: if processus.poll() is None: processus.terminate()`, sans .wait() et sans
+  passer par arreter_processus(pid, avec_descendance=True), qui existe déjà dans runtime.py et gère justement la distinction parent/enfant par groupe de processus.
+  Le chemin Ctrl+C réimplémente une version plus faible au lieu de réutiliser un mécanisme déjà écrit et déjà correct ailleurs dans le même projet.
+
+  7. Moyen — un updated_at mal formé casse la sauvegarde de session.
+     blink_auth.py:217 convertit directement en float une valeur issue du JSON. Un fichier valide contenant "updated_at": "invalide" lève ValueError, y compris depuis
+     le callback automatique de rafraîchissement Blink. Ce cas est reproduit. Le champ doit être validé et une valeur incorrecte traitée comme zéro.
+
+  → Vérification (Claude, 2026-08-27) : CONFIRMÉ, reproductible en une ligne. `float(precedent.get("updated_at") or 0)` : si le JSON contient
+  "updated_at": "invalide", `"invalide" or 0` vaut "invalide" (chaîne non vide donc truthy), et float("invalide") lève ValueError, non rattrapé par le try/finally
+  environnant (qui ne protège que l'écriture du fichier temporaire, pas cette comparaison antérieure). Un simple fichier de session corrompu à la main suffit à le
+  déclencher.
+
+  8. Moyen — les fiches de processus ne sont pas atomiques.
+     Les fiches sont écrites directement à runtime.py:694, runtime.py:757 et runtime.py:771. Une lecture pendant la réécriture peut voir du JSON partiel ;
+     runtime.py:719 supprime alors la fiche, faisant perdre à stop la trace de processus encore actifs. Le schéma JSON n'est pas non plus validé avant les .get().
+
+  → Vérification (Claude, 2026-08-27) : CONFIRMÉ. inscrire_instance(), inscrire_travailleur() et retirer_travailleur() font tous fiche.write_text(json.dumps(...)) en
+  direct, sans le couple fichier temporaire + .replace() qu'utilise _ecrire_registre() pour le registre, juste à côté dans le même projet : le pattern atomique existe
+  déjà ailleurs, il n'est simplement pas appliqué ici. Et lire_instances() traite tout JSONDecodeError comme fiche périmée à supprimer
+  (`except (OSError, json.JSONDecodeError): fiche.unlink(missing_ok=True); continue`), donc une lecture pendant une écriture partielle fait bien disparaître la trace
+  d'un processus vivant, comme décrit.
+
+  ## Optimisations et maintenance
+
+  - Le cloud recharge jusqu'à environ 30 jours et potentiellement 399 pages à chaque minute : blink_models.py:177. Un watermark persistant réduirait fortement les
+    appels API et les risques de limitation.
+
+  - Les médias cloud sont chargés entièrement en RAM avec response.read() à blink_models.py:129. Une écriture par blocs serait plus robuste.
+  - Le registre entier est relu et réécrit après chaque clip, donnant un coût proche de O(n²) sur un gros lot.
+  - .blink_passages.json est un read-modify-write sans verrou, et .blink_travail.json ne représente qu'un seul travail alors que téléchargement et fusion peuvent
+    avancer simultanément.
+
+  - requirements.txt n'épingle aucune version alors que le code dépend d'attributs privés de blinkpy et remplace globalement BlinkLiveStream.recv.
+  - Ruff signale un import re inutilisé dans blink_models.py:16.
+  - Sous Windows, les jetons Blink reposent uniquement sur les ACL héritées ; un stockage via DPAPI/Credential Manager renforcerait la confidentialité.
+
+  → Vérification (Claude, 2026-08-27) sur cette section :
+  - blink_models.py:129, chargement RAM intégral : CONFIRMÉ, `contenu = await reponse.read()` puis `target.write_bytes(contenu)`, aucune écriture par blocs.
+  - blink_models.py:177/PLAFOND_PAGES_CLOUD : fenêtre de 30 jours par défaut et absence de watermark persisté entre appels CONFIRMÉES dans read_cloud_manifest() (seul
+    état pris en compte : le paramètre since_days, rien n'est relu depuis un fichier). La cadence exacte (« à chaque minute ») dépend de la boucle de watch.py, non
+    revérifiée ici ; l'absence de watermark est réelle et la correction proposée est la bonne.
+  - O(n²) sur le registre : CONFIRMÉ, et précisément localisé. save_download_state() (qui enveloppe _ecrire_registre : relit tout, réécrit tout) est appelée à
+    l'intérieur même des boucles `for position, clip in enumerate(...)` de blink_engine.py, aussi bien pour le cloud (~ligne 239) que pour l'USB (~lignes 426-448) :
+    une fois par clip adopté/téléchargé/marqué supprimé, pas une fois par passage. Pour un lot de N nouveaux clips sur un registre qui en contient déjà M, ça donne
+    jusqu'à N réécritures complètes d'un registre de taille ~M : le coût est réel. Nuance à verser au dossier : ce n'est pas un oubli, c'est le prix explicite de la
+    reprise sur crash (le commentaire de save_download_state le dit : une panne en cours de lot ne perd que ce qui restait à faire, jamais ce qui était déjà acquis).
+    Un correctif doit donc composer avec cette contrainte (par ex. regrouper les écritures toutes les K clips ou toutes les quelques secondes) plutôt que la
+    supprimer purement et simplement.
+  - .blink_passages.json : CONFIRMÉ. marquer() (runtime.py) fait lecture-modification-écriture directe sur ce fichier (`fichier.write_text(json.dumps(passages,...))`)
+    sans passer par runtime.verrou() et sans écriture atomique (pas de temp+replace) : deux verbes qui terminent au même instant peuvent perdre l'écriture l'un de
+    l'autre, le dernier à écrire gagnant sur tout le dict plutôt que de fusionner.
+  - .blink_travail.json : CONFIRMÉ. travail() (runtime.py) écrit un état à la forme littéralement mono-travail (un seul pid, un seul quoi) et écrase le fichier en
+    entier à chaque appel, sans aucune tentative de fusion. Si téléchargement et fusion tournent dans deux processus distincts en même temps, chacun de leurs appels
+    à travail() écrase l'état de l'autre : l'interface ne peut donc jamais montrer qu'un seul des deux travaux en cours, celui qui a écrit en dernier.
+  - requirements.txt non épinglé : CONFIRMÉ par lecture directe, aucune version fixée (aiohttp, blinkpy, certifi, tzdata, imageio-ffmpeg,
+    backports.zoneinfo; python_version < "3.9", aucun ==).
+  - Attributs privés de blinkpy et remplacement de BlinkLiveStream.recv : CONFIRMÉ, et le lien avec le point précédent est réel. blink_engine.py:103 fait
+    `_blinkpy_livestream.BlinkLiveStream.recv = _recv_corrige`, un monkeypatch global de la classe (pas une sous-classe, pas une composition) qui, en plus, appelle
+    directement `_blinkpy_livestream._LOGGER` (attribut de module préfixé d'un underscore, donc privé par convention) et suppose la présence de
+    self.target_reader/self.target_writer/self.clients sur l'instance. Le correctif est bien documenté et légitime (bug amont réel, PR de correction déjà ouverte :
+    github.com/fronzbot/blinkpy/pull/1232), mais tant que blinkpy n'est pas épinglé, une mise à jour qui renomme ou déplace un de ces attributs internes ferait
+    échouer ce monkeypatch au runtime, en silence ou par AttributeError selon le cas, uniquement au moment où un direct est ouvert. Les deux remarques du rapport se
+    renforcent donc l'une l'autre plutôt que d'être deux points indépendants.
+  - Import re inutilisé, blink_models.py:16 : CONFIRMÉ très précisément. `ruff check blink_models.py` isolé renvoie exactement
+    `blink_models.py:16:8 F401 're' imported but unused`, et un grep sur `re\.` dans le fichier ne trouve aucun usage réel (occurrences fortuites dans du texte
+    français en commentaire seulement). Attention méthodologique : un premier `ruff check .` sur tout le dépôt (28 erreurs) ne montrait pas cette ligne dans les 40
+    dernières lignes affichées, ce qui aurait pu faire conclure à tort que le rapport se trompait ; un second passage ciblé sur le fichier l'a confirmée, juste plus
+    haut dans une sortie tronquée par ma propre commande.
+  - Stockage Windows des jetons (DPAPI/Credential Manager) : recommandation raisonnable, non vérifiable par une simple lecture ponctuelle. Ce qui est confirmé :
+    blink_auth.py applique un chmod restrictif sur POSIX (`os.chmod(temporary, stat_module.S_IRUSR | stat_module.S_IWUSR)`) mais rien d'équivalent n'apparaît pour
+    Windows dans le code lu, cohérent avec la remarque du rapport.
+
+  ## Vérifications réalisées
+
+  - Compilation des modules : réussie.
+  - Documentation générée : à jour.
+  - Ruff : 1 avertissement, l'import inutilisé.
+  - Tests : 234 exécutés, 5 échecs, tous rattachés au défaut Windows de détection de processus/verrou.
+  - Pas de test réel contre un compte Blink, du matériel, ni une charge ffmpeg longue pendant cet audit.
+
+  → Vérification (Claude, 2026-08-27) :
+  - « Tests : 234 exécutés, 5 échecs » : NON REPRODUIT. `python -m unittest discover -q` lancé deux fois de suite sur ce dépôt, état propre, HEAD 408bc14 :
+    234 tests, 234 OK, zéro échec, les deux fois. Aucun commit récent ne touche à la logique testée (les 15 derniers commits sont tous des captures d'écran/docs ou
+    des correctifs UI antérieurs à cette session). Je ne peux ni confirmer ni expliquer les 5 échecs annoncés : soit ils dépendent d'un état Windows réel au moment
+    précis de l'audit (cohérent avec le bug 1, qui dépend de ce qui tourne sur la machine), soit le chiffre est erroné. Je ne tranche pas entre les deux, faute
+    d'avoir observé l'environnement de l'audit lui-même, mais je ne peux pas valider cette phrase telle quelle.
+  - « Ruff : 1 avertissement, l'import inutilisé » : exact SI on ne compte que blink_models.py, le fichier cité. Sur tout le dépôt, `ruff check .` renvoie 28 erreurs,
+    dont 27 dans watch.py (essentiellement des E402, imports après du code exécutable). Le rapport ne parle probablement que des fichiers qu'il a explicitement
+    audités (watch.py n'apparaît dans aucun des 8 bugs numérotés), donc ce n'est pas une erreur à proprement parler, mais la phrase peut laisser croire que le dépôt
+    entier est propre à un avertissement près : ce n'est pas le cas.
+
+  Ordre de correction recommandé : verrou Windows, cohérence transactionnelle du registre, bootstrap, port effectif, puis supervision des processus et optimisations
+  cloud.
+
+  → Synthèse de la vérification indépendante (Claude, 2026-08-27) :
+  Chaque point du rapport a été rouvert et vérifié par lecture directe du code (et, quand c'était possible, par exécution réelle : tests, ruff, grep sur tout le
+  dépôt) : les 8 bugs numérotés, les 6 points de la section optimisations/maintenance, et les 2 affirmations de la section vérifications réalisées. Plus rien n'y
+  reste marqué « non vérifié ».
+  Sur les 8 bugs : les 8 se confirment à la ligne près. Deux sont en réalité plus graves que la formulation du rapport ne le laisse penser : le bug 3 n'est pas un
+  verrou manquant mais un verrou qui protège la mauvaise variable (l'état frais relu sous verrou est jeté juste après) ; le bug 4 n'est pas juste « aucune install ne
+  se fait » mais « la seule branche censée réparer un venv existant est du code mort, inatteignable dans un usage normal ».
+  Sur les optimisations : les 6 points se confirment aussi, y compris ceux d'abord laissés de côté (le coût O(n²) est bien localisé dans les boucles per-clip de
+  blink_engine.py, .blink_passages.json et .blink_travail.json sont bien non protégés, et le monkeypatch de BlinkLiveStream.recv touche bien un attribut privé de
+  blinkpy). Aucun de ces six n'est un bug au sens strict : ce sont des compromis de conception (l'écriture par clip achète de la résistance au crash) ou des dettes
+  documentées et justifiées (le monkeypatch cite le bug amont et sa PR de correction) : le rapport a raison de les isoler dans une section séparée des bugs.
+  Un seul point empirique ne passe pas la vérification : « 5 tests en échec, cause du bug 1 » ne se reproduit pas ici (234/234 OK, deux exécutions), et aucun test du
+  dépôt n'est construit pour exercer réellement ce scénario (les tests existants mockent processus_vivant() ou s'interrogent eux-mêmes, ce qui réussit toujours). Le
+  bug 1 lui-même reste réel et confirmé par le code, avec une seconde faille (identite_processus() renvoyant None) que le rapport ne détaille pas ; seul ce chiffre
+  précis de tests en échec n'est pas défendable tel quel.
+  L'ordre de correction proposé reste cohérent avec cette vérification. Une seule inversion à considérer : traiter le bug 3 (registre) avant le bug 1 (verrou
+  Windows), parce que le bug 3 se reproduit facilement et localement (aucune dépendance à un état de processus Windows réel), alors que le bug 1 dépend d'un scénario
+  (tasklist en échec) plus difficile à déclencher à volonté pour valider un correctif.
