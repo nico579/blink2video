@@ -110,6 +110,34 @@ class ProcessusSansPsTests(unittest.TestCase):
             self.assertTrue(runtime.processus_vivant(os.getpid()))
 
 
+class ProcessusVivantWindowsTests(unittest.TestCase):
+    """Revue du 27/08, bug 1 : sous Windows, un tasklist qui échoue à
+    répondre (accès refusé, service RPC indisponible) ne prouve rien sur le
+    pid interrogé - contrairement à une réponse qui dit vraiment "absent"."""
+
+    def test_tasklist_en_echec_reste_vivant(self) -> None:
+        resultat = mock.Mock(returncode=1, stdout="", stderr="Erreur : Accès refusé.")
+        with mock.patch.object(runtime.os, "name", "nt"), \
+             mock.patch.object(runtime, "lancer", return_value=resultat):
+            self.assertTrue(runtime.processus_vivant(os.getpid()))
+
+    def test_tasklist_introuvable_reste_vivant(self) -> None:
+        with mock.patch.object(runtime.os, "name", "nt"), \
+             mock.patch.object(runtime, "lancer",
+                               side_effect=FileNotFoundError(2, "No such file or directory", "tasklist")):
+            self.assertTrue(runtime.processus_vivant(os.getpid()))
+
+    def test_tasklist_pid_absent_est_bien_mort(self) -> None:
+        resultat = mock.Mock(
+            returncode=0,
+            stdout="Information : aucune tâche en service ne correspond aux critères spécifiés.",
+            stderr="",
+        )
+        with mock.patch.object(runtime.os, "name", "nt"), \
+             mock.patch.object(runtime, "lancer", return_value=resultat):
+            self.assertFalse(runtime.processus_vivant(999_999_999))
+
+
 class VerrouTests(unittest.TestCase):
     """B-05 : acquisition atomique, jamais de vol d'un propriétaire vivant,
     récupération d'un verrou abandonné par un processus mort."""
@@ -172,6 +200,22 @@ class VerrouTests(unittest.TestCase):
         with self.assertRaises(runtime.BusyError):
             with runtime.verrou("ancien-format", "voleur", attente=0):
                 pass
+        cible.unlink()
+
+    def test_verrou_identite_actuelle_inconnue_reste_protege(self) -> None:
+        """Revue du 27/08, bug 1 : si identite_processus() échoue à
+        interroger le pid actuel (OpenProcess refusé, par exemple), un None
+        ne doit pas valoir "identité différente" - seulement "on ne sait
+        pas", donc pas de purge à tort d'un propriétaire pourtant vivant."""
+        cible = self.fichier("identite-inconnue")
+        cible.write_text(json.dumps(
+            {"owner": "legitime", "pid": os.getpid(), "jeton": "valide",
+             "at": time.time(), "identite": "identite-enregistree-a-la-creation"}
+        ), encoding="utf-8")
+        with mock.patch.object(runtime, "identite_processus", return_value=None):
+            with self.assertRaises(runtime.BusyError):
+                with runtime.verrou("identite-inconnue", "voleur", attente=0):
+                    pass
         cible.unlink()
 
     def test_verrou_corrompu_leve_busyerror_au_lieu_de_boucler(self) -> None:

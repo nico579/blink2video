@@ -615,10 +615,24 @@ def processus_vivant(pid: int) -> bool:
             # de cette verification.
             return True
         return not (etat.stdout or "").strip().startswith("Z")
-    resultat = lancer(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                      stderr=subprocess.DEVNULL, text=True, errors="replace",
-                      check=False)
+    try:
+        resultat = lancer(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL, text=True, errors="replace",
+                          check=False)
+    except OSError:
+        # tasklist introuvable (image Windows minimale, PATH cassé) : comme
+        # pour ps côté POSIX ci-dessus, on ne peut rien affirmer sur le pid.
+        return True
+    if resultat.returncode != 0:
+        # Un tasklist qui répond "Information : aucune tâche..." pour un pid
+        # absent sort en code 0 ; un code non nul signale que la commande
+        # elle-même a échoué (accès refusé, service RPC indisponible, filtre
+        # rejeté - vérifié empiriquement, les deux cas d'échec produits à la
+        # main sortent en 1 avec "Erreur :" sur stderr). Ça ne prouve rien
+        # sur le pid, seulement que la question n'a pas pu être posée : trancher
+        # "mort" ici volerait le verrou d'un propriétaire pourtant vivant.
+        return True
     return str(pid) in (resultat.stdout or "")
 
 
@@ -1076,15 +1090,21 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
             continue
         pid_verrou = int(presente.get("pid") or 0)
         identite_enregistree = presente.get("identite")
+        identite_actuelle = identite_processus(pid_verrou)
         # Vivant ET la même identité : un pid recyclé par un autre processus
         # après la mort du vrai propriétaire ne doit pas passer pour lui
         # (AUDIT-2026-08-13, 28.82/28.84). Une marque sans "identite" vient
         # d'un ancien format (avant ce correctif) : on ne peut alors rien
         # comparer, on retombe sur l'ancien comportement plutôt que de purger
-        # à tort un verrou légitime.
+        # à tort un verrou légitime. Même logique si identite_processus()
+        # échoue à interroger le pid actuel (OpenProcess refusé, par exemple) :
+        # un None ici ne prouve pas une identité différente, seulement qu'on
+        # n'a pas pu la lire, donc on ne tranche pas "différent" sur cette
+        # seule base (revue du 27/08, bug 1).
         meme_processus = (
             identite_enregistree is None
-            or identite_processus(pid_verrou) == identite_enregistree
+            or identite_actuelle is None
+            or identite_actuelle == identite_enregistree
         )
         if not (processus_vivant(pid_verrou) and meme_processus):
             # Propriétaire mort, ou pid recyclé par quelqu'un d'autre : purge
