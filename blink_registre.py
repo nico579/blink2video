@@ -142,6 +142,41 @@ def _sauvegarder_registre_v1(state_file: Path) -> None:
         ) from erreur
 
 
+def _exclusion_a_retenir(precedente: dict, entree: dict) -> tuple:
+    """État d'exclusion (excluded, excluded_at) à retenir pour un clip que
+    la fusion trouve des deux côtés.
+
+    La décision d'exclusion/réintégration (posée par set_excluded(), jamais
+    par le téléchargeur) est un état à part : sur ce champ précis, seule la
+    décision la plus récente doit l'emporter, dans les deux sens - une
+    priorité fixe à excluded=True protégeait une exclusion contre une copie
+    de downloader périmée, mais laissait une réintégration se faire défaire
+    par cette même copie arrivée après coup (revue du 27/08, bug 2).
+
+    Un excluded_at absent d'un côté ne prouve rien sur l'ordre réel : il
+    peut s'agir d'une entrée neuve qui ne connaît pas ce champ, ou d'une
+    donnée antérieure à son introduction. Un côté daté l'emporte donc
+    toujours sur un côté muet ; seul le cas où aucun des deux n'est daté
+    retombe sur le repli historique (B-04) : ne jamais laisser une copie
+    muette annuler une exclusion active."""
+    disque_exclu = bool(precedente.get("excluded"))
+    entrant_exclu = bool(entree.get("excluded"))
+    depuis_disque = precedente.get("excluded_at")
+    depuis_entrant = entree.get("excluded_at")
+
+    if disque_exclu == entrant_exclu:
+        return entrant_exclu, depuis_entrant or depuis_disque
+    if depuis_disque and depuis_entrant:
+        if depuis_disque > depuis_entrant:
+            return disque_exclu, depuis_disque
+        return entrant_exclu, depuis_entrant
+    if depuis_disque and not depuis_entrant:
+        return disque_exclu, depuis_disque
+    if depuis_entrant and not depuis_disque:
+        return entrant_exclu, depuis_entrant
+    return disque_exclu or entrant_exclu, None
+
+
 def _ecrire_registre(state_file: Path, state: dict) -> None:
     """Superpose ses propres entrées à celles déjà sur disque, atomiquement."""
     output = state_file.parent
@@ -150,15 +185,13 @@ def _ecrire_registre(state_file: Path, state: dict) -> None:
     clips = dict(disque.get("clips") or {})
     for cle, entree in (state.get("clips") or {}).items():
         precedente = clips.get(cle)
-        # Une exclusion posée par l'interface est une décision utilisateur :
-        # une copie périmée du downloader ne doit jamais l'annuler.
-        if (
-            isinstance(precedente, dict)
-            and precedente.get("excluded")
-            and isinstance(entree, dict)
-            and not entree.get("excluded")
-        ):
-            continue
+        if isinstance(precedente, dict) and isinstance(entree, dict):
+            excluded, excluded_at = _exclusion_a_retenir(precedente, entree)
+            if (excluded, excluded_at) != (bool(entree.get("excluded")), entree.get("excluded_at")):
+                entree = dict(entree)
+                entree["excluded"] = excluded
+                if excluded_at is not None:
+                    entree["excluded_at"] = excluded_at
         clips[cle] = entree
     fusionne["clips"] = clips
     fusionne["version"] = max(

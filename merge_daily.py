@@ -516,8 +516,13 @@ def set_excluded(
                     (normalized_dir / identity).unlink(missing_ok=True)
                     print(f"  Exclu : {identity}")
                 else:
-                    clips[key].pop("excluded", None)
-                    clips[key].pop("excluded_at", None)
+                    # Un horodatage plutôt qu'un simple retrait du champ :
+                    # _ecrire_registre() (blink_registre.py) s'en sert pour
+                    # savoir que CETTE décision de réintégration est plus
+                    # récente qu'un excluded=True qu'un downloader périmé
+                    # tenterait de réécrire après coup (revue du 27/08, bug 2).
+                    clips[key]["excluded"] = False
+                    clips[key]["excluded_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
                     move_aside(excluded_dir / identity, input_dir / identity)
                     if (input_dir / identity).exists():
                         print(f"  Réintégré : {identity}")

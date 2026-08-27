@@ -800,6 +800,34 @@ class TestsDefautsSynchrones(BacASable):
         fusion = json.loads(fichier.read_text(encoding="utf-8"))
         self.assertIs(fusion["clips"]["commun"].get("excluded"), True)
 
+    def test_bug2_reintegration_survit_a_un_downloader_perime(self):
+        """Revue du 27/08, bug 2 : contrepoint de B-04. Un clip vient d'être
+        réintégré (excluded=False, horodaté) ; un downloader qui tenait
+        encore une copie excluded=True lue avant cette réintégration ne doit
+        pas la défaire en écrivant après coup - seule la décision la plus
+        récente doit compter, dans les deux sens."""
+        sortie = self.home / "clips"
+        sortie.mkdir()
+        fichier = sortie / blink_registre.STATE_FILENAME
+        fichier.write_text(json.dumps({
+            "version": 1,
+            "clips": {"commun": {
+                "path": "x.mp4", "excluded": False,
+                "excluded_at": "2026-08-27T12:00:10+00:00",
+                "created_at": "2026-08-13T12:00:00+00:00",
+            }},
+        }), encoding="utf-8")
+        perime = {"version": 1, "clips": {
+            "commun": {
+                "path": "x.mp4", "excluded": True,
+                "excluded_at": "2026-08-27T12:00:00+00:00",
+                "created_at": "2026-08-13T12:00:00+00:00",
+            },
+        }}
+        blink_registre._ecrire_registre(fichier, perime)
+        fusion = json.loads(fichier.read_text(encoding="utf-8"))
+        self.assertIs(fusion["clips"]["commun"].get("excluded"), False)
+
     def test_B05_un_verrou_vivant_ne_perime_pas_sur_le_seul_ttl(self):
         """B-05 : le TTL ne permet pas de voler un propriétaire vivant."""
         verrou = self.home / ".blink_ttl.lock"
