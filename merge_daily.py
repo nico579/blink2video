@@ -487,42 +487,50 @@ def set_excluded(
     est re-normalisé au même passage, sans dépendre de la rétention du hub.
     Vider Blink_Excluded reste un geste séparé et explicite."""
     state_path = input_dir / DOWNLOAD_STATE
-    clips = read_registry(state_path)
 
     changed = 0
-    for value in values:
-        identity = resolve_identity(input_dir, normalized_dir, excluded_dir, value)
-        keys = [
-            key
-            for key, entry in clips.items()
-            if isinstance(entry, dict) and entry.get("path") == identity
-        ]
-        if not keys:
-            print(f"  Inconnu du registre, ignoré : {identity}")
-            continue
-        for key in keys:
-            if excluded:
-                clips[key]["excluded"] = True
-                clips[key]["excluded_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
-                move_aside(input_dir / identity, excluded_dir / identity)
-                (normalized_dir / identity).unlink(missing_ok=True)
-                print(f"  Exclu : {identity}")
-            else:
-                clips[key].pop("excluded", None)
-                clips[key].pop("excluded_at", None)
-                move_aside(excluded_dir / identity, input_dir / identity)
-                if (input_dir / identity).exists():
-                    print(f"  Réintégré : {identity}")
+    # Même verrou que le téléchargement (runtime.verrou ne distingue les
+    # ressources que par ce premier nom, "exclusion" n'est qu'une étiquette).
+    # Lecture, décision et écriture doivent se tenir sous un seul verrou tenu
+    # en continu : lire puis écrire séparément laissait une fenêtre où un
+    # téléchargement concurrent pouvait ajouter un clip entre les deux, que
+    # notre propre copie, déjà périmée, effaçait ensuite en écrasant toute la
+    # table des clips.
+    with runtime.verrou("registre", "exclusion", stale_after=60, attente=10):
+        clips = read_registry(state_path)
+        for value in values:
+            identity = resolve_identity(input_dir, normalized_dir, excluded_dir, value)
+            keys = [
+                key
+                for key, entry in clips.items()
+                if isinstance(entry, dict) and entry.get("path") == identity
+            ]
+            if not keys:
+                print(f"  Inconnu du registre, ignoré : {identity}")
+                continue
+            for key in keys:
+                if excluded:
+                    clips[key]["excluded"] = True
+                    clips[key]["excluded_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+                    move_aside(input_dir / identity, excluded_dir / identity)
+                    (normalized_dir / identity).unlink(missing_ok=True)
+                    print(f"  Exclu : {identity}")
                 else:
-                    print(f"  Réintégré : {identity} (brut absent, relancer blink2video.py)")
-            changed += 1
+                    clips[key].pop("excluded", None)
+                    clips[key].pop("excluded_at", None)
+                    move_aside(excluded_dir / identity, input_dir / identity)
+                    if (input_dir / identity).exists():
+                        print(f"  Réintégré : {identity}")
+                    else:
+                        print(f"  Réintégré : {identity} (brut absent, relancer blink2video.py)")
+                changed += 1
 
-    if changed:
-        # Même verrou que le téléchargement : sans lui, une exclusion écrirait
-        # le registre entier par-dessus des clips arrivés entre-temps.
-        with runtime.verrou("registre", "exclusion", stale_after=60, attente=10):
-            # Relu pour n'écraser que la table des clips : le registre porte
-            # aussi sa version, et un jour d'autres champs.
+        if changed:
+            # Le registre porte aussi sa version, et un jour d'autres champs,
+            # que read_registry() ne renvoie pas : on repart de l'état complet
+            # pour n'en remplacer que la table des clips. Cet état est garanti
+            # inchangé depuis notre lecture ci-dessus, le verrou étant resté
+            # tenu sans interruption entre les deux.
             state = load_json(state_path, {})
             state["clips"] = clips
             save_json(state_path, state)

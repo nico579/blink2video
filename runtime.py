@@ -976,6 +976,25 @@ def _lire_verrou(fichier: Path):
         return None
 
 
+def _supprimer_verrou(fichier: Path) -> None:
+    """Supprime un fichier de verrou qu'on sait nous appartenir, en absorbant
+    un refus Windows transitoire.
+
+    Un antivirus ou l'indexeur peut brièvement rouvrir un fichier qui vient
+    d'être lu ou écrit ; sur Windows, ça suffit à faire échouer unlink() avec
+    PermissionError (WinError 32) alors que plus aucun propriétaire légitime
+    ne le détient. Quelques tentatives rapprochées suffisent, l'ouverture
+    concurrente n'étant jamais longue."""
+    for tentative in range(10):
+        try:
+            fichier.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if tentative == 9:
+                raise
+            time.sleep(0.05)
+
+
 @contextlib.contextmanager
 def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
     """Réserve une ressource entre processus, le temps d'une opération.
@@ -1095,9 +1114,9 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
             try:
                 encore = _lire_verrou(fichier)
                 if encore is not None and encore.get("jeton") == presente.get("jeton"):
-                    fichier.unlink(missing_ok=True)
+                    _supprimer_verrou(fichier)
             finally:
-                purge.unlink(missing_ok=True)
+                _supprimer_verrou(purge)
             continue
 
         if time.time() >= limite:
@@ -1111,7 +1130,7 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
     finally:
         courante = _lire_verrou(fichier)
         if courante is not None and courante.get("jeton") == jeton:
-            fichier.unlink(missing_ok=True)
+            _supprimer_verrou(fichier)
 
 
 # Identité applicative sous laquelle les notifications Windows sont émises.
