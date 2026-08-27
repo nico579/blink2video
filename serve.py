@@ -183,6 +183,20 @@ EXCLUDED_DURATIONS = "excluded_durations.json"
 # reste disponible sur demande explicite (paramètre ?all=1), jamais perdu.
 DEFAULT_WINDOW_DAYS = 30
 
+# Préréglages du filtre de plage (bouton de découpage rapide de la page
+# clips), en heures plutôt qu'en jours : « aujourd'hui » vise les 24 dernières
+# heures glissantes, pas depuis minuit, pour rester utile à toute heure de la
+# journée. « month » reprend DEFAULT_WINDOW_DAYS : même bouton que la fenêtre
+# par défaut, pas une deuxième valeur à tenir synchronisée. « 2months » suit
+# la limite de rétention du stockage cloud Blink aux États-Unis, au-delà de
+# laquelle les clips y sont supprimés (signalé sur Reddit, 2026-08-27).
+RANGE_PRESETS_HOURS = {
+    "today": 24,
+    "week": 7 * 24,
+    "month": DEFAULT_WINDOW_DAYS * 24,
+    "2months": 60 * 24,
+}
+
 # L'API ne renvoie que des noms de code internes d'Amazon, jamais de référence
 # commerciale. Deux seulement sont établis : « owl », documenté comme étant le
 # Blink Mini dans le code de blinkpy, et « catalina », identifié par le
@@ -233,16 +247,22 @@ def probe_duration_cached(ffmpeg: str, source: Path, identity: str, cache: dict)
 
 
 def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
-            depuis: "dt.date | None" = None) -> dict:
+            depuis: "dt.datetime | None" = None,
+            jusqua: "dt.datetime | None" = None) -> dict:
     """Inventorie les clips connus du registre de téléchargement.
 
     Contrairement à merge_daily.load_groups, les clips écartés sont conservés :
     c'est précisément ce qu'on veut pouvoir revoir et reprendre.
 
-    `depuis` borne la fenêtre renvoyée : le stock grossit chaque jour, et sans
-    cette borne la page finirait par transmettre et dessiner un nombre de
-    vignettes sans rapport avec ce qu'on regarde réellement. L'historique
-    complet reste accessible explicitement (voir DEFAULT_WINDOW_DAYS)."""
+    `depuis`/`jusqua` bornent la fenêtre renvoyée, chacun optionnel : le stock
+    grossit chaque jour, et sans borne basse la page finirait par transmettre
+    et dessiner un nombre de vignettes sans rapport avec ce qu'on regarde
+    réellement. L'historique complet reste accessible explicitement (voir
+    DEFAULT_WINDOW_DAYS). Les deux sont des horodatages complets, pas de
+    simples dates : le filtre de plage personnalisée de la page cible une
+    période à l'heure près, pour retrouver un incident précis sans défiler
+    tout l'historique d'une caméra toujours armée (signalé sur Reddit,
+    2026-08-27)."""
     entries = read_entries(paths)
     # Les durées déjà mesurées par merge_daily sont reprises telles quelles ;
     # seules celles des clips écartés, dont l'entrée a été balayée du registre
@@ -265,7 +285,9 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
 
         local = created.astimezone(timezone)
         total += 1
-        if depuis is not None and local.date() < depuis:
+        if depuis is not None and local < depuis:
+            continue
+        if jusqua is not None and local > jusqua:
             continue
         excluded = bool(entry.get("excluded"))
         # On sert de préférence la version normalisée : c'est celle qui porte
@@ -320,9 +342,11 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
         "models": {nom: modele for nom, modele in (
             (clip["camera"], clip.pop("model", None)) for clip in clips) if modele},
         "days": sorted({clip["day"] for clip in clips}, reverse=True),
-        # Permet à la page de dire « 30 derniers jours, X clips sur Y connus »
-        # et de proposer explicitement de charger le reste.
-        "window_days": None if depuis is None else DEFAULT_WINDOW_DAYS,
+        # Permet à la page de dire « X clips sur Y connus » et de proposer
+        # explicitement de charger le reste : quelle plage précise est active
+        # (préréglage ou personnalisée) est déjà su côté page, elle seule l'a
+        # demandée, inutile de la lui redécrire ici.
+        "filtered": depuis is not None or jusqua is not None,
         "total_known": total,
         # La galerie ne propose pas la case Supprimer pour une caméra déjà en
         # suppression automatique (issue GitHub #1) : redondant, le clip sera
@@ -1398,16 +1422,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/clips":
-            # ?all=1 lève explicitement la fenêtre par défaut : l'historique
-            # complet reste à un clic, jamais perdu, seulement pas chargé
-            # d'office (voir DEFAULT_WINDOW_DAYS).
-            voir_tout = parse_qs(urlparse(self.path).query).get("all", ["0"])[0] == "1"
-            depuis = None if voir_tout else (
-                dt.datetime.now(self.timezone).date()
-                - dt.timedelta(days=DEFAULT_WINDOW_DAYS)
-            )
+            # ?all=1 lève explicitement toute borne : l'historique complet
+            # reste à un clic, jamais perdu, seulement pas chargé d'office
+            # (voir DEFAULT_WINDOW_DAYS). ?preset=today|week|month|2months
+            # couvre les boutons de découpage rapide de la page (RANGE_
+            # PRESETS_HOURS) ; ?depuis/?jusqua (ISO, sans fuseau : lus dans le
+            # fuseau réglé, comme l'horodatage de chaque clip) couvrent sa
+            # plage personnalisée à l'heure près. Sans aucun paramètre, la
+            # fenêtre reste celle d'avant ces boutons : les DEFAULT_WINDOW_DAYS
+            # derniers jours, exactement ce que rend aussi ?preset=month.
+            query = parse_qs(urlparse(self.path).query)
+            depuis = jusqua = None
+            if query.get("all", ["0"])[0] != "1":
+                maintenant = dt.datetime.now(self.timezone)
+                preset = (query.get("preset") or [""])[0]
+                depuis_brut = (query.get("depuis") or [""])[0]
+                jusqua_brut = (query.get("jusqua") or [""])[0]
+                if preset in RANGE_PRESETS_HOURS:
+                    depuis = maintenant - dt.timedelta(hours=RANGE_PRESETS_HOURS[preset])
+                elif depuis_brut or jusqua_brut:
+                    try:
+                        if depuis_brut:
+                            depuis = dt.datetime.fromisoformat(depuis_brut) \
+                                .replace(tzinfo=self.timezone)
+                        if jusqua_brut:
+                            jusqua = dt.datetime.fromisoformat(jusqua_brut) \
+                                .replace(tzinfo=self.timezone)
+                    except ValueError:
+                        self.send_json({"error": "Plage de dates invalide."}, 400)
+                        return
+                else:
+                    depuis = maintenant - dt.timedelta(hours=RANGE_PRESETS_HOURS["month"])
             try:
-                self.send_json(collect(self.paths, self.timezone, self.ffmpeg, depuis))
+                self.send_json(collect(self.paths, self.timezone, self.ffmpeg,
+                                       depuis, jusqua))
             except RuntimeError as error:
                 self.send_json({"error": str(error)}, 500)
             return
@@ -2115,6 +2163,9 @@ PAGE = """<!doctype html>
                 margin-top:6px; }
   #authError { color:var(--out); font-size:13px; min-height:18px; margin:0 0 6px; }
   #reglages { width:min(560px, 92vw); }
+  #periode { width:min(420px, 92vw); }
+  .presets { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .presets button { flex:none; }
   #reglages label { align-items:flex-start; margin-bottom:14px; }
   #reglages label input[type="checkbox"] {
     flex:none; margin:3px 0 0; width:16px; height:16px;
@@ -2319,6 +2370,30 @@ PAGE = """<!doctype html>
     <button id="reglagesClose" data-i18n="reglages.close">Fermer</button>
   </div>
 </dialog>
+
+<dialog id="periode">
+  <h3 data-i18n="range.title">Période</h3>
+  <div class="presets">
+    <button type="button" data-preset="today" data-i18n="range.today">Aujourd'hui (24 h)</button>
+    <button type="button" data-preset="week" data-i18n="range.week">Cette semaine (7 j)</button>
+    <button type="button" data-preset="month" data-i18n="range.month">Ce mois-ci</button>
+    <button type="button" data-preset="2months" data-i18n="range.2months">2 derniers mois</button>
+    <button type="button" data-preset="all" data-i18n="range.all">Tout l'historique</button>
+  </div>
+  <p class="sub tiny" data-i18n="range.custom.hint">Ou une plage précise, à l'heure près :</p>
+  <div class="champCadence">
+    <label for="rangeFrom" data-i18n="range.from">Du</label>
+    <input type="datetime-local" id="rangeFrom">
+  </div>
+  <div class="champCadence">
+    <label for="rangeTo" data-i18n="range.to">au</label>
+    <input type="datetime-local" id="rangeTo">
+  </div>
+  <div class="row row-boutons">
+    <button class="primary" id="rangeApply" data-i18n="range.apply">Filtrer</button>
+    <button id="periodeClose" data-i18n="reglages.close">Fermer</button>
+  </div>
+</dialog>
 <script>
 // Jeton anti-CSRF (voir Handler.jeton_valide côté serveur, 28.60) : posé sur
 // toute requête qui modifie quelque chose. Fait une fois ici, avant tout
@@ -2350,7 +2425,7 @@ const I18N = {
   fr: {
     "view.live": "Direct", "view.clips": "Clips", "view.daily": "Journalières",
     "view.weekly": "Hebdomadaires", "view.monthly": "Mensuelles",
-    "filter.allcameras": "toutes caméras", "filter.alldays": "tous les jours",
+    "filter.allcameras": "toutes caméras", "filter.alldays": "(Tous les jours)",
     "btn.refresh": "↻ Actualiser", "btn.reglages": "⚙ Réglages…", "btn.reglages.title": "Réglages",
     "update.installing": "Installer {version}",
     "update.title": "Version {version} publiée. Le téléchargement, l'arrêt et la relance sont automatiques.",
@@ -2442,9 +2517,16 @@ const I18N = {
     "command.sending": "Envoi de la commande…",
     "clips.none.filtered": "Aucun clip ne correspond à ce filtre.",
     "clips.none.ever": "Aucun clip récupéré pour l'instant.<br>Le téléchargement tourne déjà en arrière-plan (clé USB toutes les 10 min, cloud toutes les minutes) : les clips apparaîtront ici sans rien faire. Vérifiez qu'une clé USB est branchée sur le module : sans elle, les enregistrements ne vont que dans le cloud de l'abonnement Blink, que cet outil ne lit pas.",
-    "clips.window": "{n} derniers jours affichés ({m} sur {total} clip(s) connus) · ",
+    "clips.window": "{m} sur {total} clip(s) connus affichés · ",
     "clips.showall": "afficher tout l'historique",
-    "clips.loadinghistory": "Chargement de l'historique complet…",
+    "clips.loading": "Chargement…",
+    "range.button": "(Période…)",
+    "range.title": "Période",
+    "range.today": "Aujourd'hui (24 h)", "range.week": "Cette semaine (7 j)",
+    "range.month": "Ce mois-ci", "range.2months": "2 derniers mois",
+    "range.all": "Tout l'historique",
+    "range.custom.hint": "Ou une plage précise, à l'heure près :",
+    "range.from": "Du", "range.to": "au", "range.apply": "Filtrer",
     "videos.count": "{n} vidéo(s) · {duree} au total",
     "videos.none": "Aucune vidéo assemblée. Lancez une actualisation.",
     "videos.download": "Télécharger",
@@ -2463,7 +2545,7 @@ const I18N = {
   en: {
     "view.live": "Live", "view.clips": "Clips", "view.daily": "Daily",
     "view.weekly": "Weekly", "view.monthly": "Monthly",
-    "filter.allcameras": "all cameras", "filter.alldays": "all days",
+    "filter.allcameras": "all cameras", "filter.alldays": "(All days)",
     "btn.refresh": "↻ Refresh", "btn.reglages": "⚙ Settings…", "btn.reglages.title": "Settings",
     "update.installing": "Install {version}",
     "update.title": "Version {version} published. Download, stop and restart are automatic.",
@@ -2555,9 +2637,16 @@ const I18N = {
     "command.sending": "Sending command…",
     "clips.none.filtered": "No clip matches this filter.",
     "clips.none.ever": "No clip retrieved yet.<br>Download is already running in the background (USB every 10 min, cloud every minute): clips will appear here on their own. Check that a USB drive is plugged into the module: without it, recordings only go to the Blink subscription cloud, which this tool does not read.",
-    "clips.window": "last {n} days shown ({m} of {total} known clip(s)) · ",
+    "clips.window": "{m} of {total} known clip(s) shown · ",
     "clips.showall": "show full history",
-    "clips.loadinghistory": "Loading full history…",
+    "clips.loading": "Loading…",
+    "range.button": "(Period…)",
+    "range.title": "Period",
+    "range.today": "Today (24h)", "range.week": "This week (7d)",
+    "range.month": "This month", "range.2months": "Last 2 months",
+    "range.all": "All history",
+    "range.custom.hint": "Or a precise range, down to the hour:",
+    "range.from": "From", "range.to": "to", "range.apply": "Filter",
     "videos.count": "{n} video(s) · {duree} total",
     "videos.none": "No assembled video. Run a refresh.",
     "videos.download": "Download",
@@ -2619,6 +2708,7 @@ function setLang(code, persist) {
     fill($("camera"), data.cameras || [], t("filter.allcameras"),
          (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
     fill($("day"), data.days || [], t("filter.alldays"));
+    ajouterOptionPeriode();
   }
   if (typeof render === "function" && data.clips) render();
   if (typeof renderLive === "function" && system) renderLive();
@@ -3177,10 +3267,10 @@ function renderClips() {
     return;
   }
   const days = [...new Set(clips.map((c) => c.day))];
-  const fenetre = data.window_days
+  const fenetre = data.filtered
     ? `<p class="window">${tf("clips.window",
-         { n: data.window_days, m: data.clips.length, total: data.total_known })}
-         <a href="#" onclick="afficherTout(); return false;">${t("clips.showall")}</a></p>`
+         { m: data.clips.length, total: data.total_known })}
+         <a href="#" onclick="choisirPreset('all'); return false;">${t("clips.showall")}</a></p>`
     : "";
   $("list").innerHTML = fenetre + days.map((day) => `
     <h2>${day}</h2>
@@ -3249,14 +3339,27 @@ function card(c) {
 }
 
 // Le stock de clips grossit chaque jour : /api/clips ne renvoie par défaut
-// que les DEFAULT_WINDOW_DAYS derniers jours (voir serve.py). Ce drapeau
-// mémorise un choix explicite d'afficher tout l'historique le temps de la
-// session ; il repart à faux au prochain chargement de la page.
-let verToutHistorique = false;
+// que les DEFAULT_WINDOW_DAYS derniers jours (voir serve.py). Cette plage
+// mémorise le filtre actif le temps de la session ; elle repart à « month »
+// (identique à l'ancien défaut silencieux, juste explicite désormais) au
+// prochain chargement de la page, jamais persistée au-delà.
+let plageClips = { preset: "month" };
+
+function paramsPourPlage() {
+  const params = new URLSearchParams();
+  if (plageClips.preset === "all") params.set("all", "1");
+  else if (plageClips.preset) params.set("preset", plageClips.preset);
+  else {
+    if (plageClips.depuis) params.set("depuis", plageClips.depuis);
+    if (plageClips.jusqua) params.set("jusqua", plageClips.jusqua);
+  }
+  const s = params.toString();
+  return s ? `?${s}` : "";
+}
 
 async function load() {
   const [answer, videoAnswer] = await Promise.all([
-    fetch(`/api/clips${verToutHistorique ? "?all=1" : ""}`), fetch("/api/videos"),
+    fetch(`/api/clips${paramsPourPlage()}`), fetch("/api/videos"),
   ]);
   data = await answer.json();
   videos = await videoAnswer.json();
@@ -3271,13 +3374,52 @@ async function load() {
   fill($("camera"), data.cameras, t("filter.allcameras"),
        (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
   fill($("day"), data.days, t("filter.alldays"));
+  ajouterOptionPeriode();
   render();
   majBoutonAppliquer();
 }
 
-async function afficherTout() {
-  verToutHistorique = true;
-  $("list").innerHTML = `<p class="empty">${t("clips.loadinghistory")}</p>`;
+// « (Période…) » se rebâtit à chaque fill() de la liste des jours, que
+// fill() vide entièrement (voir sa propre note) : y revenir ici plutôt que
+// dans fill() lui-même, générique et partagé avec la liste des caméras.
+function ajouterOptionPeriode() {
+  const option = document.createElement("option");
+  option.value = "__periode__";
+  option.dataset.i18n = "range.button";
+  option.textContent = t("range.button");
+  $("day").appendChild(option);
+}
+
+function ouvrirPeriode() {
+  // Le préréglage actif est réaffiché en surbrillance (classe .primary, déjà
+  // celle des boutons d'action) à chaque ouverture : rouvrir le panneau ne
+  // doit pas faire deviner ce qui est déjà appliqué.
+  for (const bouton of document.querySelectorAll("#periode .presets button")) {
+    bouton.classList.toggle("primary", bouton.dataset.preset === plageClips.preset);
+  }
+  $("rangeFrom").value = plageClips.depuis || "";
+  $("rangeTo").value = plageClips.jusqua || "";
+  $("periode").showModal();
+}
+
+// Un préréglage suffit à retrouver un incident récent (aujourd'hui, cette
+// semaine…) ; la plage personnalisée du panneau Période, elle, vise une
+// période précise à l'heure près, pour ne pas défiler tout l'historique
+// d'une caméra toujours armée (signalé sur Reddit, 2026-08-27).
+async function choisirPreset(nom) {
+  plageClips = { preset: nom };
+  $("rangeFrom").value = ""; $("rangeTo").value = "";
+  $("periode").close();
+  $("list").innerHTML = `<p class="empty">${t("clips.loading")}</p>`;
+  await load();
+}
+
+async function appliquerPlagePersonnalisee() {
+  const depuis = $("rangeFrom").value, jusqua = $("rangeTo").value;
+  if (!depuis && !jusqua) return;
+  plageClips = { depuis, jusqua };
+  $("periode").close();
+  $("list").innerHTML = `<p class="empty">${t("clips.loading")}</p>`;
   await load();
 }
 
@@ -3505,7 +3647,19 @@ $("refresh").onclick = async () => {
   };
 };
 
-for (const id of ["view", "camera", "day", "showOut"]) $(id).onchange = render;
+for (const id of ["view", "camera", "showOut"]) $(id).onchange = render;
+// « (Période…) » vit dans la même liste que « (tous les jours) » plutôt que
+// dans un bouton à côté : les deux à l'écran en même temps laissaient croire
+// à deux filtres de temps concurrents, l'un disant « tous les jours » pendant
+// que l'autre affichait un préréglage actif.
+$("day").onchange = () => {
+  if ($("day").value === "__periode__") {
+    $("day").value = "";
+    ouvrirPeriode();
+    return;
+  }
+  render();
+};
 // Seule cette ligne de texte se met à jour d'elle-même : elle sert précisément
 // à repérer une boucle arrêtée, ce qu'on ne verrait pas en regardant des clips
 // qui, eux, ne changent plus.
@@ -3571,6 +3725,12 @@ $("reglagesButton").onclick = async () => {
   $("reglages").showModal();
 };
 $("reglagesClose").onclick = () => $("reglages").close();
+
+$("periodeClose").onclick = () => $("periode").close();
+for (const bouton of document.querySelectorAll("#periode .presets button")) {
+  bouton.onclick = () => choisirPreset(bouton.dataset.preset);
+}
+$("rangeApply").onclick = appliquerPlagePersonnalisee;
 
 // Ouvre le sélecteur natif côté serveur (tkinter : voir /api/choisir-dossier)
 // plutôt qu'un <input type="file" webkitdirectory> - celui-ci ne rend qu'un
