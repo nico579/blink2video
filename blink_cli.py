@@ -677,29 +677,7 @@ def executer(groupes: list) -> int:
 
     import tray
 
-    try:
-        # L'icône de zone de notification (Ouvrir/Redémarrer/Arrêter) exige
-        # le thread principal sous macOS : la surveillance des verbes passe
-        # alors sur un thread à part, qui referme l'icône si l'un d'eux
-        # meurt de lui-même (crash), pour ne pas laisser une icône morte.
-        if tray.disponible():
-            fin = threading.Event()
-            veilleur = threading.Thread(target=surveiller,
-                                        kwargs={"sur_fin": fin.set}, daemon=True)
-            veilleur.start()
-            try:
-                tray.executer(port, fin)
-            except Exception:
-                # L'icône a échoué en cours de route (backend Linux qui se
-                # dérobe, par exemple) : le thread de surveillance, lui,
-                # continue, on se contente de l'attendre.
-                pass
-            veilleur.join()
-        else:
-            surveiller()
-    except KeyboardInterrupt:
-        print("\nArrêt.")
-    finally:
+    def nettoyer_lances() -> None:
         # Arrêt coopératif d'abord (revue du 27/08) : le drapeau laisse
         # chaque verbe finir son tour en cours puis sortir de lui-même -
         # entre deux tours de repeter() (watch/download/merge) ou par
@@ -711,6 +689,16 @@ def executer(groupes: list) -> int:
         # chemin, tué avec son parent via /T - .terminate() seul, avant ce
         # correctif, ne touchait que le processus immédiat, ne tuait jamais
         # ses enfants, et n'attendait pas la fin réelle (bug 6).
+        #
+        # Appelée directement par le menu Arrêter/Redémarrer de l'icône de
+        # zone de notification (tray.executer, plus bas), pas seulement
+        # depuis ce finally : passer par un « restart » détaché tout seul
+        # laissait des processus vivants sur Windows 7 sans qu'on ait pu
+        # établir pourquoi (icône disparue, rien derrière) - direct et
+        # synchrone, ça ne dépend plus de ce second processus. Idempotente
+        # (poll() déjà non-None ne refait rien) : l'appeler deux fois (ici et
+        # depuis le finally) ne coûte qu'un aller-retour inutile si la
+        # première a déjà tout nettoyé.
         runtime.demander_arret()
         limite = time.monotonic() + 15
         while time.monotonic() < limite and any(p.poll() is None for _, p in lances):
@@ -719,6 +707,31 @@ def executer(groupes: list) -> int:
             if processus.poll() is None:
                 runtime.arreter_processus(processus.pid, avec_descendance=True)
         runtime.effacer_arret_demande()
+
+    try:
+        # L'icône de zone de notification (Ouvrir/Redémarrer/Arrêter) exige
+        # le thread principal sous macOS : la surveillance des verbes passe
+        # alors sur un thread à part, qui referme l'icône si l'un d'eux
+        # meurt de lui-même (crash), pour ne pas laisser une icône morte.
+        if tray.disponible():
+            fin = threading.Event()
+            veilleur = threading.Thread(target=surveiller,
+                                        kwargs={"sur_fin": fin.set}, daemon=True)
+            veilleur.start()
+            try:
+                tray.executer(port, fin, nettoyer_lances)
+            except Exception:
+                # L'icône a échoué en cours de route (backend Linux qui se
+                # dérobe, par exemple) : le thread de surveillance, lui,
+                # continue, on se contente de l'attendre.
+                pass
+            veilleur.join()
+        else:
+            surveiller()
+    except KeyboardInterrupt:
+        print("\nArrêt.")
+    finally:
+        nettoyer_lances()
     return max(pire, pire_ponctuel)
 
 

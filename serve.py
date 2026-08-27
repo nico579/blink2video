@@ -719,13 +719,26 @@ def _choisir_dossier_windows(initial: str) -> str:
     fait partie de .NET Framework, présent par défaut depuis Windows Vista
     (donc Windows 7 aussi), et ne demande rien à empaqueter. Un propriétaire
     invisible et TopMost sert le même rôle que le -topmost de tkinter : sans
-    lui, la boîte peut s'ouvrir derrière le navigateur."""
+    lui, la boîte peut s'ouvrir derrière le navigateur.
+
+    Le propriétaire doit être réellement affiché (Show(), Opacity=0, hors
+    écran) plutôt que juste construit avec WindowState='Minimized' sans
+    jamais l'afficher : cette seconde forme, essayée d'abord, faisait
+    entrer ShowDialog() dans un blocage silencieux (aucune erreur, aucune
+    boîte visible, le processus PowerShell restait vivant indéfiniment -
+    constaté en conditions réelles). -STA est déjà le mode par défaut de
+    powershell.exe (vérifié : GetApartmentState() répond STA sans l'option),
+    gardé explicite pour ne pas en dépendre silencieusement."""
     script = (
         "Add-Type -AssemblyName System.Windows.Forms; "
         "$proprietaire = New-Object System.Windows.Forms.Form; "
-        "$proprietaire.TopMost = $true; "
-        "$proprietaire.WindowState = 'Minimized'; "
         "$proprietaire.ShowInTaskbar = $false; "
+        "$proprietaire.Opacity = 0; "
+        "$proprietaire.StartPosition = 'Manual'; "
+        "$proprietaire.Location = New-Object System.Drawing.Point(-2000, -2000); "
+        "$proprietaire.Size = New-Object System.Drawing.Size(1, 1); "
+        "$proprietaire.Show(); "
+        "$proprietaire.TopMost = $true; "
         "$dialogue = New-Object System.Windows.Forms.FolderBrowserDialog; "
         f"$dialogue.SelectedPath = '{initial.replace(chr(39), chr(39) * 2)}'; "
         "if ($dialogue.ShowDialog($proprietaire) -eq "
@@ -733,7 +746,7 @@ def _choisir_dossier_windows(initial: str) -> str:
         "{ [Console]::Out.Write($dialogue.SelectedPath) }"
     )
     resultat = runtime.lancer(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        ["powershell", "-NoProfile", "-NonInteractive", "-STA", "-Command", script],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, errors="replace", check=False,
     )

@@ -61,12 +61,23 @@ def _relancer(sans_relance: bool) -> None:
         stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
 
 
-def executer(port: int, arret: threading.Event) -> None:
+def executer(port: int, arret: threading.Event, nettoyer) -> None:
     """Bloque sur la boucle de l'icone, thread principal exige sous macOS.
 
     `arret` : leve par l'appelant quand un verbe surveille meurt de
     lui-meme (crash) ; un thread interne referme alors l'icone pour rendre
-    la main au nettoyage habituel."""
+    la main au nettoyage habituel.
+
+    `nettoyer` : arrete directement, dans ce meme processus, les verbes que
+    l'appelant a lances (voir nettoyer_lances(), blink_cli.py). Redemarrer/
+    Arreter passaient avant uniquement par un « blink2video restart »
+    detache (_relancer) : constate en reel sur Windows 7, l'icone pouvait
+    disparaitre (icon.stop() rendant la main) sans que rien ne s'arrete
+    vraiment derriere, sans qu'on ait pu etablir pourquoi le second
+    processus detache n'aboutissait pas toujours. Appeler nettoyer()
+    directement, en synchrone, ne depend plus de ce second processus - la
+    seule chose garantie de marcher est un Ctrl+C sur le processus lui-meme
+    (bug 6, revue du 27/08), donc ce menu doit produire le meme effet."""
     import pystray
     from PIL import Image
 
@@ -76,11 +87,12 @@ def executer(port: int, arret: threading.Event) -> None:
         webbrowser.open(adresse)
 
     def redemarrer(icon, item):
+        nettoyer()
         _relancer(sans_relance=False)
         icon.stop()
 
     def arreter(icon, item):
-        _relancer(sans_relance=True)
+        nettoyer()
         icon.stop()
 
     def creer_raccourci(icon, item):
