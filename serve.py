@@ -2199,6 +2199,8 @@ PAGE = """<!doctype html>
   #reglages { width:min(560px, 92vw); }
   #filtre { width:min(420px, 92vw); }
   .filtreResume { color:var(--dim); font-size:13px; }
+  .filtreCompte { color:var(--dim); font-size:13px; padding:0 20px; margin:10px 0 0; }
+  .filtreCompte:empty { display:none; }
   .presets { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
   .presets button { flex:none; }
   #reglages label { align-items:flex-start; margin-bottom:14px; }
@@ -2272,6 +2274,7 @@ PAGE = """<!doctype html>
   </span>
   <div id="work"><span id="phase"></span><progress id="bar"></progress></div>
 </header>
+<div class="filtreCompte" id="filtreCompte"></div>
 <main><div id="list"></div><pre id="log"></pre></main>
 
 <dialog id="auth">
@@ -2560,8 +2563,7 @@ const I18N = {
     "command.sending": "Envoi de la commande…",
     "clips.none.filtered": "Aucun clip ne correspond à ce filtre.",
     "clips.none.ever": "Aucun clip récupéré pour l'instant.<br>Le téléchargement tourne déjà en arrière-plan (clé USB toutes les 10 min, cloud toutes les minutes) : les clips apparaîtront ici sans rien faire. Vérifiez qu'une clé USB est branchée sur le module : sans elle, les enregistrements ne vont que dans le cloud de l'abonnement Blink, que cet outil ne lit pas.",
-    "clips.window": "{m} sur {total} clip(s) connus affichés · ",
-    "clips.showall": "afficher tout l'historique",
+    "clips.window": "{m} sur {total} clip(s) connus affichés",
     "range.title": "Période",
     "range.today": "Aujourd'hui (24 h)", "range.week": "Cette semaine (7 j)",
     "range.month": "Ce mois-ci", "range.2months": "2 derniers mois",
@@ -2680,8 +2682,7 @@ const I18N = {
     "command.sending": "Sending command…",
     "clips.none.filtered": "No clip matches this filter.",
     "clips.none.ever": "No clip retrieved yet.<br>Download is already running in the background (USB every 10 min, cloud every minute): clips will appear here on their own. Check that a USB drive is plugged into the module: without it, recordings only go to the Blink subscription cloud, which this tool does not read.",
-    "clips.window": "{m} of {total} known clip(s) shown · ",
-    "clips.showall": "show full history",
+    "clips.window": "{m} of {total} known clip(s) shown",
     "range.title": "Period",
     "range.today": "Today (24h)", "range.week": "This week (7d)",
     "range.month": "This month", "range.2months": "Last 2 months",
@@ -2807,6 +2808,10 @@ function render() {
   $("filtreButton").hidden = kind === "live";
   $("periodeSection").hidden = !clips;
   if (kind !== "live") $("filtreResume").textContent = resumeFiltre();
+  // Le décompte n'a de sens que pour Clips ; renderClips() le repose à
+  // chaque rendu, mais quitter cette vue doit l'effacer, pas le laisser
+  // périmé derrière une autre vue.
+  if (!clips) $("filtreCompte").textContent = "";
   if (kind === "live") return renderLive();
   return clips ? renderClips() : renderVideos(kind);
 }
@@ -2858,7 +2863,7 @@ function montrerTravail(travail) {
   if (actualisationLocale) return;    // notre propre barre parle déjà
   const actif = !!(travail && travail.quoi);
   if (!actif) {
-    if (travailEnCours) { $("work").classList.remove("on"); load(); }
+    if (travailEnCours) { $("work").classList.remove("on"); rechargerEnArrierePlan(); }
     travailEnCours = false;
     $("refresh").disabled = false;
     return;
@@ -2924,6 +2929,22 @@ $("update").onclick = async () => {
   setTimeout(() => clearInterval(attente), 900000);
 };
 
+let dernierRechargementAuto = 0;
+
+// Rechargement déclenché par l'arrière-plan (nouveau clip détecté, ou fin
+// d'un calcul) plutôt que par un clic explicite : jamais plus d'une fois
+// toutes les 60 secondes, le rythme normal de veille de veiller(). Pendant
+// un gros lot en cours de traitement, chaque nouveau clip détecté ou chaque
+// bascule de travailEnCours pouvait sinon redéclencher un rechargement
+// complet de la grille (toutes les vignettes vidéo détruites et
+// reconstruites), perçu comme un clignotement (constaté en réel, 2026-08-27).
+function rechargerEnArrierePlan() {
+  const maintenant = Date.now();
+  if (maintenant - dernierRechargementAuto < 60000) return;
+  dernierRechargementAuto = maintenant;
+  load();
+}
+
 async function heuresDePassage() {
   let etat = {};
   try {
@@ -2948,7 +2969,7 @@ async function heuresDePassage() {
   // recocher à chaque ouverture n'en serait pas une. Pendant un calcul, on ne
   // recharge pas : la liste changerait sous les yeux à chaque vidéo assemblée.
   if (arrives && $("auto").checked && !travailEnCours) {
-    load();
+    rechargerEnArrierePlan();
     return;
   }
   const nouveaux = arrives
@@ -3297,6 +3318,13 @@ function renderClips() {
   // plus en haut de page ne disent rien qu'on cherchait.
   $("count").textContent = "";
 
+  // Sous le résumé du filtre plutôt que dans la liste : un texte qui décrit
+  // ce qui est affiché reste avec le reste de ce qui décrit le filtre, pas
+  // mélangé aux résultats eux-mêmes qui défilent.
+  $("filtreCompte").textContent = data.filtered
+    ? tf("clips.window", { m: data.clips.length, total: data.total_known })
+    : "";
+
   if (!clips.length) {
     // Distinguer « rien ne correspond au filtre » de « rien n'a jamais été
     // récupéré » : dans le second cas, la cause la plus fréquente est l'absence
@@ -3312,12 +3340,7 @@ function renderClips() {
     return;
   }
   const days = [...new Set(clips.map((c) => c.day))];
-  const fenetre = data.filtered
-    ? `<p class="window">${tf("clips.window",
-         { m: data.clips.length, total: data.total_known })}
-         <a href="#" onclick="appliquerPresetInstantane('all'); return false;">${t("clips.showall")}</a></p>`
-    : "";
-  $("list").innerHTML = fenetre + days.map((day) => `
+  $("list").innerHTML = days.map((day) => `
     <h2>${day}</h2>
     <div class="grid">${clips.filter((c) => c.day === day).map(card).join("")}</div>
   `).join("");
@@ -3519,14 +3542,6 @@ async function appliquerFiltre() {
   // chargement - seulement comme un clignotement de toute la grille à
   // chaque changement de filtre (constaté en réel, 2026-08-27).
   await load();
-}
-
-// Raccourci du lien « afficher tout l'historique » de la bannière : applique
-// un préréglage sans passer par le panneau, que rien n'oblige à ouvrir pour
-// ça.
-async function appliquerPresetInstantane(nom) {
-  choisirPreset(nom);
-  await appliquerFiltre();
 }
 
 // Résumé affiché dans l'en-tête à côté du bouton Filtre, pour savoir ce qui
