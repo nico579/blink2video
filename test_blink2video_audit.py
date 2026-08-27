@@ -637,6 +637,31 @@ class TestsDefautsSynchrones(BacASable):
         self.assertEqual(code, 0)
         ouverture.assert_called_once_with(["--port", str(port_enregistre)])
 
+    def test_bug6_ctrlc_tue_la_descendance_et_attend(self):
+        """Revue du 27/08, bug 6 : le finally n'appelait qu'un
+        Popen.terminate() nu sur un Ctrl+C - ni descendance tuée (ffmpeg
+        pouvait survivre), ni attente de la fin réelle. Doit maintenant
+        passer par arreter_processus(avec_descendance=True), le même
+        mécanisme déjà correct pour stop/restart. Deux verbes persistants,
+        pour vérifier que chacun des « lances » reçoit l'appel, pas juste le
+        premier."""
+        class FauxProcessus:
+            def __init__(self, pid):
+                self.pid = pid
+
+            def poll(self):
+                return None
+
+        with mock.patch.object(runtime, "demarrer",
+                               return_value=FauxProcessus(4242)), \
+             mock.patch.object(tray, "disponible", return_value=False), \
+             mock.patch("time.sleep", side_effect=KeyboardInterrupt), \
+             mock.patch.object(runtime, "arreter_processus") as tuer, \
+             contextlib.redirect_stdout(io.StringIO()):
+            blink_cli.executer([["serve", "--loop"], ["watch", "--loop"]])
+        self.assertEqual(tuer.call_count, 2)
+        tuer.assert_called_with(4242, avec_descendance=True)
+
     def test_I13_parent_mort_ne_fait_pas_oublier_un_enfant_vivant(self):
         """I-13 : une fiche reste utile tant qu'un de ses membres vit."""
         dossier = self.home / runtime.INSTANCES

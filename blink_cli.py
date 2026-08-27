@@ -636,7 +636,12 @@ def executer(groupes: list) -> int:
         if sur_fin:
             sur_fin()
 
-    port = 8765
+    # Repli sur le port configuré, pas 8765 en dur (même défaut incohérent
+    # que le bug 5, revue du 27/08) : n'intervient que si serve tourne sans
+    # --port explicite dans ses arguments, ce qui n'arrive plus via start
+    # (composition toujours pourvue) mais reste possible pour un « serve »
+    # tapé seul.
+    port = runtime.lire_reglages()["port"]
     for verbe, *arguments in persistant:
         if verbe == "serve" and "--port" in arguments:
             port = int(arguments[arguments.index("--port") + 1])
@@ -666,9 +671,16 @@ def executer(groupes: list) -> int:
     except KeyboardInterrupt:
         print("\nArrêt.")
     finally:
+        # arreter_processus(avec_descendance=True), pas un .terminate() nu :
+        # ces verbes tournent dans leur propre session (creationflags=
+        # runtime.flags_enfant() à leur lancement plus haut), donc leur
+        # descendance (ffmpeg, notamment) leur est propre à tuer aussi.
+        # .terminate() seul ne touchait que le processus immédiat, ne tuait
+        # jamais ses enfants, et n'attendait pas la fin réelle (revue du
+        # 27/08, bug 6) : un ffmpeg pouvait survivre à un Ctrl+C.
         for _, processus in lances:
             if processus.poll() is None:
-                processus.terminate()
+                runtime.arreter_processus(processus.pid, avec_descendance=True)
     return max(pire, pire_ponctuel)
 
 
