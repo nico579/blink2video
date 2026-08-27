@@ -11,6 +11,8 @@ fonctions qui parlent réellement à Blink (`main`, la branche « start » de
 import de tête paie ce coût pour tout le monde. C'est le même principe que
 `deleguer()` applique déjà pour merge_daily/serve/watch/maj/autostart."""
 
+from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotations "X | None" ne s'évaluent qu'à l'écriture des chaînes, jamais à l'exécution.
+
 import argparse
 import asyncio
 import subprocess
