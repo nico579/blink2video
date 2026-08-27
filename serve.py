@@ -2034,7 +2034,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except (ZoneInfoNotFoundError, ValueError):
                 self.send_json({"error": f"Fuseau horaire inconnu : « {timezone_str} »."}, 400)
                 return
-            timestamp = bool(payload.get("timestamp", True))
+            timestamp = bool(payload.get("timestamp", False))
             merge_jour = bool(payload.get("merge_jour", True))
             merge_semaine = bool(payload.get("merge_semaine", True))
             merge_mois = bool(payload.get("merge_mois", True))

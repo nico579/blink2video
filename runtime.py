@@ -64,7 +64,7 @@ ENTREE = "blink2video"
 # le manifeste USB réveille le module de synchronisation, l'assemblage ne fait
 # rien quand rien n'a changé. Verbeux à lire, jamais à taper.
 REGLAGES = "blink_reglages.json"
-REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": True,
+REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": False,
                    "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": False,
                    "merge_mois": False, "download_auto": True}
 # Hebdo et mensuel réencodaient par défaut la même matière que le quotidien

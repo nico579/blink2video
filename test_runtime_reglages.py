@@ -116,6 +116,8 @@ class TestsReglages(unittest.TestCase):
         # Hebdo et mensuel sont désactivés par défaut (chacun ré-encode la
         # même matière que le quotidien) : une installation neuve n'a que
         # --no-weekly --no-monthly à ajouter ici, jamais les deux réglages.
+        # L'horodatage est lui aussi désactivé par défaut (ré-encodage ffmpeg
+        # lourd, plutôt qu'un copy rapide sans lui) : --no-timestamp aussi.
         self.assertEqual(
             runtime.standard(),
             ("serve", "--port", "8765", "--timezone", "Europe/Paris",
@@ -123,7 +125,7 @@ class TestsReglages(unittest.TestCase):
              "download", "--from", "usb", "--loop", "10",
              "download", "--from", "cloud", "--loop", "1",
              "merge", "--loop", "5", "--timezone", "Europe/Paris",
-             "--no-weekly", "--no-monthly"))
+             "--no-timestamp", "--no-weekly", "--no-monthly"))
 
     def test_standard_reflete_les_reglages_enregistres(self):
         runtime.ecrire_reglages(usb_minutes=20, cloud_minutes=3, port=9090, timestamp=True,
