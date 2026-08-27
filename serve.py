@@ -2199,8 +2199,6 @@ PAGE = """<!doctype html>
   #reglages { width:min(560px, 92vw); }
   #filtre { width:min(420px, 92vw); }
   .filtreResume { color:var(--dim); font-size:13px; }
-  .filtreCompte { color:var(--dim); font-size:13px; padding:0 20px; margin:10px 0 0; }
-  .filtreCompte:empty { display:none; }
   .presets { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
   .presets button { flex:none; }
   #reglages label { align-items:flex-start; margin-bottom:14px; }
@@ -2258,6 +2256,7 @@ PAGE = """<!doctype html>
   <button id="filtreButton" data-i18n="filtre.button" data-i18n-title="filtre.button.title"
           title="Filtrer">🔍 Filtre</button>
   <span class="filtreResume" id="filtreResume"></span>
+  <span class="filtreResume" id="filtreCompte"></span>
   <span class="count" id="count"></span>
   <!-- Tout ce qui concerne la mise à jour tient ensemble, à droite : l'heure du
        dernier passage, la coche qui recharge seule, et le bouton. -->
@@ -2274,7 +2273,6 @@ PAGE = """<!doctype html>
   </span>
   <div id="work"><span id="phase"></span><progress id="bar"></progress></div>
 </header>
-<div class="filtreCompte" id="filtreCompte"></div>
 <main><div id="list"></div><pre id="log"></pre></main>
 
 <dialog id="auth">
@@ -2563,7 +2561,7 @@ const I18N = {
     "command.sending": "Envoi de la commande…",
     "clips.none.filtered": "Aucun clip ne correspond à ce filtre.",
     "clips.none.ever": "Aucun clip récupéré pour l'instant.<br>Le téléchargement tourne déjà en arrière-plan (clé USB toutes les 10 min, cloud toutes les minutes) : les clips apparaîtront ici sans rien faire. Vérifiez qu'une clé USB est branchée sur le module : sans elle, les enregistrements ne vont que dans le cloud de l'abonnement Blink, que cet outil ne lit pas.",
-    "clips.window": "{m} sur {total} clip(s) connus affichés",
+    "clips.window": "{m}/{total} clips",
     "range.title": "Période",
     "range.today": "Aujourd'hui (24 h)", "range.week": "Cette semaine (7 j)",
     "range.month": "Ce mois-ci", "range.2months": "2 derniers mois",
@@ -2682,7 +2680,7 @@ const I18N = {
     "command.sending": "Sending command…",
     "clips.none.filtered": "No clip matches this filter.",
     "clips.none.ever": "No clip retrieved yet.<br>Download is already running in the background (USB every 10 min, cloud every minute): clips will appear here on their own. Check that a USB drive is plugged into the module: without it, recordings only go to the Blink subscription cloud, which this tool does not read.",
-    "clips.window": "{m} of {total} known clip(s) shown",
+    "clips.window": "{m}/{total} clips",
     "range.title": "Period",
     "range.today": "Today (24h)", "range.week": "This week (7d)",
     "range.month": "This month", "range.2months": "Last 2 months",
@@ -3325,7 +3323,7 @@ function renderClips() {
   // plus en haut de page ne disent rien qu'on cherchait.
   $("count").textContent = "";
 
-  // Sous le résumé du filtre plutôt que dans la liste : un texte qui décrit
+  // À côté du résumé du filtre plutôt que dans la liste : un texte qui décrit
   // ce qui est affiché reste avec le reste de ce qui décrit le filtre, pas
   // mélangé aux résultats eux-mêmes qui défilent.
   $("filtreCompte").textContent = data.filtered
