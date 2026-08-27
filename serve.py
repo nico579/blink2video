@@ -2813,7 +2813,7 @@ function render() {
   // reste ne la lit jamais.
   $("filtreButton").hidden = kind === "live";
   $("periodeSection").hidden = !clips;
-  if (kind !== "live") $("filtreResume").textContent = resumeFiltre();
+  $("filtreResume").textContent = clips ? resumeFiltre() : "";
   // Le décompte n'a de sens que pour Clips ; renderClips() le repose à
   // chaque rendu, mais quitter cette vue doit l'effacer, pas le laisser
   // périmé derrière une autre vue.
