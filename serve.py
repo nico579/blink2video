@@ -2425,7 +2425,7 @@ const I18N = {
   fr: {
     "view.live": "Direct", "view.clips": "Clips", "view.daily": "Journalières",
     "view.weekly": "Hebdomadaires", "view.monthly": "Mensuelles",
-    "filter.allcameras": "toutes caméras", "filter.alldays": "(Tous les jours)",
+    "filter.allcameras": "toutes caméras",
     "btn.refresh": "↻ Actualiser", "btn.reglages": "⚙ Réglages…", "btn.reglages.title": "Réglages",
     "update.installing": "Installer {version}",
     "update.title": "Version {version} publiée. Le téléchargement, l'arrêt et la relance sont automatiques.",
@@ -2519,12 +2519,17 @@ const I18N = {
     "clips.none.ever": "Aucun clip récupéré pour l'instant.<br>Le téléchargement tourne déjà en arrière-plan (clé USB toutes les 10 min, cloud toutes les minutes) : les clips apparaîtront ici sans rien faire. Vérifiez qu'une clé USB est branchée sur le module : sans elle, les enregistrements ne vont que dans le cloud de l'abonnement Blink, que cet outil ne lit pas.",
     "clips.window": "{m} sur {total} clip(s) connus affichés · ",
     "clips.showall": "afficher tout l'historique",
-    "clips.loading": "Chargement…",
     "range.button": "(Période…)",
     "range.title": "Période",
     "range.today": "Aujourd'hui (24 h)", "range.week": "Cette semaine (7 j)",
     "range.month": "Ce mois-ci", "range.2months": "2 derniers mois",
     "range.all": "Tout l'historique",
+    // Libellé du premier choix de la liste des jours, qui reflète toujours
+    // la période active (voir libellePeriodeActuelle) plutôt qu'un texte
+    // fixe « tous les jours » désormais faux dès qu'un préréglage s'applique.
+    "range.active.today": "(Aujourd'hui)", "range.active.week": "(Cette semaine)",
+    "range.active.month": "(Ce mois-ci)", "range.active.2months": "(2 derniers mois)",
+    "range.active.all": "(Tout l'historique)", "range.active.custom": "(Période)",
     "range.custom.hint": "Ou une plage précise, à l'heure près :",
     "range.from": "Du", "range.to": "au", "range.apply": "Filtrer",
     "videos.count": "{n} vidéo(s) · {duree} au total",
@@ -2545,7 +2550,7 @@ const I18N = {
   en: {
     "view.live": "Live", "view.clips": "Clips", "view.daily": "Daily",
     "view.weekly": "Weekly", "view.monthly": "Monthly",
-    "filter.allcameras": "all cameras", "filter.alldays": "(All days)",
+    "filter.allcameras": "all cameras",
     "btn.refresh": "↻ Refresh", "btn.reglages": "⚙ Settings…", "btn.reglages.title": "Settings",
     "update.installing": "Install {version}",
     "update.title": "Version {version} published. Download, stop and restart are automatic.",
@@ -2639,12 +2644,14 @@ const I18N = {
     "clips.none.ever": "No clip retrieved yet.<br>Download is already running in the background (USB every 10 min, cloud every minute): clips will appear here on their own. Check that a USB drive is plugged into the module: without it, recordings only go to the Blink subscription cloud, which this tool does not read.",
     "clips.window": "{m} of {total} known clip(s) shown · ",
     "clips.showall": "show full history",
-    "clips.loading": "Loading…",
     "range.button": "(Period…)",
     "range.title": "Period",
     "range.today": "Today (24h)", "range.week": "This week (7d)",
     "range.month": "This month", "range.2months": "Last 2 months",
     "range.all": "All history",
+    "range.active.today": "(Today)", "range.active.week": "(This week)",
+    "range.active.month": "(This month)", "range.active.2months": "(Last 2 months)",
+    "range.active.all": "(All history)", "range.active.custom": "(Period)",
     "range.custom.hint": "Or a precise range, down to the hour:",
     "range.from": "From", "range.to": "to", "range.apply": "Filter",
     "videos.count": "{n} video(s) · {duree} total",
@@ -2707,7 +2714,7 @@ function setLang(code, persist) {
   if (typeof fill === "function") {
     fill($("camera"), data.cameras || [], t("filter.allcameras"),
          (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
-    fill($("day"), data.days || [], t("filter.alldays"));
+    fill($("day"), data.days || [], libellePeriodeActuelle());
     ajouterOptionPeriode();
   }
   if (typeof render === "function" && data.clips) render();
@@ -3357,10 +3364,30 @@ function paramsPourPlage() {
   return s ? `?${s}` : "";
 }
 
+// Deux load() peuvent se chevaucher (clics rapprochés entre préréglages, ou
+// un load() de fond pendant qu'un autre tourne encore) : sans annulation de
+// celui d'avant, une requête plus lente mais lancée plus tôt (souvent celle
+// du chargement initial, sur « ce mois-ci ») pouvait répondre après une plus
+// rapide et réappliquer des données périmées par-dessus - la sélection
+// paraissait alors bloquée sur ce mois-ci, ou la grille rendait deux fois
+// coup sur coup (clignotement). AbortController est le mécanisme standard
+// pour ça, pas une invention locale (constaté en réel, 2026-08-27).
+let __chargementEnCours = null;
+
 async function load() {
-  const [answer, videoAnswer] = await Promise.all([
-    fetch(`/api/clips${paramsPourPlage()}`), fetch("/api/videos"),
-  ]);
+  __chargementEnCours?.abort();
+  const controleur = new AbortController();
+  __chargementEnCours = controleur;
+  let answer, videoAnswer;
+  try {
+    [answer, videoAnswer] = await Promise.all([
+      fetch(`/api/clips${paramsPourPlage()}`, { signal: controleur.signal }),
+      fetch("/api/videos", { signal: controleur.signal }),
+    ]);
+  } catch (erreur) {
+    if (erreur.name === "AbortError") return; // une requête plus récente a pris le relais
+    throw erreur;
+  }
   data = await answer.json();
   videos = await videoAnswer.json();
   if (data.error) { $("log").style.display = "block"; $("log").textContent = data.error; return; }
@@ -3373,7 +3400,7 @@ async function load() {
   // Le modèle accompagne le nom ici, une fois, plutôt que sur chaque vignette.
   fill($("camera"), data.cameras, t("filter.allcameras"),
        (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
-  fill($("day"), data.days, t("filter.alldays"));
+  fill($("day"), data.days, libellePeriodeActuelle());
   ajouterOptionPeriode();
   render();
   majBoutonAppliquer();
@@ -3382,12 +3409,26 @@ async function load() {
 // « (Période…) » se rebâtit à chaque fill() de la liste des jours, que
 // fill() vide entièrement (voir sa propre note) : y revenir ici plutôt que
 // dans fill() lui-même, générique et partagé avec la liste des caméras.
+// Juste après le premier choix, pas en fin de liste : les deux options méta
+// se retrouvent groupées avant les jours réels, dont le nombre varie.
 function ajouterOptionPeriode() {
   const option = document.createElement("option");
   option.value = "__periode__";
   option.dataset.i18n = "range.button";
   option.textContent = t("range.button");
-  $("day").appendChild(option);
+  $("day").insertBefore(option, $("day").children[1] || null);
+}
+
+// Le premier choix (valeur "", celui qui dit « ne pas épingler un jour
+// précis ») porte le libellé de la période active plutôt qu'un texte fixe :
+// après un choix dans le panneau Période, il affichait encore « (Tous les
+// jours) », en contradiction avec le préréglage réellement appliqué
+// (constaté en réel, 2026-08-27). La valeur elle-même ne change pas, seul
+// son libellé reflète plageClips - fill() la reconstruit à chaque appel,
+// donc ce libellé est toujours à jour, y compris au tout premier chargement.
+function libellePeriodeActuelle() {
+  const cle = plageClips.preset ? `range.active.${plageClips.preset}` : "range.active.custom";
+  return t(cle);
 }
 
 function ouvrirPeriode() {
@@ -3410,7 +3451,10 @@ async function choisirPreset(nom) {
   plageClips = { preset: nom };
   $("rangeFrom").value = ""; $("rangeTo").value = "";
   $("periode").close();
-  $("list").innerHTML = `<p class="empty">${t("clips.loading")}</p>`;
+  // Pas de message de chargement intermédiaire : /api/clips répond en
+  // quelques millisecondes en local, trop vite pour se lire comme un
+  // chargement - seulement comme un clignotement de toute la grille à
+  // chaque changement de préréglage (constaté en réel, 2026-08-27).
   await load();
 }
 
@@ -3419,7 +3463,6 @@ async function appliquerPlagePersonnalisee() {
   if (!depuis && !jusqua) return;
   plageClips = { depuis, jusqua };
   $("periode").close();
-  $("list").innerHTML = `<p class="empty">${t("clips.loading")}</p>`;
   await load();
 }
 

@@ -46,9 +46,12 @@ old they are.
 
 ![The Clips tab](Screenshots/serve0.PNG)
 
-Clips newest first, filtered by camera and by day. Each card gives the camera,
-the duration, the date and the model, and the "Écarter" button removes the clip
-from every assembled video.
+Clips newest first, filtered by camera, by day, and by period: quick presets
+(today, this week, this month, last 2 months) or a precise custom range down
+to the hour, to find a specific incident without endless scrolling through an
+always-armed camera's history. Each card gives the camera, the duration, the
+date and the model, and the "Écarter" button removes the clip from every
+assembled video.
 
 ![The Settings panel](Screenshots/settings.PNG)
 
