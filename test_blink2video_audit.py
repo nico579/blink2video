@@ -694,6 +694,32 @@ class TestsDefautsSynchrones(BacASable):
         self.assertEqual(len(instances), 1)
         self.assertTrue(fiche.exists())
 
+    def test_bug8_json_corrompu_n_est_plus_supprime(self):
+        """Revue du 27/08, bug 8 : une fiche présente mais illisible (JSON
+        partiel, corruption) était supprimée sur le seul JSONDecodeError,
+        faisant perdre à stop la trace d'un processus peut-être toujours
+        vivant. Doit maintenant être laissée en l'état pour cette lecture."""
+        dossier = self.home / runtime.INSTANCES
+        dossier.mkdir()
+        fiche = dossier / "111.json"
+        fiche.write_text('{"pid": 111, "verbes": [["serve"]]', encoding="utf-8")
+        instances = runtime.lire_instances()
+        self.assertEqual(instances, [])
+        self.assertTrue(fiche.exists(), "une fiche corrompue ne doit plus être détruite")
+
+    def test_bug8_ecriture_de_fiche_est_atomique(self):
+        """Revue du 27/08, bug 8 : inscrire_instance()/inscrire_travailleur()
+        écrivaient directement sur la fiche, une lecture concurrente pouvant
+        y voir du JSON tronqué. Le fichier temporaire ne doit plus traîner
+        une fois l'écriture terminée, preuve que le renommage a eu lieu."""
+        fiche = runtime.inscrire_instance([["serve"]])
+        try:
+            self.assertEqual(
+                json.loads(fiche.read_text(encoding="utf-8"))["pid"], os.getpid())
+            self.assertEqual(list(fiche.parent.glob("*.tmp")), [])
+        finally:
+            fiche.unlink(missing_ok=True)
+
     def test_I14_echec_arret_conserve_la_fiche(self):
         """I-14 : stop ne doit pas perdre la seule piste d'un survivant."""
         fiche = self.home / "instance.json"

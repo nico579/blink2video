@@ -740,6 +740,19 @@ def processus_correspond(pid: int, marqueurs: list | None = None) -> bool:
     return any(m in ligne for m in (marqueurs or _empreintes_attendues()))
 
 
+def _ecrire_fiche(fiche: Path, donnees: dict) -> None:
+    """Écrit une fiche de processus (instance ou travailleurs), atomiquement.
+
+    Une écriture directe pouvait laisser une lecture concurrente voir du
+    JSON tronqué en cours d'écriture ; lire_instances() traitait alors ça
+    comme une fiche périmée et la supprimait, faisant perdre à stop la
+    trace d'un processus pourtant vivant (revue du 27/08, bug 8). Même
+    motif que _ecrire_registre() (blink_registre.py)."""
+    temporaire = fiche.with_suffix(".tmp")
+    temporaire.write_text(json.dumps(donnees, ensure_ascii=False), encoding="utf-8")
+    temporaire.replace(fiche)
+
+
 def inscrire_instance(entrees: list, enfants=None) -> Path:
     """Dépose la fiche de l'instance courante, et la retire à sa mort.
 
@@ -752,14 +765,14 @@ def inscrire_instance(entrees: list, enfants=None) -> Path:
     dossier = app_dir() / INSTANCES
     dossier.mkdir(parents=True, exist_ok=True)
     fiche = dossier / f"{os.getpid()}.json"
-    fiche.write_text(json.dumps({
+    _ecrire_fiche(fiche, {
         "pid": os.getpid(),
         "depuis": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "verbes": entrees,
         # Les enfants sont notés pour pouvoir vérifier, après l'arrêt, qu'aucun
         # n'a survécu : c'est précisément ce qui se produisait avant.
         "enfants": list(enfants or []),
-    }, ensure_ascii=False), encoding="utf-8")
+    })
     atexit.register(lambda: fiche.unlink(missing_ok=True))
     return fiche
 
@@ -777,8 +790,18 @@ def lire_instances() -> list:
     for fiche in sorted(dossier.glob("*.json")) if dossier.is_dir() else []:
         try:
             donnees = json.loads(fiche.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            fiche.unlink(missing_ok=True)
+        except OSError:
+            # Disparue entre le glob() et la lecture : un autre processus
+            # (son propre atexit, par exemple) l'a déjà nettoyée, rien à
+            # purger ici.
+            continue
+        except json.JSONDecodeError:
+            # Présente mais illisible. _ecrire_fiche() étant atomique
+            # (temp + replace), ce n'est plus une fenêtre d'écriture
+            # concurrente qu'on pourrait croiser ici, seulement une vraie
+            # corruption : la supprimer ferait perdre à stop la trace d'un
+            # processus peut-être toujours vivant (revue du 27/08, bug 8).
+            # On la laisse plutôt en l'état pour cette lecture.
             continue
         membres = [donnees.get("pid"), *(donnees.get("enfants") or [])]
         if any(processus_correspond(int(membre or 0)) for membre in membres):
@@ -815,7 +838,7 @@ def inscrire_travailleur(pid: int) -> None:
     travailleurs = set(donnees.get("travailleurs") or [])
     travailleurs.add(pid)
     donnees["travailleurs"] = sorted(travailleurs)
-    fiche.write_text(json.dumps(donnees, ensure_ascii=False), encoding="utf-8")
+    _ecrire_fiche(fiche, donnees)
 
 
 def retirer_travailleur(pid: int) -> None:
@@ -829,7 +852,7 @@ def retirer_travailleur(pid: int) -> None:
     travailleurs = set(donnees.get("travailleurs") or [])
     travailleurs.discard(pid)
     donnees["travailleurs"] = sorted(travailleurs)
-    fiche.write_text(json.dumps(donnees, ensure_ascii=False), encoding="utf-8")
+    _ecrire_fiche(fiche, donnees)
 
 
 def arreter_processus(pid: int, avec_descendance: bool = False) -> None:
