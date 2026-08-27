@@ -657,6 +657,11 @@ def route(argv: list) -> int:
     à découvrir « login » ni « start ». --help et --version gardent leur
     sens : seule une liste réellement vide déclenche ce court-circuit,
     jamais une option isolée."""
+    # --bootstrap= n'est déclaré par aucun parseur de verbe : retiré ici,
+    # avant tout parse_args() en aval, sans quoi argparse le rejette comme
+    # argument inconnu avant que bootstrap() ait pu le lire (revue du
+    # 27/08, bug 4 - reproductible avec « download --bootstrap=none »).
+    argv = runtime.extraire_mode_bootstrap(argv)
     if not argv:
         return executer(runtime.decouper_verbes(["start"]))
     # « autostart » vient nécessairement en tête : il n'exécute rien, il

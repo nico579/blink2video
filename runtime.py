@@ -342,7 +342,38 @@ DEPENDANCES = {
     # Windows n'embarque aucune base de fuseaux horaires : sans ce paquet,
     # ZoneInfo("Europe/Paris") échoue et tout l'horodatage avec.
     "tzdata": "tzdata",
+    # find_ffmpeg() (merge_daily.py) s'en sert par défaut, pour ne pas
+    # dépendre d'un ffmpeg déjà présent sur la machine (revue du 27/08,
+    # bug 4 : absent d'ici jusque-là, alors que build.py::PAQUETS et
+    # requirements.txt l'ont toujours listé).
+    "imageio_ffmpeg": "imageio-ffmpeg",
 }
+if sys.version_info < (3, 9):
+    # zoneinfo est stdlib depuis 3.9 ; en dessous (édition Windows 7,
+    # Python 3.8), backports.zoneinfo le fournit - même condition que
+    # requirements.txt et build.py::PAQUETS.
+    DEPENDANCES["backports.zoneinfo"] = "backports.zoneinfo"
+
+
+def extraire_mode_bootstrap(argv: list) -> list:
+    """Retire --bootstrap=... de `argv` s'il y est, et reporte sa valeur dans
+    la variable d'environnement BLINK_BOOTSTRAP. Renvoie `argv` sans lui.
+
+    --bootstrap n'est déclaré par aucun parseur de verbe, seulement compris
+    par bootstrap() : laissé dans argv, il fait échouer argparse sur
+    "unrecognized arguments" avant même que bootstrap() ait pu le lire. À
+    appeler donc AVANT tout parse_args(), pas seulement au sein de
+    bootstrap() elle-même - route() (blink_cli.py) s'en sert tout en haut
+    pour couvrir aussi les verbes comme download, dont les arguments
+    n'étaient nettoyés par personne avant d'atteindre argparse (revue du
+    27/08, bug 4)."""
+    nettoye = []
+    for argument in argv:
+        if argument.startswith("--bootstrap="):
+            os.environ["BLINK_BOOTSTRAP"] = argument.split("=", 1)[1]
+        else:
+            nettoye.append(argument)
+    return nettoye
 
 
 def bootstrap() -> None:
@@ -361,11 +392,8 @@ def bootstrap() -> None:
     if frozen() or os.environ.get("BLINK_BOOTSTRAP_DONE"):
         return
 
+    sys.argv[1:] = extraire_mode_bootstrap(sys.argv[1:])
     mode = os.environ.get("BLINK_BOOTSTRAP", "auto")
-    for argument in list(sys.argv[1:]):
-        if argument.startswith("--bootstrap="):
-            mode = argument.split("=", 1)[1]
-            sys.argv.remove(argument)
 
     manquantes = [pip for module, pip in DEPENDANCES.items()
                   if importlib.util.find_spec(module) is None]
@@ -398,11 +426,30 @@ def bootstrap() -> None:
     if not python.exists():
         print(f"Création de l'environnement isolé dans {venv_dir}...")
         subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+
+    if not _venv_a_jour(python):
         _installer(str(python), list(DEPENDANCES.values()))
 
     print(f"Relance dans {venv_dir}...")
     os.execve(str(python), [str(python), *sys.argv],
               dict(os.environ, BLINK_BOOTSTRAP_DONE="1"))
+
+
+def _venv_a_jour(python: Path) -> bool:
+    """Vrai si l'interpréteur du venv importe déjà toutes les dépendances.
+
+    Un venv créé par une version plus ancienne du programme peut avoir pris
+    forme sans jamais recevoir un paquet ajouté depuis (ex. imageio-ffmpeg,
+    revue du 27/08, bug 4) : sans cette vérification à chaque relance,
+    _installer() n'était appelé qu'à la création, jamais pour réparer un
+    venv déjà là mais incomplet. Interroger le venv lui-même (plutôt que de
+    ne comparer qu'une liste) reste vrai même après une install manuelle ou
+    un pip cassé dans ce venv précis."""
+    verif = "import " + ", ".join(DEPENDANCES.keys())
+    resultat = subprocess.run([str(python), "-c", verif],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              check=False)
+    return resultat.returncode == 0
 
 
 def _installer(python: str, paquets: list) -> None:

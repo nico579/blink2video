@@ -345,5 +345,59 @@ class RepeterTests(unittest.TestCase):
         self.assertEqual(durees[0], 45.0)
 
 
+class ExtraireModeBootstrapTests(unittest.TestCase):
+    """Revue du 27/08, bug 4 : reproductible avec "download --bootstrap=
+    none", dont les arguments n'étaient nettoyés par personne avant
+    d'atteindre argparse (aucun parseur de verbe ne déclare --bootstrap)."""
+
+    def setUp(self) -> None:
+        self.ancien = os.environ.pop("BLINK_BOOTSTRAP", None)
+
+    def tearDown(self) -> None:
+        if self.ancien is None:
+            os.environ.pop("BLINK_BOOTSTRAP", None)
+        else:
+            os.environ["BLINK_BOOTSTRAP"] = self.ancien
+
+    def test_retire_loption_et_pose_la_variable(self) -> None:
+        reste = runtime.extraire_mode_bootstrap(
+            ["download", "--bootstrap=none", "--from", "usb"])
+        self.assertEqual(reste, ["download", "--from", "usb"])
+        self.assertEqual(os.environ.get("BLINK_BOOTSTRAP"), "none")
+
+    def test_argv_sans_loption_reste_inchange(self) -> None:
+        argv = ["download", "--from", "usb"]
+        self.assertEqual(runtime.extraire_mode_bootstrap(argv), argv)
+        self.assertNotIn("BLINK_BOOTSTRAP", os.environ)
+
+
+class VenvAJourTests(unittest.TestCase):
+    """Revue du 27/08, bug 4 : un venv déjà créé mais incomplet (dépendance
+    ajoutée depuis, install précédente interrompue) n'était jamais réparé,
+    _installer() n'étant appelé qu'à la création du venv."""
+
+    def test_venv_complet_est_reconnu(self) -> None:
+        with mock.patch.object(runtime.subprocess, "run",
+                               return_value=mock.Mock(returncode=0)) as appel:
+            self.assertTrue(runtime._venv_a_jour("un/faux/python.exe"))
+        commande = appel.call_args[0][0]
+        for module in runtime.DEPENDANCES:
+            self.assertIn(module, commande[2])
+
+    def test_venv_incomplet_est_detecte(self) -> None:
+        with mock.patch.object(runtime.subprocess, "run",
+                               return_value=mock.Mock(returncode=1)):
+            self.assertFalse(runtime._venv_a_jour("un/faux/python.exe"))
+
+
+class DependancesTests(unittest.TestCase):
+    def test_imageio_ffmpeg_fait_partie_des_dependances(self) -> None:
+        """find_ffmpeg() (merge_daily.py) en dépend par défaut : absent du
+        venv auto-créé, un compte sans ffmpeg système échouait en silence
+        jusqu'au premier assemblage."""
+        self.assertIn("imageio_ffmpeg", runtime.DEPENDANCES)
+        self.assertEqual(runtime.DEPENDANCES["imageio_ffmpeg"], "imageio-ffmpeg")
+
+
 if __name__ == "__main__":
     unittest.main()
