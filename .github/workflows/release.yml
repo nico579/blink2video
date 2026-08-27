@@ -14,6 +14,7 @@ name: Release (build 3 OS)
 #   blink2video-windows-x86_64.zip
 #   blink2video-linux-x86_64.tar.gz
 #   blink2video-macos-arm64.zip
+#   blink2video-windows7-x86_64-experimental.zip
 
 on:
   push:
@@ -126,6 +127,18 @@ jobs:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}.*
 
+  # Meme recette que le CI continu sur main (voir build-win7.yml), construite
+  # ici pour l'etiquette de la release plutot que pour la HEAD de main. Best
+  # effort par nature (edition experimentale, hors support Microsoft) : un
+  # echec ici ne doit pas retenir les trois bundles stables, d'ou le job
+  # separe et le "if" de publish plus bas, meme raisonnement que pour docker.
+  build-win7:
+    name: build Windows 7 (experimental)
+    needs: version
+    uses: ./.github/workflows/build-win7.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref }}
+
   # Image publiee sur Docker Hub, en plus des trois binaires. Job separe du
   # matriciel "build" : un echec ici (secrets Docker Hub absents ou invalides)
   # ne doit jamais empecher la publication des binaires, qui n'en dependent
@@ -181,7 +194,12 @@ jobs:
 
   publish:
     name: publier la release
-    needs: build
+    # Attend build-win7 (sans quoi publish pourrait s'executer et publier
+    # avant que son artefact n'existe, une course deja vue avec un job plus
+    # lent que le reste) mais ne l'exige pas : "if" ne verifie que build,
+    # les trois bundles stables partent meme si l'edition Win7 a echoue.
+    needs: [build, build-win7]
+    if: needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write

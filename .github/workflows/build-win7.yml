@@ -11,6 +11,16 @@ on:
   pull_request:
     branches:
       - main
+  # Réutilisable depuis release.yml : le même job construit et vérifie
+  # l'édition Win7 à chaque poussée sur main (validation continue) et à
+  # chaque étiquette de release (bundle publié aux côtés des trois autres),
+  # une seule recette pour les deux plutôt que deux copies à tenir pareilles.
+  workflow_call:
+    inputs:
+      ref:
+        description: "Référence à construire (étiquette de release, par exemple) ; défaut : celle qui a déclenché ce workflow"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -23,6 +33,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       # 3.8.10 est le dernier installateur Windows officiel de Python 3.8 et
       # le dernier runtime CPython explicitement compatible Windows 7.

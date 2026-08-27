@@ -45,10 +45,20 @@ class Windows7BuildTests(unittest.TestCase):
         self.assertNotIn("      - windows7-experimental", win7)
         self.assertIn("      - 'v[0-9]+.[0-9]+.[0-9]+'", release)
         self.assertNotIn("      - 'v*'", release)
+        # 3 checkouts directs (version, build, docker) + 1 fois comme entree
+        # "ref" du job reutilisable build-win7 (meme etiquette de release,
+        # jamais la HEAD de main que ce job construirait par defaut).
         self.assertEqual(
             release.count("ref: ${{ github.event.inputs.tag || github.ref }}"),
-            3,
+            4,
         )
+        # build-win7.yml sert a la fois le CI continu sur main (push/pull_
+        # request ci-dessus) et la release, via le meme job plutot qu'une
+        # copie : sans workflow_call, une correction du build Win7 devrait
+        # etre faite deux fois pour rester valable aux deux endroits.
+        self.assertIn("workflow_call:", win7)
+        self.assertIn("uses: ./.github/workflows/build-win7.yml", release)
+        self.assertIn("needs: [build, build-win7]", release)
 
     def test_win7_build_rejects_another_platform(self):
         with mock.patch.object(build.sys, "platform", "linux"):
