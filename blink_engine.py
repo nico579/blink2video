@@ -483,6 +483,10 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
             else:
                 corps = (f"{neufs_total} nouveau{'x' if neufs_total > 1 else ''} "
                          f"clip{pluriel} récupéré{pluriel}. Cliquez pour ouvrir.")
-            runtime.toast("Blink", corps, url="http://127.0.0.1:8765/")
+            # Le port configuré, pas 8765 en dur : sans ça, la notification
+            # pointait vers la mauvaise page dès que l'utilisateur changeait
+            # de port dans les réglages (revue du 27/08, bug 5).
+            port = runtime.lire_reglages()["port"]
+            runtime.toast("Blink", corps, url=f"http://127.0.0.1:{port}/")
 
     return 1 if had_error else 0

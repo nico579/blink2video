@@ -192,8 +192,12 @@ def ouvrir(arguments: list = ()) -> int:
         prog="blink2video open",
         description=ouvrir.__doc__.splitlines()[0],
     )
-    parseur.add_argument("--port", type=runtime.port_valide, default=8765,
-                         help="port de l'interface (défaut 8765)")
+    # Le port configuré, pas 8765 en dur : sans ça, « open » sans argument
+    # ouvrait toujours 8765 même après un changement de port dans les
+    # réglages (revue du 27/08, bug 5).
+    parseur.add_argument("--port", type=runtime.port_valide,
+                         default=runtime.lire_reglages()["port"],
+                         help="port de l'interface (défaut : le port configuré)")
     options = parseur.parse_args(list(arguments))
     adresse = f"http://127.0.0.1:{options.port}/"
 
@@ -330,6 +334,20 @@ def redemarrer(arguments: list = ()) -> int:
                          stderr=subprocess.DEVNULL,
                          start_new_session=(sys.platform != "win32"))
     return 0
+
+
+def _port_demande(arguments: list) -> int | None:
+    """Port explicitement demandé dans ces arguments, ou None si absent.
+
+    Extraction minimale et tolérante aux autres options (--timezone, etc.) :
+    sert à ce que le raccourci « déjà démarré » de start regarde le même
+    port que celui qui sera réellement utilisé pour le serve relancé plus
+    loin, plutôt que de toujours se fier au port enregistré même quand un
+    --port explicite l'écrase (revue du 27/08, bug 5)."""
+    mini = argparse.ArgumentParser(add_help=False)
+    mini.add_argument("--port", type=runtime.port_valide, default=None)
+    options, _ = mini.parse_known_args(list(arguments))
+    return options.port
 
 
 def _port_ouvert(port: int) -> bool:
@@ -483,6 +501,12 @@ def executer(groupes: list) -> int:
         # composition recommandée, options comprises. Les options données après
         # lui s'ajoutent au premier verbe, « serve », d'où le --port qui marche.
         supplement = groupes[0][1:]
+        # Calculé avant le verrou : le raccourci "déjà démarré" ci-dessous
+        # comme le repli BusyError plus bas doivent tous deux regarder le
+        # port explicitement demandé, pas seulement celui enregistré ; et le
+        # repli en a besoin même quand l'acquisition du verrou échoue avant
+        # d'avoir pu le calculer lui-même (revue du 27/08, bug 5).
+        port_demande = _port_demande(supplement)
         # E-01 : la session enregistrée est réellement testée avant de lancer
         # quoi que ce soit de permanent, pas seulement vérifiée présente sur
         # disque (5.3, 5.4). Si elle manque ou n'est plus valide, l'interface
@@ -504,7 +528,7 @@ def executer(groupes: list) -> int:
                 # qu'à rouvrir l'interface déjà en place, sans avoir à
                 # composer deux commandes séparées ni à ouvrir une seconde
                 # fenêtre de console pour le vérifier.
-                port = runtime.lire_reglages()["port"]
+                port = port_demande or runtime.lire_reglages()["port"]
                 if _port_ouvert(port):
                     return ouvrir(["--port", str(port)])
 
@@ -529,7 +553,8 @@ def executer(groupes: list) -> int:
                 return code
         except runtime.BusyError:
             print("Démarrage déjà en cours ailleurs, ouverture de l'interface...")
-            return ouvrir(())
+            port = port_demande or runtime.lire_reglages()["port"]
+            return ouvrir(["--port", str(port)])
 
     if len(groupes) == 1 and groupes[0][0] == "open":
         return ouvrir(groupes[0][1:])

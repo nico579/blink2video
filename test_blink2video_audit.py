@@ -607,6 +607,36 @@ class TestsDefautsSynchrones(BacASable):
                 blink_cli.ouvrir(["--port", "65536"])
         creer_socket.assert_not_called()
 
+    def test_bug5_port_demande_extrait_loption_explicite(self):
+        """Revue du 27/08, bug 5."""
+        self.assertEqual(blink_cli._port_demande(["--port", "55432"]), 55432)
+        self.assertIsNone(blink_cli._port_demande(["--timezone", "Europe/Paris"]))
+        self.assertEqual(
+            blink_cli._port_demande(["--timezone", "Europe/Paris", "--port", "55432"]),
+            55432)
+
+    def test_bug5_start_avec_port_explicite_regarde_ce_port(self):
+        """Revue du 27/08, bug 5 : start --port 55432 vérifiait le port
+        ENREGISTRÉ (8765 par défaut), ignorant l'option explicite tapée sur
+        cette même commande, dès lors que ce port enregistré répondait."""
+        with mock.patch.object(blink_cli, "_port_ouvert",
+                               side_effect=lambda p: p == 55432), \
+             mock.patch.object(blink_cli, "ouvrir", return_value=0) as ouverture:
+            code = blink_cli.executer([["start", "--port", "55432"]])
+        self.assertEqual(code, 0)
+        ouverture.assert_called_once_with(["--port", "55432"])
+
+    def test_bug5_start_sans_port_explicite_regarde_le_port_enregistre(self):
+        """Contre-épreuve du précédent : sans --port explicite, le
+        comportement historique (port enregistré) doit rester intact."""
+        port_enregistre = runtime.lire_reglages()["port"]
+        with mock.patch.object(blink_cli, "_port_ouvert",
+                               side_effect=lambda p: p == port_enregistre), \
+             mock.patch.object(blink_cli, "ouvrir", return_value=0) as ouverture:
+            code = blink_cli.executer([["start"]])
+        self.assertEqual(code, 0)
+        ouverture.assert_called_once_with(["--port", str(port_enregistre)])
+
     def test_I13_parent_mort_ne_fait_pas_oublier_un_enfant_vivant(self):
         """I-13 : une fiche reste utile tant qu'un de ses membres vit."""
         dossier = self.home / runtime.INSTANCES
