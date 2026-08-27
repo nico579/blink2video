@@ -774,6 +774,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        self.wfile.flush()
+
+    def repondre_puis_redemarrer(self, commande_restart: list) -> None:
+        """Répond {"ok": True}, puis détache une commande qui va arrêter CE
+        processus (restart ou stop, tous deux via taskkill /F /T sous
+        Windows) - factorise /api/reglages et /api/stop, qui partagent
+        exactement ce besoin.
+
+        wfile.write()/flush() ne garantissent que la remise à l'OS, pas la
+        livraison réelle jusqu'au navigateur : un taskkill trop rapproché
+        peut aborter la connexion avant que la pile réseau ait fini de
+        transmettre, la fenêtre étant plus large sur une machine chargée ou
+        lente (rapporté par un utilisateur sous Windows 7/Python 3.8 :
+        JSON.parse en échec côté page, disparaissant une fois la
+        surveillance caméra arrêtée - moins de contention). Une courte
+        pause après le flush laisse le temps à la pile réseau de vraiment
+        vider son tampon avant la mise à mort."""
+        self.send_json({"ok": True})
+        time.sleep(0.2)
+        runtime.demarrer(
+            runtime.self_command(*commande_restart), cwd=str(runtime.app_dir()),
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
 
     def send_media(self, path: Path) -> None:
         """Sert un fichier en gérant les requêtes Range.
@@ -1981,22 +2004,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             runtime.ecrire_reglages(usb_minutes, cloud_minutes, port, timestamp, timezone_str,
                                     merge_jour, merge_semaine, merge_mois, download_auto)
             runtime.ecrire_dossier_stockage(storage_dir)
-            # Répondre AVANT de détacher « restart » : sous Windows, ce verbe
-            # fait un « taskkill /F /T » sur ce processus (runtime.py, arreter())
-            # - un nouveau processus indépendant, qui peut s'exécuter avant la
-            # ligne suivante. Détacher en premier a déjà fait perdre la réponse
-            # HTTP en pleine écriture (page reçue vide, JSON.parse en échec côté
-            # navigateur) ; envoyer d'abord retire cette course.
-            self.send_json({"ok": True})
             # Comme /api/update : ce processus fait partie de ce que « restart »
             # va arrêter. Le verbe diffère de « update » puisqu'aucune nouvelle
             # version n'est en jeu, seuls les réglages ont changé - mais
             # « restart » relance « start » à neuf, donc les relit.
-            runtime.demarrer(
-                runtime.self_command("restart"), cwd=str(runtime.app_dir()),
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT,
-                start_new_session=(os.name != "nt"))
+            self.repondre_puis_redemarrer(["restart"])
             return
 
         if route == "/api/sourdine":
@@ -2042,18 +2054,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/stop":
-            # Même détachement que /api/reglages, et même raison de répondre
-            # avant : voir le commentaire de /api/reglages sur la course avec
-            # le « taskkill /F » de « restart ». --sans-relance pour que
-            # « restart » s'arrête sans revenir, exactement ce qu'un bouton Stop
-            # doit faire.
-            self.send_json({"ok": True})
-            runtime.demarrer(
-                runtime.self_command("restart", "--sans-relance"),
-                cwd=str(runtime.app_dir()),
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT,
-                start_new_session=(os.name != "nt"))
+            # --sans-relance pour que « restart » s'arrête sans revenir,
+            # exactement ce qu'un bouton Stop doit faire.
+            self.repondre_puis_redemarrer(["restart", "--sans-relance"])
             return
 
         if route == "/api/lang":
@@ -2368,6 +2371,8 @@ PAGE = """<!doctype html>
       <option value="Europe/Berlin">
       <option value="America/Montreal">
       <option value="America/New_York">
+      <option value="America/Chicago">
+      <option value="America/Denver">
       <option value="America/Los_Angeles">
       <option value="Africa/Casablanca">
       <option value="Africa/Abidjan">
