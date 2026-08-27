@@ -308,16 +308,29 @@ class RepeterTests(unittest.TestCase):
                 raise KeyboardInterrupt
             return 0
 
-        with mock.patch("time.sleep") as sommeil, \
+        # Horloge et sommeil liés : depuis l'arrêt coopératif (revue du
+        # 27/08), le sommeil entre deux tours est scindé en tranches d'une
+        # seconde qui relisent time.monotonic() à chaque tranche - un
+        # sommeil muet avec une horloge réelle non mockée boucle alors à
+        # vide pendant toute la période réelle (~5 min ici) avant de s'en
+        # apercevoir. Ce que ce test vérifie (une erreur n'arrête pas la
+        # répétition) ne dépend pas du nombre exact de tranches.
+        horloge = {"t": 0.0}
+
+        def faux_sommeil(duree):
+            horloge["t"] += duree
+
+        with mock.patch("time.monotonic", side_effect=lambda: horloge["t"]), \
+             mock.patch("time.sleep", side_effect=faux_sommeil) as sommeil, \
              contextlib.redirect_stdout(io.StringIO()):
             code = runtime.repeter(travail, 5)
 
         self.assertEqual(code, 0)
         self.assertEqual(len(appels), 3)
-        self.assertEqual(sommeil.call_count, 2)
+        self.assertGreater(sommeil.call_count, 0)
 
     def test_O05_echeance_calculee_depuis_le_debut_du_tour(self) -> None:
-        """Un tour de 15 s à cadence 1 min doit dormir ~45 s, pas 60 s."""
+        """Un tour de 15 s à cadence 1 min doit dormir ~45 s au total, pas 60 s."""
         horloge = {"t": 1_000.0}
 
         def maintenant():
@@ -342,7 +355,10 @@ class RepeterTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()):
             runtime.repeter(travail, 1)
 
-        self.assertEqual(durees[0], 45.0)
+        # Le sommeil est désormais scindé en tranches courtes (arrêt
+        # coopératif, revue du 27/08) plutôt qu'un seul gros sommeil : c'est
+        # leur somme qui doit valoir 45 s, pas dépasser jusqu'à 60 s.
+        self.assertEqual(sum(durees), 45.0)
 
 
 class ExtraireModeBootstrapTests(unittest.TestCase):

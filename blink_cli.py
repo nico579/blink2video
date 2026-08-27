@@ -238,6 +238,13 @@ def arreter(arguments: list = ()) -> int:
         print("Rien ne tourne.")
         return 0
 
+    # Drapeau coopératif posé avant tout kill (revue du 27/08) : serve,
+    # watch, download et merge le relisent (repeter()/shutdown()) et
+    # sortent d'eux-mêmes entre deux tours plutôt que d'être tués en plein
+    # milieu. Le kill ci-dessous reste le repli pour ce qui n'a pas eu le
+    # temps de sortir seul dans le délai de grâce.
+    runtime.demander_arret()
+
     restants = []
     for fiche in instances:
         commande = " ".join(" ".join(groupe) for groupe in fiche.get("verbes") or [])
@@ -250,12 +257,31 @@ def arreter(arguments: list = ()) -> int:
         # que ce soit, jamais seulement l'existence du PID.
         membres = [(pid, None) for pid in
                    [fiche["pid"], *(fiche.get("enfants") or [])]]
-        # Un ffmpeg de fusion (merge_daily.run_ffmpeg_batch/concat_copy) est un
-        # vrai enfant du PID principal, mais celui-ci n'a jamais droit au
-        # taskkill /T (protection du navigateur, voir arreter_processus) : sans
-        # ça ffmpeg resterait orphelin, tournant jusqu'à sa fin après « stop ».
-        # Empreinte dédiée : sa ligne de commande ne porte jamais « blink2video ».
-        membres += [(pid, ["ffmpeg"]) for pid in (fiche.get("travailleurs") or [])]
+        # Un ffmpeg de fusion (merge_daily.run_ffmpeg_batch/concat_copy) ne
+        # comprend pas le drapeau (processus tiers, aucune prise dessus) :
+        # tué directement, sans délai de grâce. Jamais droit au taskkill /T
+        # sur son propre PID (protection du navigateur, voir
+        # arreter_processus) : sans ça il resterait orphelin, tournant
+        # jusqu'à sa fin après « stop ». Empreinte dédiée : sa ligne de
+        # commande ne porte jamais « blink2video ».
+        for pid_ffmpeg in fiche.get("travailleurs") or []:
+            if (runtime.processus_vivant(int(pid_ffmpeg))
+                    and runtime.processus_correspond(int(pid_ffmpeg), ["ffmpeg"])):
+                runtime.arreter_processus(int(pid_ffmpeg), avec_descendance=True)
+
+        # Délai de grâce pour les membres Python (serve/watch/download/
+        # merge) : le drapeau posé plus haut leur laisse la chance de sortir
+        # d'eux-mêmes avant qu'on ne force. Identité vérifiée dès cette
+        # attente (processus_correspond, pas seulement processus_vivant) :
+        # un pid réattribué à un autre logiciel resterait sinon « vivant »
+        # tout le délai, pour un processus qu'on n'a de toute façon jamais
+        # eu l'intention de toucher.
+        limite = time.time() + 15
+        while time.time() < limite and any(
+                runtime.processus_vivant(int(m)) and runtime.processus_correspond(int(m), e)
+                for m, e in membres):
+            time.sleep(1)
+
         for membre, empreinte in membres:
             if not runtime.processus_vivant(int(membre)):
                 continue
@@ -279,6 +305,7 @@ def arreter(arguments: list = ()) -> int:
             restants.extend(survivants)
             continue
         Path(fiche["fiche"]).unlink(missing_ok=True)
+    runtime.effacer_arret_demande()
     if restants:
         print("Toujours en vie : " + ", ".join(restants))
         return 1
@@ -673,16 +700,25 @@ def executer(groupes: list) -> int:
     except KeyboardInterrupt:
         print("\nArrêt.")
     finally:
-        # arreter_processus(avec_descendance=True), pas un .terminate() nu :
-        # ces verbes tournent dans leur propre session (creationflags=
-        # runtime.flags_enfant() à leur lancement plus haut), donc leur
-        # descendance (ffmpeg, notamment) leur est propre à tuer aussi.
-        # .terminate() seul ne touchait que le processus immédiat, ne tuait
-        # jamais ses enfants, et n'attendait pas la fin réelle (revue du
-        # 27/08, bug 6) : un ffmpeg pouvait survivre à un Ctrl+C.
+        # Arrêt coopératif d'abord (revue du 27/08) : le drapeau laisse
+        # chaque verbe finir son tour en cours puis sortir de lui-même -
+        # entre deux tours de repeter() (watch/download/merge) ou par
+        # shutdown() entre deux requêtes (serve) - plutôt que d'être tué en
+        # plein milieu. arreter_processus(avec_descendance=True) ne sert
+        # plus qu'en repli, passé le délai de grâce, pour ce qui n'a pas eu
+        # le temps de sortir seul. ffmpeg (que merge ne pilote pas de façon
+        # coopérative, processus tiers) y passe presque toujours par ce
+        # chemin, tué avec son parent via /T - .terminate() seul, avant ce
+        # correctif, ne touchait que le processus immédiat, ne tuait jamais
+        # ses enfants, et n'attendait pas la fin réelle (bug 6).
+        runtime.demander_arret()
+        limite = time.monotonic() + 15
+        while time.monotonic() < limite and any(p.poll() is None for _, p in lances):
+            time.sleep(0.2)
         for _, processus in lances:
             if processus.poll() is None:
                 runtime.arreter_processus(processus.pid, avec_descendance=True)
+        runtime.effacer_arret_demande()
     return max(pire, pire_ponctuel)
 
 

@@ -4327,6 +4327,17 @@ def main() -> int:
     veiller_sur_les_versions()
     if args.open_browser:
         threading.Timer(0.5, webbrowser.open, [url]).start()
+
+    def surveiller_arret_demande():
+        # Un arrêt externe (tray, stop) pose ce drapeau plutôt que de tuer le
+        # processus directement : shutdown() laisse toute requête déjà en
+        # cours se terminer normalement (revue du 27/08, arrêt coopératif).
+        while not runtime.arret_demande():
+            time.sleep(1)
+        server.shutdown()
+
+    fil_arret = threading.Thread(target=surveiller_arret_demande, daemon=True)
+    fil_arret.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

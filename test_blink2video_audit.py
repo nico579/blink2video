@@ -658,21 +658,38 @@ class TestsDefautsSynchrones(BacASable):
         """Revue du 27/08, bug 6 : le finally n'appelait qu'un
         Popen.terminate() nu sur un Ctrl+C - ni descendance tuée (ffmpeg
         pouvait survivre), ni attente de la fin réelle. Doit maintenant
-        passer par arreter_processus(avec_descendance=True), le même
-        mécanisme déjà correct pour stop/restart. Deux verbes persistants,
-        pour vérifier que chacun des « lances » reçoit l'appel, pas juste le
-        premier."""
+        passer par arreter_processus(avec_descendance=True) en repli, une
+        fois le délai de grâce coopératif écoulé (revue du 27/08, arrêt
+        coopératif : ici les process ne sortent jamais seuls, le repli doit
+        donc jouer). Deux verbes persistants, pour vérifier que chacun des
+        « lances » reçoit l'appel, pas juste le premier."""
         class FauxProcessus:
             def __init__(self, pid):
                 self.pid = pid
 
             def poll(self):
-                return None
+                return None  # ne sort jamais seul : le repli doit jouer
+
+        horloge = {"t": 0.0}
+
+        def faux_monotonic():
+            # Saute directement au-delà du délai de grâce (15 s) dès le
+            # premier appel, pour ne pas attendre réellement dans le test.
+            horloge["t"] += 20
+            return horloge["t"]
+
+        appels_sleep = {"n": 0}
+
+        def faux_sleep(duree):
+            appels_sleep["n"] += 1
+            if appels_sleep["n"] == 1:
+                raise KeyboardInterrupt
 
         with mock.patch.object(runtime, "demarrer",
                                return_value=FauxProcessus(4242)), \
              mock.patch.object(tray, "disponible", return_value=False), \
-             mock.patch("time.sleep", side_effect=KeyboardInterrupt), \
+             mock.patch("time.sleep", side_effect=faux_sleep), \
+             mock.patch("time.monotonic", side_effect=faux_monotonic), \
              mock.patch.object(runtime, "arreter_processus") as tuer, \
              contextlib.redirect_stdout(io.StringIO()):
             blink_cli.executer([["serve", "--loop"], ["watch", "--loop"]])
@@ -779,10 +796,24 @@ class TestsDefautsSynchrones(BacASable):
                 return marqueurs == ["ffmpeg"]
             return True
 
+        # Horloge et sommeil liés : processus_vivant figé sur True fait
+        # durer le délai de grâce coopératif (revue du 27/08) tout son
+        # cours réel (15 s) si le temps n'est pas aussi accéléré ici -
+        # hors sujet pour ce test, qui porte sur l'empreinte du travailleur.
+        horloge = {"t": 0.0}
+
+        def faux_temps():
+            return horloge["t"]
+
+        def faux_sommeil(duree):
+            horloge["t"] += duree
+
         with mock.patch.object(runtime, "lire_instances", return_value=[instance]), \
              mock.patch.object(runtime, "arreter_processus") as tuer, \
              mock.patch.object(runtime, "processus_vivant", return_value=True), \
              mock.patch.object(runtime, "processus_correspond", side_effect=correspond), \
+             mock.patch("time.time", side_effect=faux_temps), \
+             mock.patch("time.sleep", side_effect=faux_sommeil), \
              contextlib.redirect_stdout(io.StringIO()):
             code = blink_cli.arreter([])
         tuer.assert_any_call(333, avec_descendance=True)

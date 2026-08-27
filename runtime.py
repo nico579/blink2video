@@ -762,6 +762,12 @@ def inscrire_instance(entrees: list, enfants=None) -> Path:
     import atexit
     import datetime as dt
 
+    # Le drapeau d'une session précédente ne doit jamais empêcher celle-ci
+    # de boucler : à ce stade, s'il traîne encore, il ne peut venir que
+    # d'avant (arreter()/le Ctrl+C d'ici l'effacent déjà en temps normal en
+    # sortant).
+    effacer_arret_demande()
+
     dossier = app_dir() / INSTANCES
     dossier.mkdir(parents=True, exist_ok=True)
     fiche = dossier / f"{os.getpid()}.json"
@@ -1231,6 +1237,34 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
 APP_ID = "blink2video"
 
 
+ARRET_DEMANDE = Path(".blink_arret")
+
+
+def demander_arret() -> None:
+    """Pose le drapeau d'arrêt coopératif.
+
+    repeter() (tous les verbes --loop) et le serveur web le relisent à
+    chaque tour/à intervalle court : un verbe termine son tour en cours
+    (fichier entamé, page en cours de service) puis s'arrête de lui-même,
+    plutôt que d'être tué en plein milieu (revue du 27/08 : un arrêt externe,
+    tray ou stop, tuait directement sans laisser le travail en cours se
+    terminer proprement). Seul ffmpeg reste tué directement : processus
+    tiers, on n'a aucune prise sur son propre nettoyage (voir arreter(),
+    blink_cli.py)."""
+    (app_dir() / ARRET_DEMANDE).write_text(str(time.time()), encoding="utf-8")
+
+
+def arret_demande() -> bool:
+    return (app_dir() / ARRET_DEMANDE).exists()
+
+
+def effacer_arret_demande() -> None:
+    """À appeler au début d'une nouvelle session (le drapeau d'une session
+    précédente ne doit jamais empêcher une nouvelle de tourner) et à la fin
+    d'une séquence d'arrêt réussie."""
+    (app_dir() / ARRET_DEMANDE).unlink(missing_ok=True)
+
+
 PASSAGES = Path(".blink_passages.json")
 
 
@@ -1480,7 +1514,7 @@ def repeter(travail, minutes, journal=None) -> int:
         journal(f"repetition toutes les {minutes} min")
     periode = minutes * 60
     try:
-        while True:
+        while not arret_demande():
             echeance = time.monotonic() + periode
             try:
                 travail()
@@ -1489,11 +1523,22 @@ def repeter(travail, minutes, journal=None) -> int:
                 print(message)
                 if journal:
                     journal(message)
-            time.sleep(max(0.0, echeance - time.monotonic()))
+            # Sommeil scindé en tranches courtes : sans ça, un arrêt demandé
+            # pendant l'attente entre deux tours ne serait vu qu'à l'échéance
+            # complète (jusqu'à `minutes` d'attente), pas dans la seconde
+            # (revue du 27/08 : arrêt coopératif plutôt qu'un kill externe).
+            while not arret_demande():
+                reste = echeance - time.monotonic()
+                if reste <= 0:
+                    break
+                time.sleep(min(1.0, reste))
     except KeyboardInterrupt:
         if journal:
             journal("arret de la repetition")
         print("\nArrêt.")
+    else:
+        if journal:
+            journal("arret demande, sortie propre")
     return 0
 
 
