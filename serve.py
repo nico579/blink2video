@@ -2199,6 +2199,12 @@ PAGE = """<!doctype html>
   #reglages { width:min(560px, 92vw); }
   #filtre { width:min(420px, 92vw); }
   .filtreResume { color:var(--dim); font-size:13px; }
+  /* Du/au sur la même ligne que leur champ, comme les autres champCadence :
+     sans cette largeur fixe, un datetime-local à 100% forçait un retour à
+     la ligne (règle générale dialog input) et doublait la hauteur du
+     panneau pour rien - il ne tenait alors plus en entier à l'écran sans
+     défiler (constaté en réel, 2026-08-27). */
+  #rangeFrom, #rangeTo { width:190px; flex:none; }
   .presets { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
   .presets button { flex:none; }
   #reglages label, #filtre label { align-items:flex-start; margin-bottom:14px; }
