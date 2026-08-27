@@ -709,6 +709,39 @@ class LoginFlow:
 BLINK = BlinkSession()
 
 
+def _choisir_dossier_windows(initial: str) -> str:
+    """Sélecteur de dossier natif via PowerShell/WinForms, chaîne vide si
+    annulé.
+
+    tkinter dépend de Tcl/Tk, pas forcément embarqué correctement dans un
+    bundle PyInstaller (constaté en conditions réelles sur l'édition
+    Windows 7 : « Sélecteur de dossier indisponible »). System.Windows.Forms
+    fait partie de .NET Framework, présent par défaut depuis Windows Vista
+    (donc Windows 7 aussi), et ne demande rien à empaqueter. Un propriétaire
+    invisible et TopMost sert le même rôle que le -topmost de tkinter : sans
+    lui, la boîte peut s'ouvrir derrière le navigateur."""
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$proprietaire = New-Object System.Windows.Forms.Form; "
+        "$proprietaire.TopMost = $true; "
+        "$proprietaire.WindowState = 'Minimized'; "
+        "$proprietaire.ShowInTaskbar = $false; "
+        "$dialogue = New-Object System.Windows.Forms.FolderBrowserDialog; "
+        f"$dialogue.SelectedPath = '{initial.replace(chr(39), chr(39) * 2)}'; "
+        "if ($dialogue.ShowDialog($proprietaire) -eq "
+        "[System.Windows.Forms.DialogResult]::OK) "
+        "{ [Console]::Out.Write($dialogue.SelectedPath) }"
+    )
+    resultat = runtime.lancer(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, errors="replace", check=False,
+    )
+    if resultat.returncode != 0:
+        raise RuntimeError((resultat.stderr or "").strip() or "PowerShell a échoué")
+    return resultat.stdout.strip()
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     # HTTP/1.1 pour garder la connexion ouverte : un navigateur qui se déplace
     # dans une vidéo enchaîne les requêtes Range, une par saut. En HTTP/1.0 il
@@ -1432,18 +1465,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # Le navigateur ne peut pas rendre un chemin absolu (File System
             # Access API : juste un handle, par conception, pour la vie
             # privée du web). Serveur et page étant sur la même machine ici
-            # (outil local, pas un service distant), la boîte de dialogue
-            # native tkinter comble ce manque - importée localement pour ne
-            # jamais peser sur les environnements sans affichage (CI Linux
-            # headless), qui n'empruntent jamais cette route.
+            # (outil local, pas un service distant), une boîte de dialogue
+            # native comble ce manque. PowerShell/WinForms sous Windows (voir
+            # _choisir_dossier_windows) ; tkinter en repli ailleurs - importé
+            # localement pour ne jamais peser sur les environnements sans
+            # affichage (CI Linux headless), qui n'empruntent jamais cette
+            # route.
             try:
-                import tkinter
-                from tkinter import filedialog
-                racine = tkinter.Tk()
-                racine.withdraw()
-                racine.attributes("-topmost", True)
-                choisi = filedialog.askdirectory(initialdir=runtime.lire_dossier_stockage())
-                racine.destroy()
+                if os.name == "nt":
+                    choisi = _choisir_dossier_windows(runtime.lire_dossier_stockage())
+                else:
+                    import tkinter
+                    from tkinter import filedialog
+                    racine = tkinter.Tk()
+                    racine.withdraw()
+                    racine.attributes("-topmost", True)
+                    choisi = filedialog.askdirectory(initialdir=runtime.lire_dossier_stockage())
+                    racine.destroy()
             except Exception as error:
                 self.send_json({"error": str(error)}, 500)
                 return
@@ -4085,10 +4123,13 @@ $("reglagesApply").onclick = async () => {
       return;
     }
   } catch (erreur) {
-    alert(String(erreur));
-    bouton.disabled = false;
-    bouton.textContent = t("reglages.apply");
-    return;
+    // Une erreur de validation arrive toujours en JSON propre, AVANT que le
+    // serveur ne se tue pour redémarrer (voir resultat.error ci-dessus) :
+    // si on arrive ici, c'est que la réponse a été coupée par ce
+    // redémarrage lui-même, pas que la sauvegarde a échoué. Même principe
+    // que le bouton Stop plus bas : on continue comme en cas de succès
+    // plutôt que d'alarmer à tort sur une erreur réseau qui ne veut rien
+    // dire ici.
   }
   bouton.disabled = false;
   bouton.textContent = t("reglages.apply");
