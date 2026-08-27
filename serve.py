@@ -2201,8 +2201,8 @@ PAGE = """<!doctype html>
   .filtreResume { color:var(--dim); font-size:13px; }
   .presets { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
   .presets button { flex:none; }
-  #reglages label { align-items:flex-start; margin-bottom:14px; }
-  #reglages label input[type="checkbox"] {
+  #reglages label, #filtre label { align-items:flex-start; margin-bottom:14px; }
+  #reglages label input[type="checkbox"], #filtre label input[type="checkbox"] {
     flex:none; margin:3px 0 0; width:16px; height:16px;
   }
   #outLabel { margin-bottom:20px; }
@@ -2319,9 +2319,6 @@ PAGE = """<!doctype html>
   <label id="autoLabel" data-i18n-title="reglages.auto.title" title="Recharger la liste dès que des clips arrivent">
     <input type="checkbox" id="auto"> <span data-i18n="reglages.auto">Actualisation automatique de la page</span>
   </label>
-  <label id="outLabel">
-    <input type="checkbox" id="showOut"> <span data-i18n="reglages.showOut">Voir les clips écartés</span>
-  </label>
   <div class="champCadence">
     <label for="port" data-i18n="reglages.serveur">Port du serveur</label>
     <input type="number" id="port" min="1" max="65535" step="1">
@@ -2414,6 +2411,9 @@ PAGE = """<!doctype html>
     <label for="camera" data-i18n="filtre.camera">Caméra</label>
     <select id="camera"></select>
   </div>
+  <label id="outLabel">
+    <input type="checkbox" id="showOut"> <span data-i18n="reglages.showOut">Voir les clips écartés</span>
+  </label>
   <div id="periodeSection">
     <p class="sub tiny" data-i18n="range.title">Période</p>
     <div class="presets">
@@ -2566,6 +2566,7 @@ const I18N = {
     "range.today": "Aujourd'hui (24 h)", "range.week": "Cette semaine (7 j)",
     "range.month": "Ce mois-ci", "range.2months": "2 derniers mois",
     "range.all": "Tout l'historique", "range.custom": "Période personnalisée",
+    "range.custom.depuis": "depuis {v}", "range.custom.jusqua": "jusqu'au {v}",
     "range.custom.hint": "Ou une plage précise, à l'heure près :",
     "filtre.button": "🔍 Filtre", "filtre.button.title": "Filtrer",
     "filtre.title": "Filtre", "filtre.camera": "Caméra",
@@ -2685,6 +2686,7 @@ const I18N = {
     "range.today": "Today (24h)", "range.week": "This week (7d)",
     "range.month": "This month", "range.2months": "Last 2 months",
     "range.all": "All history", "range.custom": "Custom period",
+    "range.custom.depuis": "from {v}", "range.custom.jusqua": "until {v}",
     "range.custom.hint": "Or a precise range, down to the hour:",
     "filtre.button": "🔍 Filter", "filtre.button.title": "Filter",
     "filtre.title": "Filter", "filtre.camera": "Camera",
@@ -3549,6 +3551,25 @@ async function appliquerFiltre() {
   await load();
 }
 
+// Une plage personnalisée affiche les dates réellement choisies plutôt
+// qu'un « Période personnalisée » générique : c'est justement pour cibler
+// une période précise qu'on l'a choisie, autant la voir sans rouvrir le
+// panneau.
+function libellePlagePersonnalisee() {
+  const formater = (v) => {
+    if (!v) return null;
+    const [date, heure] = v.split("T");
+    const [, mois, jour] = date.split("-");
+    return `${jour}/${mois} ${heure || "00:00"}`;
+  };
+  const depuis = formater(plageClips.depuis);
+  const jusqua = formater(plageClips.jusqua);
+  if (depuis && jusqua) return `${depuis} → ${jusqua}`;
+  if (depuis) return tf("range.custom.depuis", { v: depuis });
+  if (jusqua) return tf("range.custom.jusqua", { v: jusqua });
+  return t("range.custom");
+}
+
 // Résumé affiché dans l'en-tête à côté du bouton Filtre, pour savoir ce qui
 // est actif sans rouvrir le panneau. La caméra y figure toujours, y compris
 // le défaut silencieux « toutes caméras » - même logique que la période,
@@ -3560,7 +3581,7 @@ function resumeFiltre() {
   const option = $("camera").selectedOptions[0];
   morceaux.push(option ? option.textContent : t("filter.allcameras"));
   if ($("view").value === "clips") {
-    morceaux.push(t(plageClips.preset ? `range.${plageClips.preset}` : "range.custom"));
+    morceaux.push(plageClips.preset ? t(`range.${plageClips.preset}`) : libellePlagePersonnalisee());
   }
   return morceaux.join(" · ");
 }
