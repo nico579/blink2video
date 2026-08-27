@@ -2956,8 +2956,15 @@ async function heuresDePassage() {
   // Des clips sont arrivés depuis que la page a été chargée : on le dit, et
   // c'est à vous de cliquer sur Actualiser. La liste ne se réorganise pas sous
   // les yeux de qui est en train de la lire.
-  const arrives = (data && data.clips)
-    ? Math.max(0, (etat.clips || 0) - data.clips.length) : 0;
+  //
+  // Face à total_known (le vrai total du registre, jamais borné par le
+  // filtre actif), jamais data.clips.length : celui-ci ne compte que ce que
+  // le filtre courant affiche (une caméra, une période étroite…), pas tout
+  // ce qui est connu. Comparer le total réel à un sous-ensemble filtré
+  // annonçait des centaines de « nouveaux » clips qui n'avaient rien de
+  // nouveau (constaté en réel, 2026-08-27).
+  const arrives = (data && data.total_known !== undefined)
+    ? Math.max(0, (etat.clips || 0) - data.total_known) : 0;
   // Une seule heure, la plus récente des trois. Le détail du verbe le plus en
   // retard alourdissait la ligne pour un cas rare.
   const dates = ["watch", "download", "merge"].filter((cle) => vus[cle]);
