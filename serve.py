@@ -4328,6 +4328,24 @@ def main() -> int:
         # l'option sert à relancer sans attendre la fin du TIME_WAIT).
         allow_reuse_address = os.name != "nt"
 
+        def handle_error(self, request, client_address):
+            # Comportement par défaut de socketserver : traceback.print_exc()
+            # sur stderr seulement - invisible depuis console=False (revue du
+            # 27/08 : un changement de dossier de stockage ne redémarrait
+            # plus du tout, sans la moindre trace nulle part pour dire
+            # pourquoi). Consigné en plus dans un fichier, jamais à la place :
+            # reste utile aussi quand une vraie console existe.
+            import traceback
+            try:
+                with (runtime.app_dir() / "serve_erreurs.log").open(
+                        "a", encoding="utf-8") as journal:
+                    journal.write(f"\n--- {dt.datetime.now().isoformat()} "
+                                  f"{client_address} ---\n")
+                    traceback.print_exc(file=journal)
+            except OSError:
+                pass
+            super().handle_error(request, client_address)
+
     try:
         server = Server((bind, args.port), Handler)
     except OSError as error:
