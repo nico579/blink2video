@@ -102,12 +102,26 @@ def parse_args() -> argparse.Namespace:
     # réveiller, là où le manifeste USB mobilise le module et se contente de dix
     # minutes. Deux cadences valent mieux qu'un compromis unique.
     runtime.ajouter_boucle(parser)
+    # Planificateur interne utilisé par « start » : un même processus fait le
+    # premier inventaire USB+cloud (un seul total), puis respecte les cadences
+    # différentes des deux sources. Ces options restent cachées : --loop est
+    # l'interface ordinaire pour une commande tapée à la main.
+    parser.add_argument("--usb-loop", type=runtime.cadence_positive,
+                        default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--cloud-loop", type=runtime.cadence_positive,
+                        default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.command is None:
         # Sans commande, l'aide plutôt qu'une connexion au compte : une
         # commande tapée sans argument ne doit pas partir sur le réseau.
         parser.print_help()
         raise SystemExit(0)
+    cadences_sources = (args.usb_loop is not None, args.cloud_loop is not None)
+    if any(cadences_sources) and not all(cadences_sources):
+        parser.error("--usb-loop et --cloud-loop s'emploient ensemble")
+    if all(cadences_sources) and (
+            args.command != "download" or args.source != "all" or args.loop is not None):
+        parser.error("les cadences USB/cloud exigent « download --from all » sans --loop")
     return args
 
 
@@ -216,25 +230,11 @@ def ouvrir(arguments: list = ()) -> int:
     return 0
 
 
-def arreter(arguments: list = ()) -> int:
-    """Arrête les instances en cours, y compris celle du démarrage automatique.
-
-    Une instance lancée sans console ne peut pas recevoir de Ctrl+C, et la tuer
-    par son seul numéro laissait ses verbes derrière elle : « watch » continuait
-    de tourner, orphelin, en tenant le module de synchronisation. La fiche
-    déposée au démarrage donne le processus à interrompre, et le système donne
-    sa descendance."""
-    # Les options passent par argparse comme pour les autres verbes, même s'il
-    # n'en a aucune : sans cela « stop --help » arrêtait l'instance au lieu de
-    # s'expliquer, ce que la suite de tests faisait à chaque passage, sur
-    # l'instance réelle de la machine.
-    argparse.ArgumentParser(
-        prog="blink2video stop",
-        description=arreter.__doc__.splitlines()[0],
-    ).parse_args(list(arguments))
-
+def _arreter_instances() -> int:
+    """Corps de l'arrêt, appelé sous le verrou global de contrôle."""
     instances = runtime.lire_instances()
     if not instances:
+        runtime.effacer_arret_demande()
         print("Rien ne tourne.")
         return 0
 
@@ -255,8 +255,28 @@ def arreter(arguments: list = ()) -> int:
         # déjà fait « arrêter » un service tiers et une messagerie sur la
         # machine d'un utilisateur. On vérifie l'identité avant de tuer quoi
         # que ce soit, jamais seulement l'existence du PID.
-        membres = [(pid, None) for pid in
+        identites = fiche.get("identites") or {}
+        if not isinstance(identites, dict):
+            identites = {}
+
+        def etat_processus(pid: int, marqueurs=None):
+            """True=même processus, False=terminé/recyclé, None=indécidable."""
+            pid = int(pid)
+            attendue = identites.get(str(pid))
+            if not runtime.processus_vivant(pid):
+                return False
+            if attendue is None:
+                # Fiche de l'ancienne version : repli temporaire sur la ligne
+                # de commande (compatible PowerShell 2 dans runtime.py).
+                return runtime.processus_correspond(pid, marqueurs)
+            actuelle = runtime.identite_processus(pid)
+            if actuelle is None:
+                return None
+            return actuelle == attendue
+
+        membres = [int(pid) for pid in
                    [fiche["pid"], *(fiche.get("enfants") or [])]]
+        travailleurs = [int(pid) for pid in fiche.get("travailleurs") or []]
         # Un ffmpeg de fusion (merge_daily.run_ffmpeg_batch/concat_copy) ne
         # comprend pas le drapeau (processus tiers, aucune prise dessus) :
         # tué directement, sans délai de grâce. Jamais droit au taskkill /T
@@ -264,10 +284,12 @@ def arreter(arguments: list = ()) -> int:
         # arreter_processus) : sans ça il resterait orphelin, tournant
         # jusqu'à sa fin après « stop ». Empreinte dédiée : sa ligne de
         # commande ne porte jamais « blink2video ».
-        for pid_ffmpeg in fiche.get("travailleurs") or []:
-            if (runtime.processus_vivant(int(pid_ffmpeg))
-                    and runtime.processus_correspond(int(pid_ffmpeg), ["ffmpeg"])):
-                runtime.arreter_processus(int(pid_ffmpeg), avec_descendance=True)
+        for pid_ffmpeg in travailleurs:
+            etat = etat_processus(pid_ffmpeg, ["ffmpeg"])
+            if etat is True:
+                runtime.arreter_processus(pid_ffmpeg, avec_descendance=True)
+            elif etat is None:
+                print(f"  Identité du PID {pid_ffmpeg} illisible : arrêt forcé ignoré.")
 
         # Délai de grâce pour les membres Python (serve/watch/download/
         # merge) : le drapeau posé plus haut leur laisse la chance de sortir
@@ -282,15 +304,19 @@ def arreter(arguments: list = ()) -> int:
         # délai de grâce (fenêtre de quelques secondes, cas rarissime) fait
         # au pire attendre le délai complet pour rien, jamais tuer à tort.
         limite = time.time() + 15
-        pids_python = [membre for membre, _ in membres]
+        pids_python = list(membres)
         while time.time() < limite and any(
                 runtime.processus_vivant(int(m)) for m in pids_python):
             time.sleep(1)
 
-        for membre, empreinte in membres:
+        for membre in membres:
             if not runtime.processus_vivant(int(membre)):
                 continue
-            if not runtime.processus_correspond(int(membre), empreinte):
+            etat = etat_processus(membre)
+            if etat is None:
+                print(f"  Identité du PID {membre} illisible : arrêt forcé ignoré.")
+                continue
+            if not etat:
                 print(f"  PID {membre} ne correspond plus à cette instance "
                       f"(numéro réattribué à un autre logiciel) : ignoré.")
                 continue
@@ -304,18 +330,48 @@ def arreter(arguments: list = ()) -> int:
         # membre dont le PID existe mais ne correspond plus à cette instance
         # (ci-dessus) ne compte pas comme un survivant : c'est notre
         # processus à nous qui est bien mort, seul son numéro a été repris.
-        survivants = [str(m) for m, empreinte in membres
-                      if runtime.processus_correspond(int(m), empreinte)]
+        survivants = []
+        for membre in [*membres, *travailleurs]:
+            etat = etat_processus(membre, ["ffmpeg"] if membre in travailleurs else None)
+            if etat is True or etat is None:
+                survivants.append(str(membre))
         if survivants:
             restants.extend(survivants)
             continue
         Path(fiche["fiche"]).unlink(missing_ok=True)
-    runtime.effacer_arret_demande()
     if restants:
+        # Conserver la demande d'arrêt : un processus lent ou momentanément
+        # impossible à tuer pourra encore la voir et sortir proprement. La
+        # retirer ici le faisait repartir comme si rien ne s'était passé.
         print("Toujours en vie : " + ", ".join(restants))
         return 1
+    runtime.effacer_arret_demande()
     print("Arrêté.")
     return 0
+
+
+def arreter(arguments: list = ()) -> int:
+    """Arrête les instances en cours, y compris celle du démarrage automatique.
+
+    Une instance lancée sans console ne peut pas recevoir de Ctrl+C, et la tuer
+    par son seul numéro laissait ses verbes derrière elle : « watch » continuait
+    de tourner, orphelin, en tenant le module de synchronisation. La fiche
+    déposée au démarrage donne le processus à interrompre, et le système donne
+    sa descendance."""
+    # Les options passent par argparse comme pour les autres verbes, même s'il
+    # n'en a aucune : sans cela « stop --help » arrêtait l'instance au lieu de
+    # s'expliquer, ce que la suite de tests faisait à chaque passage, sur
+    # l'instance réelle de la machine.
+    argparse.ArgumentParser(
+        prog="blink2video stop",
+        description=arreter.__doc__.splitlines()[0],
+    ).parse_args(list(arguments))
+    try:
+        with runtime.verrou_controle("stop"):
+            return _arreter_instances()
+    except runtime.BusyError as erreur:
+        print(f"Arrêt ou redémarrage déjà en cours ({erreur}).")
+        return 1
 
 
 def redemarrer(arguments: list = ()) -> int:
@@ -340,6 +396,7 @@ def redemarrer(arguments: list = ()) -> int:
         description=redemarrer.__doc__.splitlines()[0],
     )
     parser.add_argument("--finaliser", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--delai", type=float, default=0.0, help=argparse.SUPPRESS)
     parser.add_argument("--sans-relance", action="store_true",
                         help="s'arrêter sans relancer ensuite")
     args = parser.parse_args(list(arguments))
@@ -347,27 +404,44 @@ def redemarrer(arguments: list = ()) -> int:
 
     if not args.finaliser:
         suite = ["--finaliser"] + (["--sans-relance"] if args.sans_relance else [])
+        if args.delai > 0:
+            suite.extend(["--delai", str(args.delai)])
         runtime.demarrer(runtime.self_command("restart", *suite),
                          cwd=str(installe), stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=(sys.platform != "win32"))
         return 0
 
-    runtime.lancer(runtime.self_command("stop"), cwd=str(installe),
-                   stdin=subprocess.DEVNULL, check=False)
-    # Les fichiers restent tenus quelques instants après la mort du processus,
-    # le temps que le système referme ses poignées (même attente que
-    # maj.finaliser).
-    for _ in range(20):
-        if not runtime.lire_instances():
-            break
-        time.sleep(1)
-    if not args.sans_relance:
-        runtime.demarrer(runtime.self_command("start"), cwd=str(installe),
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL,
-                         start_new_session=(sys.platform != "win32"))
-    return 0
+    try:
+        # Un seul finaliseur à la fois. attente=0 est volontaire : deux clics
+        # rapprochés ne doivent pas mettre le second en file puis lui faire
+        # arrêter la composition toute neuve lancée par le premier.
+        with runtime.verrou_controle("restart"):
+            if args.delai > 0:
+                time.sleep(args.delai)
+            code = _arreter_instances()
+            if code:
+                # Ne jamais empiler une nouvelle composition sur une instance
+                # que l'arrêt n'a pas réussi à terminer.
+                return code
+            # Les fichiers restent tenus quelques instants après la mort du
+            # processus, le temps que Windows referme ses poignées.
+            instances = []
+            for _ in range(20):
+                instances = runtime.lire_instances()
+                if not instances:
+                    break
+                time.sleep(1)
+            if instances:
+                return 1
+            if not args.sans_relance:
+                runtime.demarrer(runtime.self_command("start"), cwd=str(installe),
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL,
+                                 start_new_session=(sys.platform != "win32"))
+            return 0
+    except runtime.BusyError:
+        return 1
 
 
 def _port_demande(arguments: list) -> int | None:
@@ -610,7 +684,12 @@ def executer(groupes: list) -> int:
             # le reste. Inscrite, elle se trouvait elle-même dans la liste et se
             # tuait au premier « stop », en silence et à mi-chemin.
             if verbe != "update":
-                runtime.inscrire_instance(groupes)
+                try:
+                    with runtime.verrou_controle("launch", attente=10):
+                        runtime.inscrire_instance(groupes)
+                except runtime.BusyError as erreur:
+                    print(f"Impossible de démarrer pendant un arrêt ({erreur}).")
+                    return 1
             return deleguer(verbe, arguments)
         sys.argv = ["blink2video", verbe, *arguments]
         return asyncio.run(main(parse_args()))
@@ -620,21 +699,33 @@ def executer(groupes: list) -> int:
     # tout verbe à qui on demande de se répéter. Les autres font un passage et
     # s'arrêtent, donc les faire tourner en même temps n'aurait aucun sens :
     # l'assemblage démarrerait pendant que le téléchargement écrit encore.
-    persistant = [g for g in groupes if g[0] == "serve" or "--loop" in g]
+    persistant = [
+        g for g in groupes
+        if g[0] == "serve"
+        or any(option in g for option in ("--loop", "--usb-loop", "--cloud-loop"))
+    ]
     ponctuels = [g for g in groupes if g not in persistant]
 
-    runtime.inscrire_instance(groupes)
     lances = []
-    for verbe, *arguments in persistant:
-        lances.append((verbe, runtime.demarrer(
-            runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()),
-            creationflags=runtime.flags_enfant(),
-            # Sa propre session hors Windows : « stop » peut alors tuer son
-            # groupe, ffmpeg compris, sans emporter le terminal qui a lancé
-            # l'ensemble.
-            start_new_session=(sys.platform != "win32"))))
-        print(f"Lancé : {verbe} {' '.join(arguments)}".rstrip())
-    runtime.inscrire_instance(groupes, [p.pid for _, p in lances])
+    try:
+        # Section courte seulement : publier la fiche et ses enfants comme un
+        # seul lancement face à stop/restart. Le verrou est libéré avant la
+        # surveillance, qui peut durer des jours.
+        with runtime.verrou_controle("launch", attente=10):
+            runtime.inscrire_instance(groupes)
+            for verbe, *arguments in persistant:
+                lances.append((verbe, runtime.demarrer(
+                    runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()),
+                    creationflags=runtime.flags_enfant(),
+                    # Sa propre session hors Windows : « stop » peut alors tuer son
+                    # groupe, ffmpeg compris, sans emporter le terminal qui a lancé
+                    # l'ensemble.
+                    start_new_session=(sys.platform != "win32"))))
+                print(f"Lancé : {verbe} {' '.join(arguments)}".rstrip())
+            runtime.inscrire_instance(groupes, [p.pid for _, p in lances])
+    except runtime.BusyError as erreur:
+        print(f"Impossible de démarrer pendant un arrêt ({erreur}).")
+        return 1
 
     # Les passages uniques, l'un après l'autre, dans l'ordre où ils sont cités.
     pire_ponctuel = 0
@@ -711,7 +802,15 @@ def executer(groupes: list) -> int:
         for _, processus in lances:
             if processus.poll() is None:
                 runtime.arreter_processus(processus.pid, avec_descendance=True)
-        runtime.effacer_arret_demande()
+        # taskkill est normalement synchrone, mais vérifier le résultat plutôt
+        # que l'espérer. Si un processus résiste, garder le drapeau et la fiche
+        # permet à un prochain stop de le retrouver au lieu de l'orpheliner.
+        limite_forcee = time.monotonic() + 5
+        while (time.monotonic() < limite_forcee
+               and any(p.poll() is None for _, p in lances)):
+            time.sleep(0.2)
+        if not any(p.poll() is None for _, p in lances):
+            runtime.effacer_arret_demande()
 
     try:
         # L'icône de zone de notification (Ouvrir/Redémarrer/Arrêter) exige

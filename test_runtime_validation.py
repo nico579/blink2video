@@ -111,31 +111,55 @@ class ProcessusSansPsTests(unittest.TestCase):
 
 
 class ProcessusVivantWindowsTests(unittest.TestCase):
-    """Revue du 27/08, bug 1 : sous Windows, un tasklist qui échoue à
-    répondre (accès refusé, service RPC indisponible) ne prouve rien sur le
-    pid interrogé - contrairement à une réponse qui dit vraiment "absent"."""
+    """Revue du 27/08 : sous Windows, processus_vivant() interroge l'OS
+    directement via OpenProcess/GetExitCodeProcess (API Win32), sans passer
+    par un sous-processus tasklist - à la fois pour la sûreté (bug 1 : un
+    échec d'ouverture ne prouve rien sur le pid, sauf s'il est absent) et
+    pour la vitesse/déterminisme (constaté en réel : arreter() vérifie
+    plusieurs membres chaque seconde pendant l'attente, un tasklist par
+    vérification rend le délai dépendant de la charge machine)."""
 
-    def test_tasklist_en_echec_reste_vivant(self) -> None:
-        resultat = mock.Mock(returncode=1, stdout="", stderr="Erreur : Accès refusé.")
+    @staticmethod
+    def _get_exit_code(code: int):
+        def cb(handle, ref):
+            ref._obj.value = code
+            return 1
+        return cb
+
+    def test_pid_vivant_est_detecte(self) -> None:
         with mock.patch.object(runtime.os, "name", "nt"), \
-             mock.patch.object(runtime, "lancer", return_value=resultat):
+             mock.patch("ctypes.windll.kernel32.OpenProcess", return_value=12345), \
+             mock.patch("ctypes.windll.kernel32.GetExitCodeProcess",
+                         side_effect=self._get_exit_code(259)), \
+             mock.patch("ctypes.windll.kernel32.CloseHandle", return_value=1):
             self.assertTrue(runtime.processus_vivant(os.getpid()))
 
-    def test_tasklist_introuvable_reste_vivant(self) -> None:
+    def test_pid_termine_est_bien_mort(self) -> None:
         with mock.patch.object(runtime.os, "name", "nt"), \
-             mock.patch.object(runtime, "lancer",
-                               side_effect=FileNotFoundError(2, "No such file or directory", "tasklist")):
-            self.assertTrue(runtime.processus_vivant(os.getpid()))
-
-    def test_tasklist_pid_absent_est_bien_mort(self) -> None:
-        resultat = mock.Mock(
-            returncode=0,
-            stdout="Information : aucune tâche en service ne correspond aux critères spécifiés.",
-            stderr="",
-        )
-        with mock.patch.object(runtime.os, "name", "nt"), \
-             mock.patch.object(runtime, "lancer", return_value=resultat):
+             mock.patch("ctypes.windll.kernel32.OpenProcess", return_value=12345), \
+             mock.patch("ctypes.windll.kernel32.GetExitCodeProcess",
+                         side_effect=self._get_exit_code(0)), \
+             mock.patch("ctypes.windll.kernel32.CloseHandle", return_value=1):
             self.assertFalse(runtime.processus_vivant(999_999_999))
+
+    def test_ouverture_refusee_reste_vivant(self) -> None:
+        with mock.patch.object(runtime.os, "name", "nt"), \
+             mock.patch("ctypes.windll.kernel32.OpenProcess", return_value=0), \
+             mock.patch("ctypes.windll.kernel32.GetLastError", return_value=5):  # ERROR_ACCESS_DENIED
+            self.assertTrue(runtime.processus_vivant(os.getpid()))
+
+    def test_ouverture_echouee_pid_absent_est_bien_mort(self) -> None:
+        with mock.patch.object(runtime.os, "name", "nt"), \
+             mock.patch("ctypes.windll.kernel32.OpenProcess", return_value=0), \
+             mock.patch("ctypes.windll.kernel32.GetLastError", return_value=87):  # ERROR_INVALID_PARAMETER
+            self.assertFalse(runtime.processus_vivant(999_999_999))
+
+    def test_get_exit_code_en_echec_reste_vivant(self) -> None:
+        with mock.patch.object(runtime.os, "name", "nt"), \
+             mock.patch("ctypes.windll.kernel32.OpenProcess", return_value=12345), \
+             mock.patch("ctypes.windll.kernel32.GetExitCodeProcess", return_value=0), \
+             mock.patch("ctypes.windll.kernel32.CloseHandle", return_value=1):
+            self.assertTrue(runtime.processus_vivant(os.getpid()))
 
 
 class VerrouTests(unittest.TestCase):

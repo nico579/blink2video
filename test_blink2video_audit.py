@@ -1507,7 +1507,10 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
             return 0
 
         with mock.patch.object(blink_engine, "un_passage", new=un_passage_instable), \
-             mock.patch.object(b2v.asyncio, "sleep", new=mock.AsyncMock()), \
+             mock.patch.object(
+                 blink_engine, "_attendre_echeance",
+                 new=mock.AsyncMock(return_value=True),
+             ), \
              contextlib.redirect_stdout(io.StringIO()):
             code = await blink_engine.boucler(object(), self.arguments(loop=1), [])
 
@@ -1528,12 +1531,14 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 args.loop = None  # on arrête après avoir observé une pause
             return 0
 
-        async def faux_sommeil(duree):
-            durees.append(duree)
+        async def attendre(echeance):
+            durees.append(echeance - horloge["t"])
+            horloge["t"] = echeance
+            return True
 
         with mock.patch.object(blink_engine, "un_passage", new=un_passage_lent), \
              mock.patch.object(b2v.time, "monotonic", side_effect=lambda: horloge["t"]), \
-             mock.patch.object(b2v.asyncio, "sleep", new=faux_sommeil), \
+             mock.patch.object(blink_engine, "_attendre_echeance", side_effect=attendre), \
              contextlib.redirect_stdout(io.StringIO()):
             await blink_engine.boucler(object(), self.arguments(loop=1), [])
 

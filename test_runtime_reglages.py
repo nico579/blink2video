@@ -122,8 +122,8 @@ class TestsReglages(unittest.TestCase):
             runtime.standard(),
             ("serve", "--port", "8765", "--timezone", "Europe/Paris",
              "watch", "--loop", "10",
-             "download", "--from", "usb", "--loop", "10",
-             "download", "--from", "cloud", "--loop", "1",
+             "download", "--from", "all", "--usb-loop", "10",
+             "--cloud-loop", "1",
              "merge", "--loop", "5", "--timezone", "Europe/Paris",
              "--no-timestamp", "--no-weekly", "--no-monthly"))
 
@@ -136,9 +136,17 @@ class TestsReglages(unittest.TestCase):
             composition,
             ("serve", "--port", "9090", "--timezone", "Asia/Tokyo",
              "watch", "--loop", "10",
-             "download", "--from", "usb", "--loop", "20",
-             "download", "--from", "cloud", "--loop", "3",
+             "download", "--from", "all", "--usb-loop", "20",
+             "--cloud-loop", "3",
              "merge", "--loop", "5", "--timezone", "Asia/Tokyo"))
+
+    def test_standard_n_a_qu_un_worker_de_telechargement_global(self):
+        groupes = runtime.decouper_verbes(runtime.standard())
+        downloads = [groupe for groupe in groupes if groupe[0] == "download"]
+        self.assertEqual(downloads, [[
+            "download", "--from", "all", "--usb-loop", "10",
+            "--cloud-loop", "1",
+        ]])
 
     def test_standard_ajoute_no_timestamp_quand_desactive(self):
         runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=False,
@@ -161,8 +169,8 @@ class TestsReglages(unittest.TestCase):
 
     def test_standard_omet_download_quand_desactive(self):
         # Coche pensee pour qui ne veut que le direct (voir BACKLOG.md) :
-        # aucun des deux "download" (usb, cloud) ne doit rester, watch/serve/
-        # merge continuent de tourner normalement.
+        # le worker global "download" ne doit pas rester ; watch/serve/merge
+        # continuent de tourner normalement.
         runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
                                 timezone="Europe/Paris", merge_jour=True, merge_semaine=True,
                                 merge_mois=True, download_auto=False)

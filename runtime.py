@@ -267,8 +267,13 @@ def standard() -> tuple:
             merge.append("--no-monthly")
     download = []
     if c["download_auto"]:
-        download = ["download", "--from", "usb", "--loop", str(c["usb_minutes"]),
-                    "download", "--from", "cloud", "--loop", str(c["cloud_minutes"])]
+        # Un seul worker inventorie d'abord les deux sources : la barre connaît
+        # ainsi le nombre global de clips à rapatrier, notamment juste après un
+        # changement de dossier. Il conserve ensuite les deux cadences sans
+        # réveiller l'USB aussi souvent que le cloud.
+        download = ["download", "--from", "all",
+                    "--usb-loop", str(c["usb_minutes"]),
+                    "--cloud-loop", str(c["cloud_minutes"])]
     return ("serve", "--port", str(c["port"]), "--timezone", c["timezone"],
             "watch", "--loop", "10",
             *download, *merge)
@@ -540,21 +545,55 @@ def ecrire_dossier_stockage(chemin: str) -> None:
     authentification" en changeant de dossier). Une copie, jamais un
     déplacement : l'ancien emplacement reste utilisable si ce changement
     est annulé ensuite."""
+    import uuid
+
     ancien = app_dir()
-    pointeur = _dossier_ancre() / POINTEUR_STOCKAGE
+    ancre = _dossier_ancre()
+    pointeur = ancre / POINTEUR_STOCKAGE
     chemin = chemin.strip()
+    destination = (Path(chemin).expanduser().resolve() if chemin else ancre)
+
+    # BLINK_HOME a priorité sur le pointeur. On mémorise tout de même le choix
+    # demandé pour le jour où cette variable ne sera plus fournie, mais il ne
+    # faut pas copier un fichier sur lui-même dans la racine actuellement
+    # imposée par l'environnement.
+    nouveau = ancien if os.environ.get("BLINK_HOME") else destination
+
+    # Préparer intégralement la nouvelle racine AVANT de publier le pointeur.
+    # Auparavant le pointeur changeait d'abord : une copie de session refusée
+    # ou un disque retiré à cet instant laissait l'application basculée vers
+    # un dossier incomplet. Ici, tout échec conserve l'ancienne racine active.
+    if nouveau != ancien:
+        nouveau.mkdir(parents=True, exist_ok=True)
+        for nom in (REGLAGES, "blink_auth.json"):
+            source = ancien / nom
+            if not source.is_file():
+                continue
+            cible = nouveau / nom
+            temporaire_copie = cible.with_name(
+                f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+            try:
+                shutil.copy2(source, temporaire_copie)
+                temporaire_copie.replace(cible)
+            finally:
+                temporaire_copie.unlink(missing_ok=True)
+
     if not chemin:
+        # La suppression elle-même est le commit du retour à l'ancre : les
+        # fichiers nécessaires y ont déjà été copiés juste au-dessus.
         pointeur.unlink(missing_ok=True)
-    else:
-        pointeur.write_text(chemin, encoding="utf-8")
-    nouveau = app_dir()
-    if nouveau == ancien:
         return
-    nouveau.mkdir(parents=True, exist_ok=True)
-    for nom in (REGLAGES, "blink_auth.json"):
-        source = ancien / nom
-        if source.is_file():
-            shutil.copy2(source, nouveau / nom)
+
+    # Écriture atomique du pointeur : un arrêt brutal ne peut plus laisser un
+    # blink_home.txt vide ou tronqué que le prochain démarrage interpréterait
+    # comme un retour silencieux à l'ancien stockage.
+    temporaire_pointeur = pointeur.with_name(
+        f".{pointeur.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        temporaire_pointeur.write_text(str(destination), encoding="utf-8")
+        temporaire_pointeur.replace(pointeur)
+    finally:
+        temporaire_pointeur.unlink(missing_ok=True)
 
 
 def resource_dir() -> Path:
@@ -590,6 +629,27 @@ def est_relatif_a(chemin: Path, racine: Path) -> bool:
 # l'interdit : celle du démarrage automatique et une autre lancée à la main
 # coexistent très bien, et « stop » doit pouvoir les arrêter toutes.
 INSTANCES = Path(".blink_run")
+INSTANCE_PID_ENV = "BLINK_INSTANCE_PID"
+
+
+def _dossier_controle() -> Path:
+    """Racine fixe des fichiers servant à piloter les processus en cours.
+
+    Ces fichiers ne sont pas des données utilisateur. Les placer dans
+    ``app_dir()`` les rendait invisibles exactement au moment où le dossier de
+    stockage changeait : l'instance courante restait décrite dans l'ancien
+    ``.blink_run``, tandis que ``stop`` la cherchait dans le nouveau. Sous
+    Windows, le nouveau serveur échouait alors à reprendre le port et l'ancien
+    continuait à montrer les clips de l'ancien dossier.
+
+    L'ancre de l'installation, qui contient déjà le pointeur de stockage, ne
+    change pas pendant ce basculement. ``BLINK_HOME`` reste respecté pour les
+    installations dont l'emplacement du programme n'est pas inscriptible.
+    """
+    force = os.environ.get("BLINK_HOME")
+    if force:
+        return Path(force).expanduser().resolve()
+    return _dossier_ancre()
 
 
 def identite_processus(pid: int) -> str | None:
@@ -613,7 +673,20 @@ def identite_processus(pid: int) -> str | None:
             from ctypes import wintypes
 
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            handle = ctypes.windll.kernel32.OpenProcess(
+            kernel32 = ctypes.windll.kernel32
+            # ctypes suppose sinon qu'une fonction C renvoie un int 32 bits ;
+            # un HANDLE 64 bits pourrait être tronqué sur Windows x64.
+            kernel32.OpenProcess.argtypes = (
+                wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            kernel32.GetProcessTimes.argtypes = (
+                wintypes.HANDLE, ctypes.POINTER(wintypes.FILETIME),
+                ctypes.POINTER(wintypes.FILETIME), ctypes.POINTER(wintypes.FILETIME),
+                ctypes.POINTER(wintypes.FILETIME))
+            kernel32.GetProcessTimes.restype = wintypes.BOOL
+            kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            handle = kernel32.OpenProcess(
                 PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not handle:
                 return None
@@ -622,14 +695,14 @@ def identite_processus(pid: int) -> str | None:
                     wintypes.FILETIME(), wintypes.FILETIME(),
                     wintypes.FILETIME(), wintypes.FILETIME(),
                 )
-                ok = ctypes.windll.kernel32.GetProcessTimes(
+                ok = kernel32.GetProcessTimes(
                     handle, ctypes.byref(creation), ctypes.byref(exit_t),
                     ctypes.byref(kernel_t), ctypes.byref(user_t))
                 if not ok:
                     return None
                 return f"{creation.dwLowDateTime}:{creation.dwHighDateTime}"
             finally:
-                ctypes.windll.kernel32.CloseHandle(handle)
+                kernel32.CloseHandle(handle)
         except OSError:
             return None
     try:
@@ -681,25 +754,51 @@ def processus_vivant(pid: int) -> bool:
             # de cette verification.
             return True
         return not (etat.stdout or "").strip().startswith("Z")
+    # Interroge l'OS directement via l'API Win32 (OpenProcess +
+    # GetExitCodeProcess), sans passer par un sous-processus tasklist : un
+    # lancement de processus coûte des dizaines à centaines de ms, ce qui
+    # s'accumule vite pendant l'attente d'arrêt (arreter() vérifie plusieurs
+    # membres chaque seconde) et rend le délai dépendant de la charge de la
+    # machine plutôt que de l'état réel des processus. Même API que
+    # identite_processus() ci-dessus.
     try:
-        resultat = lancer(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                          stderr=subprocess.DEVNULL, text=True, errors="replace",
-                          check=False)
+        import ctypes
+        from ctypes import wintypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        ERROR_ACCESS_DENIED = 5
+        STILL_ACTIVE = 259
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = (
+            wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = (
+            wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.GetLastError.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            erreur = kernel32.GetLastError()
+            if erreur == ERROR_ACCESS_DENIED:
+                # Le pid existe (sinon l'erreur serait "paramètre invalide"),
+                # mais son ouverture nous est refusée : ça ne prouve rien sur
+                # son état, seulement que la question n'a pas pu être posée.
+                # Trancher "mort" ici volerait le verrou d'un propriétaire
+                # pourtant vivant (même principe qu'avec tasklist avant lui).
+                return True
+            return False
+        try:
+            code_sortie = wintypes.DWORD()
+            ok = kernel32.GetExitCodeProcess(handle, ctypes.byref(code_sortie))
+        finally:
+            kernel32.CloseHandle(handle)
+        return (code_sortie.value == STILL_ACTIVE) if ok else True
     except OSError:
-        # tasklist introuvable (image Windows minimale, PATH cassé) : comme
-        # pour ps côté POSIX ci-dessus, on ne peut rien affirmer sur le pid.
+        # kernel32 est le coeur de l'OS : ceci ne devrait jamais se produire,
+        # mais si ça arrivait, même principe que la branche POSIX ci-dessus.
         return True
-    if resultat.returncode != 0:
-        # Un tasklist qui répond "Information : aucune tâche..." pour un pid
-        # absent sort en code 0 ; un code non nul signale que la commande
-        # elle-même a échoué (accès refusé, service RPC indisponible, filtre
-        # rejeté - vérifié empiriquement, les deux cas d'échec produits à la
-        # main sortent en 1 avec "Erreur :" sur stderr). Ça ne prouve rien
-        # sur le pid, seulement que la question n'a pas pu être posée : trancher
-        # "mort" ici volerait le verrou d'un propriétaire pourtant vivant.
-        return True
-    return str(pid) in (resultat.stdout or "")
 
 
 def ligne_de_commande(pid: int) -> str:
@@ -716,12 +815,19 @@ def ligne_de_commande(pid: int) -> str:
                           stderr=subprocess.DEVNULL, text=True, errors="replace",
                           check=False)
         return (resultat.stdout or "").strip()
-    # « wmic », déprécié, disparaît des images Windows récentes ; Get-CimInstance
-    # est son remplaçant courant pour interroger un processus par PID.
+    # Les nouvelles fiches n'empruntent plus ce chemin : elles comparent
+    # l'heure de création native via GetProcessTimes. Il reste uniquement pour
+    # lire les fiches de l'ancienne version. Windows 7 est livré avec
+    # PowerShell 2, sans Get-CimInstance (apparu en PowerShell 3) : choisir
+    # dynamiquement Get-WmiObject sur cet ancien environnement évite que la
+    # migration conclue « processus absent » faute de cmdlet.
     resultat = lancer(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+         f"if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {{ "
          f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}' "
-         f"-ErrorAction SilentlyContinue).CommandLine"],
+         f"-ErrorAction SilentlyContinue).CommandLine }} else {{ "
+         f"(Get-WmiObject Win32_Process -Filter 'ProcessId={pid}' "
+         f"-ErrorAction SilentlyContinue).CommandLine }}"],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL, text=True, errors="replace", check=False,
     )
@@ -744,7 +850,8 @@ def _empreintes_attendues() -> list:
     return ["blink2video", str(Path(__file__).resolve().parent)]
 
 
-def processus_correspond(pid: int, marqueurs: list | None = None) -> bool:
+def processus_correspond(pid: int, marqueurs: list | None = None,
+                         identite: str | None = None) -> bool:
     """Vrai si ce PID désigne bien un processus de ce projet.
 
     Un numéro de processus fini par être réattribué à un logiciel sans
@@ -755,6 +862,13 @@ def processus_correspond(pid: int, marqueurs: list | None = None) -> bool:
     identité avant d'y toucher, *a fortiori* avant de le tuer."""
     if not processus_vivant(pid):
         return False
+    if identite is not None:
+        # Pour toute fiche au nouveau format, PID + heure de création donnée
+        # par l'OS est l'identité. Aucun PowerShell/WMI, donc même comportement
+        # sur Windows 7 d'origine et sur Windows actuel. Si l'OS refuse de
+        # répondre, ne jamais tuer au jugé : False est le choix sûr.
+        actuelle = identite_processus(pid)
+        return actuelle is not None and actuelle == identite
     ligne = ligne_de_commande(pid)
     return any(m in ligne for m in (marqueurs or _empreintes_attendues()))
 
@@ -767,9 +881,21 @@ def _ecrire_fiche(fiche: Path, donnees: dict) -> None:
     comme une fiche périmée et la supprimait, faisant perdre à stop la
     trace d'un processus pourtant vivant (revue du 27/08, bug 8). Même
     motif que _ecrire_registre() (blink_registre.py)."""
-    temporaire = fiche.with_suffix(".tmp")
-    temporaire.write_text(json.dumps(donnees, ensure_ascii=False), encoding="utf-8")
-    temporaire.replace(fiche)
+    import uuid
+
+    temporaire = fiche.with_name(
+        f".{fiche.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        temporaire.write_text(json.dumps(donnees, ensure_ascii=False), encoding="utf-8")
+        temporaire.replace(fiche)
+    finally:
+        temporaire.unlink(missing_ok=True)
+
+
+def _verrou_fiche(fiche: Path, attente: int = 5):
+    """Sérialise les mises à jour parent/enfant d'une même fiche d'instance."""
+    return verrou(f"instance-{fiche.stem}", f"fiche-{os.getpid()}",
+                   stale_after=120, attente=attente, racine=_dossier_controle())
 
 
 def inscrire_instance(entrees: list, enfants=None) -> Path:
@@ -781,24 +907,81 @@ def inscrire_instance(entrees: list, enfants=None) -> Path:
     import atexit
     import datetime as dt
 
-    # Le drapeau d'une session précédente ne doit jamais empêcher celle-ci
-    # de boucler : à ce stade, s'il traîne encore, il ne peut venir que
-    # d'avant (arreter()/le Ctrl+C d'ici l'effacent déjà en temps normal en
-    # sortant).
-    effacer_arret_demande()
+    # Écrase aussi une valeur héritée d'un éventuel ancien superviseur lors
+    # d'un redémarrage. Tous les enfants lancés ensuite sauront ainsi quelle
+    # fiche enrichir lorsqu'ils inscrivent un ffmpeg.
+    os.environ[INSTANCE_PID_ENV] = str(os.getpid())
 
-    dossier = app_dir() / INSTANCES
+    # Ne jamais effacer la demande d'un arrêt réellement en cours. Une nouvelle
+    # instance lancée au même instant annulait sinon le signal sous les pieds
+    # des anciennes boucles. Seul un drapeau orphelin, sans aucune instance
+    # encore reconnue, appartient forcément à une session précédente.
+    if arret_demande():
+        if lire_instances():
+            raise BusyError("arrêt en cours")
+        effacer_arret_demande()
+
+    dossier = _dossier_controle() / INSTANCES
     dossier.mkdir(parents=True, exist_ok=True)
     fiche = dossier / f"{os.getpid()}.json"
-    _ecrire_fiche(fiche, {
-        "pid": os.getpid(),
-        "depuis": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
-        "verbes": entrees,
-        # Les enfants sont notés pour pouvoir vérifier, après l'arrêt, qu'aucun
-        # n'a survécu : c'est précisément ce qui se produisait avant.
-        "enfants": list(enfants or []),
-    })
-    atexit.register(lambda: fiche.unlink(missing_ok=True))
+    membres = [os.getpid(), *(enfants or [])]
+    identites = {}
+    for pid in membres:
+        identite = identite_processus(int(pid))
+        if identite is not None:
+            identites[str(pid)] = identite
+
+    # Le second appel, juste après le lancement des enfants, complète la même
+    # fiche. Le verrou ferme la course avec un enfant très rapide qui inscrirait
+    # déjà ffmpeg : sans lui, les deux read-modify-replace pouvaient s'écraser.
+    with _verrou_fiche(fiche):
+        travailleurs = []
+        try:
+            precedente = json.loads(fiche.read_text(encoding="utf-8"))
+            travailleurs = list(precedente.get("travailleurs") or [])
+            anciennes_identites = precedente.get("identites") or {}
+            if isinstance(anciennes_identites, dict):
+                anciennes_identites = dict(anciennes_identites)
+                anciennes_identites.update(identites)
+                identites = anciennes_identites
+        except (OSError, json.JSONDecodeError, AttributeError):
+            pass
+
+        _ecrire_fiche(fiche, {
+            "pid": os.getpid(),
+            "depuis": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            "verbes": entrees,
+            # Les enfants sont notés pour pouvoir vérifier, après l'arrêt, qu'aucun
+            # n'a survécu : c'est précisément ce qui se produisait avant.
+            "enfants": list(enfants or []),
+            "travailleurs": travailleurs,
+            "identites": identites,
+        })
+    def nettoyer_fiche() -> None:
+        """Retire la fiche seulement si aucun enfant suivi ne lui survit."""
+        try:
+            donnees = json.loads(fiche.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        identites_lues = donnees.get("identites") or {}
+        if not isinstance(identites_lues, dict):
+            identites_lues = {}
+        autres = [*(donnees.get("enfants") or []),
+                  *(donnees.get("travailleurs") or [])]
+        for autre in autres:
+            pid = int(autre or 0)
+            attendue = identites_lues.get(str(pid))
+            if attendue is not None:
+                actuelle = identite_processus(pid)
+                if actuelle is None and processus_vivant(pid):
+                    return
+                if actuelle == attendue:
+                    return
+            elif processus_correspond(pid):
+                return
+        fiche.unlink(missing_ok=True)
+
+    atexit.register(nettoyer_fiche)
     return fiche
 
 
@@ -810,7 +993,7 @@ def lire_instances() -> list:
     partie du même groupe de processus que ses enfants sous POSIX), et
     « stop » a besoin de la fiche pour retrouver ce survivant. On n'efface
     donc que les fiches dont ni le parent, ni aucun enfant, ne vivent plus."""
-    dossier = app_dir() / INSTANCES
+    dossier = _dossier_controle() / INSTANCES
     vivantes = []
     for fiche in sorted(dossier.glob("*.json")) if dossier.is_dir() else []:
         try:
@@ -828,8 +1011,27 @@ def lire_instances() -> list:
             # processus peut-être toujours vivant (revue du 27/08, bug 8).
             # On la laisse plutôt en l'état pour cette lecture.
             continue
-        membres = [donnees.get("pid"), *(donnees.get("enfants") or [])]
-        if any(processus_correspond(int(membre or 0)) for membre in membres):
+        membres = [donnees.get("pid"), *(donnees.get("enfants") or []),
+                   *(donnees.get("travailleurs") or [])]
+        identites = donnees.get("identites") or {}
+        if not isinstance(identites, dict):
+            identites = {}
+
+        def encore_notre_processus(membre) -> bool:
+            pid = int(membre or 0)
+            attendue = identites.get(str(pid))
+            if attendue is None:
+                # Ancienne fiche : repli temporaire sur la ligne de commande.
+                return processus_correspond(pid)
+            actuelle = identite_processus(pid)
+            if actuelle is None:
+                # Distinguer « mort » de « vivant mais impossible à interroger ».
+                # Dans le second cas, conserver la fiche : la supprimer ferait
+                # perdre la seule piste sans avoir prouvé qu'elle est périmée.
+                return processus_vivant(pid)
+            return actuelle == attendue
+
+        if any(encore_notre_processus(membre) for membre in membres):
             donnees["fiche"] = fiche
             vivantes.append(donnees)
         else:
@@ -838,7 +1040,12 @@ def lire_instances() -> list:
 
 
 def _fiche_courante() -> Path:
-    return app_dir() / INSTANCES / f"{os.getpid()}.json"
+    # Les verbes tournent dans des processus enfants du superviseur qui porte
+    # la fiche. Celui-ci transmet son PID par l'environnement : sans cela un
+    # merge enfant cherchait « <son propre pid>.json », inexistant, et ffmpeg
+    # n'était jamais réellement inscrit malgré le code prévu à cet effet.
+    proprietaire = os.environ.get(INSTANCE_PID_ENV) or str(os.getpid())
+    return _dossier_controle() / INSTANCES / f"{proprietaire}.json"
 
 
 def inscrire_travailleur(pid: int) -> None:
@@ -857,13 +1064,24 @@ def inscrire_travailleur(pid: int) -> None:
     simplement rien à enregistrer."""
     fiche = _fiche_courante()
     try:
-        donnees = json.loads(fiche.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        with _verrou_fiche(fiche):
+            try:
+                donnees = json.loads(fiche.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return
+            travailleurs = set(donnees.get("travailleurs") or [])
+            travailleurs.add(pid)
+            donnees["travailleurs"] = sorted(travailleurs)
+            identite = identite_processus(pid)
+            if identite is not None:
+                identites = dict(donnees.get("identites") or {})
+                identites[str(pid)] = identite
+                donnees["identites"] = identites
+            _ecrire_fiche(fiche, donnees)
+    except BusyError:
+        # L'inscription est best-effort : le kill /T du processus merge reste
+        # le repli si sa fiche est exceptionnellement restée occupée 5 secondes.
         return
-    travailleurs = set(donnees.get("travailleurs") or [])
-    travailleurs.add(pid)
-    donnees["travailleurs"] = sorted(travailleurs)
-    _ecrire_fiche(fiche, donnees)
 
 
 def retirer_travailleur(pid: int) -> None:
@@ -871,13 +1089,20 @@ def retirer_travailleur(pid: int) -> None:
     échoué, ou ait été tué par le chien de garde silence de run_ffmpeg_batch."""
     fiche = _fiche_courante()
     try:
-        donnees = json.loads(fiche.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        with _verrou_fiche(fiche):
+            try:
+                donnees = json.loads(fiche.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return
+            travailleurs = set(donnees.get("travailleurs") or [])
+            travailleurs.discard(pid)
+            donnees["travailleurs"] = sorted(travailleurs)
+            identites = dict(donnees.get("identites") or {})
+            identites.pop(str(pid), None)
+            donnees["identites"] = identites
+            _ecrire_fiche(fiche, donnees)
+    except BusyError:
         return
-    travailleurs = set(donnees.get("travailleurs") or [])
-    travailleurs.discard(pid)
-    donnees["travailleurs"] = sorted(travailleurs)
-    _ecrire_fiche(fiche, donnees)
 
 
 def arreter_processus(pid: int, avec_descendance: bool = False) -> None:
@@ -1105,7 +1330,8 @@ def _supprimer_verrou(fichier: Path) -> None:
 
 
 @contextlib.contextmanager
-def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
+def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
+           racine: Path | None = None):
     """Réserve une ressource entre processus, le temps d'une opération.
 
     Deux ressources ne se partagent pas : le Sync Module, qui ne traite qu'une
@@ -1145,7 +1371,9 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
     quelques secondes."""
     import uuid
 
-    fichier = app_dir() / f".blink_{nom}.lock"
+    dossier_verrou = Path(racine) if racine is not None else app_dir()
+    dossier_verrou.mkdir(parents=True, exist_ok=True)
+    fichier = dossier_verrou / f".blink_{nom}.lock"
     jeton = uuid.uuid4().hex
     limite = time.time() + max(attente, 0)
     contenu = json.dumps(
@@ -1248,6 +1476,18 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0):
             _supprimer_verrou(fichier)
 
 
+def verrou_controle(owner: str, attente: int = 0):
+    """Verrou global des transitions stop/restart, indépendant du stockage."""
+    return verrou("controle", owner, stale_after=120, attente=attente,
+                   racine=_dossier_controle())
+
+
+def verrou_configuration(owner: str = "reglages", attente: int = 0):
+    """Sérialise les bascules du pointeur et l'écriture de leurs réglages."""
+    return verrou("configuration", owner, stale_after=120, attente=attente,
+                   racine=_dossier_controle())
+
+
 # Identité applicative sous laquelle les notifications Windows sont émises.
 # Windows jette en silence, en rendant zéro, toute notification dont
 # l'identité n'est pas déclarée : emprunter celle de PowerShell marchait sur
@@ -1270,18 +1510,19 @@ def demander_arret() -> None:
     terminer proprement). Seul ffmpeg reste tué directement : processus
     tiers, on n'a aucune prise sur son propre nettoyage (voir arreter(),
     blink_cli.py)."""
-    (app_dir() / ARRET_DEMANDE).write_text(str(time.time()), encoding="utf-8")
+    (_dossier_controle() / ARRET_DEMANDE).write_text(
+        str(time.time()), encoding="utf-8")
 
 
 def arret_demande() -> bool:
-    return (app_dir() / ARRET_DEMANDE).exists()
+    return (_dossier_controle() / ARRET_DEMANDE).exists()
 
 
 def effacer_arret_demande() -> None:
     """À appeler au début d'une nouvelle session (le drapeau d'une session
     précédente ne doit jamais empêcher une nouvelle de tourner) et à la fin
     d'une séquence d'arrêt réussie."""
-    (app_dir() / ARRET_DEMANDE).unlink(missing_ok=True)
+    (_dossier_controle() / ARRET_DEMANDE).unlink(missing_ok=True)
 
 
 PASSAGES = Path(".blink_passages.json")
@@ -1331,6 +1572,42 @@ def passage_recent(verbe: str, minutes: float) -> bool:
 
 
 TRAVAIL = Path(".blink_travail.json")
+TRAVAIL_TERMINE_VISIBLE = 10
+
+
+def _fichier_travail(pid: int | None = None) -> Path:
+    """Fiche propre à un worker, pour que deux progressions ne s'écrasent pas."""
+    pid = os.getpid() if pid is None else int(pid)
+    return app_dir() / f"{TRAVAIL.stem}.{pid}{TRAVAIL.suffix}"
+
+
+def _ecrire_fiche_travail(cible: Path, etat: dict) -> bool:
+    """Remplace une fiche atomiquement, y compris sous antivirus Windows."""
+    import uuid
+
+    temporaire = cible.with_name(
+        f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    reussi = False
+    try:
+        temporaire.write_text(json.dumps(etat, ensure_ascii=False), encoding="utf-8")
+        temporaire.replace(cible)
+        reussi = True
+    except OSError:
+        pass
+    finally:
+        try:
+            temporaire.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return reussi
+
+
+def _lire_fiche_travail(cible: Path) -> dict:
+    try:
+        etat = json.loads(cible.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return etat if isinstance(etat, dict) else {}
 
 
 def travail(quoi: str, fait: float = 0, total: int = 0, cle: str | None = None) -> None:
@@ -1349,25 +1626,100 @@ def travail(quoi: str, fait: float = 0, total: int = 0, cle: str | None = None) 
     inconnu (clé absente, ou clé que la page ne reconnaît pas) reste affiché
     tel quel, jamais une chaîne vide."""
     import datetime as dt
-
     etat = {"quoi": quoi, "cle": cle, "fait": round(fait, 3), "total": total,
             "pid": os.getpid(),
             "depuis": dt.datetime.now().astimezone().isoformat(timespec="seconds")}
+    # Une fiche par PID : download et merge peuvent réellement se chevaucher.
+    # Un fichier unique faisait disparaître la barre de téléchargement dès que
+    # l'assemblage publiait son propre tick, et fin_travail() de l'un pouvait
+    # supprimer la publication fraîche de l'autre entre sa lecture et unlink.
+    _ecrire_fiche_travail(_fichier_travail(), etat)
+
+
+def fin_travail(conserver: float = 0) -> None:
+    """Retire notre fiche, ou conserve brièvement son état final affichable.
+
+    Une fin conservée porte ``termine`` : elle n'est donc jamais rendue par
+    :func:`travail_en_cours` et ne bloque ni le bouton Actualiser ni un nouveau
+    calcul. Elle permet seulement à la sonde web de ne pas manquer un petit
+    téléchargement entièrement terminé entre deux interrogations.
+    """
+    import datetime as dt
+
+    cible = _fichier_travail()
+    etat = _lire_fiche_travail(cible)
+    if not etat or etat.get("pid") != os.getpid():
+        return
+    total = etat.get("total") or 0
+    fait = etat.get("fait") or 0
+    if conserver and total > 0 and fait >= total:
+        etat["termine"] = dt.datetime.now().astimezone().isoformat(timespec="seconds")
+        etat["visible_secondes"] = max(0, float(conserver))
+        if _ecrire_fiche_travail(cible, etat):
+            return
+        # Sous Windows, un antivirus peut exceptionnellement refuser le
+        # replace. Ne surtout pas laisser alors l'ancienne fiche « active »
+        # pendant que le worker dort : mieux vaut perdre le N/N terminal que
+        # bloquer Actualiser jusqu'à la péremption de quinze minutes.
     try:
-        (app_dir() / TRAVAIL).write_text(json.dumps(etat, ensure_ascii=False),
-                                         encoding="utf-8")
+        cible.unlink(missing_ok=True)
     except OSError:
         pass
 
 
-def fin_travail() -> None:
-    """Retire notre marque d'avancement, si c'est bien la nôtre."""
-    en_cours = travail_en_cours()
-    if not en_cours or en_cours.get("pid") == os.getpid():
-        try:
-            (app_dir() / TRAVAIL).unlink(missing_ok=True)
-        except OSError:
-            pass
+def _etats_travail() -> tuple:
+    """Renvoie (actifs, terminés encore affichables), en purgeant les périmés."""
+    import datetime as dt
+
+    maintenant = dt.datetime.now().astimezone()
+    racine = app_dir()
+    fichiers = list(racine.glob(f"{TRAVAIL.stem}.*{TRAVAIL.suffix}"))
+    # Compatibilité avec une fiche laissée par une version antérieure pendant
+    # une mise à jour en place. Les nouvelles écritures utilisent toutes le PID.
+    ancienne = racine / TRAVAIL
+    if ancienne.exists():
+        fichiers.append(ancienne)
+
+    actifs, termines = [], []
+    for fichier in fichiers:
+        etat = _lire_fiche_travail(fichier)
+        perime = not etat
+        termine = etat.get("termine") if etat else None
+        if termine:
+            try:
+                fini = dt.datetime.fromisoformat(str(termine))
+                duree = float(etat.get("visible_secondes", TRAVAIL_TERMINE_VISIBLE))
+                perime = (maintenant - fini).total_seconds() > duree
+            except (TypeError, ValueError):
+                perime = True
+            if not perime:
+                termines.append(etat)
+        elif etat:
+            try:
+                depuis = dt.datetime.fromisoformat(str(etat.get("depuis")))
+                age = (maintenant - depuis).total_seconds()
+                pid = int(etat.get("pid") or 0)
+            except (TypeError, ValueError):
+                perime = True
+            else:
+                perime = age > 900 or not processus_vivant(pid)
+            if not perime:
+                actifs.append(etat)
+        if perime:
+            try:
+                fichier.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return actifs, termines
+
+
+def _priorite_travail(etat: dict, actif: bool) -> tuple:
+    """Le téléchargement reste visible face à un assemblage concurrent."""
+    cle = str(etat.get("cle") or "")
+    telechargement = cle in ("phase.inventory_clips", "phase.download_clips")
+    # actif download > fin download > actif autre > fin autre
+    categorie = (4 if actif else 3) if telechargement else (2 if actif else 1)
+    return categorie, str(etat.get("termine") or etat.get("depuis") or "")
 
 
 def travail_en_cours() -> dict:
@@ -1375,21 +1727,24 @@ def travail_en_cours() -> dict:
 
     Mêmes garde-fous que les verrous : une marque laissée par un processus mort
     ou trop vieille ne doit pas faire croire à un calcul éternel."""
-    import datetime as dt
+    actifs, _ = _etats_travail()
+    return max(actifs, key=lambda etat: _priorite_travail(etat, True)) if actifs else {}
 
-    try:
-        etat = json.loads((app_dir() / TRAVAIL).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+
+def travail_affichable() -> dict:
+    """Travail actif, ou dernière fin N/N retenue pour la prochaine sonde web."""
+    actifs, termines = _etats_travail()
+    candidats = [(etat, True) for etat in actifs] + [
+        (etat, False) for etat in termines
+    ]
+    if not candidats:
         return {}
-    if not isinstance(etat, dict) or not processus_vivant(int(etat.get("pid") or 0)):
-        return {}
-    try:
-        depuis = dt.datetime.fromisoformat(str(etat.get("depuis")))
-    except ValueError:
-        return {}
-    if (dt.datetime.now().astimezone() - depuis).total_seconds() > 900:
-        return {}
-    return etat
+    choisi = dict(max(candidats, key=lambda item: _priorite_travail(*item))[0])
+    # Le travail montré peut être un N/N terminal prioritaire alors qu'un
+    # assemblage tourne encore derrière. Le navigateur doit distinguer
+    # « visible » de « actif » pour ne pas réactiver son bouton à tort.
+    choisi["actif"] = bool(actifs)
+    return choisi
 
 
 # I-11 : liste des options qui attendent une valeur, pour ne jamais confondre
@@ -1403,7 +1758,7 @@ _OPTIONS_VALEUR_UNIQUE = frozenset((
     "--hub", "--camera", "--since", "--output", "--from", "--port",
     "--input", "--weekly-output", "--monthly-output", "--normalized-output",
     "--excluded-output", "--timezone", "--date", "--font", "--preset",
-    "--crf", "--thumbs",
+    "--crf", "--thumbs", "--usb-loop", "--cloud-loop",
 ))
 # Options « nargs=+ » : consomment tous les mots qui suivent tant qu'aucun
 # ne ressemble à une option (« watch --ignore serve jardin » cible deux

@@ -30,7 +30,6 @@ import os
 import queue
 import re
 import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -823,10 +822,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def repondre_puis_redemarrer(self, commande_restart: list) -> None:
-        """Répond {"ok": True}, puis détache une commande qui va arrêter CE
-        processus (restart ou stop, tous deux via taskkill /F /T sous
-        Windows) - factorise /api/reglages et /api/stop, qui partagent
-        exactement ce besoin.
+        """Détache une commande capable d'arrêter CE processus, puis confirme
+        au navigateur qu'elle a bien été créée. Factorise /api/reglages et
+        /api/stop, qui partagent exactement ce besoin.
 
         wfile.write()/flush() ne garantissent que la remise à l'OS, pas la
         livraison réelle jusqu'au navigateur : un taskkill trop rapproché
@@ -837,12 +835,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         surveillance caméra arrêtée - moins de contention). Une courte
         pause après le flush laisse le temps à la pile réseau de vraiment
         vider son tampon avant la mise à mort."""
-        self.send_json({"ok": True})
-        time.sleep(0.2)
-        runtime.demarrer(
-            runtime.self_command(*commande_restart), cwd=str(runtime.app_dir()),
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
+        # Vérifier que le relais a réellement pu être créé AVANT d'annoncer
+        # l'acceptation. Le finaliseur attend ensuite brièvement avant l'arrêt,
+        # ce qui laisse à cette réponse le temps de parvenir au navigateur sans
+        # devoir espérer qu'un sleep exécuté après le flush soit suffisant.
+        commande = [*commande_restart, "--delai", "0.75"]
+        try:
+            runtime.demarrer(
+                runtime.self_command(*commande), cwd=str(runtime.app_dir()),
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
+        except OSError as erreur:
+            self.send_json({"error": f"Impossible de lancer l'arrêt : {erreur}"}, 500)
+            return
+        self.send_json({"ok": True, "accepted": True})
 
     def send_media(self, path: Path) -> None:
         """Sert un fichier en gérant les requêtes Range.
@@ -1594,8 +1600,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # ce cache à jour.
             self.send_json({"passages": runtime.passages(),
                             "clips": len(read_entries(self.paths)),
-                            "travail": runtime.travail_en_cours(),
                             "maj": maj.disponible(reseau=False)})
+            return
+
+        if route == "/api/travail":
+            # Sonde fréquente et volontairement minuscule : ne pas relire ici
+            # tout le registre des clips comme /api/passages. Sur un vieux PC
+            # Windows 7, parser ce JSON croissant toutes les trois secondes
+            # coûterait bien plus que la lecture du seul état de progression.
+            self.send_json({"travail": runtime.travail_affichable()})
             return
 
         if route == "/api/refresh":
@@ -1665,12 +1678,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             _slot_pris("actualisation")
             try:
-                # Même verrou de fichier que la surveillance : le téléchargement
-                # lancé ici est exactement celui qu'elle fait de son côté, et
-                # elle tourne dans un autre processus qui ne voit pas nos
-                # sémaphores.
-                with blink_engine.hub_lock("actualisation", stale_after=3600):
-                    self.run_refresh()
+                # Le sous-processus ``download`` prend lui-même le verrou de
+                # fichier du hub pendant son inventaire puis ses transferts.
+                # Le prendre aussi ici, dans le parent, le rendait impossible à
+                # réacquérir : chaque clic « Actualiser » sautait alors toute la
+                # partie USB comme si un autre programme occupait le module.
+                # MODULE_SLOT reste la protection mémoire contre un direct lancé
+                # par ce serveur ; le verrou enfant couvre les autres processus.
+                self.run_refresh()
             except blink_engine.BusyError as error:
                 self.send_event({"line": f"Module occupé : {error}."})
                 self.send_event({"done": True, "ok": False})
@@ -2052,9 +2067,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
             merge_semaine = bool(payload.get("merge_semaine", True))
             merge_mois = bool(payload.get("merge_mois", True))
             download_auto = bool(payload.get("download_auto", True))
-            runtime.ecrire_reglages(usb_minutes, cloud_minutes, port, timestamp, timezone_str,
-                                    merge_jour, merge_semaine, merge_mois, download_auto)
-            runtime.ecrire_dossier_stockage(storage_dir)
+            try:
+                # Le changement de racine prépare et copie d'abord session et
+                # réglages, puis publie atomiquement son pointeur. Les nouvelles
+                # valeurs sont écrites ensuite dans cette racine devenue active.
+                with runtime.verrou_configuration():
+                    runtime.ecrire_dossier_stockage(storage_dir)
+                    runtime.ecrire_reglages(
+                        usb_minutes, cloud_minutes, port, timestamp, timezone_str,
+                        merge_jour, merge_semaine, merge_mois, download_auto)
+            except runtime.BusyError as erreur:
+                self.send_json(
+                    {"error": f"Une modification des réglages est déjà en cours : {erreur}"},
+                    409)
+                return
+            except OSError as erreur:
+                self.send_json(
+                    {"error": f"Impossible d'enregistrer les réglages : {erreur}"}, 500)
+                return
             # Comme /api/update : ce processus fait partie de ce que « restart »
             # va arrêter. Le verbe diffère de « update » puisqu'aucune nouvelle
             # version n'est en jeu, seuls les réglages ont changé - mais
@@ -2582,13 +2612,16 @@ const I18N = {
     "reglages.error.port": "Le port doit être compris entre 1 et 65535.",
     "reglages.error.timezone": "Le fuseau horaire ne peut pas être vide.",
     "stop.stopping": "Arrêt…",
-    "stop.stopped": "blink2video est arrêté. Relancez l'application pour reprendre.",
+    "stop.stopped": "Arrêt demandé. Cette page va devenir indisponible.",
+    "stop.failed": "L'arrêt n'a pas abouti ; blink2video répond toujours.",
+    "reglages.restartFailed": "Le redémarrage n'a pas commencé. Vérifiez les journaux puis réessayez.",
     "sourdine.loading": "Chargement…", "sourdine.unavailable": "Liste des caméras indisponible.",
     "sourdine.none": "Aucune caméra connue pour l'instant.",
     "suppressionAuto.loading": "Chargement…",
     "suppressionAuto.unavailable": "Liste des caméras indisponible.",
     "suppressionAuto.none": "Aucune caméra connue pour l'instant.",
     "suppressionAuto.hint": "Une fois un clip téléchargé avec succès, il est supprimé de sa source (clé USB ou cloud de l'abonnement selon la caméra).",
+    "phase.inventory_clips": "Inventaire des clips à télécharger",
     "phase.download_clips": "Téléchargement des clips",
     "phase.prepare_clips": "Préparation des clips",
     "phase.assemble_videos": "Assemblage des vidéos",
@@ -2702,13 +2735,16 @@ const I18N = {
     "reglages.error.port": "The port must be between 1 and 65535.",
     "reglages.error.timezone": "The time zone cannot be empty.",
     "stop.stopping": "Stopping…",
-    "stop.stopped": "blink2video is stopped. Restart the application to resume.",
+    "stop.stopped": "Shutdown requested. This page will become unavailable.",
+    "stop.failed": "Shutdown did not complete; blink2video is still responding.",
+    "reglages.restartFailed": "Restart did not begin. Check the logs and try again.",
     "sourdine.loading": "Loading…", "sourdine.unavailable": "Camera list unavailable.",
     "sourdine.none": "No known camera yet.",
     "suppressionAuto.loading": "Loading…",
     "suppressionAuto.unavailable": "Camera list unavailable.",
     "suppressionAuto.none": "No known camera yet.",
     "suppressionAuto.hint": "Once a clip is successfully downloaded, it is deleted from its source (USB drive or subscription cloud, depending on the camera).",
+    "phase.inventory_clips": "Finding clips to download",
     "phase.download_clips": "Downloading clips",
     "phase.prepare_clips": "Preparing clips",
     "phase.assemble_videos": "Assembling videos",
@@ -2907,6 +2943,7 @@ async function loadSystem(force) {
 // le bouton reste inactif : un second calcul attendrait le même verrou, sans
 // rien avancer.
 let travailEnCours = false;
+let travailVisible = false;
 let actualisationLocale = false;
 
 // Le serveur ne connaît jamais la langue affichée (choix propre à chaque
@@ -2923,15 +2960,23 @@ function libellePhase(cle, texteBrut, valeurs) {
 
 function montrerTravail(travail) {
   if (actualisationLocale) return;    // notre propre barre parle déjà
-  const actif = !!(travail && travail.quoi);
-  if (!actif) {
-    if (travailEnCours) { $("work").classList.remove("on"); rechargerEnArrierePlan(); }
+  const visible = !!(travail && travail.quoi);
+  if (!visible) {
+    if (travailVisible) {
+      $("work").classList.remove("on");
+      rechargerEnArrierePlan();
+    }
     travailEnCours = false;
+    travailVisible = false;
     $("refresh").disabled = false;
     return;
   }
-  travailEnCours = true;
-  $("refresh").disabled = true;
+  const termine = !!travail.termine;
+  const actif = travail.actif === undefined ? !termine : !!travail.actif;
+  const etaitActif = travailEnCours;
+  travailEnCours = actif;
+  travailVisible = true;
+  $("refresh").disabled = actif;
   $("work").classList.add("on");
   const total = travail.total || 0;
   const fait = travail.fait || 0;
@@ -2941,11 +2986,17 @@ function montrerTravail(travail) {
   if (total) {
     $("bar").max = total;
     $("bar").value = fait;
-    $("phase").textContent = `${quoi} ${Math.min(fait + 1, total)}/${total}`;
+    const courant = fait >= total ? total : fait + 1;
+    $("phase").textContent =
+      `${quoi} ${courant}/${total} (${Math.round((fait / total) * 100)} %)`;
   } else {
     $("bar").removeAttribute("value");
     $("phase").textContent = quoi;
   }
+  // Le N/N retenu dix secondes est visible, mais n'est plus un verrou : un
+  // nouveau clic reste possible. Si la page avait vu le travail actif, sa fin
+  // déclenche exactement le même rafraîchissement qu'une disparition directe.
+  if (termine && etaitActif && !actif) rechargerEnArrierePlan();
 }
 
 // Une version publiée plus récente que celle qui tourne : le bouton apparaît,
@@ -3012,7 +3063,6 @@ async function heuresDePassage() {
   try {
     etat = await (await fetch("/api/passages")).json();
   } catch (erreur) { return; }
-  montrerTravail(etat.travail);
   montrerMaj(etat.maj);
   const vus = etat.passages || {};
   // Des clips sont arrivés depuis que la page a été chargée : on le dit, et
@@ -3046,6 +3096,13 @@ async function heuresDePassage() {
     : "";
   $("passages").textContent =
     tf("passages.updated", { heure: vus[plusRecent].slice(11, 16) }) + nouveaux;
+}
+
+async function etatDuTravail() {
+  try {
+    const etat = await (await fetch("/api/travail", { cache: "no-store" })).json();
+    montrerTravail(etat.travail);
+  } catch (erreur) { /* le prochain passage réessaiera */ }
 }
 
 function renderLive() {
@@ -3876,13 +3933,22 @@ for (const id of ["view", "showOut"]) $(id).onchange = render;
 // Seule cette ligne de texte se met à jour d'elle-même : elle sert précisément
 // à repérer une boucle arrêtée, ce qu'on ne verrait pas en regardant des clips
 // qui, eux, ne changent plus.
-// Une minute au repos, trois secondes pendant un calcul : c'est le seul moment
-// où quelque chose bouge assez vite pour qu'on ait envie de le suivre.
-(function veiller() {
+// Un worker automatique peut commencer à n'importe quel moment. La sonde
+// dédiée ne lit que .blink_travail.json : trois secondes en permanence restent
+// légères, même sous Windows 7. Le bilan plus coûteux (registre + passages +
+// mise à jour) conserve, lui, sa cadence d'une minute.
+etatDuTravail();
+(function veillerTravail() {
+  setTimeout(async () => {
+    await etatDuTravail();
+    veillerTravail();
+  }, 3000);
+})();
+(function veillerPassages() {
   setTimeout(async () => {
     await heuresDePassage();
-    veiller();
-  }, travailEnCours ? 3000 : 60000);
+    veillerPassages();
+  }, 60000);
 })();
 $("auto").checked = localStorage.getItem("auto") === "1";
 $("auto").onchange = () => {
@@ -4172,7 +4238,14 @@ $("reglagesApply").onclick = async () => {
         setTimeout(() => { location.href = nouvelleAdresse; }, 3000);
       }
     }, 1000);
-    setTimeout(() => clearInterval(attentePort), 900000);
+    setTimeout(() => {
+      if (!parti) {
+        clearInterval(attentePort);
+        $("phase").textContent = t("reglages.restartFailed");
+        $("bar").value = 0;
+        $("refresh").disabled = false;
+      }
+    }, 45000);
     return;
   }
 
@@ -4189,7 +4262,14 @@ $("reglagesApply").onclick = async () => {
       parti = true;      // il s'est arrêté : la relance suit
     }
   }, 2000);
-  setTimeout(() => clearInterval(attente), 900000);
+  setTimeout(() => {
+    if (!parti) {
+      clearInterval(attente);
+      $("phase").textContent = t("reglages.restartFailed");
+      $("bar").value = 0;
+      $("refresh").disabled = false;
+    }
+  }, 45000);
 };
 
 $("stopButton").onclick = async () => {
@@ -4197,10 +4277,28 @@ $("stopButton").onclick = async () => {
   bouton.disabled = true;
   bouton.textContent = t("stop.stopping");
   try {
-    await fetch("/api/stop", { method: "POST",
+    const reponse = await fetch("/api/stop", { method: "POST",
       headers: { "Content-Type": "application/json" }, body: "{}" });
+    const resultat = await reponse.json();
+    if (resultat.error) {
+      alert(resultat.error);
+      bouton.disabled = false;
+      bouton.textContent = t("reglages.stop");
+      return;
+    }
   } catch (erreur) { /* la réponse peut ne pas arriver, l'arrêt est déjà lancé */ }
   document.body.innerHTML = `<p class="empty">${t("stop.stopped")}</p>`;
+  // « accepté » n'est pas « terminé ». Si le serveur répond encore après le
+  // délai maximal de grâce + kill, rendre l'échec visible au lieu d'affirmer
+  // indéfiniment que l'application est arrêtée.
+  setTimeout(async () => {
+    try {
+      const reponse = await fetch("/api/status", { cache: "no-store" });
+      if (reponse.ok) {
+        document.body.innerHTML = `<p class="empty">${t("stop.failed")}</p>`;
+      }
+    } catch (erreur) { /* disparition attendue : arrêt confirmé */ }
+  }, 30000);
 };
 
 // Vue par défaut posée AVANT setLang() : celui-ci appelle render(), qui lit

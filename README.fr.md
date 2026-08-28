@@ -359,7 +359,7 @@ CAMERA…` met une caméra en sourdine, puis poursuit le contrôle ;
 équivaut exactement à :
 
 ```bash
-blink2video serve  watch --loop 10  download --from usb --loop 10  download --from cloud --loop 1  merge --loop 5
+blink2video serve  watch --loop 10  download --from all --usb-loop 10 --cloud-loop 1  merge --loop 5
 ```
 
 Les options données après `start` vont à l'interface, `--port` par exemple.

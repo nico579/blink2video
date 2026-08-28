@@ -338,7 +338,7 @@ it.
 equivalent to:
 
 ```bash
-blink2video serve  watch --loop 10  download --from usb --loop 10  download --from cloud --loop 1  merge --loop 5
+blink2video serve  watch --loop 10  download --from all --usb-loop 10 --cloud-loop 1  merge --loop 5
 ```
 
 Options given after `start` go to the interface, `--port` for instance.
