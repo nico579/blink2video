@@ -762,11 +762,18 @@ class TestsDefautsSynchrones(BacASable):
         fiche.write_text("{}", encoding="utf-8")
         instance = {"pid": 111, "depuis": "maintenant", "verbes": [["serve"]],
                     "enfants": [], "fiche": fiche}
+        # Horloge et sommeil liés : processus_vivant figé sur True fait
+        # durer le délai de grâce coopératif (revue du 27/08) tout son
+        # cours réel (15 s) si le temps n'est pas aussi accéléré ici - hors
+        # sujet pour ce test, qui porte sur l'identité, pas le délai.
+        horloge = {"t": 0.0}
         with mock.patch.object(runtime, "lire_instances", return_value=[instance]), \
              mock.patch.object(runtime, "arreter_processus") as tuer, \
              mock.patch.object(runtime, "processus_vivant", return_value=True), \
              mock.patch.object(runtime, "ligne_de_commande",
                                 return_value=r"C:\Program Files\Autre\Logiciel.exe"), \
+             mock.patch("time.time", side_effect=lambda: horloge["t"]), \
+             mock.patch("time.sleep", side_effect=lambda d: horloge.__setitem__("t", horloge["t"] + d)), \
              contextlib.redirect_stdout(io.StringIO()):
             code = blink_cli.arreter([])
         # Le plus important : jamais un appel à tuer un processus dont

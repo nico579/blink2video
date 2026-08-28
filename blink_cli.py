@@ -271,15 +271,20 @@ def arreter(arguments: list = ()) -> int:
 
         # Délai de grâce pour les membres Python (serve/watch/download/
         # merge) : le drapeau posé plus haut leur laisse la chance de sortir
-        # d'eux-mêmes avant qu'on ne force. Identité vérifiée dès cette
-        # attente (processus_correspond, pas seulement processus_vivant) :
-        # un pid réattribué à un autre logiciel resterait sinon « vivant »
-        # tout le délai, pour un processus qu'on n'a de toute façon jamais
-        # eu l'intention de toucher.
+        # d'eux-mêmes avant qu'on ne force. processus_vivant() seul ici, pas
+        # processus_correspond() : constaté en conditions réelles (revue du
+        # 27/08), la vérification d'identité complète (tasklist + PowerShell
+        # par membre) coûtait assez cher, répétée chaque seconde, pour faire
+        # dépasser 15 s de largement plus de moitié sur 2 membres seulement -
+        # bien pire avec les 5 verbes d'une vraie composition. La
+        # vérification d'identité complète reste faite une seule fois,
+        # juste après, avant le kill effectif ; un pid réattribué pendant ce
+        # délai de grâce (fenêtre de quelques secondes, cas rarissime) fait
+        # au pire attendre le délai complet pour rien, jamais tuer à tort.
         limite = time.time() + 15
+        pids_python = [membre for membre, _ in membres]
         while time.time() < limite and any(
-                runtime.processus_vivant(int(m)) and runtime.processus_correspond(int(m), e)
-                for m, e in membres):
+                runtime.processus_vivant(int(m)) for m in pids_python):
             time.sleep(1)
 
         for membre, empreinte in membres:
