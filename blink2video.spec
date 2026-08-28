@@ -106,7 +106,16 @@ executable = EXE(
     debug=False,
     strip=False,
     upx=False,
-    console=True,
+    # Sans fenêtre, comme pythonw.exe (déjà substitué à python.exe pour
+    # l'exécution depuis les sources, voir autostart.py) : avec console=True,
+    # même l'entrée de démarrage automatique d'un exe installé ouvrait une
+    # console à chaque connexion, ce que toute l'icône de zone de
+    # notification est justement censée éviter (constaté en conditions
+    # réelles sur la VM Windows 7, et signalé par un utilisateur sur
+    # Reddit). print() ne casse rien sans console : runtime.py compte déjà
+    # dessus pour tourner sous pythonw.exe, un chemin déjà éprouvé, pas
+    # nouveau avec ce changement.
+    console=False,
     # Même mécanisme que lidar2map : PNG source portable, converti par
     # PyInstaller en ressource native sur la plateforme de construction.
     icon=str(APP_ICON),
