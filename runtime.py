@@ -525,17 +525,36 @@ def ecrire_dossier_stockage(chemin: str) -> None:
     """Enregistre le nouveau dossier, ou efface le réglage si `chemin` est
     vide (retour à l'emplacement par défaut).
 
-    Ne déplace rien : les fichiers déjà présents à l'ancien emplacement y
-    restent, à charge de qui change ce réglage de les reprendre lui-même -
-    choix délibéré, un déplacement automatique engageant bien plus (espace
-    disque, fichiers ouverts, échec à mi-chemin) pour un réglage qui change
-    rarement."""
+    Ne déplace pas les clips : les fichiers déjà présents à l'ancien
+    emplacement y restent, à charge de qui change ce réglage de les
+    reprendre lui-même - choix délibéré, un déplacement automatique
+    engageant bien plus (espace disque, fichiers ouverts, échec à
+    mi-chemin) pour des données qui peuvent peser plusieurs Go.
+
+    Les réglages et la session, eux, sont copiés vers le nouvel
+    emplacement : ce n'est pas de la donnée gérée par l'application mais
+    son état courant, et le nouveau app_dir() démarrerait sinon vide -
+    déconnecté, réglages revenus aux défauts, y compris ceux tout juste
+    enregistrés dans le même appel (ecrire_reglages() écrit dans l'ancien
+    emplacement, juste avant celui-ci - revue du 27/08, "je perds mon
+    authentification" en changeant de dossier). Une copie, jamais un
+    déplacement : l'ancien emplacement reste utilisable si ce changement
+    est annulé ensuite."""
+    ancien = app_dir()
     pointeur = _dossier_ancre() / POINTEUR_STOCKAGE
     chemin = chemin.strip()
     if not chemin:
         pointeur.unlink(missing_ok=True)
+    else:
+        pointeur.write_text(chemin, encoding="utf-8")
+    nouveau = app_dir()
+    if nouveau == ancien:
         return
-    pointeur.write_text(chemin, encoding="utf-8")
+    nouveau.mkdir(parents=True, exist_ok=True)
+    for nom in (REGLAGES, "blink_auth.json"):
+        source = ancien / nom
+        if source.is_file():
+            shutil.copy2(source, nouveau / nom)
 
 
 def resource_dir() -> Path:

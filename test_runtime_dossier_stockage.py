@@ -74,6 +74,37 @@ class TestsDossierStockage(unittest.TestCase):
         autre_ancre.mkdir()
         self.assertEqual(runtime.app_dir_depuis(autre_ancre), autre_ancre)
 
+    def test_changement_de_dossier_copie_reglages_et_session(self):
+        """Revue du 27/08 : "je perds mon authentification" en changeant de
+        dossier de stockage. app_dir() démarrait vide au nouvel emplacement
+        - session et réglages, écrits dans l'ancien juste avant ce même
+        appel (ecrire_reglages() puis ecrire_dossier_stockage() dans
+        /api/reglages), restaient orphelins."""
+        (self.ancre / runtime.REGLAGES).write_text('{"port": 9999}', encoding="utf-8")
+        (self.ancre / "blink_auth.json").write_text('{"token": "abc"}', encoding="utf-8")
+        cible = self.ancre / "ailleurs"
+        runtime.ecrire_dossier_stockage(str(cible))
+        self.assertEqual(
+            (cible / runtime.REGLAGES).read_text(encoding="utf-8"), '{"port": 9999}')
+        self.assertEqual(
+            (cible / "blink_auth.json").read_text(encoding="utf-8"), '{"token": "abc"}')
+        # Copiés, pas déplacés : l'ancien emplacement reste intact.
+        self.assertTrue((self.ancre / runtime.REGLAGES).exists())
+        self.assertTrue((self.ancre / "blink_auth.json").exists())
+
+    def test_changement_de_dossier_sans_session_prealable_ne_plante_pas(self):
+        cible = self.ancre / "ailleurs"
+        runtime.ecrire_dossier_stockage(str(cible))
+        self.assertFalse((cible / "blink_auth.json").exists())
+
+    def test_effacer_le_reglage_copie_aussi_vers_l_emplacement_par_defaut(self):
+        cible = self.ancre / "ailleurs"
+        runtime.ecrire_dossier_stockage(str(cible))
+        (cible / "blink_auth.json").write_text('{"token": "xyz"}', encoding="utf-8")
+        runtime.ecrire_dossier_stockage("")
+        self.assertEqual(
+            (self.ancre / "blink_auth.json").read_text(encoding="utf-8"), '{"token": "xyz"}')
+
     def test_app_dir_depuis_suit_le_pointeur_de_l_ancre_fournie(self):
         # Bug corrigé le 27 août 2026 (signalé sur Reddit) : maj.py forçait
         # BLINK_HOME sur le dossier d'installation lui-même pendant une mise
