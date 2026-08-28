@@ -745,6 +745,7 @@ class TestsDefautsSynchrones(BacASable):
                     "enfants": [222], "fiche": fiche}
         with mock.patch.object(runtime, "lire_instances", return_value=[instance]), \
              mock.patch.object(runtime, "arreter_processus"), \
+             mock.patch.object(runtime, "processus_vivant", return_value=True), \
              mock.patch.object(runtime, "processus_correspond", return_value=True), \
              contextlib.redirect_stdout(io.StringIO()):
             code = blink_cli.arreter([])
