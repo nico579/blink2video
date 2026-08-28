@@ -224,6 +224,13 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
         sync = _HubCloud(clip.network_id)
         target = blink_models.target_path(output, clip, sync=sync, source="cloud")
         print(f"  [{position}/{len(inedits)}] {target.name}")
+        # Même repère que le pendant USB (un_passage()) : sans lui, la page
+        # web ne montrait jamais d'avancement pour un compte cloud-only,
+        # celui qui rapatrie justement le plus gros volume au premier passage
+        # (constaté en réel : plusieurs heures sans le moindre signe côté
+        # page, alors que le travail avançait bel et bien).
+        runtime.travail("Téléchargement des clips", position - 1, len(inedits),
+                        cle="phase.download_clips")
         _, entree_connue = blink_registre._trouver_entree(
             state, sync, clip, source="cloud",
         )
