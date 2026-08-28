@@ -87,12 +87,24 @@ def executer(port: int, arret: threading.Event, nettoyer) -> None:
         webbrowser.open(adresse)
 
     def redemarrer(icon, item):
-        nettoyer()
-        _relancer(sans_relance=False)
+        # nettoyer() en tâche de fond, pas ici : ce callback tourne sur le
+        # même thread que la pompe de messages Windows de l'icône, et
+        # nettoyer() peut bloquer jusqu'à 15 s (délai de grâce coopératif).
+        # Geler ce thread empêchait icon.stop() d'être traité à temps,
+        # laissant l'icône elle-même en vie une fois tout le reste arrêté
+        # (constaté en réel : « il reste juste le systray »). _relancer()
+        # doit néanmoins attendre la fin de nettoyer() - sans quoi le
+        # nouveau « start » pourrait tenter de se lier au port avant que
+        # l'ancien serve ne l'ait libéré.
+        def suite():
+            nettoyer()
+            _relancer(sans_relance=False)
+
+        threading.Thread(target=suite, daemon=True).start()
         icon.stop()
 
     def arreter(icon, item):
-        nettoyer()
+        threading.Thread(target=nettoyer, daemon=True).start()
         icon.stop()
 
     def creer_raccourci(icon, item):
