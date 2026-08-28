@@ -468,6 +468,8 @@ def frozen() -> bool:
 
 
 POINTEUR_STOCKAGE = "blink_home.txt"
+MARQUEUR_CONFIGURATION_INITIALE = ".blink_configuration_initiale_effectuee"
+MARQUEUR_CONFIGURATION_EN_ATTENTE = ".blink_configuration_initiale_en_attente"
 
 
 def _dossier_ancre() -> Path:
@@ -650,6 +652,104 @@ def _dossier_controle() -> Path:
     if force:
         return Path(force).expanduser().resolve()
     return _dossier_ancre()
+
+
+def _ecrire_marqueur_configuration(nom: str) -> None:
+    """Écrit atomiquement un petit marqueur dans la racine fixe de contrôle.
+
+    Il ne vit volontairement pas dans ``app_dir()`` : changer le dossier de
+    stockage vers une destination vide ne doit jamais être confondu avec une
+    nouvelle installation. ``_dossier_controle()`` reste à côté de
+    l'exécutable même lorsque ``blink_home.txt`` redirige les clips.
+    """
+    import uuid
+
+    dossier = _dossier_controle()
+    dossier.mkdir(parents=True, exist_ok=True)
+    cible = dossier / nom
+    temporaire = dossier / f".{nom}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    try:
+        temporaire.write_text(VERSION, encoding="utf-8")
+        temporaire.replace(cible)
+    finally:
+        temporaire.unlink(missing_ok=True)
+
+
+def _traces_installation_existante() -> bool:
+    """Détecte une installation antérieure dépourvue de notre marqueur.
+
+    Le marqueur est nouveau ; sans migration, toute mise à jour ouvrirait le
+    parcours initial à des utilisateurs déjà installés. Une session, des
+    réglages, un pointeur de stockage ou un dossier de données non vide sont
+    des preuves suffisantes d'un usage antérieur. Cette détection ne sert
+    qu'une fois : elle est aussitôt matérialisée par le marqueur définitif.
+    """
+    racine = app_dir()
+    if (racine / REGLAGES).is_file() or (racine / "blink_auth.json").is_file():
+        return True
+    if (_dossier_ancre() / POINTEUR_STOCKAGE).is_file():
+        return True
+    for nom in ("Blink_Clips", "Blink_Daily", "Blink_Weekly", "Blink_Monthly",
+                "Blink_Normalized", "Blink_Excluded"):
+        dossier = racine / nom
+        try:
+            if dossier.is_dir() and next(dossier.iterdir(), None) is not None:
+                return True
+        except OSError:
+            # Une racine momentanément indisponible ne prouve ni une nouvelle
+            # installation ni une ancienne. Les autres traces peuvent encore
+            # trancher ; à défaut, le parcours initial reste le choix sûr.
+            continue
+    return False
+
+
+def configuration_initiale_effectuee() -> bool:
+    """Vrai après validation explicite du premier panneau de réglages."""
+    return (_dossier_controle() / MARQUEUR_CONFIGURATION_INITIALE).is_file()
+
+
+def configuration_initiale_requise() -> bool:
+    """Vrai uniquement pour une installation réellement neuve.
+
+    Un marqueur « en attente » est posé avant même la connexion Blink. Ainsi,
+    fermer la fenêtre après s'être connecté mais avant d'avoir appliqué les
+    réglages ne transforme pas cette session fraîche en fausse installation
+    historique au lancement suivant.
+    """
+    if configuration_initiale_effectuee():
+        return False
+    attente = _dossier_controle() / MARQUEUR_CONFIGURATION_EN_ATTENTE
+    if attente.is_file():
+        return True
+    if _traces_installation_existante():
+        try:
+            marquer_configuration_initiale()
+        except OSError:
+            # La migration est une optimisation de compatibilité. Les traces
+            # resteront présentes au prochain démarrage et éviteront toujours
+            # d'imposer le parcours initial, même si le marqueur est refusé.
+            pass
+        return False
+    try:
+        _ecrire_marqueur_configuration(MARQUEUR_CONFIGURATION_EN_ATTENTE)
+    except OSError:
+        # Ne jamais lancer les téléchargements pour la seule raison qu'un
+        # marqueur n'a pas pu s'écrire : le panneau permettra d'expliquer le
+        # vrai problème de permissions lors de l'enregistrement.
+        pass
+    return True
+
+
+def marquer_configuration_initiale() -> None:
+    """Valide définitivement le parcours initial, indépendamment du stockage."""
+    _ecrire_marqueur_configuration(MARQUEUR_CONFIGURATION_INITIALE)
+    try:
+        (_dossier_controle() / MARQUEUR_CONFIGURATION_EN_ATTENTE).unlink(missing_ok=True)
+    except OSError:
+        # Le marqueur définitif est le commit et il est testé en premier. Un
+        # antivirus qui tient encore l'ancien petit fichier ne doit donc pas
+        # transformer une validation réussie en erreur ni bloquer le démarrage.
+        pass
 
 
 def identite_processus(pid: int) -> str | None:

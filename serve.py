@@ -763,6 +763,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     timezone: ZoneInfo = ZoneInfo("Europe/Paris")
     hub: str = "Maison"
     ffmpeg: str = ""
+    # Serveur temporaire du tout premier démarrage : les réglages sont
+    # enregistrés sans lancer lui-même un restart. Le parent ``start`` attend
+    # leur marqueur, arrête ce serveur, puis seulement alors crée les workers.
+    initial_setup: bool = False
     lock = threading.Lock()
     login_flow = LoginFlow()
 
@@ -1473,7 +1477,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/status":
-            self.send_json({"authenticated": (BASE_DIR / "blink_auth.json").is_file()})
+            self.send_json({
+                "authenticated": (runtime.app_dir() / "blink_auth.json").is_file(),
+                "initial_setup": self.initial_setup,
+            })
             return
 
         if route == "/api/autostart":
@@ -1509,7 +1516,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if route == "/api/reglages":
             self.send_json(
-                {**runtime.lire_reglages(), "storage_dir": runtime.lire_dossier_stockage()})
+                {**runtime.lire_reglages(), "storage_dir": runtime.lire_dossier_stockage(),
+                 "initial_setup": self.initial_setup})
             return
 
         if route == "/api/sourdine":
@@ -1612,6 +1620,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/refresh":
+            if self.initial_setup:
+                # Défense côté serveur, pas seulement dialogue modal : même
+                # une requête manuelle ne peut rapatrier un clip avant la
+                # validation du dossier et du fuseau.
+                self.send_json({"error": "Validez d'abord les réglages initiaux."}, 409)
+                return
             self.stream_refresh()
             return
 
@@ -2076,6 +2090,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     runtime.ecrire_reglages(
                         usb_minutes, cloud_minutes, port, timestamp, timezone_str,
                         merge_jour, merge_semaine, merge_mois, download_auto)
+                    if self.initial_setup:
+                        runtime.marquer_configuration_initiale()
             except runtime.BusyError as erreur:
                 self.send_json(
                     {"error": f"Une modification des réglages est déjà en cours : {erreur}"},
@@ -2084,6 +2100,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except OSError as erreur:
                 self.send_json(
                     {"error": f"Impossible d'enregistrer les réglages : {erreur}"}, 500)
+                return
+            if self.initial_setup:
+                # Le parent ``start`` voit maintenant le marqueur, laisse à
+                # cette réponse le temps d'arriver, puis remplace ce serveur
+                # seul par la composition complète. Lui demander un restart
+                # ici créerait une course avec le verrou ``start`` qu'il tient
+                # justement pendant tout le parcours initial.
+                self.send_json({"ok": True, "accepted": True,
+                                "initial_setup": True})
                 return
             # Comme /api/update : ce processus fait partie de ce que « restart »
             # va arrêter. Le verbe diffère de « update » puisqu'aucune nouvelle
@@ -2399,6 +2424,10 @@ PAGE = """<!doctype html>
 
 <dialog id="reglages">
   <h3 data-i18n="reglages.title">Réglages</h3>
+  <p id="initialSetupHint" class="sub" hidden data-i18n="reglages.initial.hint">
+    Vérifiez notamment le dossier des données et le fuseau horaire. Aucun clip
+    ne sera téléchargé avant que vous ayez appliqué ces réglages.
+  </p>
   <label id="autostartLabel"
          data-i18n-title="reglages.autostart.title"
          title="Démarre le serveur web et le traitement des clips à l'ouverture
@@ -2580,6 +2609,7 @@ const I18N = {
     "auth.cancel": "Annuler", "auth.ok": "Se connecter", "auth.validate": "Valider",
     "auth.connecting": "Connexion en cours…", "auth.failed": "Échec de la connexion.",
     "reglages.title": "Réglages",
+    "reglages.initial.hint": "Vérifiez notamment le dossier des données et le fuseau horaire. Aucun clip ne sera téléchargé avant que vous ayez appliqué ces réglages.",
     "reglages.autostart": "Démarrage de la surveillance à l'ouverture de session",
     "reglages.autostart.title": "Démarre le serveur web et le traitement des clips à l'ouverture de session, en arrière-plan — n'ouvre pas cette page toute seule",
     "reglages.auto": "Actualisation automatique de la page",
@@ -2703,6 +2733,7 @@ const I18N = {
     "auth.cancel": "Cancel", "auth.ok": "Log in", "auth.validate": "Confirm",
     "auth.connecting": "Signing in…", "auth.failed": "Login failed.",
     "reglages.title": "Settings",
+    "reglages.initial.hint": "Check the data folder and time zone in particular. No clip will be downloaded until you apply these settings.",
     "reglages.autostart": "Start monitoring at login",
     "reglages.autostart.title": "Starts the web server and clip processing at login, in the background — does not open this page by itself",
     "reglages.auto": "Automatic page refresh",
@@ -3848,8 +3879,11 @@ $("authOk").onclick = async () => {
     // ?login=1 n'a servi qu'à ouvrir ce dialogue au premier lancement ; le
     // laisser dans l'adresse referait apparaître la connexion à chaque
     // actualisation ou depuis un signet, alors que la session est valide.
-    if (new URLSearchParams(location.search).get("login") === "1") {
-      history.replaceState(null, "", location.pathname);
+    const parametres = new URLSearchParams(location.search);
+    if (parametres.get("login") === "1") {
+      parametres.delete("login");
+      const suite = parametres.toString();
+      history.replaceState(null, "", location.pathname + (suite ? `?${suite}` : ""));
     }
     if (authResolve) { authResolve(true); authResolve = null; }
   } else if (result.status === "2fa") {
@@ -3863,6 +3897,10 @@ $("authOk").onclick = async () => {
 $("refresh").onclick = async () => {
   const status = await (await fetch("/api/status")).json();
   if (!status.authenticated && !(await authenticate())) return;
+  if (status.initial_setup) {
+    await ouvrirReglages(true);
+    return;
+  }
 
   const button = $("refresh");
   button.disabled = true;
@@ -3982,9 +4020,10 @@ $("autostart").onchange = async () => {
 
 let portActuel = null;   // relu à chaque ouverture, comparé à l'envoi
 
-$("reglagesButton").onclick = async () => {
+async function ouvrirReglages(configurationInitiale = false) {
   try {
     const reglages = await (await fetch("/api/reglages")).json();
+    configurationInitiale = configurationInitiale || !!reglages.initial_setup;
     $("usbMinutes").value = reglages.usb_minutes;
     $("cloudMinutes").value = reglages.cloud_minutes;
     $("port").value = reglages.port;
@@ -3999,11 +4038,22 @@ $("reglagesButton").onclick = async () => {
     $("downloadAuto").checked = reglages.download_auto;
     appliquerDependanceDownloadAuto();
   } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
+  $("initialSetupHint").hidden = !configurationInitiale;
+  $("reglagesClose").hidden = configurationInitiale;
+  $("stopButton").hidden = configurationInitiale;
+  $("reglages").dataset.initialSetup = configurationInitiale ? "1" : "0";
   chargerSourdine();
   chargerSuppressionAuto();
   $("reglages").showModal();
-};
+}
+$("reglagesButton").onclick = () => ouvrirReglages(false);
 $("reglagesClose").onclick = () => $("reglages").close();
+$("reglages").addEventListener("cancel", (evenement) => {
+  // Échap ne doit pas transformer une installation neuve en page vide : le
+  // parent attend la validation et aucun téléchargement ne démarrera. Le
+  // dialogue reste fermable lors de toutes les ouvertures ordinaires.
+  if ($("reglages").dataset.initialSetup === "1") evenement.preventDefault();
+});
 
 $("filtreButton").onclick = ouvrirFiltre;
 $("filtreClose").onclick = () => $("filtre").close();
@@ -4179,6 +4229,7 @@ $("reglagesApply").onclick = async () => {
     return;
   }
   const bouton = $("reglagesApply");
+  let configurationInitiale = false;
   bouton.disabled = true;
   bouton.textContent = t("reglages.restarting");
   try {
@@ -4201,6 +4252,7 @@ $("reglagesApply").onclick = async () => {
       bouton.textContent = t("reglages.apply");
       return;
     }
+    configurationInitiale = !!resultat.initial_setup;
   } catch (erreur) {
     // Une erreur de validation arrive toujours en JSON propre, AVANT que le
     // serveur ne se tue pour redémarrer (voir resultat.error ci-dessus) :
@@ -4246,6 +4298,37 @@ $("reglagesApply").onclick = async () => {
         $("refresh").disabled = false;
       }
     }, 45000);
+    return;
+  }
+
+  if (configurationInitiale) {
+    // Le parent ``start`` remplace le serveur temporaire par le serveur
+    // complet seulement après avoir vu la validation. Attendre explicitement
+    // un /api/status sorti du mode initial évite de manquer une coupure très
+    // brève sur une machine rapide et de rester bloqué inutilement.
+    $("phase").textContent = t("reglages.restarting.settings");
+    $("bar").removeAttribute("value");
+    $("work").classList.add("on");
+    $("refresh").disabled = true;
+    let delaiInitial = null;
+    const attenteInitiale = setInterval(async () => {
+      try {
+        const etat = await (await fetch("/api/status", { cache: "no-store" })).json();
+        if (etat.initial_setup === false) {
+          clearInterval(attenteInitiale);
+          clearTimeout(delaiInitial);
+          // Retire ?setup=1 : le serveur définitif ne doit pas rouvrir le
+          // panneau qui vient précisément d'être validé.
+          location.href = location.pathname;
+        }
+      } catch (erreur) { /* coupure attendue entre les deux serveurs */ }
+    }, 1000);
+    delaiInitial = setTimeout(() => {
+      clearInterval(attenteInitiale);
+      $("phase").textContent = t("reglages.restartFailed");
+      $("bar").value = 0;
+      $("refresh").disabled = false;
+    }, 60000);
     return;
   }
 
@@ -4318,10 +4401,17 @@ $("view").value = "clips";
 setLang(localStorage.getItem("lang") || detectLang(), false);
 
 load();
-// E-01 : blink2video ouvre cette page avec ?login=1 quand aucune session
-// valide n'a été trouvée, pour que la fenêtre de connexion soit le premier
-// écran utile plutôt qu'un bouton à découvrir.
-if (new URLSearchParams(location.search).get("login") === "1") authenticate();
+// E-01 : connexion puis réglages s'enchaînent dans le même onglet. Le second
+// dialogue n'est ouvert qu'après une authentification réussie ; l'annulation
+// laisse le parent en attente et garantit qu'aucun worker ne démarre.
+(async function lancerParcoursInitial() {
+  const parametres = new URLSearchParams(location.search);
+  let continuer = true;
+  if (parametres.get("login") === "1") continuer = await authenticate();
+  if (continuer && parametres.get("setup") === "1") {
+    await ouvrirReglages(true);
+  }
+})();
 </script>
 </body>
 </html>
@@ -4359,6 +4449,8 @@ def parse_args() -> argparse.Namespace:
         help="cache des vignettes ; jetable, refabriqué à la demande",
     )
     parser.add_argument("--port", type=runtime.port_valide, default=8765)
+    parser.add_argument("--initial-setup", action="store_true",
+                        help=argparse.SUPPRESS)
     parser.add_argument(
         # Un serveur n'ouvre pas de fenêtre de lui-même : c'est l'usage, et
         # celui-ci passe l'essentiel de sa vie lancé au démarrage de session, où
@@ -4399,6 +4491,7 @@ def main() -> int:
         "monthly": args.monthly_output.resolve(),
     }
     Handler.hub = args.hub
+    Handler.initial_setup = args.initial_setup
     try:
         Handler.ffmpeg = md.find_ffmpeg()
         Handler.timezone = ZoneInfo(args.timezone)
@@ -4453,7 +4546,12 @@ def main() -> int:
         return 1
     url = f"http://127.0.0.1:{args.port}/"
     print(f"Interface disponible sur {url}   (Ctrl+C pour arrêter)")
-    veiller_sur_les_versions()
+    # Le serveur de configuration initiale ne doit créer aucun travail de
+    # fond avant validation. Même la veille de version, sans rapport avec les
+    # clips, attend donc le vrai démarrage pour garder ce mode strictement
+    # limité au formulaire.
+    if not args.initial_setup:
+        veiller_sur_les_versions()
     if args.open_browser:
         threading.Timer(0.5, webbrowser.open, [url]).start()
 

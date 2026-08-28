@@ -97,9 +97,12 @@ terminal). Aucun argument nécessaire : sans session valide, un onglet s'ouvre
 tout seul sur une page de connexion — votre adresse, votre mot de passe, puis
 le code que Blink envoie. Seul un jeton de session est conservé, jamais le mot
 de passe.
-Une fois connecté, tout démarre seul : la surveillance, le rapatriement des
-clips et l'assemblage des vidéos, chacun à son rythme, et les clips
-apparaissent dans l'onglet Clips au fur et à mesure.
+Lors de la toute première utilisation, le panneau Réglages s'ouvre ensuite
+automatiquement. Vérifiez notamment le dossier des données et le fuseau puis
+cliquez sur « Appliquer » : aucun clip n'est téléchargé avant cette validation.
+La surveillance, le rapatriement des clips et l'assemblage démarrent alors,
+chacun à son rythme, et les clips apparaissent au fur et à mesure. Ce parcours
+n'est pas répété lorsque le dossier des données est changé.
 
 Si l'onglet ne s'est pas ouvert, ou que vous l'avez fermé, `blink2video open`
 le rouvre.

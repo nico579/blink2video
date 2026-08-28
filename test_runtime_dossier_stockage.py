@@ -169,6 +169,49 @@ class TestsDossierStockage(unittest.TestCase):
         runtime.ecrire_dossier_stockage(str(self.ancre / "ailleurs"))
         self.assertEqual(list(self.ancre.glob(".*blink_home*.tmp")), [])
 
+    def test_installation_neuve_reste_en_attente_jusqu_a_validation(self):
+        self.assertTrue(runtime.configuration_initiale_requise())
+        attente = self.ancre / runtime.MARQUEUR_CONFIGURATION_EN_ATTENTE
+        self.assertTrue(attente.is_file())
+
+        # La connexion créée pendant ce parcours ne doit pas être prise pour
+        # une preuve d'installation historique au lancement suivant.
+        (self.ancre / "blink_auth.json").write_text("{}", encoding="utf-8")
+        self.assertTrue(runtime.configuration_initiale_requise())
+        self.assertFalse(runtime.configuration_initiale_effectuee())
+
+    def test_validation_initiale_remplace_l_attente_par_le_marqueur_definitif(self):
+        self.assertTrue(runtime.configuration_initiale_requise())
+        runtime.marquer_configuration_initiale()
+        self.assertTrue(runtime.configuration_initiale_effectuee())
+        self.assertFalse(
+            (self.ancre / runtime.MARQUEUR_CONFIGURATION_EN_ATTENTE).exists())
+        self.assertFalse(runtime.configuration_initiale_requise())
+
+    def test_session_d_une_ancienne_version_migre_sans_imposer_le_panneau(self):
+        (self.ancre / "blink_auth.json").write_text("{}", encoding="utf-8")
+        self.assertFalse(runtime.configuration_initiale_requise())
+        self.assertTrue(runtime.configuration_initiale_effectuee())
+
+    def test_donnees_d_une_ancienne_version_migrent_sans_session(self):
+        clips = self.ancre / "Blink_Clips" / "camera"
+        clips.mkdir(parents=True)
+        (clips / "clip.mp4").write_bytes(b"ancien clip")
+        self.assertFalse(runtime.configuration_initiale_requise())
+        self.assertTrue(runtime.configuration_initiale_effectuee())
+
+    def test_changer_vers_un_dossier_vide_ne_redevient_pas_une_installation_neuve(self):
+        runtime.configuration_initiale_requise()
+        runtime.marquer_configuration_initiale()
+        cible = self.ancre / "stockage_vide"
+        runtime.ecrire_dossier_stockage(str(cible))
+        self.assertEqual(runtime.app_dir(), cible.resolve())
+        self.assertFalse(runtime.configuration_initiale_requise())
+        self.assertTrue(
+            (self.ancre / runtime.MARQUEUR_CONFIGURATION_INITIALE).is_file())
+        self.assertFalse(
+            (cible / runtime.MARQUEUR_CONFIGURATION_INITIALE).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

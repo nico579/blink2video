@@ -491,11 +491,10 @@ def _proposer_raccourci_bureau() -> None:
         pass
 
 
-def accueillir(etat: dict, supplement: list, delai: float = 600.0) -> int:
-    """Onboarding minimal : ouvre l'interface sur sa page de connexion et
-    attend un succès avant de laisser « start » continuer (E-01, version
-    resserrée : pas de CSRF ni de rotation de port dédiées, l'interface reste
-    de toute façon liée à 127.0.0.1 seule).
+def accueillir(etat: dict, supplement: list, delai: float = 600.0,
+               configuration_initiale: bool = False) -> int:
+    """Onboarding : connexion Blink puis, sur une installation neuve,
+    validation des réglages avant de laisser « start » continuer.
 
     Le serveur ouvert ici est temporaire : une fois la connexion réussie, il
     est arrêté et « start » relance la composition complète, serve compris,
@@ -508,7 +507,12 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0) -> int:
     raccourcit l'attente (le délai réel d'un humain qui lit un e-mail de code
     2FA n'a pas sa place dans une suite automatisée), BLINK_NO_BROWSER
     supprime l'ouverture réelle d'un navigateur, que la suite de tests ne
-    doit jamais déclencher (section 12.5)."""
+    doit jamais déclencher (section 12.5).
+
+    En mode configuration initiale, seul ``serve --initial-setup`` tourne :
+    aucun worker download/watch/merge n'existe encore. Le parent attend le
+    marqueur écrit par /api/reglages, arrête ce serveur temporaire, puis lance
+    la composition complète depuis la racine de stockage désormais choisie."""
     import os
     import webbrowser
 
@@ -520,19 +524,34 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0) -> int:
         except (IndexError, ValueError):
             pass
 
+    connexion_requise = not bool(etat.get("authenticated"))
     if etat.get("error"):
         print(f"\nSession enregistrée invalide ou injoignable : {etat['error']}")
-    print("\nAucune session Blink valide. Ouverture de la page de connexion...")
+    if connexion_requise:
+        print("\nAucune session Blink valide. Ouverture de la page de connexion...")
+    elif configuration_initiale:
+        print("\nPremière utilisation : vérifiez les réglages avant le téléchargement...")
 
+    options_serveur = [*supplement]
+    if configuration_initiale:
+        options_serveur.append("--initial-setup")
     processus = runtime.demarrer(
-        runtime.self_command("serve", *supplement),
+        runtime.self_command("serve", *options_serveur),
         cwd=str(runtime.app_dir()), creationflags=runtime.flags_enfant(),
         start_new_session=(os.name != "nt"),
     )
-    adresse = f"http://127.0.0.1:{port}/?login=1"
+    parametres = []
+    if connexion_requise:
+        parametres.append("login=1")
+    if configuration_initiale:
+        parametres.append("setup=1")
+    adresse = f"http://127.0.0.1:{port}/"
+    if parametres:
+        adresse += "?" + "&".join(parametres)
 
     def echec_processus() -> int:
-        print("L'interface s'est arrêtée avant la connexion "
+        etape = "la fin de la configuration" if configuration_initiale else "la connexion"
+        print(f"L'interface s'est arrêtée avant {etape} "
               f"(code {processus.returncode}). Abandon.")
         return processus.returncode or 1
 
@@ -555,7 +574,8 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0) -> int:
             return 1
 
         if os.environ.get("BLINK_NO_BROWSER") == "1":
-            print(f"Page de connexion prête sur {adresse} (navigateur non ouvert).")
+            page = "configuration" if configuration_initiale else "connexion"
+            print(f"Page de {page} prête sur {adresse} (navigateur non ouvert).")
         else:
             print(f"Ouverture de {adresse}")
             if not webbrowser.open(adresse):
@@ -565,19 +585,40 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0) -> int:
         runtime.bootstrap()
         import blink_auth
 
+        authentifie = not connexion_requise
+        connexion_annoncee = authentifie
         while time.monotonic() < limite:
             if processus.poll() is not None:
                 return echec_processus()
-            resultat = asyncio.run(blink_auth.preflight())
-            if resultat["authenticated"]:
+            if not authentifie:
+                resultat = asyncio.run(blink_auth.preflight())
+                authentifie = bool(resultat["authenticated"])
+            if authentifie and not connexion_annoncee:
                 resume = f"compte accessible, {resultat['cameras']} caméra(s)"
                 if resultat["cloud_only"]:
                     resume += " (compte sans Sync Module, cloud uniquement)"
                 print(f"\nConnexion réussie : {resume}.")
+                connexion_annoncee = True
+                if configuration_initiale:
+                    # La saisie du code 2FA ne doit pas consommer le temps
+                    # laissé pour lire et valider le panneau qui suit.
+                    limite = time.monotonic() + delai
+            if authentifie and not configuration_initiale:
+                return 0
+            if authentifie and runtime.configuration_initiale_effectuee():
+                # /api/reglages pose le marqueur juste avant d'envoyer sa
+                # réponse. Cette marge lui laisse le temps d'être transmise et
+                # lue par un navigateur lent (notamment sous Windows 7) avant
+                # que le finally ci-dessous coupe le serveur temporaire.
+                time.sleep(0.75)
+                print("\nRéglages initiaux enregistrés. Démarrage des téléchargements...")
                 return 0
             time.sleep(2)
 
-        print("\nDélai de connexion dépassé. Abandon, rien n'est laissé actif.")
+        if authentifie and configuration_initiale:
+            print("\nDélai de configuration dépassé. Abandon, aucun téléchargement lancé.")
+        else:
+            print("\nDélai de connexion dépassé. Abandon, rien n'est laissé actif.")
         return 1
     finally:
         if processus.poll() is None:
@@ -640,11 +681,20 @@ def executer(groupes: list) -> int:
                 if _port_ouvert(port):
                     return ouvrir(["--port", str(port)])
 
+                # Décidé AVANT la connexion : sur une installation neuve,
+                # celle-ci crée blink_auth.json. Si on évaluait ensuite les
+                # traces d'une ancienne installation, cette session toute
+                # fraîche ferait sauter à tort le panneau initial. Le marqueur
+                # « en attente » de runtime garde aussi cette décision après
+                # une fermeture du navigateur au milieu du parcours.
+                configuration_initiale = runtime.configuration_initiale_requise()
                 runtime.bootstrap()
                 import blink_auth
                 etat = asyncio.run(blink_auth.preflight())
-                if not etat["authenticated"]:
-                    code = accueillir(etat, supplement)
+                if not etat["authenticated"] or configuration_initiale:
+                    code = accueillir(
+                        etat, supplement,
+                        configuration_initiale=configuration_initiale)
                     if code != 0:
                         return code
                 composition = runtime.standard()

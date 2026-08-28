@@ -1733,8 +1733,8 @@ class TestsE01Onboarding(unittest.TestCase):
         accueil.assert_called_once()
         decouper.assert_not_called()  # jamais atteint : pas de composition lancée
 
-    def test_E01_session_valide_saute_l_onboarding(self):
-        """Session déjà valide : accueillir() n'est jamais appelé (5.5)."""
+    def test_E01_session_et_configuration_valides_sautent_l_onboarding(self):
+        """Une installation déjà configurée démarre directement (5.5)."""
         authentifie = dict(self.etat_non_authentifie, authenticated=True, cameras=2)
         with tempfile.TemporaryDirectory() as domicile, \
              mock.patch.dict(os.environ, {"BLINK_HOME": domicile}), \
@@ -1747,12 +1747,51 @@ class TestsE01Onboarding(unittest.TestCase):
              mock.patch.object(b2v.runtime, "demarrer") as demarrer, \
              mock.patch.object(tray, "disponible", return_value=False), \
              contextlib.redirect_stdout(io.StringIO()):
+            (Path(domicile) / runtime.MARQUEUR_CONFIGURATION_INITIALE).write_text(
+                runtime.VERSION, encoding="utf-8")
             demarrer.return_value.pid = 4242
             blink_cli.executer([["start"]])
         accueil.assert_not_called()
         # La composition complète est bien tentée (au moins un appel demarrer).
         self.assertTrue(demarrer.called)
         self.assertGreaterEqual(executer_espionne.call_count, 1)
+
+    def test_E01_configuration_initiale_refusee_precede_tous_les_workers(self):
+        """Même authentifié, start ne compose rien avant « Appliquer »."""
+        authentifie = dict(self.etat_non_authentifie, authenticated=True, cameras=2)
+        with tempfile.TemporaryDirectory() as domicile, \
+             mock.patch.dict(os.environ, {"BLINK_HOME": domicile}), \
+             mock.patch.object(blink_auth, "preflight",
+                               new=mock.AsyncMock(return_value=authentifie)), \
+             mock.patch.object(blink_cli, "accueillir", return_value=1) as accueil, \
+             mock.patch.object(blink_cli, "_port_ouvert", return_value=False), \
+             mock.patch.object(b2v.runtime, "decouper_verbes") as decouper, \
+             contextlib.redirect_stdout(io.StringIO()):
+            (Path(domicile) / runtime.MARQUEUR_CONFIGURATION_EN_ATTENTE).write_text(
+                runtime.VERSION, encoding="utf-8")
+            code = blink_cli.executer([["start"]])
+        self.assertEqual(code, 1)
+        self.assertTrue(accueil.call_args.kwargs["configuration_initiale"])
+        decouper.assert_not_called()
+
+    def test_E01_serveur_initial_attend_le_marqueur_sans_workers(self):
+        processus = FauxProcessusServe(vivant_pendant=None)
+        authentifie = dict(self.etat_non_authentifie, authenticated=True, cameras=2)
+        with mock.patch.object(b2v.runtime, "demarrer", return_value=processus) as demarrer, \
+             mock.patch.object(b2v.runtime, "arreter_processus") as arret, \
+             mock.patch.object(blink_cli, "_port_ouvert", return_value=True), \
+             mock.patch.object(b2v.runtime, "configuration_initiale_effectuee",
+                               side_effect=[False, True]), \
+             mock.patch.object(blink_cli.time, "sleep"), \
+             mock.patch("webbrowser.open", return_value=True) as ouverture, \
+             mock.patch.dict(os.environ, {"BLINK_NO_BROWSER": "0"}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = blink_cli.accueillir(
+                authentifie, [], delai=5, configuration_initiale=True)
+        self.assertEqual(code, 0)
+        self.assertIn("--initial-setup", demarrer.call_args[0][0])
+        self.assertTrue(str(ouverture.call_args[0][0]).endswith("/?setup=1"))
+        arret.assert_called_once_with(processus.pid, avec_descendance=True)
 
     def test_raccourci_bureau_pose_une_seule_fois(self):
         """28.81 : le raccourci de bureau n'est proposé qu'au tout premier
@@ -1767,6 +1806,8 @@ class TestsE01Onboarding(unittest.TestCase):
              mock.patch.object(tray, "disponible", return_value=False), \
              mock.patch("raccourci_bureau.creer") as creer, \
              contextlib.redirect_stdout(io.StringIO()):
+            (Path(domicile) / runtime.MARQUEUR_CONFIGURATION_INITIALE).write_text(
+                runtime.VERSION, encoding="utf-8")
             demarrer.return_value.pid = 4242
             blink_cli.executer([["start"]])
             blink_cli.executer([["start"]])

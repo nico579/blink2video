@@ -86,10 +86,12 @@ has been validated on a real installation.
 **2. Run it.** Double-click the executable (or `./blink2video` from a terminal).
 No arguments needed: with no valid session yet, a browser tab opens by itself on
 a sign-in page — your address, your password, then the code Blink sends. Only a
-session token is kept, never the password. Once signed in, everything starts on
-its own:
-monitoring, clip downloading and video assembly, each at its own pace, and clips
-start appearing in the Clips tab as they come in.
+session token is kept, never the password. On the very first run, the Settings
+panel then opens automatically. Check the data folder and time zone in
+particular, then click “Apply”: no clip is downloaded before that confirmation.
+Monitoring, clip downloading and video assembly then start at their own pace,
+and clips appear as they come in. This first-run flow is not repeated when the
+data folder is changed.
 
 If the tab didn't open, or you closed it, `blink2video open` brings it back.
 
