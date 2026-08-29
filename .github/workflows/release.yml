@@ -214,3 +214,33 @@ jobs:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: artefacts/**/*
           generate_release_notes: true
+
+  # Analyse antivirus multi-moteurs des archives publiées, en plus du scan
+  # Defender local (qui ne reproduit pas le controle cloud declenche par le
+  # Mark-of-the-Web sur un fichier telecharge par navigateur). Necessite le
+  # secret de depot VIRUSTOTAL_API_KEY (cle API du compte virustotal.com,
+  # Settings > API Key). Best effort comme docker/build-win7 : un echec ici
+  # ne doit pas remettre en cause une release deja publiee.
+  virustotal:
+    name: analyser sur VirusTotal
+    needs: publish
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+
+      - name: Soumettre les archives et lier les rapports dans la release
+        uses: crazy-max/ghaction-virustotal@v4
+        with:
+          vt_api_key: ${{ secrets.VIRUSTOTAL_API_KEY }}
+          files: |
+            artefacts/**/*.zip
+            artefacts/**/*.tar.gz
+          update_release_body: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
