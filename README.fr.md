@@ -558,6 +558,16 @@ PyInstaller n'est pas un compilateur croisé et le binaire ffmpeg est propre à
 chaque plateforme : chaque système exige sa propre construction. Le workflow de
 publication s'en charge sur les runners GitHub.
 
+## Politique de signature de code
+
+L'exécutable Windows est signé via [SignPath Foundation](https://signpath.org/),
+gratuit pour les projets open source. Seul le mainteneur
+([@nico579](https://github.com/nico579)) a un accès en écriture et contrôle le
+workflow de signature, avec authentification à deux facteurs obligatoire sur
+ce compte. La signature se déclenche depuis le workflow public de release
+([release.yml](.github/workflows/release.yml)) à partir du code source étiqueté
+dans ce dépôt : aucun binaire n'est signé en dehors de ce pipeline.
+
 ## État du projet et usage responsable
 
 Projet indépendant, éprouvé au quotidien sous Windows 10 sur une installation

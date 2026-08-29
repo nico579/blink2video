@@ -530,6 +530,15 @@ Produces `dist/blink2video/`, about 110 MB, most of it ffmpeg. PyInstaller is no
 cross-compiler and the ffmpeg binary is platform-specific: each system needs its
 own build. The release workflow handles that on GitHub runners.
 
+## Code signing policy
+
+The Windows executable is code-signed via [SignPath Foundation](https://signpath.org/),
+free for open-source projects. Only the maintainer ([@nico579](https://github.com/nico579))
+has commit access and controls the signing workflow, with two-factor
+authentication required on that account. Signing is triggered from the public
+release workflow ([release.yml](.github/workflows/release.yml)) against the
+source tagged in this repository: no binary is signed outside that pipeline.
+
 ## Project status and responsible use
 
 An independent project, used daily on Windows 10 against a real installation:
