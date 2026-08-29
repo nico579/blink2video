@@ -52,3 +52,6 @@ smoketest.mp4
 # Scripts d'essai ponctuels contre le compte Blink réel (endpoints non
 # documentés, reproductions manuelles) : jamais destinés au dépôt public.
 essai_*.py
+
+# Ressource VERSIONINFO régénérée à chaque build par blink2video.spec.
+.version_info.txt

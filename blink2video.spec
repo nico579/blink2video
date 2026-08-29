@@ -53,17 +53,64 @@ def _ffmpeg() -> str:
         return trouves[0]
 
 
-def _modules() -> list:
+def _runtime():
     import importlib.util
 
     charge = importlib.util.spec_from_file_location("runtime", "runtime.py")
     runtime = importlib.util.module_from_spec(charge)
     charge.loader.exec_module(runtime)
+    return runtime
+
+
+def _modules(runtime) -> list:
     return sorted({verbe.module for verbe in runtime.VERBES.values()}
                   - {runtime.ENTREE} | {"runtime", "tzdata"})
 
 
+# Ressource VERSIONINFO du binaire Windows. Un PE PyInstaller sans éditeur,
+# description ni copyright renseignés ressemble statistiquement aux
+# échantillons malveillants des jeux d'entraînement des moteurs antivirus à
+# heuristique ML (SentinelOne, Zillya...) : constaté sur les faux positifs
+# remontés par un utilisateur sur Reddit, ce champ manquant est un signal
+# faible mais réel pour ces classifieurs. Sans effet hors Windows, PyInstaller
+# ignore "version=" sur les autres plateformes.
+def _version_info(version: str) -> str:
+    parties = (version.split(".") + ["0", "0", "0"])[:3]
+    tuple_version = tuple(int(p) for p in parties) + (0,)
+    chemin = SRC / ".version_info.txt"
+    chemin.write_text(f"""VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={tuple_version},
+    prodvers={tuple_version},
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [StringTable(
+        u'040904B0',
+        [StringStruct(u'CompanyName', u'nico579'),
+         StringStruct(u'FileDescription', u'blink2video - enregistreur video pour cameras Blink'),
+         StringStruct(u'FileVersion', u'{version}'),
+         StringStruct(u'InternalName', u'blink2video'),
+         StringStruct(u'LegalCopyright', u'GPLv3 - nico579'),
+         StringStruct(u'OriginalFilename', u'blink2video.exe'),
+         StringStruct(u'ProductName', u'blink2video'),
+         StringStruct(u'ProductVersion', u'{version}')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+  ]
+)
+""", encoding="utf-8")
+    return str(chemin)
+
+
 FFMPEG = _ffmpeg()
+RUNTIME = _runtime()
 
 analysis = Analysis(
     ["blink2video.py"],
@@ -84,7 +131,7 @@ analysis = Analysis(
     # moment de l'appel, donc invisibles à l'analyse statique. Les énumérer ici
     # à la main créerait une liste parallèle de plus, et c'est exactement ce
     # qui a fait échouer la CI après le renommage de « review » en « serve ».
-    hiddenimports=_modules(),
+    hiddenimports=_modules(RUNTIME),
     hookspath=[],
     runtime_hooks=[],
     # imageio_ffmpeg est écarté : son seul intérêt est de fournir un binaire,
@@ -119,6 +166,7 @@ executable = EXE(
     # Même mécanisme que lidar2map : PNG source portable, converti par
     # PyInstaller en ressource native sur la plateforme de construction.
     icon=str(APP_ICON),
+    version=_version_info(RUNTIME.VERSION),
 )
 
 COLLECT(
