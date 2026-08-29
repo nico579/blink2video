@@ -42,7 +42,7 @@ CACHE = Path(".blink_maj.json")
 FRAICHEUR = 6 * 3600
 DOSSIER_TRAVAIL = "update"
 MARQUEUR_TRAVAIL = ".blink2video-update"
-# Avant 0.10.4, les mises à jour étaient préparées à côté de l'installation.
+# Avant 0.10.5, les mises à jour étaient préparées à côté de l'installation.
 # Conserver ce préfixe permet d'effacer leurs éventuels restes une dernière fois.
 PREFIXE_TRAVAIL_HISTORIQUE = ".blink_maj_"
 MESSAGE_WINDOWS7 = (

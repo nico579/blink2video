@@ -868,19 +868,24 @@ class TestsDefautsSynchrones(BacASable):
              contextlib.redirect_stdout(io.StringIO()):
             code = maj.installer()
 
+        # demarrer() est simulé : le vrai fichier maj.log qu'installer() a
+        # ouvert pour son stdout ne serait jamais fermé par un Popen réel.
+        # Le fermer avant les assertions garantit aussi le nettoyage si l'une
+        # d'elles échoue (notamment sur les chemins courts Windows 8.3).
+        if demarrer.call_args:
+            demarrer.call_args.kwargs["stdout"].close()
+
         self.assertEqual(code, 0)
         destination = telecharger.call_args.args[1]
         self.assertEqual(
             destination,
-            installe / maj.DOSSIER_TRAVAIL / neuve["version"] / "archive.zip",
+            installe.resolve()
+            / maj.DOSSIER_TRAVAIL
+            / neuve["version"]
+            / "archive.zip",
         )
         demarrer.assert_called_once()
         env_passe = demarrer.call_args.kwargs["env"]
-        # demarrer() est simulé : le vrai fichier maj.log qu'installer() a
-        # ouvert pour son stdout ne serait jamais fermé par un Popen réel.
-        # tearDown() efface ce dossier temporaire juste après ce test :
-        # sous Windows, le fichier encore ouvert bloquerait ce nettoyage.
-        demarrer.call_args.kwargs["stdout"].close()
         # Le point du bug : BLINK_HOME ne doit jamais valoir `installe` tel
         # quel des lors qu'un pointeur y redirige le stockage.
         self.assertEqual(env_passe["BLINK_HOME"], str(reel.resolve()))
