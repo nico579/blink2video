@@ -664,9 +664,48 @@ def test_mise_a_jour() -> None:
                  "les fichiers internes ont été remplacés en bloc")
         verifier((installe / "Blink_Clips" / "jardin.mp4").read_text() == "clip précieux",
                  "les données de l'utilisateur n'ont pas bougé")
+
+        # La préparation appartient désormais à l'installation et son nom dit
+        # exactement quelle version elle contient.
+        version_cible = "9.9.9"
+        travail = maj._creer_dossier_travail(installe, version_cible)
+        verifier(travail.parent == installe / maj.DOSSIER_TRAVAIL
+                 and travail.name == version_cible,
+                 "la mise à jour est préparée sous update/numero-de-version")
+        verifier((travail.parent / maj.MARQUEUR_TRAVAIL).is_file(),
+                 "le dossier update géré porte son marqueur de sécurité")
+        try:
+            maj._creer_dossier_travail(installe, version_cible)
+        except OSError:
+            pass
+        else:
+            verifier(False, "deux préparations de la même version doivent être refusées")
+
+        # Un reste de l'ancien emplacement doit encore être reconnu pendant la
+        # migration, sans pour autant généraliser le nettoyage aux autres voisins.
+        ancien_travail = base / f"{maj.PREFIXE_TRAVAIL_HISTORIQUE}reste"
+        ancien_travail.mkdir()
         maj._nettoyer(installe)
         verifier(not list(installe.glob("*.ancien")),
                  "les fichiers écartés sont effacés au passage suivant")
+        verifier(not (installe / maj.DOSSIER_TRAVAIL).exists()
+                 and not ancien_travail.exists(),
+                 "les préparations actuelle et historique sont nettoyées")
+
+        # Ne jamais adopter puis effacer silencieusement un dossier utilisateur
+        # qui portait déjà ce nom avant la mise à jour.
+        dossier_homonyme = installe / maj.DOSSIER_TRAVAIL
+        dossier_homonyme.mkdir()
+        (dossier_homonyme / "a_moi.txt").write_text("à conserver")
+        maj._nettoyer(installe)
+        verifier((dossier_homonyme / "a_moi.txt").is_file(),
+                 "un dossier update non marqué reste intact")
+        try:
+            maj._creer_dossier_travail(installe, version_cible)
+        except OSError:
+            pass
+        else:
+            verifier(False, "un dossier update non marqué doit bloquer la mise à jour")
 
         # Panne au milieu du remplacement : l'installation doit se retrouver
         # dans l'état où elle était, faute de quoi il ne resterait qu'un dossier

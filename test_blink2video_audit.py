@@ -860,7 +860,7 @@ class TestsDefautsSynchrones(BacASable):
              mock.patch.object(runtime, "frozen", return_value=True), \
              mock.patch("sys.executable", str(installe / "blink2video.exe")), \
              mock.patch.object(maj, "disponible", return_value=neuve), \
-             mock.patch.object(maj, "_telecharger"), \
+             mock.patch.object(maj, "_telecharger") as telecharger, \
              mock.patch.object(maj, "_extraire", return_value=dossier_extrait), \
              mock.patch.object(maj, "_rendre_executable"), \
              mock.patch.object(maj, "_verifier", return_value=True), \
@@ -869,6 +869,11 @@ class TestsDefautsSynchrones(BacASable):
             code = maj.installer()
 
         self.assertEqual(code, 0)
+        destination = telecharger.call_args.args[1]
+        self.assertEqual(
+            destination,
+            installe / maj.DOSSIER_TRAVAIL / neuve["version"] / "archive.zip",
+        )
         demarrer.assert_called_once()
         env_passe = demarrer.call_args.kwargs["env"]
         # demarrer() est simulé : le vrai fichier maj.log qu'installer() a

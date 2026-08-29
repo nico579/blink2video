@@ -10,17 +10,16 @@ C'est ce qui allume l'indication dans l'interface.
 Le second remplace l'installation. L'ordre y est dicté par une contrainte
 simple : un programme ne peut pas se remplacer lui-même pendant qu'il tourne,
 et sous Windows il ne peut même pas être déplacé. On télécharge donc l'archive,
-on l'extrait à côté, on vérifie que le nouvel exécutable répond, et c'est *lui*
-qu'on charge de finir le travail : lancé depuis le dossier temporaire, il ne
-tient aucun fichier de l'installation, et peut donc arrêter l'ancienne version,
-permuter les fichiers, puis relancer. Rien n'est touché tant que la nouvelle
-version n'a pas prouvé qu'elle démarre.
+on l'extrait dans le sous-dossier ``update`` de l'installation, on vérifie que
+le nouvel exécutable répond, et c'est *lui* qu'on charge de finir le travail.
+Lancé depuis ce dossier de préparation, hors des trois éléments remplacés, il
+peut arrêter l'ancienne version, permuter les fichiers, puis relancer. Rien
+n'est touché tant que la nouvelle version n'a pas prouvé qu'elle démarre.
 """
 
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import json
 import os
 import platform
@@ -28,7 +27,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -42,7 +40,11 @@ CACHE = Path(".blink_maj.json")
 # Six heures : une version ne sort pas plus souvent, et l'interface ne doit pas
 # interroger GitHub à chaque ouverture de page.
 FRAICHEUR = 6 * 3600
-PREFIXE_TRAVAIL = ".blink_maj_"
+DOSSIER_TRAVAIL = "update"
+MARQUEUR_TRAVAIL = ".blink2video-update"
+# Avant 0.10.4, les mises à jour étaient préparées à côté de l'installation.
+# Conserver ce préfixe permet d'effacer leurs éventuels restes une dernière fois.
+PREFIXE_TRAVAIL_HISTORIQUE = ".blink_maj_"
 MESSAGE_WINDOWS7 = (
     "Mise à jour automatique désactivée pour l'édition Windows 7 "
     "expérimentale : une archive Windows standard réinstallerait Python 3.12 "
@@ -189,6 +191,48 @@ def _executable(dossier: Path) -> Path:
     return dossier / nom
 
 
+def _creer_dossier_travail(installe: Path, version: str) -> Path:
+    """Crée ``installe/update/<version>`` sans réutiliser une préparation.
+
+    Le marqueur distingue notre répertoire d'un éventuel dossier homonyme créé
+    par l'utilisateur : le nettoyage récursif ne touche jamais un dossier qu'il
+    ne reconnaît pas comme appartenant à blink2video.
+    """
+    nom_version = str(version).strip().lstrip("vV")
+    if (not nom_version or nom_version in (".", "..")
+            or not all(c.isascii() and (c.isalnum() or c in ".-_")
+                       for c in nom_version)):
+        raise OSError(f"Numéro de version impropre à un dossier : {version!r}")
+
+    racine = installe / DOSSIER_TRAVAIL
+    marqueur = racine / MARQUEUR_TRAVAIL
+    if racine.exists():
+        if not racine.is_dir():
+            raise OSError(
+                f"Le dossier {racine} existe déjà et n'appartient pas à "
+                "blink2video. Renommez-le avant de relancer la mise à jour."
+            )
+        if not marqueur.is_file():
+            # Une interruption entre mkdir() et l'écriture du marqueur laisse
+            # un dossier vide : il est sûr de reprendre ce cas précis.
+            if any(racine.iterdir()):
+                raise OSError(
+                    f"Le dossier {racine} existe déjà et n'appartient pas à "
+                    "blink2video. Renommez-le avant de relancer la mise à jour."
+                )
+            marqueur.write_text(
+                "Répertoire temporaire de mise à jour.\n", encoding="utf-8"
+            )
+    else:
+        racine.mkdir()
+        marqueur.write_text("Répertoire temporaire de mise à jour.\n", encoding="utf-8")
+    travail = racine / nom_version
+    # Sans exist_ok : une deuxième mise à jour simultanée ne doit jamais écrire
+    # dans l'archive ou les fichiers partiels de la première.
+    travail.mkdir()
+    return travail
+
+
 def _ligne(dossier: Path, *arguments: str) -> list:
     """Commande qui lance blink2video installé dans ce dossier.
 
@@ -299,9 +343,9 @@ def _nettoyer(installe: Path) -> None:
     """Efface les restes d'une mise à jour précédente.
 
     Ce ménage ne peut pas se faire à la fin de l'opération : le programme qui
-    permute tourne depuis le dossier temporaire, et sous Windows un exécutable
-    ne peut pas effacer le dossier dont il est issu. On le fait donc au début de
-    la suivante, quand plus personne n'y tient."""
+    permute tourne depuis ``update``, et sous Windows un exécutable ne peut pas
+    effacer le dossier dont il est issu. On le fait donc au début de la suivante,
+    quand plus personne n'y tient."""
     for nom in CONTENU_DU_PROGRAMME:
         reste = installe / f"{nom}.ancien"
         try:
@@ -309,7 +353,12 @@ def _nettoyer(installe: Path) -> None:
                 else reste.unlink(missing_ok=True)
         except OSError:
             pass
-    for reste in installe.parent.glob(f"{PREFIXE_TRAVAIL}*"):
+    travail = installe / DOSSIER_TRAVAIL
+    if (travail / MARQUEUR_TRAVAIL).is_file():
+        shutil.rmtree(travail, ignore_errors=True)
+    # Migration des préparations créées à côté de l'installation par les
+    # versions antérieures. Elles portaient toutes ce préfixe réservé.
+    for reste in installe.parent.glob(f"{PREFIXE_TRAVAIL_HISTORIQUE}*"):
         shutil.rmtree(reste, ignore_errors=True)
 
 
@@ -438,8 +487,9 @@ def installer(force: bool = False) -> int:
         return 1
 
     print(f"Mise à jour {runtime.VERSION} vers {neuve['version']}")
-    travail = Path(tempfile.mkdtemp(prefix=PREFIXE_TRAVAIL, dir=str(installe.parent)))
+    travail = None
     try:
+        travail = _creer_dossier_travail(installe, neuve["version"])
         fichier = travail / str(archive["nom"])
         _telecharger(str(archive["url"]), fichier, int(archive.get("taille") or 0))
         runtime.travail("Installation de la mise à jour", 0, 0, cle="phase.update_install")
@@ -450,8 +500,9 @@ def installer(force: bool = False) -> int:
         fichier.unlink(missing_ok=True)
     except (OSError, urllib.error.URLError, zipfile.BadZipFile,
             tarfile.TarError) as erreur:
-        print(f"Échec du téléchargement : {type(erreur).__name__}: {erreur}")
-        shutil.rmtree(travail, ignore_errors=True)
+        print(f"Échec de la mise à jour : {type(erreur).__name__}: {erreur}")
+        if travail is not None:
+            shutil.rmtree(travail, ignore_errors=True)
         return 1
     finally:
         runtime.fin_travail()
