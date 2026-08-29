@@ -1,0 +1,37 @@
+name: VirusTotal
+
+# Analyse antivirus multi-moteurs des archives d'une release, en plus du scan
+# Defender local (qui ne reproduit pas le controle cloud declenche par le
+# Mark-of-the-Web sur un fichier telecharge par navigateur). Workflow separe
+# de release.yml : update_release_body n'est disponible que si le declencheur
+# est l'evenement "release" lui-meme, pas "push: tags" ni "workflow_dispatch"
+# (verifie apres un premier essai en job greffe sur release.yml, echoue avec
+# 401 faute de ce contexte). softprops/action-gh-release (dans release.yml)
+# declenche cet evenement en publiant la release.
+#
+# Necessite le secret de depot VIRUSTOTAL_API_KEY (cle API du compte
+# virustotal.com, Settings > API Key).
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  virustotal:
+    name: analyser les archives publiées
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Soumettre les archives et lier les rapports dans la release
+        uses: crazy-max/ghaction-virustotal@v5
+        with:
+          vt_api_key: ${{ secrets.VIRUSTOTAL_API_KEY }}
+          update_release_body: true
+          files: |
+            \.zip$
+            \.tar\.gz$
