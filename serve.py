@@ -139,7 +139,7 @@ def read_entries(paths: dict) -> dict:
     return md.read_registry(paths["input"] / md.DOWNLOAD_STATE)
 
 
-ETIQUETTES_SOURCE = {"usb": "USB", "cloud": "cloud"}
+ETIQUETTES_SOURCE = {"usb": "local", "cloud": "cloud"}
 
 # Un seul réassemblage à la fois : deux assemblages simultanés de la même
 # journée écriraient le même fichier.
@@ -761,7 +761,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     paths: dict = {}
     timezone: ZoneInfo = ZoneInfo("Europe/Paris")
-    hub: str = "Maison"
+    hub: str | None = None
     ffmpeg: str = ""
     # Serveur temporaire du tout premier démarrage : les réglages sont
     # enregistrés sans lancer lui-même un restart. Le parent ``start`` attend
@@ -1716,8 +1716,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         « download » et « merge » sont les deux seules mains de l'outil, et les
         appeler l'un après l'autre dit exactement ce qui se passe."""
         auth = BASE_DIR / "blink_auth.json"
+        hub_args = ["--hub", self.hub] if self.hub else []
         etapes = [("Téléchargement", "phase.step_download",
-                  runtime.self_command("download", "--hub", self.hub)),
+                  runtime.self_command("download", *hub_args)),
                   ("Fusion", "phase.step_merge", runtime.self_command("merge"))]
         if not auth.is_file():
             # Le téléchargement demanderait l'e-mail, le mot de passe et le code
@@ -2457,7 +2458,7 @@ PAGE = """<!doctype html>
       <span data-i18n="reglages.downloadAuto">Télécharger les clips automatiquement</span>
     </label>
     <div class="champCadenceDouble">
-      <label for="usbMinutes" data-i18n="reglages.usb">USB (minutes)</label>
+      <label for="usbMinutes" data-i18n="reglages.usb">Stockage local (minutes)</label>
       <input type="number" id="usbMinutes" min="1" step="1">
       <label for="cloudMinutes" data-i18n="reglages.cloud">Cloud (minutes)</label>
       <input type="number" id="cloudMinutes" min="1" step="1">
@@ -2514,7 +2515,7 @@ PAGE = """<!doctype html>
   </fieldset>
   <fieldset>
     <legend data-i18n="reglages.suppressionAuto" data-i18n-title="suppressionAuto.hint"
-            title="Une fois un clip téléchargé avec succès, il est supprimé de sa source (clé USB ou cloud de l'abonnement selon la caméra).">Suppression automatique après téléchargement</legend>
+            title="Une fois un clip téléchargé avec succès, il est supprimé de sa source (stockage local USB/microSD ou cloud de l'abonnement selon la caméra).">Suppression automatique après téléchargement</legend>
     <div id="suppressionAutoListe" class="ligneCoches sub tiny" data-i18n="suppressionAuto.loading">Chargement…</div>
   </fieldset>
   <div class="row row-boutons">
@@ -2622,7 +2623,7 @@ const I18N = {
     "reglages.storageDir.browse": "Parcourir…",
     "reglages.storageDir.browse.unavailable": "Sélecteur de dossier indisponible sur cette machine : saisissez le chemin directement.",
     "reglages.cadence": "Cadence de lecture des caméras",
-    "reglages.usb": "USB (minutes)", "reglages.cloud": "Cloud (minutes)",
+    "reglages.usb": "Stockage local (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Vidéo", "reglages.timestamp": "Incruster la date et l'heure dans l'image",
     "reglages.timezone": "Fuseau horaire",
     "reglages.archivage": "Création des vidéos temporelles par caméra",
@@ -2650,7 +2651,7 @@ const I18N = {
     "suppressionAuto.loading": "Chargement…",
     "suppressionAuto.unavailable": "Liste des caméras indisponible.",
     "suppressionAuto.none": "Aucune caméra connue pour l'instant.",
-    "suppressionAuto.hint": "Une fois un clip téléchargé avec succès, il est supprimé de sa source (clé USB ou cloud de l'abonnement selon la caméra).",
+    "suppressionAuto.hint": "Une fois un clip téléchargé avec succès, il est supprimé de sa source (stockage local USB/microSD ou cloud de l'abonnement selon la caméra).",
     "phase.inventory_clips": "Inventaire des clips à télécharger",
     "phase.download_clips": "Téléchargement des clips",
     "phase.prepare_clips": "Préparation des clips",
@@ -2704,9 +2705,9 @@ const I18N = {
     "clip.resume.title": "Réinclure ce clip dans les prochains assemblages.",
     "clip.deleteSource": "Supprimer",
     "clip.deleteSource.pending": "Suppression…",
-    "clip.deleteSource.title": "Supprimer ce clip de sa source (clé USB ou cloud de l'abonnement). La copie déjà téléchargée ici n'est pas touchée. Peut prendre jusqu'à une minute pour l'USB.",
+    "clip.deleteSource.title": "Supprimer ce clip de sa source (stockage local ou cloud de l'abonnement). La copie déjà téléchargée ici n'est pas touchée. Peut prendre jusqu'à une minute pour le stockage local.",
     "selection.apply": "✓ Appliquer ({n})",
-    "selection.confirm.suppression": "{n} clip(s) vont être supprimés de leur source (clé USB ou cloud de l'abonnement). Les copies déjà téléchargées ne sont pas touchées. Continuer ?",
+    "selection.confirm.suppression": "{n} clip(s) vont être supprimés de leur source (stockage local USB/microSD ou cloud de l'abonnement). Les copies déjà téléchargées ne sont pas touchées. Continuer ?",
     "selection.partial": "{n} suppression(s) ont échoué ou n'ont rien trouvé à supprimer (déjà retiré ailleurs). Le reste de la sélection a été appliqué.",
     "refresh.starting": "Démarrage…", "refresh.errors": "Terminé avec des erreurs",
     "refresh.disconnected": "\\nConnexion interrompue.\\n",
@@ -2746,7 +2747,7 @@ const I18N = {
     "reglages.storageDir.browse": "Browse…",
     "reglages.storageDir.browse.unavailable": "Folder picker unavailable on this machine: type the path directly.",
     "reglages.cadence": "Camera polling interval",
-    "reglages.usb": "USB (minutes)", "reglages.cloud": "Cloud (minutes)",
+    "reglages.usb": "Local storage (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Video", "reglages.timestamp": "Burn the date and time into the image",
     "reglages.timezone": "Time zone",
     "reglages.archivage": "Per-camera time-based video creation",
@@ -2774,7 +2775,7 @@ const I18N = {
     "suppressionAuto.loading": "Loading…",
     "suppressionAuto.unavailable": "Camera list unavailable.",
     "suppressionAuto.none": "No known camera yet.",
-    "suppressionAuto.hint": "Once a clip is successfully downloaded, it is deleted from its source (USB drive or subscription cloud, depending on the camera).",
+    "suppressionAuto.hint": "Once a clip is successfully downloaded, it is deleted from its source (local USB/microSD storage or subscription cloud, depending on the camera).",
     "phase.inventory_clips": "Finding clips to download",
     "phase.download_clips": "Downloading clips",
     "phase.prepare_clips": "Preparing clips",
@@ -2828,9 +2829,9 @@ const I18N = {
     "clip.resume.title": "Include this clip in future assemblies again.",
     "clip.deleteSource": "Delete",
     "clip.deleteSource.pending": "Deleting…",
-    "clip.deleteSource.title": "Delete this clip from its source (USB drive or subscription cloud). The copy already downloaded here is not affected. Can take up to a minute for USB.",
+    "clip.deleteSource.title": "Delete this clip from its source (local storage or subscription cloud). The copy already downloaded here is not affected. Can take up to a minute for local storage.",
     "selection.apply": "✓ Apply ({n})",
-    "selection.confirm.suppression": "{n} clip(s) will be deleted from their source (USB drive or subscription cloud). Copies already downloaded here are not affected. Continue?",
+    "selection.confirm.suppression": "{n} clip(s) will be deleted from their source (local USB/microSD storage or subscription cloud). Copies already downloaded here are not affected. Continue?",
     "selection.partial": "{n} deletion(s) failed or found nothing to delete (already removed elsewhere). The rest of the selection was applied.",
     "refresh.starting": "Starting…", "refresh.errors": "Finished with errors",
     "refresh.disconnected": "\\nConnection lost.\\n",
@@ -4443,7 +4444,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--normalized-output", type=Path, default=md.DEFAULT_NORMALIZED)
     parser.add_argument("--excluded-output", type=Path, default=md.DEFAULT_EXCLUDED)
     parser.add_argument("--timezone", default="Europe/Paris")
-    parser.add_argument("--hub", default="Maison", help="nom du Sync Module Blink")
+    parser.add_argument(
+        "--hub", help="nom du Sync Module Blink ; tous les modules si omis",
+    )
     parser.add_argument(
         "--thumbs", type=Path, default=BASE_DIR / ".blink_thumbs",
         help="cache des vignettes ; jetable, refabriqué à la demande",

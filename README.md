@@ -5,8 +5,9 @@
 **Manage your Blink cameras from a computer, and keep what they record.**
 
 Blink is built for the phone: one clip at a time, no archive, no desktop
-counterpart. Recordings live on a USB stick plugged into the Sync Module, erased
-as it fills up, or in the subscription cloud, which keeps them for a few weeks.
+counterpart. Recordings live on a USB stick in a Sync Module 2 or a microSD card
+in a Sync Module XR, erased as it fills up, or in the subscription cloud, which
+keeps them for a few weeks.
 
 blink2video is the missing side. A local interface to watch cameras live and arm
 detection. And what the phone cannot do at all: fetch clips before rotation
@@ -22,7 +23,8 @@ the Blink account session, so anyone with access to this machine can open it.
 ## Features
 
 - Live view of any camera in the browser, arming the system or a single camera.
-- Incremental download of motion-detection clips from the module's USB stick
+- Incremental download of motion-detection clips from the module's local storage
+  (Sync Module 2 USB stick or Sync Module XR microSD card)
   and from the subscription cloud, never fetching the same recording twice.
 - Camera state at a glance: battery, temperature, signal, model and firmware
   for each camera.
@@ -61,8 +63,8 @@ remembered between visits.
 ![The Settings panel](Screenshots/settings.PNG)
 
 Settings, behind the gear icon: automatic startup with the session, automatic
-page refresh, server port, data folder with a native folder picker, and USB
-and cloud camera reading cadence. Also timestamp burned into the picture,
+page refresh, server port, data folder with a native folder picker, and local
+storage and cloud polling cadence. Also timestamp burned into the picture,
 time zone, daily/weekly/monthly archiving toggled independently per period,
 per-camera alert muting, and a button to stop the whole thing without
 touching the command line.
@@ -99,8 +101,8 @@ A tray icon also appears when `start` runs (Windows/macOS; Linux depends on
 your desktop's tray support), with Open/Restart/Stop, no terminal needed.
 
 **3. Settings.** The gear icon, top right, opens a panel: start automatically
-when you log in, refresh the page on its own as clips arrive, how often USB and
-cloud are checked, and a button to stop everything. `blink2video autostart on`
+when you log in, refresh the page on its own as clips arrive, how often local
+storage and cloud are checked, and a button to stop everything. `blink2video autostart on`
 and `blink2video stop` do the same from a terminal, if you'd rather.
 
 <details>
@@ -251,8 +253,8 @@ compete:
 - [blink-live-view](https://github.com/andreiele/blink-live-view) focuses on
   desktop live view.
 
-blink2video differs on three points: it reads **both** sources, the module's USB
-stick and the subscription cloud, never fetching the same recording twice; it
+blink2video differs on three points: it reads **both** sources, the module's local
+storage and the subscription cloud, never fetching the same recording twice; it
 burns the time into the picture and assembles one video per day, per week and
 per month; and it runs on all three systems as a standalone bundle, ffmpeg
 included.
@@ -298,12 +300,12 @@ assembles, while `serve`, or any verb given `--loop`, holds its own process unti
 
 | Option | Effect |
 |---|---|
-| `--hub NAME` | Sync Module to use |
+| `--hub NAME` | Sync Module to use; all modules when omitted |
 | `--camera NAME` | keep only this camera |
 | `--since DAYS` | keep only clips from the last N days |
 | `--output FOLDER` | destination of raw clips (default `Blink_Clips`) |
 | `--overwrite` | replace existing files of a different size |
-| `--from usb\|cloud\|all` | where to look for clips: the module's stick, the subscription cloud, or both (default) |
+| `--from usb\|cloud\|all` | where to look for clips: local storage (USB or microSD), the subscription cloud, or both (default); `usb` is retained as the historical CLI name |
 | `--loop [MINUTES]` | repeat instead of acting once (default 10) |
 
 **`blink2video merge`**: normalization and assembly.
@@ -351,7 +353,7 @@ Options given after `start` go to the interface, `--port` for instance.
 |---|---|
 | `--port N` | listening port (default 8765) |
 | `--open-browser` | open the page in the browser on startup |
-| `--hub NAME` | Sync Module |
+| `--hub NAME` | Sync Module; all modules when omitted |
 | `--thumbs FOLDER` | thumbnail cache, disposable |
 | `--timezone ZONE` | display time zone |
 | the same folder options as `merge` | |

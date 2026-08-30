@@ -438,6 +438,35 @@ class ProgressionCliTests(unittest.TestCase):
 
 
 class ProgressionInterfaceTests(unittest.TestCase):
+    def _commandes_actualisation(self, hub):
+        with tempfile.TemporaryDirectory(prefix="blink_refresh_hub_") as dossier:
+            racine = Path(dossier)
+            (racine / "blink_auth.json").write_text("{}", encoding="utf-8")
+            commandes = []
+            faux = SimpleNamespace(
+                hub=hub,
+                send_event=lambda _evenement: True,
+                suivre=lambda commande, _env, _phase: commandes.append(commande) or True,
+            )
+            with mock.patch.object(serve, "BASE_DIR", racine), \
+                 mock.patch.object(
+                     runtime, "self_command", side_effect=lambda *args: list(args),
+                 ):
+                serve.Handler.run_refresh(faux)
+        return commandes
+
+    def test_actualiser_sans_hub_laisse_download_choisir_tous_les_modules(self):
+        self.assertEqual(
+            self._commandes_actualisation(None),
+            [["download"], ["merge"]],
+        )
+
+    def test_actualiser_conserve_un_hub_explicitement_demande(self):
+        self.assertEqual(
+            self._commandes_actualisation("Jardin"),
+            [["download", "--hub", "Jardin"], ["merge"]],
+        )
+
     def test_api_travail_ne_relit_pas_le_registre_de_clips(self):
         reponses = []
         faux = SimpleNamespace(

@@ -5,9 +5,10 @@
 **Gérez vos caméras Blink depuis un ordinateur, et gardez ce qu'elles filment.**
 
 Blink est pensé pour le téléphone : un clip à la fois, aucune archive, pas
-d'équivalent sur ordinateur. Les enregistrements vivent sur une clé USB branchée
-au module de synchronisation, effacés à mesure qu'elle se remplit, ou dans le
-cloud de l'abonnement, qui les garde quelques semaines.
+d'équivalent sur ordinateur. Les enregistrements vivent sur la clé USB d'un
+Sync Module 2 ou la carte microSD d'un Sync Module XR, effacés à mesure que le
+support se remplit, ou dans le cloud de l'abonnement, qui les garde quelques
+semaines.
 
 blink2video est le versant manquant. Une interface locale pour voir les caméras
 en direct et armer la détection. Et ce que le
@@ -26,8 +27,9 @@ cette machine peut donc l'ouvrir.
 
 - Visionnage du direct de n'importe quelle caméra dans le navigateur, armement
   du système ou d'une seule caméra.
-- Téléchargement incrémental des clips de détection de mouvement depuis la clé
-  USB du module et depuis le cloud de l'abonnement, sans jamais rapatrier deux
+- Téléchargement incrémental des clips de détection de mouvement depuis le
+  stockage local du module (clé USB du Sync Module 2 ou carte microSD du XR) et
+  depuis le cloud de l'abonnement, sans jamais rapatrier deux
   fois le même enregistrement.
 - Affichage de l'état des caméras : batterie, température, signal, modèle et
   micrologiciel de chaque caméra.
@@ -70,7 +72,7 @@ Le filtre choisi reste mémorisé d'une visite à l'autre.
 Les réglages, derrière l'icône engrenage : démarrage automatique à
 l'ouverture de session, actualisation automatique de la page, port du
 serveur, dossier des données avec un sélecteur natif, et cadence de lecture
-des caméras USB et cloud. Aussi l'horodatage incrusté dans l'image, le
+du stockage local et du cloud. Aussi l'horodatage incrusté dans l'image, le
 fuseau horaire, l'archivage quotidien/hebdomadaire/mensuel activable
 indépendamment, la mise en sourdine des alertes par caméra, et un bouton
 pour arrêter toute la surveillance sans passer par le mode CLI.
@@ -113,7 +115,7 @@ Ouvrir/Redémarrer/Arrêter, sans passer par le terminal.
 
 **3. Réglages.** L'icône engrenage, en haut à droite, ouvre un panneau :
 démarrer automatiquement à l'ouverture de session, actualiser la page toute
-seule à l'arrivée des clips, la fréquence de lecture des caméras USB et cloud,
+seule à l'arrivée des clips, la fréquence de lecture du stockage local et du cloud,
 et un bouton pour tout arrêter. `blink2video autostart on` et `blink2video stop`
 font la même chose depuis un terminal, si vous préférez.
 
@@ -273,8 +275,8 @@ concurrencent :
 - [blink-live-view](https://github.com/andreiele/blink-live-view) se consacre au
   direct sur le bureau.
 
-blink2video se distingue sur trois points : il lit **les deux** sources, la clé
-USB du module et le cloud de l'abonnement, sans jamais rapatrier deux fois le
+blink2video se distingue sur trois points : il lit **les deux** sources, le
+stockage local du module et le cloud de l'abonnement, sans jamais rapatrier deux fois le
 même enregistrement ; il incruste l'heure dans l'image et assemble une vidéo par
 jour, par semaine et par mois ; et il tourne sur les trois systèmes en bundle
 autonome, ffmpeg compris.
@@ -320,12 +322,12 @@ occupe son propre processus jusqu'à `blink2video stop`.
 
 | Option | Effet |
 |---|---|
-| `--hub NOM` | module de synchronisation à utiliser |
+| `--hub NOM` | module de synchronisation à utiliser ; tous si omis |
 | `--camera NOM` | ne garder que cette caméra |
 | `--since JOURS` | ne garder que les clips des N derniers jours |
 | `--output DOSSIER` | destination des clips bruts (défaut `Blink_Clips`) |
 | `--overwrite` | remplacer les fichiers existants de taille différente |
-| `--from usb\|cloud\|all` | où chercher les clips : la clé du module, le cloud de l'abonnement, ou les deux (défaut) |
+| `--from usb\|cloud\|all` | où chercher les clips : le stockage local (USB ou microSD), le cloud de l'abonnement, ou les deux (défaut) ; `usb` reste le nom historique de l'option |
 | `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
 
 **`blink2video merge`** : normalisation et assemblage.
@@ -373,7 +375,7 @@ Les options données après `start` vont à l'interface, `--port` par exemple.
 |---|---|
 | `--port N` | port d'écoute (défaut 8765) |
 | `--open-browser` | ouvrir la page dans le navigateur au démarrage |
-| `--hub NOM` | module de synchronisation |
+| `--hub NOM` | module de synchronisation ; tous si omis |
 | `--thumbs DOSSIER` | cache des vignettes, jetable |
 | `--timezone ZONE` | fuseau d'affichage |
 | les mêmes options de dossiers que `merge` | |

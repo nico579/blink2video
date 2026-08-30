@@ -62,6 +62,11 @@ class ValidationPortTests(unittest.TestCase):
         import serve
 
         self.assertEqual(analyser(serve.parse_args, "serve", "--port", "1").port, 1)
+        self.assertIsNone(analyser(serve.parse_args, "serve").hub)
+        self.assertEqual(
+            analyser(serve.parse_args, "serve", "--hub", "Jardin").hub,
+            "Jardin",
+        )
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as erreur:
                 analyser(serve.parse_args, "serve", "--port", "65536")

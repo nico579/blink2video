@@ -99,7 +99,7 @@ def parse_args() -> argparse.Namespace:
              "de l'abonnement, « all » les deux (défaut)",
     )
     # Une boucle propre au verbe : le cloud se sonde à la minute sans rien
-    # réveiller, là où le manifeste USB mobilise le module et se contente de dix
+    # réveiller, là où le manifeste local mobilise le module et se contente de dix
     # minutes. Deux cadences valent mieux qu'un compromis unique.
     runtime.ajouter_boucle(parser)
     # Planificateur interne utilisé par « start » : un même processus fait le
@@ -142,23 +142,28 @@ async def main(args: argparse.Namespace) -> int:
         print("\nConnexion Blink réussie.")
         print(f"Session sauvegardée dans : {blink_auth.CONFIG.resolve()}")
         print("\n=== SYNC MODULES ===")
-        synchronisations = getattr(blink, "sync", None) or {}
-        if not synchronisations:
+        # Le homescreen moderne peut annoncer un véritable module de stockage
+        # que les anciens endpoints encore utilisés par blinkpy 0.25.9 n'ont
+        # pas placé dans blink.sync (notamment avec un XR). La même découverte
+        # que le téléchargeur doit donc précéder l'affichage et le garde-fou USB.
+        modules_disponibles = blink_models.select_sync_modules(blink, None)
+        if not modules_disponibles:
             print("Aucun Sync Module trouvé sur ce compte.")
-        for name, sync in synchronisations.items():
+        for name, sync in modules_disponibles:
             print(f"- {name} (ID {sync.sync_id}, réseau {sync.network_id})")
 
         if args.command == "login":
             return 0
 
-        if args.source == "usb" and not synchronisations:
-            print("\nLa source USB exige un Sync Module ; utilisez --from cloud.")
+        if args.source == "usb" and not modules_disponibles:
+            print("\nLe stockage local exige un Sync Module ; utilisez --from cloud.")
             return 1
 
         try:
             modules = (
                 [] if args.source == "cloud"
-                else blink_models.select_sync_modules(blink, args.hub)
+                else (modules_disponibles if not args.hub
+                      else blink_models.select_sync_modules(blink, args.hub))
             )
         except ValueError as error:
             print(f"\nErreur : {error}")

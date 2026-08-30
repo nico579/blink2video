@@ -1,4 +1,4 @@
-"""Modèles et adaptateurs de sources : clips USB et cloud, identité, chemins.
+"""Modèles et adaptateurs : clips locaux et cloud, identité, chemins.
 
 Extrait de blink2video.py à l'étape 8 (AUDIT-2026-08-13.md, section 20, 8.2).
 Ce fichier ne connaît ni le registre (persistance), ni la session (auth) :
@@ -13,7 +13,6 @@ import datetime as dt
 import hashlib
 import json
 import math
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -31,16 +30,216 @@ if TYPE_CHECKING:
 import merge_daily as md
 
 
+def _premiere_valeur(*valeurs):
+    """Première valeur API présente, sans confondre ``False`` et l'absence."""
+    return next((valeur for valeur in valeurs if valeur not in (None, "")), None)
+
+
+def _booleen_api(valeur) -> bool:
+    """Normalise les booléens JSON et leurs rares formes textuelles."""
+    if isinstance(valeur, str):
+        return valeur.casefold().strip() in {
+            "1", "true", "yes", "active", "enabled",
+        }
+    return bool(valeur)
+
+
+def _objet_emballe(entree, cle: str) -> tuple[dict, dict]:
+    """Retourne l'objet homescreen et son enveloppe éventuelle."""
+    enveloppe = entree if isinstance(entree, dict) else {}
+    objet = enveloppe.get(cle)
+    return (objet if isinstance(objet, dict) else enveloppe), enveloppe
+
+
+def _noms_reseaux(homescreen: dict) -> dict[str, str]:
+    noms = {}
+    for entree in homescreen.get("networks") or []:
+        reseau, enveloppe = _objet_emballe(entree, "network")
+        identifiant = _premiere_valeur(
+            reseau.get("id"), reseau.get("network_id"),
+            enveloppe.get("id"), enveloppe.get("network_id"),
+        )
+        nom = _premiere_valeur(reseau.get("name"), enveloppe.get("name"))
+        if identifiant is not None and nom is not None:
+            noms[str(identifiant)] = str(nom).strip()
+    return noms
+
+
+def _noms_cameras(homescreen: dict, network_id) -> list[str]:
+    """Noms du réseau, nécessaires au parseur de manifeste de blinkpy."""
+    noms = []
+    for groupe in ("cameras", "owls", "doorbells"):
+        for entree in homescreen.get(groupe) or []:
+            appareil, enveloppe = _objet_emballe(entree, "device")
+            reseau = _premiere_valeur(
+                appareil.get("network_id"), appareil.get("network"),
+                enveloppe.get("network_id"), enveloppe.get("network"),
+            )
+            nom = _premiere_valeur(appareil.get("name"), enveloppe.get("name"))
+            if nom is not None and str(reseau) == str(network_id):
+                noms.append(str(nom).strip())
+    return noms
+
+
+def _modules_homescreen(blink: Blink) -> list:
+    """Adapte les vrais Sync Modules annoncés par le homescreen.
+
+    blinkpy 0.25.9 découvre encore les réseaux et modules avec deux endpoints
+    historiques. Un appareil autonome (Mini/Doorbell) peut alors occuper
+    ``blink.sync`` avec son propre identifiant, tandis que le véritable module
+    de stockage est pourtant présent dans ``homescreen["sync_modules"]``. Le
+    manifeste exige l'ID de ce dernier. On construit donc, sans appel réseau,
+    la même surface ``BlinkSyncModule`` à partir de la réponse déjà reçue.
+    """
+    homescreen = getattr(blink, "homescreen", None)
+    if not isinstance(homescreen, dict):
+        return []
+    entrees = homescreen.get("sync_modules")
+    if not isinstance(entrees, (list, tuple)):
+        return []
+
+    existants = list((getattr(blink, "sync", None) or {}).items())
+    noms_reseaux = _noms_reseaux(homescreen)
+    modules = []
+    identites_vues = set()
+
+    for entree in entrees:
+        module, enveloppe = _objet_emballe(entree, "sync_module")
+        sync_id = _premiere_valeur(
+            module.get("id"), module.get("sync_module_id"),
+            enveloppe.get("id"), enveloppe.get("sync_module_id"),
+        )
+        network_id = _premiere_valeur(
+            module.get("network_id"), module.get("network"),
+            enveloppe.get("network_id"), enveloppe.get("network"),
+        )
+        identite = (str(network_id), str(sync_id))
+        if sync_id is None or network_id is None or identite in identites_vues:
+            continue
+        identites_vues.add(identite)
+
+        nom_module = _premiere_valeur(module.get("name"), enveloppe.get("name"))
+        nom = noms_reseaux.get(str(network_id)) or str(
+            nom_module or network_id
+        ).strip()
+
+        # Réutiliser l'objet normal de blinkpy quand il porte déjà le bon ID.
+        # Un objet sans ID est aussi le BlinkSyncModule créé avant l'échec de
+        # l'ancien endpoint. En revanche, un ID différent sur le même réseau
+        # appartient à une Mini/Doorbell : ne jamais le transformer en XR.
+        sync = next(
+            (objet for _cle, objet in existants
+             if str(getattr(objet, "network_id", "")) == str(network_id)
+             and str(getattr(objet, "sync_id", "")) == str(sync_id)),
+            None,
+        )
+        if sync is None:
+            sync = next(
+                (objet for _cle, objet in existants
+                 if str(getattr(objet, "network_id", "")) == str(network_id)
+                 and getattr(objet, "sync_id", None) in (None, "")),
+                None,
+            )
+        if sync is None:
+            # Import tardif : les commandes hors-ligne (stop/open/merge) doivent
+            # continuer à importer blink_models sans exiger blinkpy.
+            from blinkpy.sync_module import BlinkSyncModule
+
+            sync = BlinkSyncModule(blink, nom, str(network_id), [])
+
+        sync.sync_id = sync_id
+        sync.network_id = str(network_id)
+        sync.name = nom
+        sync.summary = module
+        sync.serial = _premiere_valeur(
+            module.get("serial"), enveloppe.get("serial"),
+            getattr(sync, "serial", None),
+        )
+        sync.status = _premiere_valeur(
+            module.get("status"), enveloppe.get("status"),
+            getattr(sync, "status", None),
+        )
+        sync._version = _premiere_valeur(
+            module.get("fw_version"), enveloppe.get("fw_version"),
+            getattr(sync, "_version", None),
+        )
+
+        stockage = sync._local_storage
+        enabled = _premiere_valeur(
+            module.get("local_storage_enabled"),
+            enveloppe.get("local_storage_enabled"),
+        )
+        compatible = _premiere_valeur(
+            module.get("local_storage_compatible"),
+            enveloppe.get("local_storage_compatible"),
+        )
+        status = _premiere_valeur(
+            module.get("local_storage_status"),
+            enveloppe.get("local_storage_status"),
+        )
+        if enabled is not None:
+            stockage["enabled"] = _booleen_api(enabled)
+        if status is not None:
+            stockage["status"] = _booleen_api(status)
+        if compatible is not None:
+            stockage["compatible"] = _booleen_api(compatible)
+        elif stockage.get("enabled") or stockage.get("status"):
+            # Un stockage déclaré actif établit sa compatibilité même si la
+            # réponse API a omis le champ redondant ``compatible``.
+            stockage["compatible"] = True
+
+        from blinkpy.helpers.util import to_alphanumeric
+
+        camera_names = set(_noms_cameras(homescreen, network_id))
+        # Replis pour les variantes de homescreen qui omettent un groupe mais
+        # que blinkpy a déjà réussi à instancier par une autre route.
+        for camera_name, camera in (getattr(blink, "cameras", None) or {}).items():
+            camera_network = getattr(camera, "network_id", None)
+            if camera_network is None:
+                camera_network = getattr(
+                    getattr(camera, "sync", None), "network_id", None,
+                )
+            if str(camera_network) == str(network_id):
+                camera_names.add(str(camera_name).strip())
+        for _existing_name, existing in existants:
+            if str(getattr(existing, "network_id", "")) != str(network_id):
+                continue
+            camera_names.update(
+                str(camera_name).strip()
+                for camera_name in (getattr(existing, "cameras", None) or {})
+            )
+
+        for camera_name in camera_names:
+            sync._names_table[to_alphanumeric(camera_name)] = camera_name
+
+        alias = {nom}
+        if nom_module is not None:
+            alias.add(str(nom_module).strip())
+        sync._blink2video_hub_names = alias
+        modules.append((nom, sync))
+
+    return modules
+
+
 def select_sync_modules(blink: Blink, requested_name: str | None):
     """Sélectionne tous les hubs, ou celui demandé par son nom."""
-    modules = list(blink.sync.items())
+    # Le homescreen est l'inventaire moderne et contient l'ID matériel requis
+    # par l'API de stockage local. Repli sur blink.sync pour les anciennes
+    # réponses et pour conserver le comportement historique des tests/clients.
+    modules = _modules_homescreen(blink) or list(
+        (getattr(blink, "sync", None) or {}).items()
+    )
     if not requested_name:
         return modules
 
+    demande = requested_name.casefold().strip()
     selected = [
         (name, sync)
         for name, sync in modules
-        if name.casefold().strip() == requested_name.casefold().strip()
+        if demande in {
+            str(alias).casefold().strip()
+            for alias in getattr(sync, "_blink2video_hub_names", {name})
+        }
     ]
     if not selected:
         available = ", ".join(name for name, _ in modules) or "aucun"
@@ -51,7 +250,7 @@ def select_sync_modules(blink: Blink, requested_name: str | None):
 
 
 async def read_local_manifest(sync) -> list:
-    """Demande au Sync Module la liste à jour de ses clips USB."""
+    """Demande au Sync Module la liste à jour de ses clips locaux."""
     import asyncio
 
     storage = sync._local_storage  # blinkpy n'expose pas encore d'accesseur public.
@@ -61,11 +260,11 @@ async def read_local_manifest(sync) -> list:
         raise RuntimeError("le stockage local n'est pas activé sur ce hub")
     if not sync.local_storage:
         raise RuntimeError(
-            "le stockage local n'est pas actif (clé USB absente/non reconnue, "
-            "ou clips enregistrés dans le cloud)"
+            "le stockage local n'est pas actif (clé USB ou carte microSD "
+            "absente/non reconnue, ou clips enregistrés dans le cloud)"
         )
 
-    print("  Lecture du manifeste USB du hub...")
+    print("  Lecture du manifeste du stockage local...")
     # Le Sync Module ne traite qu'une commande à la fois et répond « System is
     # busy » (code 307) tant qu'il n'a pas fini la précédente : un direct qui
     # vient de se fermer, ou une autre demande de manifeste, suffisent. Ce
@@ -88,7 +287,7 @@ async def read_local_manifest(sync) -> list:
 
 
 class CloudClip:
-    """Un clip du cloud, présenté comme ceux de la clé USB.
+    """Un clip du cloud, présenté comme ceux du stockage local.
 
     Même surface que les objets de blinkpy : un nom de caméra, un instant, un
     identifiant. Le reste de la chaîne, identité, nom de fichier, registre,
@@ -177,7 +376,7 @@ PLAFOND_PAGES_CLOUD = 400
 async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
     """Inventaire des clips conservés dans le cloud de l'abonnement Blink.
 
-    Distinct du manifeste USB, et indépendant du Sync Module : c'est le compte
+    Distinct du manifeste local, et indépendant du Sync Module : c'est le compte
     qui répond, pas le module. Un abonnement ne couvrant qu'une partie des
     caméras, les deux inventaires ne se recouvrent que partiellement, d'où le
     rapprochement fait plus loin plutôt qu'un choix de source."""
@@ -388,7 +587,7 @@ def _apparier_evenements(locaux: list, distants: list, tolerance: int = 2, *,
 
 
 def rapprocher(locaux: list, cloud: list, tolerance: int = 2) -> tuple:
-    """Sépare les clips cloud inédits de ceux déjà offerts par la clé USB.
+    """Sépare les clips cloud inédits de ceux déjà offerts localement.
 
     Une même détection peut être écrite des deux côtés lorsque l'abonnement
     couvre une caméra dont le stockage local fonctionne aussi. L'identité reste
