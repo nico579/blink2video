@@ -115,6 +115,7 @@ class ProcessusSansPsTests(unittest.TestCase):
             self.assertTrue(runtime.processus_vivant(os.getpid()))
 
 
+@unittest.skipUnless(os.name == "nt", "nécessite l'API Win32")
 class ProcessusVivantWindowsTests(unittest.TestCase):
     """Revue du 27/08 : sous Windows, processus_vivant() interroge l'OS
     directement via OpenProcess/GetExitCodeProcess (API Win32), sans passer
