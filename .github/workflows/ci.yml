@@ -193,7 +193,7 @@ jobs:
       # avant d'avoir un vrai compte Blink pour aller plus loin.
       - name: Demarrer le conteneur et interroger la page
         run: |
-          docker run -d --name blink2video-ci -p 127.0.0.1:8765:8765 blink2video:ci
+          docker run -d --name blink2video-ci -e BLINK_TRUSTED_LOOPBACK_PROXY=1 -p 127.0.0.1:8765:8765 blink2video:ci
           for i in $(seq 1 20); do
             if curl -sf http://127.0.0.1:8765/ -o page.html; then break; fi
             sleep 1

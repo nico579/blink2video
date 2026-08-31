@@ -25,7 +25,8 @@ import runtime
 
 
 REPORT_NAME = "blink2video-XR-test-report.txt"
-TESTER_REVISION = "xr-local-storage-v1"
+TESTER_REVISION = "xr-local-storage-v2"
+_REQUIRED_CLIP_FIELDS = frozenset({"id", "camera_name", "created_at", "size"})
 
 def _package_version(name: str) -> str:
     try:
@@ -42,7 +43,11 @@ def _presence(value) -> str:
 def _safe_error(error: BaseException) -> str:
     """Classe et catégorie allowlistée, sans recopier le message arbitraire."""
     message = str(error).casefold()
-    if "pas compatible" in message or "not compatible" in message:
+    if "manifest request" in message:
+        category = "manifest request rejected"
+    elif "manifest response" in message:
+        category = "invalid manifest response"
+    elif "pas compatible" in message or "not compatible" in message:
         category = "local storage incompatible"
     elif "pas activ" in message or "not enabled" in message:
         category = "local storage disabled"
@@ -87,13 +92,48 @@ def _environment_lines() -> list[str]:
     ]
 
 
-async def inspect_blink(blink, select_modules=None, read_manifest=None) -> tuple[int, list[str]]:
+async def probe_local_manifest(sync) -> dict[str, int]:
+    """Sonde directement les deux routes du manifeste, sans recopier leur contenu."""
+    request = await sync.poll_local_storage_manifest()
+    if not isinstance(request, dict) or request.get("id") in (None, ""):
+        raise RuntimeError("manifest request response missing identifier")
+
+    response = await sync.poll_local_storage_manifest(request["id"])
+    if not isinstance(response, dict) or response.get("manifest_id") in (None, ""):
+        raise RuntimeError("manifest response missing manifest identifier")
+    raw_clips = response.get("clips")
+    if not isinstance(raw_clips, (list, tuple)):
+        raise RuntimeError("manifest response missing clips list")
+
+    clips = [clip for clip in raw_clips if isinstance(clip, dict)]
+    camera_references = {
+        str(clip["camera_name"])
+        for clip in clips
+        if clip.get("camera_name") not in (None, "")
+    }
+    names = getattr(sync, "_names_table", None)
+    names = names if isinstance(names, dict) else {}
+    return {
+        "clips": len(raw_clips),
+        "schema_clips": sum(
+            1 for clip in clips if _REQUIRED_CLIP_FIELDS.issubset(clip)
+        ),
+        "mapped_clips": sum(
+            1 for clip in clips if clip.get("camera_name") in names
+        ),
+        "cameras": len(camera_references),
+    }
+
+
+async def inspect_blink(
+    blink, select_modules=None, manifest_probe=None,
+) -> tuple[int, list[str]]:
     """Inspecte les métadonnées nécessaires, sans exposer leurs valeurs privées."""
-    if select_modules is None or read_manifest is None:
+    if select_modules is None:
         import blink_models
 
         select_modules = select_modules or blink_models.select_sync_modules
-        read_manifest = read_manifest or blink_models.read_local_manifest
+    manifest_probe = manifest_probe or probe_local_manifest
 
     homescreen = getattr(blink, "homescreen", None)
     homescreen = homescreen if isinstance(homescreen, dict) else {}
@@ -129,6 +169,7 @@ async def inspect_blink(blink, select_modules=None, read_manifest=None) -> tuple
 
     successful = 0
     clips_seen = 0
+    has_unusable_clips = False
     for index, (_name, sync) in enumerate(modules, start=1):
         storage = getattr(sync, "_local_storage", None)
         storage = storage if isinstance(storage, dict) else {}
@@ -147,6 +188,13 @@ async def inspect_blink(blink, select_modules=None, read_manifest=None) -> tuple
             f"compatible={_flag(storage, 'compatible')}, "
             f"enabled={_flag(storage, 'enabled')}, active={active}",
         ])
+        if active == "no":
+            lines.append("  manifest API: SKIPPED (local storage is not active)")
+            continue
+        if _flag(storage, "compatible") == "no":
+            lines.append(
+                "  compatibility flag: informational; active storage will be probed"
+            )
         try:
             # Même verrou inter-processus que le téléchargeur. Le testeur peut
             # ainsi être lancé pendant que l'interface tourne sans envoyer une
@@ -154,38 +202,52 @@ async def inspect_blink(blink, select_modules=None, read_manifest=None) -> tuple
             with runtime.verrou(
                 "hub", f"xr-diagnostic-{os.getpid()}", attente=10,
             ):
-                clips = list(await read_manifest(sync))
+                stats = await manifest_probe(sync)
         except Exception as error:
-            lines.append(f"  manifest: FAILED ({_safe_error(error)})")
+            lines.append(f"  manifest API: FAILED ({_safe_error(error)})")
             continue
 
         successful += 1
-        clips_seen += len(clips)
-        camera_count = len({str(getattr(clip, "name", "")) for clip in clips})
+        clip_count = int(stats["clips"])
+        schema_count = int(stats["schema_clips"])
+        mapped_count = int(stats["mapped_clips"])
+        clips_seen += clip_count
+        has_unusable_clips |= (
+            schema_count != clip_count or mapped_count != clip_count
+        )
         lines.extend([
-            "  manifest: OK",
-            f"  clips reported: {len(clips)}",
-            f"  cameras represented: {camera_count}",
+            "  manifest API: OK",
+            f"  clips reported by API: {clip_count}",
+            f"  clips matching expected schema: {schema_count}/{clip_count}",
+            f"  clips mapped to known cameras: {mapped_count}/{clip_count}",
+            f"  cameras represented: {int(stats['cameras'])}",
         ])
 
-    if successful == len(modules) and clips_seen:
+    if successful == len(modules) and clips_seen and not has_unusable_clips:
         lines.append(
-            "\nOverall result: PASS_WITH_CLIPS - local storage manifests are "
-            "accessible and contain clips."
+            "\nOverall result: PASS_WITH_CLIPS - the manifest API is accessible "
+            "and its clips are usable by blink2video."
         )
         return 0, lines
+    if successful == len(modules) and clips_seen:
+        lines.append(
+            "\nOverall result: PARTIAL - the manifest API is accessible, but not "
+            "every clip is usable by blink2video yet."
+        )
+        return 1, lines
     if successful == len(modules):
         lines.append(
-            "\nOverall result: PASS_EMPTY - local storage manifests are accessible "
-            "but contain no clips."
+            "\nOverall result: PASS_EMPTY - the manifest API is accessible but "
+            "currently reports no clips."
         )
         return 0, lines
     if successful:
         lines.append(
-            f"\nOverall result: PARTIAL - {successful}/{len(modules)} manifest(s) accessible."
+            f"\nOverall result: PARTIAL - {successful}/{len(modules)} manifest API "
+            "request(s) succeeded."
         )
         return 1, lines
-    lines.append("\nOverall result: FAIL - no local storage manifest was accessible.")
+    lines.append("\nOverall result: FAIL - no local storage manifest API was accessible.")
     return 1, lines
 
 
@@ -290,7 +352,7 @@ def main() -> int:
             "Keep Tester-XR.exe in the same folder as blink2video.exe.\n\n"
             "This read-only test checks the XR microSD manifest using the saved "
             "Blink session.\n\n"
-            "It can take up to one minute. Click OK to start; the report will open "
+            "It can take a few minutes. Click OK to start; the report will open "
             "automatically when finished."
         )
     path = report_path()
@@ -325,7 +387,8 @@ def main() -> int:
         return code
     _show_message(
         "The test is complete. The report will now open.\n\n"
-        "Please send this text file to the blink2video maintainer."
+        "You may paste its contents into the Reddit reply; the report contains "
+        "only anonymized statuses and counts."
     )
     try:
         _open_report(path)

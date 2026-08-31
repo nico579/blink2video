@@ -76,28 +76,40 @@ class TestChoisirDossier(unittest.TestCase):
     # --- Windows : PowerShell/WinForms (_choisir_dossier_windows) ---
 
     def test_windows_renvoie_le_chemin_choisi(self):
+        handler = self.construire_handler()
         with mock.patch.object(serve.os, "name", "nt"), \
+             mock.patch.object(serve.runtime, "lire_dossier_stockage",
+                               return_value="C:/depart"), \
              mock.patch.object(serve, "_choisir_dossier_windows",
                                return_value="D:/photos/blink") as appel:
-            reponses = self.appeler(self.construire_handler())
+            reponses = self.appeler(handler)
         self.assertEqual(reponses, [(200, {"path": "D:/photos/blink"})])
-        appel.assert_called_once()
+        appel.assert_called_once_with("C:/depart")
 
     def test_windows_annulation_renvoie_un_chemin_vide(self):
+        handler = self.construire_handler()
         with mock.patch.object(serve.os, "name", "nt"), \
+             mock.patch.object(serve.runtime, "lire_dossier_stockage",
+                               return_value="C:/depart"), \
              mock.patch.object(serve, "_choisir_dossier_windows", return_value=""):
-            reponses = self.appeler(self.construire_handler())
+            reponses = self.appeler(handler)
         self.assertEqual(reponses, [(200, {"path": ""})])
 
     def test_windows_echec_du_selecteur_repond_en_erreur_plutot_que_de_planter(self):
+        handler = self.construire_handler()
         with mock.patch.object(serve.os, "name", "nt"), \
-             mock.patch.object(serve, "_choisir_dossier_windows",
-                               side_effect=RuntimeError("PowerShell indisponible")):
-            reponses = self.appeler(self.construire_handler())
+             mock.patch.object(serve.runtime, "lire_dossier_stockage",
+                               return_value="C:/depart"), \
+             mock.patch.object(
+                 serve, "_choisir_dossier_windows",
+                 side_effect=RuntimeError("PowerShell indisponible"),
+             ) as appel:
+            reponses = self.appeler(handler)
         self.assertEqual(len(reponses), 1)
         code, payload = reponses[0]
         self.assertEqual(code, 500)
-        self.assertIn("error", payload)
+        self.assertEqual(payload["error"], "PowerShell indisponible")
+        appel.assert_called_once_with("C:/depart")
 
     # --- Hors Windows : repli tkinter ---
 

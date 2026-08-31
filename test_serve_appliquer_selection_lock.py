@@ -24,7 +24,7 @@ os.environ["BLINK_BOOTSTRAP"] = "none"
 _TEST_HOME = tempfile.TemporaryDirectory(prefix="blink-toggle-lock-")
 os.environ["BLINK_HOME"] = _TEST_HOME.name
 
-import runtime
+import runtime  # noqa: E402 - environnement de test posé avant import
 import serve  # noqa: E402 - bootstrap neutralisé avant import
 
 
@@ -50,7 +50,11 @@ class TestAppliquerSelectionNAttendPasLeVerrouRegistre(unittest.TestCase):
         # vrai sous-processus « merge » qui peut encore tenir un descripteur
         # sur le dossier temporaire au moment du nettoyage (PermissionError
         # Windows, tempfile._rmtree en boucle).
-        self.patch_lancer = mock.patch.object(runtime, "lancer")
+        # identite_processus() utilise aussi ce lanceur sous POSIX. Une sortie
+        # vide garde l'identité sérialisable tout en neutralisant le vrai merge.
+        self.patch_lancer = mock.patch.object(
+            runtime, "lancer", return_value=mock.Mock(stdout=""),
+        )
         self.patch_lancer.start()
 
         self.identity = "jardin/test.mp4"
