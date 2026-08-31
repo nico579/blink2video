@@ -20,18 +20,22 @@ n'est touché tant que la nouvelle version n'a pas prouvé qu'elle démarre.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
+import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import runtime
 
@@ -45,6 +49,17 @@ MARQUEUR_TRAVAIL = ".blink2video-update"
 # Avant 0.10.5, les mises à jour étaient préparées à côté de l'installation.
 # Conserver ce préfixe permet d'effacer leurs éventuels restes une dernière fois.
 PREFIXE_TRAVAIL_HISTORIQUE = ".blink_maj_"
+# Une archive officielle fait aujourd'hui environ 120 Mo. Ces plafonds ne
+# servent pas a deviner sa taille (celle publiee par GitHub doit correspondre
+# exactement), mais a refuser avant ecriture une metadonnee manifestement
+# aberrante et a borner une archive compressee hostile.
+MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
+MAX_EXTRACTED_BYTES = 4 * 1024 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 100_000
+MAX_CHECKSUM_BYTES = 4096
+SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+VERSION_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
+UPDATE_HOST_SUFFIXES = ("github.com", "githubusercontent.com")
 MESSAGE_WINDOWS7 = (
     "Mise à jour automatique désactivée pour l'édition Windows 7 "
     "expérimentale : une archive Windows standard réinstallerait Python 3.12 "
@@ -66,6 +81,14 @@ def _numeros(version: str) -> tuple:
     return tuple(morceaux)
 
 
+def _sha256_normalise(valeur) -> str:
+    """Empreinte SHA-256 canonique, ou chaîne vide si elle est impropre."""
+    texte = str(valeur or "").strip()
+    if texte.lower().startswith("sha256:"):
+        texte = texte.split(":", 1)[1].strip()
+    return texte.lower() if SHA256_RE.fullmatch(texte) else ""
+
+
 def _archive_de_ce_systeme(assets: list) -> dict:
     """L'archive publiée qui correspond à cette machine, s'il y en a une."""
     if sys.platform == "win32":
@@ -75,16 +98,32 @@ def _archive_de_ce_systeme(assets: list) -> dict:
     else:
         marque = "linux"
     arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x86_64"
+    par_nom = {str(asset.get("name") or ""): asset for asset in assets
+               if isinstance(asset, dict)}
     for asset in assets:
+        if not isinstance(asset, dict):
+            continue
         nom = str(asset.get("name", ""))
+        nom_minuscule = nom.lower()
         # L'artefact Windows 7 reste manuel. Même s'il est ajouté par erreur à
         # une release, un Windows récent ne doit pas le choisir à la place de
         # l'archive officielle, qui porte elle aussi « windows » dans son nom.
-        if marque == "windows" and "windows7" in nom.lower():
+        if marque == "windows" and "windows7" in nom_minuscule:
             continue
-        if marque in nom and (arch in nom or marque == "macos"):
-            return {"nom": nom, "url": asset.get("browser_download_url"),
-                    "taille": int(asset.get("size") or 0)}
+        suffixe = ".zip" if marque in ("windows", "macos") else ".tar.gz"
+        if (marque in nom_minuscule and arch in nom_minuscule
+                and nom_minuscule.endswith(suffixe)):
+            checksum = par_nom.get(nom + ".sha256") or {}
+            return {
+                "nom": nom,
+                "url": asset.get("browser_download_url"),
+                "taille": int(asset.get("size") or 0),
+                # GitHub expose aujourd'hui le digest de l'asset. Le fichier
+                # compagnon reste un repli pour les réponses d'API qui ne
+                # fourniraient pas encore ce champ.
+                "sha256": _sha256_normalise(asset.get("digest")),
+                "checksum_url": checksum.get("browser_download_url"),
+            }
     return {}
 
 
@@ -142,48 +181,334 @@ def disponible(force: bool = False, reseau: bool = True) -> dict:
 
 # --------------------------------------------------------------- installation
 
-def _telecharger(url: str, destination: Path, taille: int) -> None:
+def _url_mise_a_jour_autorisee(url: str) -> bool:
+    """N'accepte que les hôtes HTTPS atteints après redirection par GitHub."""
+    try:
+        parsed = urllib.parse.urlparse(str(url))
+        port = parsed.port
+    except ValueError:
+        return False
+    hote = (parsed.hostname or "").lower().rstrip(".")
+    hote_github = any(
+        hote == suffixe or hote.endswith("." + suffixe)
+        for suffixe in UPDATE_HOST_SUFFIXES
+    )
+    return (parsed.scheme == "https" and hote_github and port in (None, 443)
+            and parsed.username is None and parsed.password is None)
+
+
+def _url_release_officielle(url: str, nom: str) -> bool:
+    """Lie l'URL initiale au dépôt, au format de tag et au fichier attendus.
+
+    Le cache de mise à jour vit dans le dossier de données, donc son contenu ne
+    constitue pas une autorité. Accepter n'importe quel dépôt GitHub permettrait
+    à un cache modifié de fournir son propre binaire et sa propre empreinte.
+    """
+    try:
+        parsed = urllib.parse.urlparse(str(url))
+        chemin = urllib.parse.unquote(parsed.path)
+        port = parsed.port
+    except (UnicodeError, ValueError):
+        return False
+    morceaux = chemin.split("/")
+    attendu = ["", *DEPOT.split("/"), "releases", "download"]
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname == "github.com"
+        and parsed.username is None and parsed.password is None
+        and port is None and not parsed.params
+        and not parsed.query and not parsed.fragment
+        and len(morceaux) == len(attendu) + 2
+        and morceaux[:len(attendu)] == attendu
+        and VERSION_TAG_RE.fullmatch(morceaux[-2]) is not None
+        and morceaux[-1] == nom
+    )
+
+
+def _lire_empreinte(url: str, nom_archive: str) -> str:
+    """Lit le petit fichier ``<archive>.sha256`` publié avec l'archive."""
+    if not _url_release_officielle(url, nom_archive + ".sha256"):
+        raise OSError("URL d'empreinte étrangère à la release officielle.")
+    requete = urllib.request.Request(
+        url, headers={"User-Agent": f"blink2video/{runtime.VERSION}"})
+    with urllib.request.urlopen(requete, timeout=15) as reponse:
+        finale = getattr(reponse, "geturl", lambda: url)()
+        if not _url_mise_a_jour_autorisee(finale):
+            raise OSError("La redirection de l'empreinte quitte GitHub ou HTTPS.")
+        annoncee = reponse.headers.get("Content-Length")
+        if annoncee:
+            try:
+                annoncee = int(annoncee)
+            except ValueError as erreur:
+                raise OSError("Taille d'empreinte HTTP invalide.") from erreur
+            if annoncee < 1 or annoncee > MAX_CHECKSUM_BYTES:
+                raise OSError("Fichier d'empreinte anormalement volumineux.")
+        corps = reponse.read(MAX_CHECKSUM_BYTES + 1)
+        if len(corps) > MAX_CHECKSUM_BYTES:
+            raise OSError("Fichier d'empreinte anormalement volumineux.")
+
+    try:
+        lignes = [ligne.strip() for ligne in corps.decode("ascii").splitlines()
+                  if ligne.strip()]
+    except UnicodeDecodeError as erreur:
+        raise OSError("Fichier d'empreinte non ASCII.") from erreur
+    if len(lignes) != 1:
+        raise OSError("Fichier d'empreinte ambigu.")
+    champs = lignes[0].split()
+    empreinte = _sha256_normalise(champs[0] if champs else "")
+    if not empreinte:
+        raise OSError("Empreinte SHA-256 absente ou invalide.")
+    if len(champs) > 2 or (len(champs) == 2
+                           and champs[1].lstrip("*") != nom_archive):
+        raise OSError("L'empreinte ne désigne pas l'archive attendue.")
+    return empreinte
+
+
+def _empreinte_attendue(archive: dict) -> str:
+    empreinte = _sha256_normalise(archive.get("sha256"))
+    if empreinte:
+        return empreinte
+    checksum_url = str(archive.get("checksum_url") or "")
+    if checksum_url:
+        return _lire_empreinte(checksum_url, str(archive.get("nom") or ""))
+    raise OSError(
+        "Cette release ne fournit aucune empreinte SHA-256 : mise à jour "
+        "automatique refusée. Téléchargez-la manuellement depuis GitHub."
+    )
+
+
+def _nom_archive_sur(nom) -> str:
+    nom = str(nom or "")
+    if (not nom or len(nom) > 200 or "/" in nom or "\\" in nom
+            or Path(nom).name != nom
+            or not (nom.lower().endswith(".zip")
+                    or nom.lower().endswith(".tar.gz"))):
+        raise OSError(f"Nom d'archive impropre : {nom!r}")
+    return nom
+
+
+def _telecharger(url: str, destination: Path, taille: int, sha256: str) -> None:
     """Rapatrie l'archive en publiant son avancement.
 
     Le même canal que le téléchargement des clips et l'assemblage : l'interface
     montre déjà cette barre, il n'y avait rien à inventer."""
+    if not _url_release_officielle(url, destination.name):
+        raise OSError("URL d'archive étrangère à la release officielle.")
+    if not 1 <= taille <= MAX_ARCHIVE_BYTES:
+        raise OSError(f"Taille d'archive invalide ou excessive : {taille} octets.")
+    sha256 = _sha256_normalise(sha256)
+    if not sha256:
+        raise OSError("Empreinte SHA-256 d'archive invalide.")
+
     requete = urllib.request.Request(
-        url, headers={"User-Agent": f"blink2video/{runtime.VERSION}"})
-    with urllib.request.urlopen(requete, timeout=60) as reponse, \
-            destination.open("wb") as sortie:
-        total = int(reponse.headers.get("Content-Length") or taille or 0)
-        recu = 0
-        dernier = 0.0
-        while True:
-            bloc = reponse.read(262144)
-            if not bloc:
-                break
-            sortie.write(bloc)
-            recu += len(bloc)
-            if total and time.time() - dernier > 0.5:
-                dernier = time.time()
-                mo = recu // (1024 * 1024)
-                runtime.travail(f"Téléchargement de la mise à jour ({mo} Mo)",
-                                recu / (1024 * 1024), total // (1024 * 1024),
-                                cle="phase.update_download")
+        url, headers={"Accept": "application/octet-stream",
+                      "User-Agent": f"blink2video/{runtime.VERSION}"})
+    try:
+        with urllib.request.urlopen(requete, timeout=60) as reponse:
+            finale = getattr(reponse, "geturl", lambda: url)()
+            if not _url_mise_a_jour_autorisee(finale):
+                raise OSError("La redirection de l'archive quitte GitHub ou HTTPS.")
+            annoncee = reponse.headers.get("Content-Length")
+            if annoncee:
+                try:
+                    annoncee = int(annoncee)
+                except ValueError as erreur:
+                    raise OSError("Taille d'archive HTTP invalide.") from erreur
+                if annoncee != taille:
+                    raise OSError(
+                        f"Taille HTTP inattendue : {annoncee}, attendu {taille}.")
+
+            hacheur = hashlib.sha256()
+            recu = 0
+            dernier = 0.0
+            with destination.open("xb") as sortie:
+                while True:
+                    bloc = reponse.read(262144)
+                    if not bloc:
+                        break
+                    recu += len(bloc)
+                    if recu > taille or recu > MAX_ARCHIVE_BYTES:
+                        raise OSError("L'archive dépasse la taille publiée.")
+                    sortie.write(bloc)
+                    hacheur.update(bloc)
+                    if time.time() - dernier > 0.5:
+                        dernier = time.time()
+                        mo = recu // (1024 * 1024)
+                        runtime.travail(
+                            f"Téléchargement de la mise à jour ({mo} Mo)",
+                            recu / (1024 * 1024), taille / (1024 * 1024),
+                            cle="phase.update_download")
+            if recu != taille:
+                raise OSError(f"Archive tronquée : {recu} octets, attendu {taille}.")
+            obtenue = hacheur.hexdigest()
+            if obtenue != sha256:
+                raise OSError(
+                    f"Empreinte SHA-256 incorrecte : {obtenue}, attendu {sha256}.")
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
     print(f"  archive reçue : {destination.name} "
           f"({destination.stat().st_size // (1024 * 1024)} Mo)")
 
 
+_NOMS_WINDOWS_INTERDITS = {
+    "CON", "PRN", "AUX", "NUL", "CLOCK$",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def _destination_archive(racine: Path, nom: str) -> tuple:
+    """Destination confinée d'un membre, avec une syntaxe portable stricte."""
+    brut = str(nom or "")
+    if (not brut or len(brut) > 4096 or "\x00" in brut
+            or brut.startswith(("/", "\\"))):
+        raise OSError(f"Chemin dangereux dans l'archive : {brut!r}")
+    portable = brut.replace("\\", "/").rstrip("/")
+    chemin_posix = PurePosixPath(portable)
+    morceaux = portable.split("/")
+    if (not portable or chemin_posix.is_absolute()
+            or any(not morceau or morceau in (".", "..") for morceau in morceaux)):
+        raise OSError(f"Chemin dangereux dans l'archive : {brut!r}")
+    for morceau in morceaux:
+        base = morceau.split(".", 1)[0].upper()
+        if (len(morceau) > 255 or ":" in morceau
+                or morceau.endswith((" ", "."))
+                or any(ord(caractere) < 32 for caractere in morceau)
+                or base in _NOMS_WINDOWS_INTERDITS):
+            raise OSError(f"Nom non portable dans l'archive : {brut!r}")
+    cible = racine.joinpath(*morceaux).resolve()
+    if not runtime.est_relatif_a(cible, racine):
+        raise OSError(f"Chemin hors du dossier d'extraction : {brut!r}")
+    return cible, tuple(morceaux)
+
+
+def _inscrire_destination(registre: dict, morceaux: tuple, genre: str) -> None:
+    """Refuse doublons, collisions de casse et fichier utilisé comme parent."""
+    for index in range(1, len(morceaux) + 1):
+        nom = "/".join(morceaux[:index])
+        cle = nom.casefold()
+        courant = genre if index == len(morceaux) else "dir"
+        precedent = registre.get(cle)
+        if precedent is None:
+            registre[cle] = (nom, courant)
+            continue
+        if precedent[0] != nom or precedent[1] != courant:
+            raise OSError(f"Collision de chemins dans l'archive : {nom!r}")
+        if courant != "dir":
+            raise OSError(f"Membre dupliqué dans l'archive : {nom!r}")
+
+
+def _copier_exactement(source, destination: Path, taille: int) -> None:
+    restant = taille
+    with destination.open("xb") as sortie:
+        while restant:
+            bloc = source.read(min(262144, restant))
+            if not bloc:
+                raise OSError(f"Membre tronqué dans l'archive : {destination.name}")
+            sortie.write(bloc)
+            restant -= len(bloc)
+        if source.read(1):
+            raise OSError(f"Membre plus long qu'annoncé : {destination.name}")
+
+
+def _extraire_zip(archive: Path, racine: Path) -> None:
+    with zipfile.ZipFile(archive) as zip_:
+        infos = zip_.infolist()
+        if len(infos) > MAX_ARCHIVE_MEMBERS:
+            raise OSError("Archive contenant trop de membres.")
+        registre = {}
+        membres = []
+        total = 0
+        for info in infos:
+            mode = (info.external_attr >> 16) & 0xFFFF
+            type_mode = stat.S_IFMT(mode)
+            dossier = info.is_dir()
+            if info.flag_bits & 0x1:
+                raise OSError(f"Membre ZIP chiffré interdit : {info.filename!r}")
+            if dossier:
+                if type_mode not in (0, stat.S_IFDIR):
+                    raise OSError(f"Type ZIP dangereux : {info.filename!r}")
+                genre = "dir"
+            else:
+                if type_mode not in (0, stat.S_IFREG):
+                    raise OSError(f"Lien ou type ZIP dangereux : {info.filename!r}")
+                genre = "file"
+                total += info.file_size
+                if info.file_size < 0 or total > MAX_EXTRACTED_BYTES:
+                    raise OSError("Contenu ZIP décompressé trop volumineux.")
+            cible, morceaux = _destination_archive(racine, info.filename)
+            _inscrire_destination(registre, morceaux, genre)
+            membres.append((info, cible, genre))
+
+        for _, cible, genre in membres:
+            if genre == "dir":
+                cible.mkdir(parents=True, exist_ok=True)
+        for info, cible, genre in membres:
+            if genre != "file":
+                continue
+            cible.parent.mkdir(parents=True, exist_ok=True)
+            with zip_.open(info, "r") as source:
+                _copier_exactement(source, cible, info.file_size)
+
+
+def _extraire_tar(archive: Path, racine: Path) -> None:
+    with tarfile.open(archive) as tar:
+        infos = []
+        for info in tar:
+            infos.append(info)
+            if len(infos) > MAX_ARCHIVE_MEMBERS:
+                raise OSError("Archive contenant trop de membres.")
+        registre = {}
+        membres = []
+        total = 0
+        for info in infos:
+            if info.isdir():
+                genre = "dir"
+            elif info.isfile() and not getattr(info, "sparse", None):
+                genre = "file"
+                total += info.size
+                if info.size < 0 or total > MAX_EXTRACTED_BYTES:
+                    raise OSError("Contenu TAR décompressé trop volumineux.")
+            else:
+                raise OSError(f"Lien ou type TAR dangereux : {info.name!r}")
+            cible, morceaux = _destination_archive(racine, info.name)
+            _inscrire_destination(registre, morceaux, genre)
+            membres.append((info, cible, genre))
+
+        for _, cible, genre in membres:
+            if genre == "dir":
+                cible.mkdir(parents=True, exist_ok=True)
+        for info, cible, genre in membres:
+            if genre != "file":
+                continue
+            cible.parent.mkdir(parents=True, exist_ok=True)
+            source = tar.extractfile(info)
+            if source is None:
+                raise OSError(f"Membre TAR illisible : {info.name!r}")
+            with source:
+                _copier_exactement(source, cible, info.size)
+            # Pas de propriétaire, setuid/setgid ni mode arbitraire venant de
+            # l'archive. Seul le caractère exécutable utile est conservé.
+            cible.chmod(0o755 if info.mode & 0o111 else 0o644)
+
+
 def _extraire(archive: Path, vers: Path) -> Path:
     """Déballe l'archive et rend le dossier du bundle qu'elle contenait."""
-    vers.mkdir(parents=True, exist_ok=True)
-    if archive.suffix == ".zip":
-        with zipfile.ZipFile(archive) as zip_:
-            zip_.extractall(vers)
+    vers.mkdir(parents=True, exist_ok=False)
+    racine = vers.resolve()
+    if archive.name.lower().endswith(".zip"):
+        _extraire_zip(archive, racine)
+    elif archive.name.lower().endswith(".tar.gz"):
+        _extraire_tar(archive, racine)
     else:
-        with tarfile.open(archive) as tar:
-            tar.extractall(vers)
+        raise OSError(f"Format d'archive inconnu : {archive.name}")
     # Les archives publiées contiennent un unique dossier « blink2video ».
-    contenu = [chemin for chemin in vers.iterdir() if chemin.is_dir()]
-    if len(contenu) == 1:
-        return contenu[0]
-    return vers
+    contenu = list(vers.iterdir())
+    if (len(contenu) != 1 or not contenu[0].is_dir()
+            or contenu[0].is_symlink()):
+        raise OSError("L'archive doit contenir un unique dossier de bundle.")
+    return contenu[0]
 
 
 def _executable(dossier: Path) -> Path:
@@ -274,9 +599,10 @@ def _verifier(dossier: Path, attendue: str) -> bool:
         print(f"Échec : le nouvel exécutable ne démarre pas ({erreur}).")
         return False
     annonce = (sortie.stdout or "").strip()
-    if sortie.returncode != 0 or attendue not in annonce:
+    annonce_attendue = f"blink2video {attendue}"
+    if sortie.returncode != 0 or annonce != annonce_attendue:
         print(f"Échec : le nouvel exécutable annonce « {annonce or '?'} », "
-              f"on attendait {attendue}.")
+              f"on attendait « {annonce_attendue} ».")
         return False
     print(f"  vérifié : {annonce}")
     return True
@@ -454,7 +780,8 @@ def _depuis_les_sources() -> int:
             break
     if obtenue != neuve["version"]:
         print(f"Le dépôt annonce {obtenue or '?'} après le tirage, "
-              f"on attendait {neuve['version']}. La relance suit quand même.")
+              f"on attendait {neuve['version']}. Relance refusée.")
+        return 1
 
     print("Passage à la nouvelle version…")
     runtime.demarrer(
@@ -489,9 +816,12 @@ def installer(force: bool = False) -> int:
     print(f"Mise à jour {runtime.VERSION} vers {neuve['version']}")
     travail = None
     try:
+        nom_archive = _nom_archive_sur(archive.get("nom"))
+        empreinte = _empreinte_attendue(archive)
+        taille = int(archive.get("taille") or 0)
         travail = _creer_dossier_travail(installe, neuve["version"])
-        fichier = travail / str(archive["nom"])
-        _telecharger(str(archive["url"]), fichier, int(archive.get("taille") or 0))
+        fichier = travail / nom_archive
+        _telecharger(str(archive["url"]), fichier, taille, empreinte)
         runtime.travail("Installation de la mise à jour", 0, 0, cle="phase.update_install")
         dossier = _extraire(fichier, travail / "contenu")
         _rendre_executable(dossier)

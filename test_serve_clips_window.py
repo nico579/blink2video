@@ -127,7 +127,10 @@ class RoutePlageTests(BacASable):
         handler.paths = self.paths
         handler.timezone = self.timezone
         handler.ffmpeg = ""
-        handler.headers = {"Host": "127.0.0.1"}
+        # Jeton requis depuis 28.60 (protection CSRF/Origin) : sans lui, ce
+        # handler construit à la main est rejeté en 403 avant d'atteindre
+        # /api/clips (voir test_serve_appliquer_selection_lock.py).
+        handler.headers = {"Host": "127.0.0.1", "X-Blink-Token": serve.TOKEN}
         return handler
 
     def appeler(self, chemin: str):

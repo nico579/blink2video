@@ -1,0 +1,175 @@
+  :root { color-scheme: dark; --bg:#16181d; --card:#1e2128; --line:#2c313b;
+          --text:#e6e8ec; --dim:#9aa2b1; --out:#e0574a; --in:#4aa96c; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:15px/1.5 system-ui, "Segoe UI", sans-serif; }
+  header { position:sticky; top:0; z-index:10; background:var(--bg);
+           border-bottom:1px solid var(--line); padding:14px 20px;
+           display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:17px; margin:0 10px 0 0; font-weight:600; }
+  h1 .v { font-size:11px; font-weight:400; color:var(--dim); vertical-align:super; margin-left:3px; }
+  select, button { font:inherit; color:var(--text); background:var(--card);
+                   border:1px solid var(--line); border-radius:7px;
+                   padding:7px 12px; cursor:pointer; }
+  button:hover, select:hover { border-color:#4b5262; }
+  button.primary { background:#3a5a86; border-color:#48699a; }
+  /* Rouge (même teinte que .out) plutôt que la couleur neutre des autres
+     boutons : n'apparaît qu'après une case cochée, donc facile à manquer
+     sans ce signal, l'action pouvant supprimer des clips de leur source. */
+  button.danger { background:var(--out); border-color:#c0432f; color:#fff; }
+  label { color:var(--dim); display:flex; align-items:center; gap:7px; cursor:pointer; }
+  /* Un display explicite l'emporte sur l'attribut hidden : sans cette règle,
+     « voir les clips écartés » restait affiché dans le Direct et les vidéos
+     assemblées, où il ne veut rien dire. */
+  [hidden] { display:none !important; }
+  .count { color:var(--dim); margin-left:auto; font-variant-numeric:tabular-nums; }
+  /* Le groupe « mise à jour » : encadré discret pour qu'on voie d'un coup que
+     l'heure, la coche et le bouton parlent de la même chose. */
+  .maj { display:flex; align-items:center; gap:10px; padding:5px 5px 5px 12px;
+         border:1px solid var(--line); border-radius:9px; background:var(--card); }
+  .maj #passages { font-variant-numeric:tabular-nums; }
+  /* Une version qui attend se remarque sans crier : la couleur suffit. */
+  #update { background:#2f4a33; border-color:var(--in); color:#a8e6c0; }
+  .langGroup { display:flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .btn-lang { background:var(--card); color:var(--dim); border:none; border-radius:0;
+              padding:7px 10px; font:inherit; font-weight:600; cursor:pointer; }
+  .btn-lang.active { background:#3a5a86; color:#fff; }
+  main { padding:20px; }
+  h2 { font-size:14px; color:var(--dim); font-weight:600; margin:28px 0 12px;
+       border-bottom:1px solid var(--line); padding-bottom:7px; }
+  h2:first-child { margin-top:0; }
+  .grid { display:grid; gap:16px;
+          grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); }
+  .grid.wide { grid-template-columns:repeat(auto-fill, minmax(460px, 1fr)); }
+  a.act { text-decoration:none; border:1px solid var(--line); background:var(--bg);
+          color:var(--dim); }
+  a.act:hover { border-color:#4b5262; color:var(--text); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          overflow:hidden; display:flex; flex-direction:column; }
+  .card.out { opacity:.55; border-color:var(--out); }
+  video { width:100%; aspect-ratio:16/9; background:#000; display:block; }
+  .meta { display:flex; align-items:center; gap:10px; padding:10px 12px; }
+  .time { font-variant-numeric:tabular-nums; font-weight:600; }
+  /* Tout sur une ligne : en faisant défiler, le titre de jour sort de l'écran
+     et l'on ne sait plus de quand datent les clips affichés. */
+  .time.line { font-weight:500; font-size:13.5px; line-height:1.35; }
+  .sub { color:var(--dim); font-size:13px; }
+  .sub.tiny { font-size:12px; opacity:.65; }
+  .act { margin-left:auto; padding:6px 12px; border-radius:6px; }
+  .act.out { background:#4a2320; border-color:var(--out); color:#ffb3ab; }
+  .act.in  { background:#1e3d2b; border-color:var(--in); color:#a8e6c0; }
+  /* Second bouton d'un groupe de droite : la marge auto ne se pose qu'une
+     fois, sur le premier, sinon flexbox partage l'espace libre entre les
+     deux et les separe au lieu de les coller. */
+  .act.grouped { margin-left:0; }
+  .act:disabled { opacity:.6; cursor:default; }
+  #log { white-space:pre-wrap; font:13px/1.45 ui-monospace, Consolas, monospace;
+         background:#101216; border:1px solid var(--line); border-radius:8px;
+         padding:14px; margin-top:20px; color:var(--dim); display:none;
+         max-height:340px; overflow-y:auto; }
+  .empty { color:var(--dim); padding:40px 0; text-align:center; }
+  .window { color:var(--dim); font-size:13px; margin:0 0 16px; }
+  .window a { color:inherit; }
+  #work { display:none; width:100%; align-items:center; gap:12px; padding-top:4px; }
+  #work.on { display:flex; }
+  progress { flex:1; height:8px; border:0; border-radius:4px;
+             background:var(--card); appearance:none; }
+  progress::-webkit-progress-bar { background:var(--card); border-radius:4px; }
+  progress::-webkit-progress-value { background:#4d8ee0; border-radius:4px; }
+  progress::-moz-progress-bar { background:#4d8ee0; border-radius:4px; }
+  #phase { color:var(--dim); font-size:13px; white-space:nowrap; }
+  h2 { display:flex; align-items:center; gap:12px; }
+  h2 .act { margin-left:auto; font-size:13px; }
+  .live { position:relative; aspect-ratio:16/9; background:#000; display:flex;
+          align-items:center; justify-content:center; }
+  /* Sans ce couple de règles, .live garde son 16/9 fixe en plein écran et se
+     retrouve barrée de bandes noires au lieu de remplir l'écran. */
+  .live:fullscreen, .live:-webkit-full-screen { aspect-ratio:auto; }
+  .live img, .live video { width:100%; height:100%; object-fit:contain; }
+  /* La vignette reste en fond, le bouton se pose dessus. */
+  .live img.still { position:absolute; inset:0; opacity:.55; }
+  .live .watch { position:relative; }
+  .watch { border-radius:7px; padding:8px 14px; }
+  .watch.stop { position:absolute; right:10px; bottom:10px; opacity:.85; }
+  .watch.expand { position:absolute; right:10px; top:10px; opacity:.85;
+                  padding:5px 9px; font-size:16px; line-height:1; }
+  .live { flex-direction:column; gap:12px; }
+  .live .hint { color:var(--dim); font-size:14px; margin:0;
+                text-align:center; padding:0 20px; line-height:1.4; }
+  /* Sans décalage, l'astuce se centre au même endroit que le bouton
+     « Réessayer » (seul enfant en flux dans .live) et capte ses clics :
+     on la remonte au-dessus et on la rend transparente aux événements. */
+  .live .hint.overlay { position:absolute; bottom:56px; left:0; right:0;
+                         pointer-events:none; }
+  dialog { background:var(--card); color:var(--text); border:1px solid var(--line);
+           border-radius:12px; padding:24px; width:min(380px, 92vw); position:relative; }
+  dialog::backdrop { background:rgba(0,0,0,.6); }
+  .langGroupAuth { position:absolute; top:16px; right:16px; }
+  dialog h3 { margin:0 0 6px; font-size:16px; }
+  dialog p { margin:0 0 18px; color:var(--dim); font-size:13px; }
+  /* :not([type=checkbox]) : la meme regle stretchait aussi les cases a
+     cocher a 100% de large (visible seulement sur leur zone cliquable, pas
+     sur le dessin de la case), ce qui repoussait leur texte tres loin a
+     droite avec un retour a la ligne au milieu des mots. */
+  dialog input:not([type="checkbox"]) {
+    width:100%; font:inherit; color:var(--text); background:var(--bg);
+    border:1px solid var(--line); border-radius:7px;
+    padding:9px 11px; margin-bottom:12px;
+  }
+  .champMdp { display:flex; gap:8px; margin-bottom:12px; }
+  .champMdp input { margin-bottom:0; }
+  .champMdp button { flex:none; padding:0 12px; }
+  dialog .row { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end;
+                margin-top:6px; }
+  #authError { color:var(--out); font-size:13px; min-height:18px; margin:0 0 6px; }
+  #reglages { width:min(560px, 92vw); }
+  #filtre { width:min(420px, 92vw); }
+  .filtreResume { color:var(--dim); font-size:13px; }
+  /* Du/au sur la même ligne que leur champ, comme les autres champCadence :
+     sans cette largeur fixe, un datetime-local à 100% forçait un retour à
+     la ligne (règle générale dialog input) et doublait la hauteur du
+     panneau pour rien - il ne tenait alors plus en entier à l'écran sans
+     défiler (constaté en réel, 2026-08-27). */
+  #rangeFrom, #rangeTo { width:190px; flex:none; }
+  .presets { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+  .presets button { flex:none; }
+  #reglages label, #filtre label { align-items:flex-start; margin-bottom:14px; }
+  #reglages label input[type="checkbox"], #filtre label input[type="checkbox"] {
+    flex:none; margin:3px 0 0; width:16px; height:16px;
+  }
+  #outLabel { margin-bottom:20px; }
+  #reglages fieldset { border:1px solid var(--line); border-radius:10px;
+                        padding:14px 16px 16px; margin:0 0 16px; }
+  #reglages legend { padding:0 6px; font-size:13px; color:var(--dim); cursor:default; }
+  .champCadence { display:flex; align-items:center; flex-wrap:wrap;
+                  justify-content:space-between;
+                  gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
+  #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
+  /* Le fuseau ("Europe/Paris", "America/Los_Angeles"...) ne tient pas dans
+     les 70px des champs numériques voisins : élargi et aligné à gauche
+     plutôt que de forcer une largeur commune qui tronquerait sa valeur. */
+  #reglages #timezone { width:180px; text-align:left; }
+  /* USB et Cloud sur une même ligne : deux paires label+champ, pas un
+     agencement bord-à-bord comme .champCadence (qui n'en attend qu'une). */
+  .champCadenceDouble { display:flex; align-items:center; flex-wrap:wrap;
+                         gap:8px 10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
+  #reglages .champCadenceDouble input { width:60px; margin-bottom:0; text-align:right; }
+  #reglages fieldset p.sub { margin:0; }
+  /* Dossier de stockage : tout sur une ligne, l'aide (déplacement des clips,
+     valeur vide) en infobulle plutôt qu'en paragraphe pour tenir sans
+     ascenseur. cursor:default : ce n'est pas un contrôle cliquable, juste un
+     porteur de title. */
+  .champDossier { display:flex; align-items:center; gap:8px; margin-bottom:10px;
+                   cursor:default; }
+  .champDossier label { flex:none; color:var(--dim); font-size:14px; }
+  .champDossier input { flex:1; margin-bottom:0; }
+  .champDossier button { flex:none; padding:0 14px; }
+  /* Coches d'une même famille (quotidienne/hebdo/mensuelle, sourdine par
+     caméra) : en ligne plutôt qu'empilées, repli à la ligne si trop
+     nombreuses (nombre de caméras variable, contrairement aux trois cases
+     d'archivage). */
+  .ligneCoches { display:flex; flex-wrap:wrap; gap:6px 20px; }
+  .ligneCoches label { margin-bottom:0; }
+  #reglages .row-boutons { margin-top:0; justify-content:space-between; }
+  #reglages .row-boutons button { flex:none; white-space:nowrap; padding:9px 12px; }
+  #stopButton { border-color:var(--out); color:#ffb3ab; }

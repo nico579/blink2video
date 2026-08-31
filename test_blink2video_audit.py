@@ -62,6 +62,17 @@ class FauxSync:
         self.sync_id = sync_id
 
 
+def boite_mp4(nom: bytes, contenu: bytes = b"") -> bytes:
+    return (len(contenu) + 8).to_bytes(4, "big") + nom + contenu
+
+
+MP4_STRUCTUREL = (
+    boite_mp4(b"ftyp", b"isom\x00\x00\x02\x00isomiso2")
+    + boite_mp4(b"moov")
+    + boite_mp4(b"mdat", b"paquet-video")
+)
+
+
 class FauxReponse:
     def __init__(self, statut: int, contenu: bytes):
         self.status = statut
@@ -224,6 +235,28 @@ class TestsGardes(BacASable):
         self.assertFalse(cible.exists())
         self.assertFalse(cible.with_suffix(".mp4.part").exists())
 
+    def test_I15_usb_ftyp_tronque_n_est_pas_un_succes(self):
+        """Un en-tête plausible sans moov/mdat ne peut jamais être publié."""
+        cible = self.home / "clips" / "ftyp-tronque.mp4"
+
+        class ClipTronque(FauxClip):
+            async def prepare_download(self, _blink):
+                return True
+
+            async def download_video(self, _blink, chemin):
+                Path(chemin).parent.mkdir(parents=True, exist_ok=True)
+                Path(chemin).write_bytes(
+                    boite_mp4(b"ftyp", b"isom\x00\x00\x02\x00isom") + b"\x00" * 100,
+                )
+                return True
+
+        resultat = asyncio.run(
+            blink_engine.download_clip(object(), ClipTronque(), cible, False),
+        )
+        self.assertEqual(resultat, "failed")
+        self.assertFalse(cible.exists())
+        self.assertFalse(cible.with_suffix(".mp4.part").exists())
+
     def test_I15_usb_fichier_mp4_valide_est_acquis(self):
         """Non-régression : une boîte ftyp réelle reste acceptée."""
         cible = self.home / "clips" / "valide.mp4"
@@ -234,12 +267,15 @@ class TestsGardes(BacASable):
 
             async def download_video(self, _blink, chemin):
                 Path(chemin).parent.mkdir(parents=True, exist_ok=True)
-                Path(chemin).write_bytes(
-                    b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 100)
+                Path(chemin).write_bytes(MP4_STRUCTUREL)
                 return True
 
-        resultat = asyncio.run(
-            blink_engine.download_clip(object(), ClipValide(), cible, False))
+        with mock.patch.object(
+            blink_engine.md, "valid_mp4_complet",
+            side_effect=blink_engine.md.valid_mp4,
+        ):
+            resultat = asyncio.run(
+                blink_engine.download_clip(object(), ClipValide(), cible, False))
         self.assertEqual(resultat, "downloaded")
         self.assertTrue(cible.is_file())
 
@@ -851,7 +887,8 @@ class TestsDefautsSynchrones(BacASable):
             "version": "9.9.9",
             "archive": {"nom": "archive.zip",
                         "url": "https://example.invalid/archive.zip",
-                        "taille": 10},
+                        "taille": 10,
+                        "sha256": "0" * 64},
         }
         dossier_extrait = self.racine / "extrait"
         dossier_extrait.mkdir()
@@ -1156,6 +1193,84 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(cible.exists())
         self.assertFalse((sortie / blink_registre.STATE_FILENAME).exists())
 
+    async def test_I15_cloud_diffuse_par_blocs_sans_charger_tout_en_memoire(self):
+        """Le chemin nominal aiohttp écrit directement le flux dans le .part."""
+        lectures_completes = []
+
+        class Flux:
+            async def iter_chunked(self, _taille):
+                for debut in range(0, len(MP4_STRUCTUREL), 7):
+                    yield MP4_STRUCTUREL[debut:debut + 7]
+
+        class Reponse:
+            status = 200
+            content = Flux()
+            headers = {"Content-Length": str(len(MP4_STRUCTUREL))}
+
+            async def read(self):
+                lectures_completes.append(True)
+                raise AssertionError("read() ne doit pas être appelé")
+
+        clip = blink_models.CloudClip({
+            "id": 20, "device_name": "jardin",
+            "created_at": "2026-08-13T12:00:00+00:00",
+            "media": "https://example.invalid/stream", "network_id": 7,
+        })
+        partiel = self.home / "stream.mp4.part"
+        self.assertTrue(await clip.download_to(FauxBlinkHTTP(Reponse()), partiel))
+        self.assertEqual(partiel.read_bytes(), MP4_STRUCTUREL)
+        self.assertEqual(lectures_completes, [])
+
+    async def test_I15_cloud_content_length_tronque_efface_le_partiel(self):
+        class Flux:
+            async def iter_chunked(self, _taille):
+                yield MP4_STRUCTUREL
+
+        reponse = SimpleNamespace(
+            status=200, content=Flux(),
+            headers={"Content-Length": str(len(MP4_STRUCTUREL) + 10)},
+        )
+        clip = blink_models.CloudClip({
+            "id": 21, "device_name": "jardin",
+            "created_at": "2026-08-13T12:00:00+00:00",
+            "media": "https://example.invalid/tronque", "network_id": 7,
+        })
+        partiel = self.home / "tronque.mp4.part"
+        self.assertFalse(await clip.download_to(FauxBlinkHTTP(reponse), partiel))
+        self.assertFalse(partiel.exists())
+        self.assertIn("tronquée", clip.download_issue[1])
+
+    async def test_I15_ftyp_tronque_ne_declenche_jamais_suppression_cloud(self):
+        """Même un downloader tiers trop optimiste est revalidé par le moteur."""
+        sortie = self.home / "clips-ftyp-tronque"
+        clip = FauxClip(22, "jardin")
+
+        async def telecharger(_blink, cible):
+            cible.parent.mkdir(parents=True, exist_ok=True)
+            cible.write_bytes(
+                boite_mp4(b"ftyp", b"isom\x00\x00\x02\x00isom") + b"\x00" * 100,
+            )
+            return True
+
+        clip.download_to = telecharger
+        clip.delete_video = mock.AsyncMock(return_value=True)
+        cible = blink_models.target_path(sortie, clip, source="cloud")
+        with mock.patch.object(
+            blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip]),
+        ), mock.patch.object(
+            blink_engine.runtime, "lire_suppression_auto", return_value={"jardin"},
+        ), contextlib.redirect_stdout(io.StringIO()):
+            resultat = await blink_engine.traiter_cloud(
+                object(),
+                self.arguments(command="download", source="cloud", output=sortie),
+                [],
+            )
+        self.assertEqual(resultat.failed, 1)
+        clip.delete_video.assert_not_awaited()
+        self.assertFalse(cible.exists())
+        self.assertFalse(cible.with_suffix(".mp4.part").exists())
+        self.assertFalse((sortie / blink_registre.STATE_FILENAME).exists())
+
     async def test_I15_http_200_corps_mp4_valide_est_acquis(self):
         """Non-régression : un vrai MP4 (boîte ftyp) reste accepté."""
         sortie = self.home / "clips-200-valide"
@@ -1165,10 +1280,13 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
             "media": "https://example.invalid/200-ok", "network_id": 7,
         })
         cible = blink_models.target_path(sortie, clip)
-        corps = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 100
+        corps = MP4_STRUCTUREL
         blink = FauxBlinkHTTP(FauxReponse(200, corps))
         with mock.patch.object(
             blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip]),
+        ), mock.patch.object(
+            blink_engine.md, "valid_mp4_complet",
+            side_effect=blink_engine.md.valid_mp4,
         ), contextlib.redirect_stdout(io.StringIO()):
             await blink_engine.traiter_cloud(
                 blink,
@@ -1191,7 +1309,7 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
             raise AssertionError("un clip acquis ou adopté ne doit pas être téléchargé")
 
         async def telecharger(_blink, cible):
-            cible.write_bytes(b"video-neuve")
+            cible.write_bytes(MP4_STRUCTUREL)
             return True
 
         async def refuser(_blink, cible):
@@ -1212,7 +1330,7 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         # du 0eab463 (bug #4), l'adoption exige valid_mp4(), pas seulement
         # une taille non nulle - ce test vérifie l'adoption d'un fichier
         # réellement valide, pas le trou que le bug laissait passer.
-        cible_adoptee.write_bytes(b"    ftyp" + b"\x00" * 56)
+        cible_adoptee.write_bytes(MP4_STRUCTUREL)
 
         etat = {"version": 1, "clips": {}}
         blink_registre.remember_download(etat, FauxSync(10), "cloud", saute, sortie, cible_sautee,
@@ -1225,6 +1343,9 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
             blink_models,
             "read_cloud_manifest",
             new=mock.AsyncMock(return_value=[saute, adopte, telecharge, echoue]),
+        ), mock.patch.object(
+            blink_engine.md, "valid_mp4_complet",
+            side_effect=blink_engine.md.valid_mp4,
         ), contextlib.redirect_stdout(io.StringIO()):
             resultat = await blink_engine.traiter_cloud(
                 object(),
@@ -1256,7 +1377,7 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         corrompu = FauxClip(1, "pas-un-mp4", instant)
 
         async def retelecharger(_blink, cible):
-            cible.write_bytes(b"    ftyp" + b"\x00" * 56)
+            cible.write_bytes(MP4_STRUCTUREL)
             return True
 
         corrompu.download_to = retelecharger
@@ -1268,6 +1389,9 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(
             blink_models, "read_cloud_manifest",
             new=mock.AsyncMock(return_value=[corrompu]),
+        ), mock.patch.object(
+            blink_engine.md, "valid_mp4_complet",
+            side_effect=blink_engine.md.valid_mp4,
         ), contextlib.redirect_stdout(io.StringIO()):
             resultat = await blink_engine.traiter_cloud(
                 object(),
@@ -1287,7 +1411,7 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
 
         async def telecharger(_blink, cible):
             cible.parent.mkdir(parents=True, exist_ok=True)
-            cible.write_bytes(b"video")
+            cible.write_bytes(MP4_STRUCTUREL)
             return True
 
         clip.download_to = telecharger
@@ -1301,7 +1425,9 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
             }},
         }), encoding="utf-8")
         with mock.patch.object(blink_models, "read_cloud_manifest",
-                               new=mock.AsyncMock(return_value=[clip])):
+                               new=mock.AsyncMock(return_value=[clip])), \
+             mock.patch.object(blink_engine.md, "valid_mp4_complet",
+                               side_effect=blink_engine.md.valid_mp4):
             with contextlib.redirect_stdout(io.StringIO()):
                 resultat = await blink_engine.traiter_cloud(
                     object(), self.arguments(command="download", output=sortie), [],
@@ -1761,6 +1887,7 @@ class TestsE01Onboarding(unittest.TestCase):
             (Path(domicile) / runtime.MARQUEUR_CONFIGURATION_INITIALE).write_text(
                 runtime.VERSION, encoding="utf-8")
             demarrer.return_value.pid = 4242
+            demarrer.return_value.poll.return_value = 0
             blink_cli.executer([["start"]])
         accueil.assert_not_called()
         # La composition complète est bien tentée (au moins un appel demarrer).
@@ -1820,6 +1947,7 @@ class TestsE01Onboarding(unittest.TestCase):
             (Path(domicile) / runtime.MARQUEUR_CONFIGURATION_INITIALE).write_text(
                 runtime.VERSION, encoding="utf-8")
             demarrer.return_value.pid = 4242
+            demarrer.return_value.poll.return_value = 0
             blink_cli.executer([["start"]])
             blink_cli.executer([["start"]])
         creer.assert_called_once()

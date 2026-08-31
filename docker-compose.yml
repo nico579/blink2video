@@ -8,6 +8,10 @@ services:
       # local : il n'y a aujourd'hui aucun mot de passe dessus, ce doit etre
       # un choix volontaire, pas un effet de bord de la publication du port.
       - "127.0.0.1:8765:8765"
+    environment:
+      # Le serveur voit l'adresse du pont Docker, pas 127.0.0.1. Cet opt-in
+      # n'est sûr qu'avec la publication loopback ci-dessus.
+      BLINK_TRUSTED_LOOPBACK_PROXY: "1"
     volumes:
       - blink_data:/data
 

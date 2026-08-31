@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 from typing import NoReturn
 
@@ -42,6 +43,9 @@ for _stream in (sys.stdout, sys.stderr):
 REPO = "nico579/blink2video"
 VERSION_FILE = "runtime.py"
 SRC = Path(__file__).resolve().parent
+BRANCHE_RELEASE = "main"
+SHA_GIT_RE = re.compile(r"^[0-9a-f]{40}$")
+TAG_RELEASE_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 
 # === COLOR / IO HELPERS (repris tels quels de lidar2map/deploy.py) ==========
 
@@ -114,6 +118,88 @@ def read_code_version() -> str:
     return m.group(1)
 
 
+def _sortie_git(*args) -> str:
+    return git(*args, capture=True).stdout.strip()
+
+
+def _remote_officiel(url: str) -> bool:
+    """Reconnaît uniquement le dépôt GitHub attendu, sans alias ni userinfo."""
+    url = str(url or "").strip()
+    chemin_attendu = f"/{REPO}.git"
+    if url == f"git@github.com:{REPO}.git":
+        return True
+    try:
+        parsed = urllib.parse.urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    if parsed.scheme == "https":
+        return (parsed.hostname == "github.com"
+                and parsed.username is None and parsed.password is None
+                and port is None and parsed.path == chemin_attendu
+                and not parsed.params and not parsed.query and not parsed.fragment)
+    if parsed.scheme == "ssh":
+        return (parsed.hostname == "github.com" and parsed.username == "git"
+                and parsed.password is None and port in (None, 22)
+                and parsed.path == chemin_attendu
+                and not parsed.params and not parsed.query and not parsed.fragment)
+    return False
+
+
+def _sha_git(valeur: str, contexte: str) -> str:
+    valeur = str(valeur or "").strip().lower()
+    if not SHA_GIT_RE.fullmatch(valeur):
+        fail(f"SHA Git invalide pour {contexte} : {valeur!r}")
+    return valeur
+
+
+def _sha_remote(ref: str, obligatoire: bool = True) -> str:
+    """Lit une référence distante sans modifier le dépôt ni ses refs locales."""
+    resultat = git("ls-remote", "--exit-code", "origin", ref,
+                   check=False, capture=True)
+    if resultat.returncode == 2 and not obligatoire:
+        return ""
+    if resultat.returncode != 0:
+        detail = (resultat.stderr or resultat.stdout or "").strip()
+        fail(f"impossible de lire {ref} sur origin" + (f"\n{detail}" if detail else ""))
+    lignes = [ligne.split() for ligne in resultat.stdout.splitlines() if ligne.strip()]
+    if len(lignes) != 1 or len(lignes[0]) != 2 or lignes[0][1] != ref:
+        fail(f"réponse ambiguë de origin pour {ref}")
+    return _sha_git(lignes[0][0], ref)
+
+
+def verifier_depot(new_tag: str = "") -> str:
+    """Refuse de déployer depuis une branche, un remote ou un HEAD inattendu."""
+    branche = _sortie_git("branch", "--show-current")
+    if branche != BRANCHE_RELEASE:
+        fail(f"branche courante {branche or '(HEAD détaché)'} ; "
+             f"le déploiement exige {BRANCHE_RELEASE}.")
+
+    fetch_url = _sortie_git("remote", "get-url", "origin")
+    push_url = _sortie_git("remote", "get-url", "--push", "origin")
+    if not _remote_officiel(fetch_url) or not _remote_officiel(push_url):
+        fail(f"origin doit pointer en lecture et écriture vers le dépôt officiel "
+             f"github.com/{REPO}.\nfetch={fetch_url!r}\npush={push_url!r}")
+
+    local = _sha_git(_sortie_git("rev-parse", "HEAD"), "HEAD local")
+    distant = _sha_remote(f"refs/heads/{BRANCHE_RELEASE}")
+    if local != distant:
+        fail(f"HEAD local ({local}) ne correspond pas exactement à "
+             f"origin/{BRANCHE_RELEASE} ({distant}). Synchronise le dépôt avant "
+             "de déployer.")
+
+    if new_tag:
+        existe_localement = git("show-ref", "--verify", "--quiet",
+                                f"refs/tags/{new_tag}", check=False)
+        if existe_localement.returncode == 0:
+            fail(f"le tag {new_tag} existe déjà localement")
+        if existe_localement.returncode not in (0, 1):
+            fail(f"impossible de vérifier le tag local {new_tag}")
+        if _sha_remote(f"refs/tags/{new_tag}", obligatoire=False):
+            fail(f"le tag {new_tag} existe déjà sur origin")
+    return local
+
+
 # === PRE-FLIGHT (spécifique à blink2video : pas dans les twins) =============
 
 def preflight() -> None:
@@ -142,9 +228,12 @@ def preflight() -> None:
 
 # === PUSH + TAG ================================================================
 
-def compute_diff() -> list:
+def compute_diff(dry_run: bool = False) -> list:
     cprint("\n==> Modifications :", "cyan")
-    git("add", "-A")
+    # Un dry-run doit être parfaitement observateur : même ``git add`` est une
+    # mutation de l'index et peut écraser la sélection de l'utilisateur.
+    if not dry_run:
+        git("add", "-A")
     status = git("status", "--short", capture=True).stdout.strip()
     if not status:
         cprint("    Aucun changement. Rien à pousser.", "yellow")
@@ -152,23 +241,39 @@ def compute_diff() -> list:
     for line in status.splitlines():
         print(f"    {line}")
     print()
+    if dry_run:
+        git("diff", "--stat")
+        git("diff", "--cached", "--stat")
+        return status.splitlines()
     git("diff", "--cached", "--stat")
-    changed = git("diff", "--cached", "--name-only", capture=True).stdout.strip().splitlines()
+    changed = _sortie_git("diff", "--cached", "--name-only").splitlines()
     return [c.strip() for c in changed if c.strip()]
 
 
-def commit_and_push(message: str, new_tag: str) -> None:
+def _publier_tag(tag: str, sha: str) -> None:
+    cprint(f"\n==> Tag {tag}", "cyan")
+    git("tag", "-a", tag, "-m", f"blink2video {tag}", sha)
+    git("push", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
+    distant = _sha_remote(f"refs/tags/{tag}^{{}}")
+    if distant != sha:
+        fail(f"le tag distant {tag} pointe vers {distant}, attendu {sha}")
+
+
+def commit_and_push(message: str, new_tag: str) -> str:
     cprint("\n==> Commit", "cyan")
     git("commit", "-m", message)
+    sha = _sha_git(_sortie_git("rev-parse", "HEAD"), "commit créé")
     cprint("\n==> Push origin main", "cyan")
-    git("push", "origin", "main")
+    git("push", "origin", f"HEAD:refs/heads/{BRANCHE_RELEASE}")
+    distant = _sha_remote(f"refs/heads/{BRANCHE_RELEASE}")
+    if distant != sha:
+        fail(f"origin/{BRANCHE_RELEASE} pointe vers {distant}, attendu {sha}")
     if new_tag:
-        cprint(f"\n==> Tag {new_tag}", "cyan")
-        git("tag", new_tag)
-        git("push", "origin", new_tag)
+        _publier_tag(new_tag, sha)
+    return sha
 
 
-def watch_release(tag: str) -> None:
+def watch_release(tag: str, sha: str) -> None:
     """Le tag poussé déclenche déjà release.yml tout seul (on: push: tags:
     v*) : contrairement au patch cloud de lidar2map/gpxsolar, rien à
     invoquer explicitement ici, seulement à retrouver le run et attendre
@@ -178,10 +283,13 @@ def watch_release(tag: str) -> None:
     for _ in range(6):
         time.sleep(5)
         runs = gh_json("run", "list", "--repo", REPO, "--workflow", "release.yml",
-                       "--limit", "1", "--json", "databaseId")
+                       "--event", "push", "--commit", sha,
+                       "--limit", "1", "--json", "databaseId,headSha")
         if runs:
-            run_id = runs[0]["databaseId"]
-            break
+            candidat = runs[0]
+            if str(candidat.get("headSha") or "").lower() == sha:
+                run_id = candidat["databaseId"]
+                break
     if not run_id:
         cprint("    Run introuvable automatiquement - vérifie l'onglet Actions.", "yellow")
         return
@@ -226,27 +334,30 @@ def main() -> int:
             fail(f"--new-tag {args.new_tag} != {want} (constante VERSION dans "
                  f"{VERSION_FILE}). Bumpe VERSION, puis repasse --new-tag sans "
                  f"valeur (le tag est dérivé).")
+        if not TAG_RELEASE_RE.fullmatch(args.new_tag):
+            fail(f"tag de release invalide : {args.new_tag!r} (format attendu vX.Y.Z)")
+
+    sha_initial = verifier_depot(args.new_tag)
 
     if not args.skip_tests and not args.dry_run:
         preflight()
 
-    changed = compute_diff()
+    changed = compute_diff(args.dry_run)
     if not changed:
         if args.new_tag:
             cprint(f"\n==> Aucun changement à pousser ; tag {args.new_tag} sur le HEAD courant.", "cyan")
-            git("tag", args.new_tag)
-            git("push", "origin", args.new_tag)
-            watch_release(args.new_tag)
+            _publier_tag(args.new_tag, sha_initial)
+            watch_release(args.new_tag, sha_initial)
         return 0
 
     if args.dry_run:
         cprint("\n==> --dry-run : pas de commit ni de push.", "yellow")
         return 0
 
-    commit_and_push(args.message, args.new_tag)
+    sha_publie = commit_and_push(args.message, args.new_tag)
 
     if args.new_tag:
-        watch_release(args.new_tag)
+        watch_release(args.new_tag, sha_publie)
     else:
         cprint("\n==> Poussé sur main (pas de tag -> pas de release).", "green")
 

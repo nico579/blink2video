@@ -1,0 +1,6 @@
+aiohttp
+blinkpy
+certifi
+tzdata
+imageio-ffmpeg
+backports.zoneinfo; python_version < "3.9"

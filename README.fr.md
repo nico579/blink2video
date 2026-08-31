@@ -155,7 +155,8 @@ Ou, sans cloner, avec l'image publiée sur
 
 ```bash
 docker run -d --name blink2video --restart unless-stopped \
-  -p 127.0.0.1:8765:8765 -v blink_data:/data nico579dock/blink2video
+  -p 127.0.0.1:8765:8765 -e BLINK_TRUSTED_LOOPBACK_PROXY=1 \
+  -v blink_data:/data nico579dock/blink2video
 ```
 
 Ouvrez `http://127.0.0.1:8765` et connectez-vous de la même façon. Réglages,
@@ -405,7 +406,7 @@ de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
 |---|---|
 | `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
-| `BLINK_BIND` | adresse d'écoute de `serve`, à défaut `127.0.0.1` (localhost uniquement). Mettre `0.0.0.0` pour joindre l'interface depuis d'autres machines du réseau. Aucune authentification sur l'interface web : réserver ça à un réseau domestique de confiance, ne jamais l'exposer sur internet |
+| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. L'interface reste volontairement limitée à la machine locale : `0.0.0.0` sert au conteneur officiel derrière une publication `127.0.0.1`, pas à exposer le tableau de bord au LAN |
 
 </details>
 

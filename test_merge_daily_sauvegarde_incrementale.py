@@ -19,6 +19,15 @@ from unittest import mock
 import merge_daily
 
 
+def mp4_structurel() -> bytes:
+    def boite(nom, contenu=b""):
+        return (len(contenu) + 8).to_bytes(4, "big") + nom + contenu
+    return (
+        boite(b"ftyp", b"isom\x00\x00\x02\x00isom")
+        + boite(b"moov") + boite(b"mdat", b"video")
+    )
+
+
 class TestsSauvegardeIncrementale(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory(prefix="blink_increment_test_")
@@ -41,8 +50,8 @@ class TestsSauvegardeIncrementale(unittest.TestCase):
     def test_un_clip_reussi_reste_acquis_si_le_suivant_plante(self):
         source_a = self.racine / "clips" / "a.mp4"
         source_b = self.racine / "clips" / "b.mp4"
-        source_a.write_bytes(b"    ftyp" + b"\x00" * 56)
-        source_b.write_bytes(b"    ftyp" + b"\x00" * 56)
+        source_a.write_bytes(mp4_structurel())
+        source_b.write_bytes(mp4_structurel())
         created = dt.datetime(2026, 8, 13, 10, tzinfo=dt.timezone.utc)
         groupes = {("jardin", "2026-08-13"): [(created, source_a), (created, source_b)]}
         info = merge_daily.ClipInfo(created=created, source=source_a, duration=5.0,

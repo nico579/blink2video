@@ -62,6 +62,20 @@ class Sync:
         self.network_id = network_id
 
 
+def _boite(nom: bytes, contenu: bytes = b"") -> bytes:
+    return (len(contenu) + 8).to_bytes(4, "big") + nom + contenu
+
+
+# Réparation/reconciliation seulement : le contenu de mdat n'a pas besoin
+# d'être un flux vidéo réel, valid_mp4_complet() est patché sur valid_mp4()
+# (structurel) dans ces tests, comme test_blink2video_audit.py le fait déjà.
+MP4_STRUCTUREL = (
+    _boite(b"ftyp", b"isom\x00\x00\x02\x00isomiso2")
+    + _boite(b"moov")
+    + _boite(b"mdat", b"paquet-video")
+)
+
+
 def arguments(output: Path, **changements):
     valeurs = dict(
         since=None,
@@ -455,12 +469,14 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
 
         async def telecharger(_blink, cible):
             appels.append(cible)
-            cible.write_bytes(b"repare")
+            cible.write_bytes(MP4_STRUCTUREL)
             return True
 
         clip.download_to = telecharger
         with mock.patch.object(
             blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip])
+        ), mock.patch.object(
+            blink_engine.md, "valid_mp4_complet", side_effect=blink_engine.md.valid_mp4
         ), contextlib.redirect_stdout(io.StringIO()):
             resultat = await blink_engine.traiter_cloud(
                 object(), arguments(self.sortie), []
@@ -539,12 +555,14 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
 
         async def reparer(_blink, partiel):
             appels.append(partiel)
-            partiel.write_bytes(b"video-reparee")
+            partiel.write_bytes(MP4_STRUCTUREL)
             return True
 
         clip.download_to = reparer
         with mock.patch.object(
             blink_models, "read_cloud_manifest", new=mock.AsyncMock(return_value=[clip])
+        ), mock.patch.object(
+            blink_engine.md, "valid_mp4_complet", side_effect=blink_engine.md.valid_mp4
         ), contextlib.redirect_stdout(io.StringIO()):
             resultat = await blink_engine.traiter_cloud(
                 object(), arguments(self.sortie), []
@@ -553,7 +571,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resultat.downloaded, 1)
         self.assertEqual(resultat.adopted, 0)
         self.assertEqual(len(appels), 1)
-        self.assertEqual(cible.read_bytes(), b"video-reparee")
+        self.assertEqual(cible.read_bytes(), MP4_STRUCTUREL)
 
     async def test_T_I16_filtre_cloud_A_slash_B_exclut_A_underscore_B(self):
         slash = Clip(1, nom="A/B", device_id="camera-slash")
@@ -619,7 +637,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
         )
 
         async def telecharger(_blink, cible):
-            cible.write_bytes(b"video")
+            cible.write_bytes(MP4_STRUCTUREL)
             return True
 
         premier.download_to = telecharger
@@ -628,6 +646,8 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
             blink_models,
             "read_cloud_manifest",
             new=mock.AsyncMock(return_value=[premier, second]),
+        ), mock.patch.object(
+            blink_engine.md, "valid_mp4_complet", side_effect=blink_engine.md.valid_mp4
         ), contextlib.redirect_stdout(io.StringIO()):
             resultat = await blink_engine.traiter_cloud(
                 object(), arguments(self.sortie), [("Maison", Sync("hub-1", "X"))]

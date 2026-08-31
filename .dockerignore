@@ -1,48 +1,21 @@
-# Meme perimetre que .gitignore : rien de personnel ni de secret ne doit
-# se retrouver dans l'image (voir .gitignore pour le detail des raisons).
-blink_auth.json
-blink_auth.json.*
-blink_auth.*.tmp
-watch_config.json
-blink_reglages.json
-blink_home.txt
+# Liste d'autorisation plutot que d'interdiction : COPY . . copie tout le
+# dossier de build, et un dossier de developpement local accumule des
+# fichiers d'etat (logs, session Blink, reglages, .blink_*.json...) qu'une
+# liste d'exclusion tenue a la main ne suit pas de facon fiable - constate
+# ici meme : merge.log, blink_langue.txt, blink_suppression_auto.json et
+# serve_erreurs.log manquaient tous les quatre a l'ancienne liste. Tout est
+# donc exclu par defaut ; seul ce dont le serveur a besoin est reautorise.
+*
 
-.blink_*.json
-.blink_*.json.*
-.blink_*.lock
-watch.log
-maj.log
+!*.py
+!requirements.txt
+!serve_style.css
+!serve_app.js
+!assets
+!assets/**
 
-Blink_Clips/
-Blink_Normalized/
-Blink_Excluded/
-Blink_Daily/
-Blink_Weekly/
-Blink_Monthly/
-.blink_thumbs/
-.blink_run/
-
-# ffmpeg embarque (inutile : l'image installe celui de la distribution) et
-# produits de construction, refabriques par build.py.
-_vendor/
-build/
-dist/
-build_venv/
-__pycache__/
-*.pyc
-
-smoketest.mp4
-
-# Specifique a l'image Docker : rien a voir avec l'execution du serveur.
-.git/
-.github/
-.claude/
-.ruff_cache/
-Dockerfile
-docker-compose.yml
-.dockerignore
-Screenshots/
-benchmarks/
+# Jamais dans l'image malgre le motif *.py ci-dessus : tests et outils de
+# developpement/build local, rien a voir avec l'execution du serveur.
 test_*.py
 tests.py
 smoketest.py

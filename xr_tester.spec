@@ -7,6 +7,8 @@ from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 SRC = Path(SPECPATH)
 APP_ICON = SRC / "assets" / "blink2video.png"
+# Généré explicitement par build_xr_tester.py : le fichier est ignoré par Git
+# et n'existe donc jamais dans un checkout propre.
 VERSION_INFO = SRC / ".version_info.txt"
 
 analysis = Analysis(

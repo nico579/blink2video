@@ -51,6 +51,7 @@ class TestsModeConfigurationInitiale(unittest.TestCase):
         handler.path = "/api/refresh"
         handler.initial_setup = True
         handler.hote_autorise = lambda: True
+        handler.jeton_valide = lambda: True
         handler.stream_refresh = mock.Mock()
         reponses = []
         handler.send_json = lambda payload, status=200: reponses.append((status, payload))
@@ -63,6 +64,7 @@ class TestsModeConfigurationInitiale(unittest.TestCase):
         handler.path = "/api/reglages"
         handler.initial_setup = True
         handler.hote_autorise = lambda: True
+        handler.jeton_valide = lambda: True
         reponses = []
         handler.send_json = lambda payload, status=200: reponses.append(payload)
         with mock.patch.object(serve.runtime, "lire_reglages", return_value={}), \

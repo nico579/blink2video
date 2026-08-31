@@ -21,9 +21,12 @@ from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotat
 
 import argparse
 import asyncio
+import concurrent.futures
 import datetime as dt
 import email.utils
+import hashlib
 import http.server
+import ipaddress
 import json
 import mimetypes
 import os
@@ -169,6 +172,44 @@ def provenances(entrees: dict) -> dict:
             for camera, sources in vues.items()}
 
 
+def suppression_auto_choices(entrees: dict) -> list:
+    """Caméras réglables, indexées par leur identité persistée et non leur nom."""
+    choices = {}
+    for entry in entrees.values():
+        if not isinstance(entry, dict) or not entry.get("camera"):
+            continue
+        key = blink_registre.camera_setting_key_from_entry(entry)
+        choice = choices.setdefault(key, {
+            "key": key,
+            "name": str(entry.get("camera") or "camera").strip() or "camera",
+            "sources": set(),
+            "hubs": set(),
+        })
+        choice["sources"].add(str(entry.get("source") or "usb"))
+        if entry.get("hub"):
+            choice["hubs"].add(str(entry["hub"]))
+    result = []
+    for choice in choices.values():
+        result.append({
+            "key": choice["key"],
+            "name": choice["name"],
+            "detail": " · ".join([
+                " + ".join(ETIQUETTES_SOURCE.get(s, s)
+                           for s in sorted(choice["sources"])),
+                ", ".join(sorted(choice["hubs"])),
+            ]).strip(" ·"),
+        })
+    return sorted(result, key=lambda item: (item["name"].casefold(), item["key"]))
+
+
+def suppression_auto_keys() -> set:
+    """Ignore les anciens noms ambigus jusqu'à leur migration explicite."""
+    return {
+        value for value in runtime.lire_suppression_auto()
+        if value.startswith("camera-v2-")
+    }
+
+
 def known_identities(paths: dict) -> set:
     """Chemins de clips que le registre reconnaît, sans rien mesurer.
 
@@ -215,6 +256,51 @@ RANGE_PRESETS_HOURS = {
 CAMERA_MODELS = {"owl": "Blink Mini", "catalina": "Blink Outdoor"}
 # Le module, lui, porte sa génération dans son type : sm2 = Sync Module 2.
 MODULE_MODELS = {"sm": "Sync Module", "sm2": "Sync Module 2"}
+
+
+def camera_key(sync, name: str, camera) -> str:
+    """Identifiant opaque et stable d'une caméra pour l'interface web."""
+    attributes = getattr(camera, "attributes", None) or {}
+    network_id = (
+        getattr(camera, "network_id", None)
+        or getattr(sync, "network_id", None)
+        or ""
+    )
+    device_id = ""
+    for value in (
+        getattr(camera, "device_id", None),
+        getattr(camera, "camera_id", None),
+        attributes.get("device_id"),
+        attributes.get("camera_id"),
+        attributes.get("id"),
+    ):
+        if value not in (None, ""):
+            device_id = str(value)
+            break
+    material = (
+        ["device", str(network_id), device_id]
+        if device_id
+        else [
+            "legacy", str(network_id), str(getattr(sync, "sync_id", "")),
+            str(name).strip().casefold(),
+        ]
+    )
+    digest = hashlib.sha256(
+        json.dumps(material, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"camera-{digest[:24]}"
+
+
+def system_key(name: str, sync) -> str:
+    material = [
+        str(getattr(sync, "network_id", "")),
+        str(getattr(sync, "sync_id", "")),
+        str(name).strip().casefold(),
+    ]
+    digest = hashlib.sha256(
+        json.dumps(material, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"system-{digest[:24]}"
 
 
 def model_name(kind: str | None) -> str | None:
@@ -321,6 +407,7 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
         clips.append({
             "identity": identity,
             "camera": camera,
+            "cameraKey": blink_registre.camera_setting_key_from_entry(entry),
             "day": local.date().isoformat(),
             "time": local.strftime("%H:%M:%S"),
             "excluded": excluded,
@@ -360,7 +447,7 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
         # La galerie ne propose pas la case Supprimer pour une caméra déjà en
         # suppression automatique (issue GitHub #1) : redondant, le clip sera
         # de toute façon retiré de sa source au prochain téléchargement réussi.
-        "suppressionAuto": sorted(runtime.lire_suppression_auto()),
+        "suppressionAuto": sorted(suppression_auto_keys()),
     }
 
 
@@ -600,19 +687,43 @@ class BlinkSession:
         si besoin. Lève RuntimeError si aucune session valable n'existe."""
         with self.lock:
             loop = self._ensure_loop()
+            finished = threading.Event()
 
             async def run():
-                if self.blink is None:
-                    self.session = blink_auth.session_http()
-                    self.blink = await blink_auth.connect_saved(self.session)
-                if self.blink is None:
-                    raise RuntimeError(
-                        "Session Blink absente ou expirée. Reconnectez-vous "
-                        "depuis le bouton Actualiser."
-                    )
-                return await coroutine_factory(self.blink)
+                try:
+                    if self.blink is None:
+                        self.session = blink_auth.session_http()
+                        self.blink = await blink_auth.connect_saved(self.session)
+                    if self.blink is None:
+                        raise RuntimeError(
+                            "Session Blink absente ou expirée. Reconnectez-vous "
+                            "depuis le bouton Actualiser."
+                        )
+                    return await coroutine_factory(self.blink)
+                finally:
+                    finished.set()
 
-            return asyncio.run_coroutine_threadsafe(run(), loop).result(timeout)
+            future = asyncio.run_coroutine_threadsafe(run(), loop)
+            try:
+                return future.result(timeout)
+            except concurrent.futures.TimeoutError:
+                # result(timeout) ne borne que l'attente du thread appelant :
+                # sans annulation, la coroutine continue sur la boucle Blink et
+                # peut armer une caméra ou supprimer un clip après que l'API a
+                # déjà annoncé un échec. La conserver permet au moins d'arrêter
+                # tout ce qui n'a pas encore été envoyé au service distant.
+                future.cancel()
+                try:
+                    future.result(timeout=5)
+                except (concurrent.futures.CancelledError,
+                        concurrent.futures.TimeoutError):
+                    pass
+                # Le Future concurrent passe à « cancelled » dès que la
+                # demande est transmise à la boucle, avant que le finally de
+                # la coroutine ait nécessairement rendu ses ressources. Une
+                # barrière distincte évite de libérer self.lock trop tôt.
+                finished.wait(timeout=5)
+                raise
 
     def forget(self):
         """Oublie la session courante : la prochaine demande se reconnectera."""
@@ -622,12 +733,75 @@ class BlinkSession:
                 asyncio.run_coroutine_threadsafe(self.session.close(), self.loop)
             self.session = None
 
-    def find_camera(self, blink, name: str):
+    def find_camera(self, blink, identity: str):
+        by_key = []
+        by_name = []
         for sync in blink.sync.values():
-            for camera_name, camera in sync.cameras.items():
-                if camera_name.strip() == name.strip():
-                    return sync, camera
-        raise RuntimeError(f"Caméra inconnue : {name}")
+            for camera_name, camera in (getattr(sync, "cameras", None) or {}).items():
+                if camera_key(sync, camera_name, camera) == identity:
+                    by_key.append((sync, camera))
+                if camera_name.strip() == identity.strip():
+                    by_name.append((sync, camera))
+        if len(by_key) == 1:
+            return by_key[0]
+        if len(by_key) > 1:
+            raise RuntimeError("Identifiant de caméra dupliqué dans le compte Blink.")
+        if len(by_name) == 1:
+            return by_name[0]
+        if len(by_name) > 1:
+            raise RuntimeError(
+                f"Nom de caméra ambigu : {identity}. Utilisez son identifiant stable."
+            )
+        raise RuntimeError(f"Caméra inconnue : {identity}")
+
+    def find_system(self, blink, identity: str):
+        by_name = []
+        for sync_name, sync in blink.sync.items():
+            if system_key(sync_name, sync) == identity:
+                return sync
+            if sync_name.strip() == identity.strip():
+                by_name.append(sync)
+        if len(by_name) == 1:
+            return by_name[0]
+        if len(by_name) > 1:
+            raise RuntimeError(f"Nom de système ambigu : {identity}")
+        raise RuntimeError(f"Système inconnu : {identity}")
+
+    def find_sync_module(self, blink, entry: dict):
+        """Résout le module d'un clip par ses IDs persistés.
+
+        Le support XR construit le vrai Sync Module depuis le homescreen : il
+        peut donc être absent de ``blink.sync``, qui contient encore, selon les
+        comptes, une Mini ou une Doorbell portant l'ID du périphérique. Le nom
+        de caméra n'est conservé qu'en repli pour les anciennes entrées du
+        registre dépourvues d'identifiants.
+        """
+        network_id = str(entry.get("network_id") or "")
+        sync_id = str(entry.get("sync_id") or "")
+        modules = [sync for _name, sync in blink_models.select_sync_modules(blink, None)]
+        if network_id or sync_id:
+            matches = [
+                sync for sync in modules
+                if (not network_id
+                    or str(getattr(sync, "network_id", "")) == network_id)
+                and (not sync_id
+                     or str(getattr(sync, "sync_id", "")) == sync_id)
+            ]
+            if len(matches) == 1:
+                return matches[0]
+            if not matches:
+                raise RuntimeError(
+                    f"Sync Module introuvable (réseau {network_id or '?'}, "
+                    f"module {sync_id or '?'})."
+                )
+            raise RuntimeError(
+                f"Sync Module ambigu (réseau {network_id or '?'}, "
+                f"module {sync_id or '?'})."
+            )
+
+        camera = str(entry.get("camera") or "").strip()
+        sync, _camera = self.find_camera(blink, camera)
+        return sync
 
 
 class LoginFlow:
@@ -790,6 +964,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         hote = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         if hote not in self._HOTES_LOCAUX:
             return False
+        # Host est fourni par le client et se forge avec curl : il ne constitue
+        # pas une frontière réseau. Hors conteneur, seule une vraie adresse
+        # cliente de boucle locale est admise. Le compose officiel passe par le
+        # pont Docker ; son opt-in explicite reste sûr tant que le port hôte est
+        # publié sur 127.0.0.1, comme dans docker-compose.yml.
+        client = str(getattr(self, "client_address", ("127.0.0.1", 0))[0])
+        try:
+            boucle_locale = ipaddress.ip_address(client).is_loopback
+        except ValueError:
+            boucle_locale = False
+        proxy_local = os.environ.get("BLINK_TRUSTED_LOOPBACK_PROXY") == "1"
+        if not boucle_locale and not proxy_local:
+            return False
         origine = self.headers.get("Origin")
         if origine and urlparse(origine).hostname not in self._HOTES_LOCAUX:
             return False
@@ -804,14 +991,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
         127.0.0.1) ; un en-tête personnalisé, lui, ne peut être posé que par
         du code qui a lu la page servie ici, ce qu'une origine étrangère ne
         peut pas faire (politique de même origine du navigateur)."""
-        return self.headers.get("X-Blink-Token") == TOKEN
+        if self.headers.get("X-Blink-Token") == TOKEN:
+            return True
+        # EventSource, <video> et <img> ne permettent pas d'ajouter un en-tête
+        # personnalisé. Leur URL porte donc le même secret ; no-referrer et la
+        # politique same-origin ci-dessous empêchent sa fuite vers un tiers.
+        valeurs = parse_qs(urlparse(self.path).query).get("token") or []
+        return any(value == TOKEN for value in valeurs)
 
     def end_headers(self) -> None:
         # cadre 'none' : même une page de ce site ne doit pas pouvoir
         # s'afficher dans un <iframe>, dernier rempart contre le
         # détournement de clic (cliquer sur un bouton qu'on croit ailleurs).
-        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            f"script-src 'nonce-{SCRIPT_NONCE}'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "media-src 'self' blob:; connect-src 'self'; object-src 'none'; "
+            "base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        )
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         super().end_headers()
 
     # ------------------------------------------------------------------ envoi
@@ -981,7 +1183,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
         Une caméra injoignable continue de renvoyer sa dernière température
         connue. La présenter sans date reviendrait à annoncer comme actuelle
         une valeur qui peut avoir des semaines."""
-        info = raw.get(camera_name.strip(), {})
+        candidates = raw.get(camera_name.strip(), [])
+        if isinstance(candidates, dict):
+            candidates = [candidates]
+        attributes = getattr(camera, "attributes", None) or {}
+        network_id = str(getattr(camera, "network_id", "") or "")
+        device_id = str(
+            getattr(camera, "device_id", None)
+            or getattr(camera, "camera_id", None)
+            or attributes.get("device_id")
+            or attributes.get("camera_id")
+            or attributes.get("id")
+            or ""
+        )
+        info = next(
+            (item for item in candidates
+             if device_id and str(item.get("id") or item.get("device_id")
+                                  or item.get("camera_id") or "") == device_id),
+            None,
+        )
+        if info is None:
+            info = next(
+                (item for item in candidates
+                 if network_id and str(item.get("network_id")
+                                       or item.get("network") or "") == network_id),
+                candidates[0] if candidates else {},
+            )
         status = str(info.get("status") or "").strip()
         measured = info.get("updated_at")
         age = None
@@ -1016,18 +1243,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return {
             "name": camera_name.strip(),
             "armed": bool(enabled),
-            "battery": camera.attributes.get("battery"),
+            "battery": attributes.get("battery"),
             "battery_signal": signals.get("battery"),
-            "voltage": camera.attributes.get("battery_voltage"),
+            "voltage": attributes.get("battery_voltage"),
             # Blink rapporte des degrés Fahrenheit ; blinkpy expose la
             # conversion, autant l'utiliser plutôt que de la refaire ici.
             "temperature": camera.temperature_c,
-            "wifi": camera.attributes.get("wifi_strength"),
+            "wifi": attributes.get("wifi_strength"),
             "lfr": signals.get("lfr"),
-            "firmware": camera.attributes.get("version"),
-            "kind": camera.attributes.get("type"),
-            "model": model_name(camera.attributes.get("type")),
-            "serial": info.get("serial") or camera.attributes.get("serial"),
+            "firmware": attributes.get("version"),
+            "kind": attributes.get("type"),
+            "model": model_name(attributes.get("type")),
+            "serial": info.get("serial") or attributes.get("serial"),
             "status": status,
             "offline": status == "offline",
             "measured_at": measured,
@@ -1057,7 +1284,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 home = getattr(_blink, "homescreen", None) or {}
                 for group in ("cameras", "owls", "doorbells"):
                     for item in home.get(group) or []:
-                        raw[str(item.get("name") or "").strip()] = item
+                        raw.setdefault(str(item.get("name") or "").strip(), []).append(item)
 
                 modules = {str(m.get("name") or "").strip(): m
                            for m in (home.get("sync_modules") or [])}
@@ -1068,6 +1295,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         module = list(modules.values())[0]
                     systems.append({
                         "name": name.strip(),
+                        "key": system_key(name, sync),
                         "armed": bool(sync.arm),
                         "module": MODULE_MODELS.get(module.get("type"))
                                   or (f"module « {module.get('type')} »"
@@ -1076,6 +1304,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "module_serial": module.get("serial"),
                         "cameras": [
                             dict(self.describe_camera(camera_name, camera, raw),
+                                 key=camera_key(sync, camera_name, camera),
                                  clips_source=venues.get(camera_name.strip()))
                             for camera_name, camera in sync.cameras.items()
                         ],
@@ -1087,22 +1316,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         remember_cameras(self.paths, state.get("systems") or [])
         return state
 
-    def set_armed(self, scope: str, name: str, armed: bool) -> None:
+    def set_armed(self, scope: str, identity: str, armed: bool) -> None:
         def apply(blink):
             async def run(_blink=blink):
                 if scope == "system":
-                    for sync_name, sync in _blink.sync.items():
-                        if sync_name.strip() == name:
-                            await sync.async_arm(armed)
-                            return
-                    raise RuntimeError(f"Système inconnu : {name}")
-                _, camera = BLINK.find_camera(_blink, name)
+                    sync = BLINK.find_system(_blink, identity)
+                    await sync.async_arm(armed)
+                    return
+                _, camera = BLINK.find_camera(_blink, identity)
                 await camera.async_arm(armed)
             return run()
 
         BLINK.call(apply, timeout=60)
 
-    def reveiller_camera(self, name: str) -> None:
+    def reveiller_camera(self, identity: str) -> None:
         """Reveille une camera pour de bon, pas une simple relecture du cache.
 
         `system_state()`/`/api/system` relit deja le compte a chaque fois,
@@ -1117,13 +1344,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         recherche qui a mene ici."""
         def demander(blink):
             async def run(_blink=blink):
-                _, camera = BLINK.find_camera(_blink, name)
+                _, camera = BLINK.find_camera(_blink, identity)
                 await camera.snap_picture()
             return run()
 
         BLINK.call(demander, timeout=130)
 
-    def send_camera_thumb(self, name: str) -> None:
+    def send_camera_thumb(self, identity: str) -> None:
         """Sert la dernière vignette connue d'une caméra.
 
         Elle remplace le cadre noir avant qu'on lance un direct : on voit
@@ -1134,11 +1361,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         Récupérée une seule fois, puis servie telle quelle : seul « Actualiser »
         la renouvelle."""
-        cached = (self.paths["thumbs"] / "cameras" / f"{safe_file(name)}.jpg")
+        cached = (self.paths["thumbs"] / "cameras" / f"{safe_file(identity)}.jpg")
         if not (cached.is_file() and cached.stat().st_size > 0):
             def fetch(blink):
                 async def run(_blink=blink):
-                    _, camera = BLINK.find_camera(_blink, name)
+                    _, camera = BLINK.find_camera(_blink, identity)
                     response = await camera.get_media()
                     if response is None or response.status != 200:
                         return b""
@@ -1147,7 +1374,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 body = BLINK.call(fetch, timeout=45)
             except Exception as error:
-                print(f"[vignette] {name} : {type(error).__name__}: {error}", flush=True)
+                print(f"[vignette] {identity} : {type(error).__name__}: {error}", flush=True)
                 body = b""
             if not body and not cached.is_file():
                 self.send_error(404)
@@ -1420,6 +1647,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(403)
             return
         route = urlparse(self.path).path
+        if route not in ("/", "/favicon.ico") and not self.jeton_valide():
+            self.send_error(403)
+            return
         if route == "/":
             body = PAGE.encode("utf-8")
             self.send_response(200)
@@ -1538,9 +1768,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # cloud de l'abonnement : selon la source du clip téléchargé,
             # blink_engine.py supprime du Sync Module ou du cloud (issue
             # GitHub #1, voir runtime.lire_suppression_auto()).
-            cameras = sorted(provenances(read_entries(self.paths)))
-            self.send_json({"cameras": cameras,
-                             "actives": sorted(runtime.lire_suppression_auto())})
+            entrees = read_entries(self.paths)
+            choices = suppression_auto_choices(entrees)
+            actives = suppression_auto_keys()
+
+            # Migration sûre de l'ancien fichier qui ne contenait que des
+            # noms : un nom unique peut être relié sans ambiguïté à sa clé.
+            # Les homonymes restent volontairement désactivés ; mieux vaut
+            # demander un nouveau choix que supprimer sur la mauvaise caméra.
+            anciennes = {
+                value for value in runtime.lire_suppression_auto()
+                if not value.startswith("camera-v2-")
+            }
+            by_name = {}
+            for choice in choices:
+                by_name.setdefault(choice["name"], []).append(choice["key"])
+            migrated = set(actives)
+            ignored = []
+            for name in anciennes:
+                keys = by_name.get(name, [])
+                if len(keys) == 1:
+                    migrated.add(keys[0])
+                else:
+                    ignored.append(name)
+            if anciennes:
+                runtime.ecrire_suppression_auto(migrated)
+                actives = migrated
+            self.send_json({"cameras": choices, "actives": sorted(actives),
+                            "legacy_ignored": sorted(ignored)})
             return
 
         if route == "/api/clips":
@@ -1970,7 +2225,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                     "supprime" if await clip.delete_video(blink)
                                     else "echec")
                                 continue
-                            sync, _ = BLINK.find_camera(blink, camera)
+                            sync = BLINK.find_sync_module(blink, entree)
                             # Une seule lecture de manifeste par Sync Module,
                             # même si plusieurs clips ciblés lui appartiennent.
                             cle = id(sync)
@@ -1990,11 +2245,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         except Exception as error:
                             resultats[identity] = f"echec: {type(error).__name__}"
 
+                slot_pris = False
                 try:
-                    BLINK.call(operation, timeout=30 + 90 * max(1, nb_cameras_usb))
+                    # Même ressource physique que le direct et le downloader :
+                    # lire puis régénérer un manifeste pendant l'une de ces
+                    # opérations produit « System is busy » ou un lot partiel.
+                    if not MODULE_SLOT.acquire(blocking=False):
+                        raise blink_engine.BusyError(_slot_occupe_message())
+                    slot_pris = True
+                    _slot_pris("suppression manuelle")
+                    with blink_engine.hub_lock("suppression manuelle"):
+                        BLINK.call(operation, timeout=30 + 90 * max(1, nb_cameras_usb))
                 except Exception as error:
                     for identity, _, _ in cibles:
                         resultats.setdefault(identity, f"echec: {type(error).__name__}")
+                finally:
+                    if slot_pris:
+                        _slot_rendu()
+                        MODULE_SLOT.release()
 
                 # Marqué dans le registre (issue GitHub #1, AUDIT 28.76/28.77) :
                 # la galerie sait déjà, sans appel réseau supplémentaire, qu'il
@@ -2146,12 +2414,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == "/api/suppression-auto":
             camera = str(payload.get("camera", "")).strip()
             actif = bool(payload.get("actif"))
-            if not camera:
-                self.send_json({"error": "Nom de caméra manquant."}, 400)
+            autorisees = {
+                choice["key"]
+                for choice in suppression_auto_choices(read_entries(self.paths))
+            }
+            if not camera or camera not in autorisees:
+                self.send_json({"error": "Identifiant de caméra inconnu."}, 400)
                 return
             # Pas de redémarrage : un_passage() (blink_engine.py) relit ce
             # fichier à chaque tour, même principe que runtime.lire_langue().
-            cameras = runtime.lire_suppression_auto()
+            cameras = suppression_auto_keys()
             if actif:
                 cameras.add(camera)
             else:
@@ -2182,181 +2454,7 @@ PAGE = """<!doctype html>
 <title>blink2video</title>
 <link rel="icon" href="/favicon.ico">
 <style>
-  :root { color-scheme: dark; --bg:#16181d; --card:#1e2128; --line:#2c313b;
-          --text:#e6e8ec; --dim:#9aa2b1; --out:#e0574a; --in:#4aa96c; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text);
-         font:15px/1.5 system-ui, "Segoe UI", sans-serif; }
-  header { position:sticky; top:0; z-index:10; background:var(--bg);
-           border-bottom:1px solid var(--line); padding:14px 20px;
-           display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
-  h1 { font-size:17px; margin:0 10px 0 0; font-weight:600; }
-  h1 .v { font-size:11px; font-weight:400; color:var(--dim); vertical-align:super; margin-left:3px; }
-  select, button { font:inherit; color:var(--text); background:var(--card);
-                   border:1px solid var(--line); border-radius:7px;
-                   padding:7px 12px; cursor:pointer; }
-  button:hover, select:hover { border-color:#4b5262; }
-  button.primary { background:#3a5a86; border-color:#48699a; }
-  /* Rouge (même teinte que .out) plutôt que la couleur neutre des autres
-     boutons : n'apparaît qu'après une case cochée, donc facile à manquer
-     sans ce signal, l'action pouvant supprimer des clips de leur source. */
-  button.danger { background:var(--out); border-color:#c0432f; color:#fff; }
-  label { color:var(--dim); display:flex; align-items:center; gap:7px; cursor:pointer; }
-  /* Un display explicite l'emporte sur l'attribut hidden : sans cette règle,
-     « voir les clips écartés » restait affiché dans le Direct et les vidéos
-     assemblées, où il ne veut rien dire. */
-  [hidden] { display:none !important; }
-  .count { color:var(--dim); margin-left:auto; font-variant-numeric:tabular-nums; }
-  /* Le groupe « mise à jour » : encadré discret pour qu'on voie d'un coup que
-     l'heure, la coche et le bouton parlent de la même chose. */
-  .maj { display:flex; align-items:center; gap:10px; padding:5px 5px 5px 12px;
-         border:1px solid var(--line); border-radius:9px; background:var(--card); }
-  .maj #passages { font-variant-numeric:tabular-nums; }
-  /* Une version qui attend se remarque sans crier : la couleur suffit. */
-  #update { background:#2f4a33; border-color:var(--in); color:#a8e6c0; }
-  .langGroup { display:flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
-  .btn-lang { background:var(--card); color:var(--dim); border:none; border-radius:0;
-              padding:7px 10px; font:inherit; font-weight:600; cursor:pointer; }
-  .btn-lang.active { background:#3a5a86; color:#fff; }
-  main { padding:20px; }
-  h2 { font-size:14px; color:var(--dim); font-weight:600; margin:28px 0 12px;
-       border-bottom:1px solid var(--line); padding-bottom:7px; }
-  h2:first-child { margin-top:0; }
-  .grid { display:grid; gap:16px;
-          grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); }
-  .grid.wide { grid-template-columns:repeat(auto-fill, minmax(460px, 1fr)); }
-  a.act { text-decoration:none; border:1px solid var(--line); background:var(--bg);
-          color:var(--dim); }
-  a.act:hover { border-color:#4b5262; color:var(--text); }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
-          overflow:hidden; display:flex; flex-direction:column; }
-  .card.out { opacity:.55; border-color:var(--out); }
-  video { width:100%; aspect-ratio:16/9; background:#000; display:block; }
-  .meta { display:flex; align-items:center; gap:10px; padding:10px 12px; }
-  .time { font-variant-numeric:tabular-nums; font-weight:600; }
-  /* Tout sur une ligne : en faisant défiler, le titre de jour sort de l'écran
-     et l'on ne sait plus de quand datent les clips affichés. */
-  .time.line { font-weight:500; font-size:13.5px; line-height:1.35; }
-  .sub { color:var(--dim); font-size:13px; }
-  .sub.tiny { font-size:12px; opacity:.65; }
-  .act { margin-left:auto; padding:6px 12px; border-radius:6px; }
-  .act.out { background:#4a2320; border-color:var(--out); color:#ffb3ab; }
-  .act.in  { background:#1e3d2b; border-color:var(--in); color:#a8e6c0; }
-  /* Second bouton d'un groupe de droite : la marge auto ne se pose qu'une
-     fois, sur le premier, sinon flexbox partage l'espace libre entre les
-     deux et les separe au lieu de les coller. */
-  .act.grouped { margin-left:0; }
-  .act:disabled { opacity:.6; cursor:default; }
-  #log { white-space:pre-wrap; font:13px/1.45 ui-monospace, Consolas, monospace;
-         background:#101216; border:1px solid var(--line); border-radius:8px;
-         padding:14px; margin-top:20px; color:var(--dim); display:none;
-         max-height:340px; overflow-y:auto; }
-  .empty { color:var(--dim); padding:40px 0; text-align:center; }
-  .window { color:var(--dim); font-size:13px; margin:0 0 16px; }
-  .window a { color:inherit; }
-  #work { display:none; width:100%; align-items:center; gap:12px; padding-top:4px; }
-  #work.on { display:flex; }
-  progress { flex:1; height:8px; border:0; border-radius:4px;
-             background:var(--card); appearance:none; }
-  progress::-webkit-progress-bar { background:var(--card); border-radius:4px; }
-  progress::-webkit-progress-value { background:#4d8ee0; border-radius:4px; }
-  progress::-moz-progress-bar { background:#4d8ee0; border-radius:4px; }
-  #phase { color:var(--dim); font-size:13px; white-space:nowrap; }
-  h2 { display:flex; align-items:center; gap:12px; }
-  h2 .act { margin-left:auto; font-size:13px; }
-  .live { position:relative; aspect-ratio:16/9; background:#000; display:flex;
-          align-items:center; justify-content:center; }
-  /* Sans ce couple de règles, .live garde son 16/9 fixe en plein écran et se
-     retrouve barrée de bandes noires au lieu de remplir l'écran. */
-  .live:fullscreen, .live:-webkit-full-screen { aspect-ratio:auto; }
-  .live img, .live video { width:100%; height:100%; object-fit:contain; }
-  /* La vignette reste en fond, le bouton se pose dessus. */
-  .live img.still { position:absolute; inset:0; opacity:.55; }
-  .live .watch { position:relative; }
-  .watch { border-radius:7px; padding:8px 14px; }
-  .watch.stop { position:absolute; right:10px; bottom:10px; opacity:.85; }
-  .watch.expand { position:absolute; right:10px; top:10px; opacity:.85;
-                  padding:5px 9px; font-size:16px; line-height:1; }
-  .live { flex-direction:column; gap:12px; }
-  .live .hint { color:var(--dim); font-size:14px; margin:0;
-                text-align:center; padding:0 20px; line-height:1.4; }
-  /* Sans décalage, l'astuce se centre au même endroit que le bouton
-     « Réessayer » (seul enfant en flux dans .live) et capte ses clics :
-     on la remonte au-dessus et on la rend transparente aux événements. */
-  .live .hint.overlay { position:absolute; bottom:56px; left:0; right:0;
-                         pointer-events:none; }
-  dialog { background:var(--card); color:var(--text); border:1px solid var(--line);
-           border-radius:12px; padding:24px; width:min(380px, 92vw); position:relative; }
-  dialog::backdrop { background:rgba(0,0,0,.6); }
-  .langGroupAuth { position:absolute; top:16px; right:16px; }
-  dialog h3 { margin:0 0 6px; font-size:16px; }
-  dialog p { margin:0 0 18px; color:var(--dim); font-size:13px; }
-  /* :not([type=checkbox]) : la meme regle stretchait aussi les cases a
-     cocher a 100% de large (visible seulement sur leur zone cliquable, pas
-     sur le dessin de la case), ce qui repoussait leur texte tres loin a
-     droite avec un retour a la ligne au milieu des mots. */
-  dialog input:not([type="checkbox"]) {
-    width:100%; font:inherit; color:var(--text); background:var(--bg);
-    border:1px solid var(--line); border-radius:7px;
-    padding:9px 11px; margin-bottom:12px;
-  }
-  .champMdp { display:flex; gap:8px; margin-bottom:12px; }
-  .champMdp input { margin-bottom:0; }
-  .champMdp button { flex:none; padding:0 12px; }
-  dialog .row { display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end;
-                margin-top:6px; }
-  #authError { color:var(--out); font-size:13px; min-height:18px; margin:0 0 6px; }
-  #reglages { width:min(560px, 92vw); }
-  #filtre { width:min(420px, 92vw); }
-  .filtreResume { color:var(--dim); font-size:13px; }
-  /* Du/au sur la même ligne que leur champ, comme les autres champCadence :
-     sans cette largeur fixe, un datetime-local à 100% forçait un retour à
-     la ligne (règle générale dialog input) et doublait la hauteur du
-     panneau pour rien - il ne tenait alors plus en entier à l'écran sans
-     défiler (constaté en réel, 2026-08-27). */
-  #rangeFrom, #rangeTo { width:190px; flex:none; }
-  .presets { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
-  .presets button { flex:none; }
-  #reglages label, #filtre label { align-items:flex-start; margin-bottom:14px; }
-  #reglages label input[type="checkbox"], #filtre label input[type="checkbox"] {
-    flex:none; margin:3px 0 0; width:16px; height:16px;
-  }
-  #outLabel { margin-bottom:20px; }
-  #reglages fieldset { border:1px solid var(--line); border-radius:10px;
-                        padding:14px 16px 16px; margin:0 0 16px; }
-  #reglages legend { padding:0 6px; font-size:13px; color:var(--dim); cursor:default; }
-  .champCadence { display:flex; align-items:center; flex-wrap:wrap;
-                  justify-content:space-between;
-                  gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
-  #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
-  /* Le fuseau ("Europe/Paris", "America/Los_Angeles"...) ne tient pas dans
-     les 70px des champs numériques voisins : élargi et aligné à gauche
-     plutôt que de forcer une largeur commune qui tronquerait sa valeur. */
-  #reglages #timezone { width:180px; text-align:left; }
-  /* USB et Cloud sur une même ligne : deux paires label+champ, pas un
-     agencement bord-à-bord comme .champCadence (qui n'en attend qu'une). */
-  .champCadenceDouble { display:flex; align-items:center; flex-wrap:wrap;
-                         gap:8px 10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
-  #reglages .champCadenceDouble input { width:60px; margin-bottom:0; text-align:right; }
-  #reglages fieldset p.sub { margin:0; }
-  /* Dossier de stockage : tout sur une ligne, l'aide (déplacement des clips,
-     valeur vide) en infobulle plutôt qu'en paragraphe pour tenir sans
-     ascenseur. cursor:default : ce n'est pas un contrôle cliquable, juste un
-     porteur de title. */
-  .champDossier { display:flex; align-items:center; gap:8px; margin-bottom:10px;
-                   cursor:default; }
-  .champDossier label { flex:none; color:var(--dim); font-size:14px; }
-  .champDossier input { flex:1; margin-bottom:0; }
-  .champDossier button { flex:none; padding:0 14px; }
-  /* Coches d'une même famille (quotidienne/hebdo/mensuelle, sourdine par
-     caméra) : en ligne plutôt qu'empilées, repli à la ligne si trop
-     nombreuses (nombre de caméras variable, contrairement aux trois cases
-     d'archivage). */
-  .ligneCoches { display:flex; flex-wrap:wrap; gap:6px 20px; }
-  .ligneCoches label { margin-bottom:0; }
-  #reglages .row-boutons { margin-top:0; justify-content:space-between; }
-  #reglages .row-boutons button { flex:none; white-space:nowrap; padding:9px 12px; }
-  #stopButton { border-color:var(--out); color:#ffb3ab; }
+__CSS__
 </style>
 </head>
 <body>
@@ -2379,13 +2477,13 @@ PAGE = """<!doctype html>
   <div class="maj">
     <button id="update" hidden></button>
     <span class="sub tiny" id="passages"></span>
-    <button class="danger" id="applyButton" hidden onclick="appliquerSelection()"></button>
+    <button class="danger" id="applyButton" hidden></button>
     <button class="primary" id="refresh" data-i18n="btn.refresh">↻ Actualiser</button>
     <button id="reglagesButton" data-i18n="btn.reglages" data-i18n-title="btn.reglages.title" title="Réglages">⚙ Réglages…</button>
   </div>
   <span class="langGroup" title="Langue / Language">
-    <button class="btn-lang" data-lang-btn="fr" onclick="setLang('fr', true)">FR</button>
-    <button class="btn-lang" data-lang-btn="en" onclick="setLang('en', true)">EN</button>
+    <button class="btn-lang" data-lang-btn="fr">FR</button>
+    <button class="btn-lang" data-lang-btn="en">EN</button>
   </span>
   <div id="work"><span id="phase"></span><progress id="bar"></progress></div>
 </header>
@@ -2397,8 +2495,8 @@ PAGE = """<!doctype html>
        Doublon minimal ici, seul moyen de changer de langue avant de se
        connecter. -->
   <span class="langGroup langGroupAuth" title="Langue / Language">
-    <button class="btn-lang" data-lang-btn="fr" onclick="setLang('fr', true)">FR</button>
-    <button class="btn-lang" data-lang-btn="en" onclick="setLang('en', true)">EN</button>
+    <button class="btn-lang" data-lang-btn="fr">FR</button>
+    <button class="btn-lang" data-lang-btn="en">EN</button>
   </span>
   <h3 id="authTitle" data-i18n="auth.title">Connexion Blink</h3>
   <p id="authHint" data-i18n="auth.hint">Le mot de passe sert uniquement à ouvrir la session ; seuls
@@ -2560,1863 +2658,28 @@ PAGE = """<!doctype html>
     <button id="filtreClose" data-i18n="reglages.close">Fermer</button>
   </div>
 </dialog>
-<script>
-// Jeton anti-CSRF (voir Handler.jeton_valide côté serveur, 28.60) : posé sur
-// toute requête qui modifie quelque chose. Fait une fois ici, avant tout
-// autre script, pour qu'aucun fetch() plus bas n'ait à s'en soucier.
-const BLINK_TOKEN = "__TOKEN__";
-const _fetchNatif = window.fetch;
-window.fetch = (entree, options) => {
-  options = options || {};
-  const methode = (options.method || "GET").toUpperCase();
-  if (methode !== "GET" && methode !== "HEAD") {
-    options = { ...options,
-               headers: { ...(options.headers || {}), "X-Blink-Token": BLINK_TOKEN } };
-  }
-  return _fetchNatif(entree, options);
-};
-
-let data = { clips: [], cameras: [], days: [] };
-let videos = { daily: [], weekly: [], monthly: [] };
-const $ = (id) => document.getElementById(id);
-
-// ── i18n ─────────────────────────────────────────────────────────────────
-// Même pattern que gui/app.js de lidar2map : dico inline par locale + attribut
-// data-i18n sur les nœuds statiques, t()/tf() appelés directement dans le
-// texte généré en JS. Zéro dépendance. Le FR en dur dans le HTML reste le
-// repli si une clé manque : pas de page cassée. Détection : navigator.language
-// au premier chargement ; override manuel persisté en localStorage (page web
-// ordinaire servie par serve.py, pas de webview packagée à contourner ici).
-const I18N = {
-  fr: {
-    "view.live": "Direct", "view.clips": "Clips", "view.daily": "Journalières",
-    "view.weekly": "Hebdomadaires", "view.monthly": "Mensuelles",
-    "filter.allcameras": "toutes caméras",
-    "btn.refresh": "↻ Actualiser", "btn.reglages": "⚙ Réglages…", "btn.reglages.title": "Réglages",
-    "update.installing": "Installer {version}",
-    "update.title": "Version {version} publiée. Le téléchargement, l'arrêt et la relance sont automatiques.",
-    "update.updating": "Mise à jour…",
-    "update.progress": "Mise à jour vers {version} : téléchargement, puis relance…",
-    "passages.updated": "actualisé {heure}",
-    "passages.new.one": " · {n} nouveau clip, cliquez sur Actualiser",
-    "passages.new.many": " · {n} nouveaux clips, cliquez sur Actualiser",
-    "auth.title": "Connexion Blink", "auth.title.2fa": "Vérification en deux étapes",
-    "auth.hint": "Le mot de passe sert uniquement à ouvrir la session ; seuls les jetons sont enregistrés, jamais le mot de passe.",
-    "auth.hint.2fa": "Blink vient d'envoyer un code. Saisissez-le pour terminer la connexion.",
-    "auth.email": "Adresse e-mail", "auth.password": "Mot de passe",
-    "auth.show": "Afficher", "auth.hide": "Masquer",
-    "auth.show.aria": "Afficher le mot de passe", "auth.hide.aria": "Masquer le mot de passe",
-    "auth.code": "Code reçu par SMS ou e-mail",
-    "auth.cancel": "Annuler", "auth.ok": "Se connecter", "auth.validate": "Valider",
-    "auth.connecting": "Connexion en cours…", "auth.failed": "Échec de la connexion.",
-    "reglages.title": "Réglages",
-    "reglages.initial.hint": "Vérifiez notamment le dossier des données et le fuseau horaire. Aucun clip ne sera téléchargé avant que vous ayez appliqué ces réglages.",
-    "reglages.autostart": "Démarrage de la surveillance à l'ouverture de session",
-    "reglages.autostart.title": "Démarre le serveur web et le traitement des clips à l'ouverture de session, en arrière-plan — n'ouvre pas cette page toute seule",
-    "reglages.auto": "Actualisation automatique de la page",
-    "reglages.auto.title": "Recharger la liste dès que des clips arrivent",
-    "reglages.showOut": "Voir les clips écartés",
-    "reglages.serveur": "Port du serveur",
-    "reglages.storageDir": "Dossier des données",
-    "reglages.storageDir.placeholder": "C:/chemin/vers/le/dossier",
-    "reglages.storageDir.hint": "Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.",
-    "reglages.storageDir.browse": "Parcourir…",
-    "reglages.storageDir.browse.unavailable": "Sélecteur de dossier indisponible sur cette machine : saisissez le chemin directement.",
-    "reglages.cadence": "Cadence de lecture des caméras",
-    "reglages.usb": "Stockage local (minutes)", "reglages.cloud": "Cloud (minutes)",
-    "reglages.video": "Vidéo", "reglages.timestamp": "Incruster la date et l'heure dans l'image",
-    "reglages.timezone": "Fuseau horaire",
-    "reglages.archivage": "Création des vidéos temporelles par caméra",
-    "reglages.downloadAuto": "Télécharger les clips automatiquement",
-    "reglages.downloadAuto.hint": "Décochée, aucun clip n'est plus récupéré ni stocké : utile pour ne garder que le direct. Les cadences ci-dessous n'ont alors plus d'effet.",
-    "reglages.mergeJour": "Quotidienne",
-    "reglages.mergeSemaine": "Hebdomadaire", "reglages.mergeMois": "Mensuelle",
-    "reglages.archivage.hint": "Hebdomadaire et mensuelle sont assemblées à partir de la quotidienne : décocher « Quotidienne » désactive aussi les deux autres.",
-    "reglages.alertes": "Mise en sourdine des alertes",
-    "reglages.suppressionAuto": "Suppression automatique après téléchargement",
-    "reglages.hint": "Les réglages ne prennent effet qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le port redirige cette page vers la nouvelle adresse.",
-    "reglages.apply": "Appliquer", "reglages.restarting": "Redémarrage…",
-    "reglages.restarting.settings": "Redémarrage avec les nouveaux réglages…",
-    "reglages.portchange": "Port changé : redirection vers {url} dès l'arrêt confirmé…",
-    "reglages.stop": "Arrêter la surveillance des caméras", "reglages.close": "Fermer",
-    "reglages.error.cadence": "Les cadences doivent valoir au moins 1 minute.",
-    "reglages.error.port": "Le port doit être compris entre 1 et 65535.",
-    "reglages.error.timezone": "Le fuseau horaire ne peut pas être vide.",
-    "stop.stopping": "Arrêt…",
-    "stop.stopped": "Arrêt demandé. Cette page va devenir indisponible.",
-    "stop.failed": "L'arrêt n'a pas abouti ; blink2video répond toujours.",
-    "reglages.restartFailed": "Le redémarrage n'a pas commencé. Vérifiez les journaux puis réessayez.",
-    "sourdine.loading": "Chargement…", "sourdine.unavailable": "Liste des caméras indisponible.",
-    "sourdine.none": "Aucune caméra connue pour l'instant.",
-    "suppressionAuto.loading": "Chargement…",
-    "suppressionAuto.unavailable": "Liste des caméras indisponible.",
-    "suppressionAuto.none": "Aucune caméra connue pour l'instant.",
-    "suppressionAuto.hint": "Une fois un clip téléchargé avec succès, il est supprimé de sa source (stockage local USB/microSD ou cloud de l'abonnement selon la caméra).",
-    "phase.inventory_clips": "Inventaire des clips à télécharger",
-    "phase.download_clips": "Téléchargement des clips",
-    "phase.prepare_clips": "Préparation des clips",
-    "phase.assemble_videos": "Assemblage des vidéos",
-    "phase.update_download": "Téléchargement de la mise à jour ({mo} Mo)",
-    "phase.update_install": "Installation de la mise à jour",
-    "phase.step_download": "Téléchargement", "phase.step_merge": "Fusion",
-    "phase.cloud_section": "Cloud de l'abonnement",
-    "phase.usb_section": "Stockage local : {hub}",
-    "live.querying": "Interrogation du système Blink…",
-    "live.count": "{n} caméra(s) · {m} armée(s)",
-    "system.armed": "Système armé", "system.disarmed": "Système désarmé",
-    "camera.offline": "HORS LIGNE", "camera.noeffect": "sans effet, système désarmé",
-    "camera.detection.on": "Détection active", "camera.detection.off": "Détection coupée",
-    "camera.wake": "Réveiller", "camera.waking": "Réveil…",
-    "camera.wake.title": "Réveille la caméra maintenant (prend une photo). Consomme un peu de batterie, jusqu'à 2 minutes.",
-    "camera.battery": "batterie {v}", "camera.wifi": "Wi-Fi {v} dBm",
-    "camera.lfr": "liaison module {v}", "camera.measured.at": "relevé à {v}",
-    "camera.measured.on": "relevé du {v}", "camera.firmware": "micrologiciel {v}",
-    "camera.noclips": "aucun clip récupéré", "camera.clipssource": "clips : {v}",
-    "camera.none": "—",
-    "watch.live": "Voir en direct", "watch.retry": "Réessayer", "watch.stop": "Arrêter",
-    "watch.waking": "Réveil de la caméra…", "watch.waking.seconds": "Réveil de la caméra… {s} s",
-    "watch.waking.slow": "Réveil de la caméra… {s} s (une caméra sur batterie est plus lente)",
-    "watch.waking.mse": "Réveil de la caméra… (MSE)", "watch.reconnecting": "Reconnexion…",
-    "live.fullscreen.title": "Agrandir en plein écran",
-    "live.fullscreen.title.exit": "Quitter le plein écran",
-    "watch.noimage": "Aucune image reçue. La caméra n'a pas répondu.",
-    "watch.refused": "Le flux a été refusé par le serveur.",
-    "watch.refused.code": "Le flux a été refusé par le serveur ({code}).",
-    "watch.refused.retry": "Flux refusé. Un direct précédent finit peut-être de se fermer : réessayez dans quelques secondes.",
-    "watch.codec.unsupported": "Codec non supporté par ce navigateur : {codec}",
-    "command.sending": "Envoi de la commande…",
-    "clips.none.filtered": "Aucun clip ne correspond à ce filtre.",
-    "clips.none.ever": "Aucun clip récupéré pour l'instant.<br>Le téléchargement tourne déjà en arrière-plan (clé USB toutes les 10 min, cloud toutes les minutes) : les clips apparaîtront ici sans rien faire. Vérifiez qu'une clé USB est branchée sur le module : sans elle, les enregistrements ne vont que dans le cloud de l'abonnement Blink, que cet outil ne lit pas.",
-    "clips.window": "{m}/{total} clips",
-    "range.title": "Période",
-    "range.today": "Aujourd'hui (24 h)", "range.week": "Cette semaine (7 j)",
-    "range.month": "Ce mois-ci", "range.2months": "2 derniers mois",
-    "range.all": "Tout l'historique", "range.custom": "Période personnalisée",
-    "range.custom.depuis": "depuis {v}", "range.custom.jusqua": "jusqu'au {v}",
-    "range.custom.hint": "Ou une plage précise, à l'heure près :",
-    "filtre.button": "🔍 Filtre", "filtre.button.title": "Filtrer",
-    "filtre.title": "Filtre", "filtre.camera": "Caméra",
-    "range.from": "Du", "range.to": "au", "range.apply": "Filtrer",
-    "videos.count": "{n} vidéo(s) · {duree} au total",
-    "videos.none": "Aucune vidéo assemblée. Lancez une actualisation.",
-    "videos.download": "Télécharger",
-    "clip.resume": "Reprendre", "clip.discard": "Écarter",
-    "clip.discard.title": "Retirer ce clip des vidéos assemblées (quotidienne, hebdomadaire, mensuelle). La copie téléchargée reste sur le disque.",
-    "clip.resume.title": "Réinclure ce clip dans les prochains assemblages.",
-    "clip.deleteSource": "Supprimer",
-    "clip.deleteSource.pending": "Suppression…",
-    "clip.deleteSource.title": "Supprimer ce clip de sa source (stockage local ou cloud de l'abonnement). La copie déjà téléchargée ici n'est pas touchée. Peut prendre jusqu'à une minute pour le stockage local.",
-    "selection.apply": "✓ Appliquer ({n})",
-    "selection.confirm.suppression": "{n} clip(s) vont être supprimés de leur source (stockage local USB/microSD ou cloud de l'abonnement). Les copies déjà téléchargées ne sont pas touchées. Continuer ?",
-    "selection.partial": "{n} suppression(s) ont échoué ou n'ont rien trouvé à supprimer (déjà retiré ailleurs). Le reste de la sélection a été appliqué.",
-    "refresh.starting": "Démarrage…", "refresh.errors": "Terminé avec des erreurs",
-    "refresh.disconnected": "\\nConnexion interrompue.\\n",
-  },
-  en: {
-    "view.live": "Live", "view.clips": "Clips", "view.daily": "Daily",
-    "view.weekly": "Weekly", "view.monthly": "Monthly",
-    "filter.allcameras": "all cameras",
-    "btn.refresh": "↻ Refresh", "btn.reglages": "⚙ Settings…", "btn.reglages.title": "Settings",
-    "update.installing": "Install {version}",
-    "update.title": "Version {version} published. Download, stop and restart are automatic.",
-    "update.updating": "Updating…",
-    "update.progress": "Updating to {version}: downloading, then restarting…",
-    "passages.updated": "updated {heure}",
-    "passages.new.one": " · {n} new clip, click Refresh",
-    "passages.new.many": " · {n} new clips, click Refresh",
-    "auth.title": "Blink login", "auth.title.2fa": "Two-step verification",
-    "auth.hint": "The password is only used to open the session; only the tokens are stored, never the password.",
-    "auth.hint.2fa": "Blink just sent a code. Enter it to finish logging in.",
-    "auth.email": "Email address", "auth.password": "Password",
-    "auth.show": "Show", "auth.hide": "Hide",
-    "auth.show.aria": "Show password", "auth.hide.aria": "Hide password",
-    "auth.code": "Code received by SMS or email",
-    "auth.cancel": "Cancel", "auth.ok": "Log in", "auth.validate": "Confirm",
-    "auth.connecting": "Signing in…", "auth.failed": "Login failed.",
-    "reglages.title": "Settings",
-    "reglages.initial.hint": "Check the data folder and time zone in particular. No clip will be downloaded until you apply these settings.",
-    "reglages.autostart": "Start monitoring at login",
-    "reglages.autostart.title": "Starts the web server and clip processing at login, in the background — does not open this page by itself",
-    "reglages.auto": "Automatic page refresh",
-    "reglages.auto.title": "Reload the list as soon as clips arrive",
-    "reglages.showOut": "Show discarded clips",
-    "reglages.serveur": "Server port",
-    "reglages.storageDir": "Data folder",
-    "reglages.storageDir.placeholder": "C:/path/to/the/folder",
-    "reglages.storageDir.hint": "Does not move clips or the Blink session already present at the old location: do it yourself if you change this path. Empty = default location, next to the executable.",
-    "reglages.storageDir.browse": "Browse…",
-    "reglages.storageDir.browse.unavailable": "Folder picker unavailable on this machine: type the path directly.",
-    "reglages.cadence": "Camera polling interval",
-    "reglages.usb": "Local storage (minutes)", "reglages.cloud": "Cloud (minutes)",
-    "reglages.video": "Video", "reglages.timestamp": "Burn the date and time into the image",
-    "reglages.timezone": "Time zone",
-    "reglages.archivage": "Per-camera time-based video creation",
-    "reglages.downloadAuto": "Download clips automatically",
-    "reglages.downloadAuto.hint": "Unchecked, no clip is fetched or stored anymore: useful to keep only the live view. The cadences below then have no effect.",
-    "reglages.mergeJour": "Daily",
-    "reglages.mergeSemaine": "Weekly", "reglages.mergeMois": "Monthly",
-    "reglages.archivage.hint": "Weekly and Monthly are assembled from the Daily: unchecking \u201cDaily\u201d also disables the other two.",
-    "reglages.alertes": "Mute alerts",
-    "reglages.suppressionAuto": "Automatic deletion after download",
-    "reglages.hint": "Settings only take effect on restart: \u201cApply\u201d saves and restarts. Changing the port redirects this page to the new address.",
-    "reglages.apply": "Apply", "reglages.restarting": "Restarting…",
-    "reglages.restarting.settings": "Restarting with the new settings…",
-    "reglages.portchange": "Port changed: redirecting to {url} once the shutdown is confirmed…",
-    "reglages.stop": "Stop camera monitoring", "reglages.close": "Close",
-    "reglages.error.cadence": "Intervals must be at least 1 minute.",
-    "reglages.error.port": "The port must be between 1 and 65535.",
-    "reglages.error.timezone": "The time zone cannot be empty.",
-    "stop.stopping": "Stopping…",
-    "stop.stopped": "Shutdown requested. This page will become unavailable.",
-    "stop.failed": "Shutdown did not complete; blink2video is still responding.",
-    "reglages.restartFailed": "Restart did not begin. Check the logs and try again.",
-    "sourdine.loading": "Loading…", "sourdine.unavailable": "Camera list unavailable.",
-    "sourdine.none": "No known camera yet.",
-    "suppressionAuto.loading": "Loading…",
-    "suppressionAuto.unavailable": "Camera list unavailable.",
-    "suppressionAuto.none": "No known camera yet.",
-    "suppressionAuto.hint": "Once a clip is successfully downloaded, it is deleted from its source (local USB/microSD storage or subscription cloud, depending on the camera).",
-    "phase.inventory_clips": "Finding clips to download",
-    "phase.download_clips": "Downloading clips",
-    "phase.prepare_clips": "Preparing clips",
-    "phase.assemble_videos": "Assembling videos",
-    "phase.update_download": "Downloading the update ({mo} MB)",
-    "phase.update_install": "Installing the update",
-    "phase.step_download": "Downloading", "phase.step_merge": "Merging",
-    "phase.cloud_section": "Subscription cloud",
-    "phase.usb_section": "Local storage: {hub}",
-    "live.querying": "Querying the Blink system…",
-    "live.count": "{n} camera(s) · {m} armed",
-    "system.armed": "System armed", "system.disarmed": "System disarmed",
-    "camera.offline": "OFFLINE", "camera.noeffect": "no effect, system disarmed",
-    "camera.detection.on": "Detection on", "camera.detection.off": "Detection off",
-    "camera.wake": "Wake", "camera.waking": "Waking…",
-    "camera.wake.title": "Wakes the camera now (takes a photo). Uses a bit of battery, up to 2 minutes.",
-    "camera.battery": "battery {v}", "camera.wifi": "Wi-Fi {v} dBm",
-    "camera.lfr": "module link {v}", "camera.measured.at": "measured at {v}",
-    "camera.measured.on": "measured on {v}", "camera.firmware": "firmware {v}",
-    "camera.noclips": "no clip retrieved", "camera.clipssource": "clips: {v}",
-    "camera.none": "—",
-    "watch.live": "View live", "watch.retry": "Retry", "watch.stop": "Stop",
-    "watch.waking": "Waking the camera…", "watch.waking.seconds": "Waking the camera… {s} s",
-    "watch.waking.slow": "Waking the camera… {s} s (a battery camera is slower)",
-    "watch.waking.mse": "Waking the camera… (MSE)", "watch.reconnecting": "Reconnecting…",
-    "live.fullscreen.title": "Expand fullscreen",
-    "live.fullscreen.title.exit": "Exit fullscreen",
-    "watch.noimage": "No image received. The camera did not respond.",
-    "watch.refused": "The stream was refused by the server.",
-    "watch.refused.code": "The stream was refused by the server ({code}).",
-    "watch.refused.retry": "Stream refused. A previous live view may still be closing: try again in a few seconds.",
-    "watch.codec.unsupported": "Codec not supported by this browser: {codec}",
-    "command.sending": "Sending command…",
-    "clips.none.filtered": "No clip matches this filter.",
-    "clips.none.ever": "No clip retrieved yet.<br>Download is already running in the background (USB every 10 min, cloud every minute): clips will appear here on their own. Check that a USB drive is plugged into the module: without it, recordings only go to the Blink subscription cloud, which this tool does not read.",
-    "clips.window": "{m}/{total} clips",
-    "range.title": "Period",
-    "range.today": "Today (24h)", "range.week": "This week (7d)",
-    "range.month": "This month", "range.2months": "Last 2 months",
-    "range.all": "All history", "range.custom": "Custom period",
-    "range.custom.depuis": "from {v}", "range.custom.jusqua": "until {v}",
-    "range.custom.hint": "Or a precise range, down to the hour:",
-    "filtre.button": "🔍 Filter", "filtre.button.title": "Filter",
-    "filtre.title": "Filter", "filtre.camera": "Camera",
-    "range.from": "From", "range.to": "to", "range.apply": "Filter",
-    "videos.count": "{n} video(s) · {duree} total",
-    "videos.none": "No assembled video. Run a refresh.",
-    "videos.download": "Download",
-    "clip.resume": "Resume", "clip.discard": "Discard",
-    "clip.discard.title": "Remove this clip from the assembled videos (daily, weekly, monthly). The downloaded copy stays on disk.",
-    "clip.resume.title": "Include this clip in future assemblies again.",
-    "clip.deleteSource": "Delete",
-    "clip.deleteSource.pending": "Deleting…",
-    "clip.deleteSource.title": "Delete this clip from its source (local storage or subscription cloud). The copy already downloaded here is not affected. Can take up to a minute for local storage.",
-    "selection.apply": "✓ Apply ({n})",
-    "selection.confirm.suppression": "{n} clip(s) will be deleted from their source (local USB/microSD storage or subscription cloud). Copies already downloaded here are not affected. Continue?",
-    "selection.partial": "{n} deletion(s) failed or found nothing to delete (already removed elsewhere). The rest of the selection was applied.",
-    "refresh.starting": "Starting…", "refresh.errors": "Finished with errors",
-    "refresh.disconnected": "\\nConnection lost.\\n",
-  },
-};
-let _lang = "fr";
-function t(k) { return (I18N[_lang] && I18N[_lang][k]) || I18N.fr[k] || k; }
-function tf(k, v) {
-  let s = t(k);
-  for (const p in (v || {})) s = s.split("{" + p + "}").join(v[p]);
-  return s;
-}
-function detectLang() {
-  return (navigator.language || "en").toLowerCase().startsWith("fr") ? "fr" : "en";
-}
-function applyI18n() {
-  document.documentElement.lang = _lang;
-  document.querySelectorAll("[data-i18n]").forEach((el) => {
-    const v = t(el.dataset.i18n); if (v) el.textContent = v;
-  });
-  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
-    const v = t(el.dataset.i18nPlaceholder); if (v) el.placeholder = v;
-  });
-  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
-    const v = t(el.dataset.i18nTitle); if (v) el.title = v;
-  });
-  document.querySelectorAll("[data-lang-btn]").forEach((b) =>
-    b.classList.toggle("active", b.dataset.langBtn === _lang));
-}
-function setLang(code, persist) {
-  _lang = code === "en" ? "en" : "fr";
-  applyI18n();
-  // Le bouton « afficher/masquer » le mot de passe suit son propre état
-  // (masqué ou non), qu'applyI18n ne connaît pas : ré-appliqué ici plutôt
-  // que par data-i18n, qui écraserait « Masquer » par « Afficher » si le
-  // mot de passe était déjà visible au moment du changement de langue.
-  const pass = $("pass");
-  if (pass) {
-    const masque = pass.type === "password";
-    $("passToggle").textContent = t(masque ? "auth.show" : "auth.hide");
-    $("passToggle").setAttribute("aria-label", t(masque ? "auth.show.aria" : "auth.hide.aria"));
-  }
-  // Rendu par JS plutôt que par data-i18n : reconstruire pour que la langue
-  // s'applique immédiatement, sans attendre le prochain événement qui
-  // déclencherait normalement ce rendu. fill() gère un tableau vide sans
-  // problème (l'option « tout » reste posée), donc pas de garde ici.
-  if (typeof fill === "function") {
-    fill($("camera"), data.cameras || [], t("filter.allcameras"),
-         (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
-  }
-  if (typeof render === "function" && data.clips) render();
-  if (typeof renderLive === "function" && system) renderLive();
-  // Un direct actif gèle la grille (voir renderLive()) : le bouton plein
-  // écran déjà posé survit donc au changement de langue sans se refaire,
-  // et doit être retraduit ici plutôt que de rester dans l'ancienne langue.
-  if (typeof syncExpandButtons === "function") syncExpandButtons();
-  // #sourdineListe porte data-i18n="sourdine.loading" en repli HTML :
-  // applyI18n() vient d'écraser ses cases à cocher réelles par ce texte de
-  // chargement si le panneau est ouvert pendant la bascule de langue.
-  // Reconstruire immédiatement plutôt que de laisser la liste figée ainsi
-  // jusqu'à la prochaine ouverture du panneau.
-  if (typeof chargerSourdine === "function" && $("reglages")?.open) chargerSourdine();
-  if (typeof chargerSuppressionAuto === "function" && $("reglages")?.open) chargerSuppressionAuto();
-  if (persist) localStorage.setItem("lang", _lang);
-  // Envoyé à chaque appel, pas seulement un choix explicite (persist) :
-  // le menu du systray (tray.py) lit cette valeur pour s'afficher dans la
-  // même langue que la page, y compris quand elle vient de detectLang()
-  // et n'a jamais été choisie à la main. Best-effort, jamais bloquant : une
-  // page ouverte hors-ligne ou un onglet d'arrière-plan ne doit pas faire
-  // échouer l'affichage.
-  fetch("/api/lang", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ lang: _lang }) }).catch(() => {});
-}
-
-function fill(select, values, all, label) {
-  const kept = select.value;
-  select.innerHTML = `<option value="">${all}</option>` +
-    values.map((v) => `<option value="${v}">${label ? label(v) : v}</option>`).join("");
-  if (values.includes(kept)) select.value = kept;
-}
-
-function visible() {
-  return data.clips.filter((c) =>
-    (!$("camera").value || c.camera === $("camera").value) &&
-    ($("showOut").checked || !c.excluded));
-}
-
-function duration(seconds) {
-  const s = Math.round(seconds);
-  const parts = [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60];
-  return (parts[0] ? parts : parts.slice(1))
-    .map((v, i) => (i ? String(v).padStart(2, "0") : v)).join(":");
-}
-
-function render() {
-  heuresDePassage();
-  const kind = $("view").value;
-  const clips = kind === "clips";
-  $("outLabel").hidden = !clips;
-  // Même périmètre que la caméra avant la refonte : Clips, Journalières,
-  // Hebdomadaires, Mensuelles s'y filtrent toutes, seul Direct n'en a pas
-  // l'usage. La période, elle, ne vaut que pour Clips (/api/clips) : le
-  // reste ne la lit jamais.
-  $("filtreButton").hidden = kind === "live";
-  $("periodeSection").hidden = !clips;
-  $("filtreResume").textContent = clips ? resumeFiltre() : "";
-  // Le décompte n'a de sens que pour Clips ; renderClips() le repose à
-  // chaque rendu, mais quitter cette vue doit l'effacer, pas le laisser
-  // périmé derrière une autre vue.
-  if (!clips) $("filtreCompte").textContent = "";
-  if (kind === "live") return renderLive();
-  return clips ? renderClips() : renderVideos(kind);
-}
-
-// --- direct et armement ----------------------------------------------------
-let system = null;
-
-async function loadSystem(force) {
-  if (system && !force) return renderLive();
-  // La vue peut avoir changé entre le déclenchement de cet appel et sa
-  // résolution (bascule rapide vers Clips, ou déclenchement précoce au
-  // chargement avant que la vue par défaut ne soit posée) : ne toucher au
-  // DOM que si Direct est encore affiché, sinon la réponse tardive
-  // écraserait une liste de clips déjà à l'écran sans que le menu déroulant
-  // ne le laisse deviner.
-  if ($("view").value === "live") {
-    $("list").innerHTML = `<p class="empty">${t("live.querying")}</p>`;
-    $("count").textContent = "";
-  }
-  try {
-    system = await (await fetch("/api/system")).json();
-  } catch (error) {
-    system = { error: String(error) };
-  }
-  if ($("view").value === "live") renderLive();
-}
-
-// Un calcul lancé par les boucles de fond, hors de cette page : le
-// téléchargement et l'assemblage publient leur avancement dans un fichier, seul
-// moyen pour la page d'apprendre que la machine travaille. Tant qu'il tourne,
-// le bouton reste inactif : un second calcul attendrait le même verrou, sans
-// rien avancer.
-let travailEnCours = false;
-let travailVisible = false;
-let actualisationLocale = false;
-
-// Le serveur ne connaît jamais la langue affichée (choix propre à chaque
-// onglet, en localStorage) : un libellé de phase arrive donc toujours en
-// français, accompagné d'une clé stable quand une traduction existe. Clé
-// absente ou inconnue de ce dictionnaire : le texte reçu reste affiché tel
-// quel plutôt qu'une chaîne vide, qui masquerait un travail réellement en
-// cours (ex. bug vécu en vrai : « Téléchargement des clips » figé en
-// français quelle que soit la langue choisie).
-function libellePhase(cle, texteBrut, valeurs) {
-  if (!cle || !((I18N[_lang] && I18N[_lang][cle]) || I18N.fr[cle])) return texteBrut;
-  return valeurs ? tf(cle, valeurs) : t(cle);
-}
-
-function montrerTravail(travail) {
-  if (actualisationLocale) return;    // notre propre barre parle déjà
-  const visible = !!(travail && travail.quoi);
-  if (!visible) {
-    if (travailVisible) {
-      $("work").classList.remove("on");
-      rechargerEnArrierePlan();
-    }
-    travailEnCours = false;
-    travailVisible = false;
-    $("refresh").disabled = false;
-    return;
-  }
-  const termine = !!travail.termine;
-  const actif = travail.actif === undefined ? !termine : !!travail.actif;
-  const etaitActif = travailEnCours;
-  travailEnCours = actif;
-  travailVisible = true;
-  $("refresh").disabled = actif;
-  $("work").classList.add("on");
-  const total = travail.total || 0;
-  const fait = travail.fait || 0;
-  const quoi = travail.cle === "phase.update_download"
-    ? libellePhase(travail.cle, travail.quoi, { mo: Math.round(total) })
-    : libellePhase(travail.cle, travail.quoi);
-  if (total) {
-    $("bar").max = total;
-    $("bar").value = fait;
-    const courant = fait >= total ? total : fait + 1;
-    $("phase").textContent =
-      `${quoi} ${courant}/${total} (${Math.round((fait / total) * 100)} %)`;
-  } else {
-    $("bar").removeAttribute("value");
-    $("phase").textContent = quoi;
-  }
-  // Le N/N retenu dix secondes est visible, mais n'est plus un verrou : un
-  // nouveau clic reste possible. Si la page avait vu le travail actif, sa fin
-  // déclenche exactement le même rafraîchissement qu'une disparition directe.
-  if (termine && etaitActif && !actif) rechargerEnArrierePlan();
-}
-
-// Une version publiée plus récente que celle qui tourne : le bouton apparaît,
-// et il fait tout, du téléchargement à la relance. Pendant l'opération le
-// serveur s'arrête et revient : la page attend son retour, puis se recharge.
-function montrerMaj(neuve) {
-  const bouton = $("update");
-  bouton.hidden = !(neuve && neuve.version);
-  if (bouton.hidden || bouton.dataset.encours) return;
-  bouton.textContent = tf("update.installing", { version: neuve.version });
-  bouton.title = tf("update.title", { version: neuve.version });
-}
-
-$("update").onclick = async () => {
-  const bouton = $("update");
-  bouton.dataset.encours = "1";
-  bouton.disabled = true;
-  bouton.textContent = t("update.updating");
-  const reponse = await fetch("/api/update", { method: "POST",
-    headers: { "Content-Type": "application/json" }, body: "{}" });
-  const resultat = await reponse.json();
-  if (resultat.error) {
-    alert(resultat.error);
-    bouton.disabled = false;
-    delete bouton.dataset.encours;
-    return;
-  }
-  $("phase").textContent = tf("update.progress", { version: resultat.version });
-  $("bar").removeAttribute("value");
-  $("work").classList.add("on");
-  $("refresh").disabled = true;
-  // Le serveur va disparaître puis revenir sous sa nouvelle version. On teste
-  // sa présence, et c'est son retour qui sert de fin de course.
-  let parti = false;
-  const attente = setInterval(async () => {
-    try {
-      await fetch("/api/status", { cache: "no-store" });
-      if (parti) location.reload();
-    } catch (erreur) {
-      parti = true;      // il s'est arrêté : la relance suit
-    }
-  }, 2000);
-  setTimeout(() => clearInterval(attente), 900000);
-};
-
-let dernierRechargementAuto = 0;
-
-// Rechargement déclenché par l'arrière-plan (nouveau clip détecté, ou fin
-// d'un calcul) plutôt que par un clic explicite : jamais plus d'une fois
-// toutes les 60 secondes, le rythme normal de veille de veiller(). Pendant
-// un gros lot en cours de traitement, chaque nouveau clip détecté ou chaque
-// bascule de travailEnCours pouvait sinon redéclencher un rechargement
-// complet de la grille (toutes les vignettes vidéo détruites et
-// reconstruites), perçu comme un clignotement (constaté en réel, 2026-08-27).
-function rechargerEnArrierePlan() {
-  const maintenant = Date.now();
-  if (maintenant - dernierRechargementAuto < 60000) return;
-  dernierRechargementAuto = maintenant;
-  load();
-}
-
-async function heuresDePassage() {
-  let etat = {};
-  try {
-    etat = await (await fetch("/api/passages")).json();
-  } catch (erreur) { return; }
-  montrerMaj(etat.maj);
-  const vus = etat.passages || {};
-  // Des clips sont arrivés depuis que la page a été chargée : on le dit, et
-  // c'est à vous de cliquer sur Actualiser. La liste ne se réorganise pas sous
-  // les yeux de qui est en train de la lire.
-  //
-  // Face à total_known (le vrai total du registre, jamais borné par le
-  // filtre actif), jamais data.clips.length : celui-ci ne compte que ce que
-  // le filtre courant affiche (une caméra, une période étroite…), pas tout
-  // ce qui est connu. Comparer le total réel à un sous-ensemble filtré
-  // annonçait des centaines de « nouveaux » clips qui n'avaient rien de
-  // nouveau (constaté en réel, 2026-08-27).
-  const arrives = (data && data.total_known !== undefined)
-    ? Math.max(0, (etat.clips || 0) - data.total_known) : 0;
-  // Une seule heure, la plus récente des trois. Le détail du verbe le plus en
-  // retard alourdissait la ligne pour un cas rare.
-  const dates = ["watch", "download", "merge"].filter((cle) => vus[cle]);
-  if (!dates.length) return;
-
-  const instant = (cle) => new Date(vus[cle]).getTime();
-  const plusRecent = dates.reduce((a, b) => (instant(a) > instant(b) ? a : b));
-  // Choix mémorisé d'un affichage à l'autre : une préférence qu'il faudrait
-  // recocher à chaque ouverture n'en serait pas une. Pendant un calcul, on ne
-  // recharge pas : la liste changerait sous les yeux à chaque vidéo assemblée.
-  if (arrives && $("auto").checked && !travailEnCours) {
-    rechargerEnArrierePlan();
-    return;
-  }
-  const nouveaux = arrives
-    ? tf(arrives > 1 ? "passages.new.many" : "passages.new.one", { n: arrives })
-    : "";
-  $("passages").textContent =
-    tf("passages.updated", { heure: vus[plusRecent].slice(11, 16) }) + nouveaux;
-}
-
-async function etatDuTravail() {
-  try {
-    const etat = await (await fetch("/api/travail", { cache: "no-store" })).json();
-    montrerTravail(etat.travail);
-  } catch (erreur) { /* le prochain passage réessaiera */ }
-}
-
-function renderLive() {
-  // Reconstruire la grille remplace tout son HTML, direct en cours compris :
-  // la balise <video> et son AbortController survivraient, orphelins, sous
-  // un DOM tout neuf qui ne les référence plus (vu en vrai : un clip qui
-  // arrive en tâche de fond suffit à déclencher ce rafraîchissement pendant
-  // qu'un direct tourne, qui semble alors s'arrêter sans jamais reprendre).
-  // Un direct actif gèle donc la grille jusqu'à ce qu'il s'arrête.
-  if (Object.keys(MSE_ABORT).length) return;
-  if (!system) return loadSystem(false);
-  if (system.error) {
-    $("list").innerHTML = `<p class="empty">${system.error}</p>`;
-    return;
-  }
-  const cameras = system.systems.reduce((n, s) => n + s.cameras.length, 0);
-  const armed = system.systems.reduce(
-    (n, s) => n + s.cameras.filter((c) => c.armed).length, 0);
-  $("count").textContent = tf("live.count", { n: cameras, m: armed });
-
-  $("list").innerHTML = system.systems.map((s) => `
-    <h2>
-      ${s.name}
-      <span class="sub tiny">${[s.module,
-        s.module_firmware ? tf("camera.firmware", { v: s.module_firmware }) : null,
-        s.module_serial].filter(Boolean).join(" · ")}</span>
-      <button class="act ${s.armed ? "in" : "out"}"
-              onclick="setArmed('system', '${s.name}', ${!s.armed})">
-        ${s.armed ? t("system.armed") : t("system.disarmed")}
-      </button>
-    </h2>
-    <div class="grid wide">${s.cameras.map((c) => cameraCard(c, s.armed)).join("")}</div>
-  `).join("");
-}
-
-function cameraCard(c, systemArmed) {
-  // Une mesure vieille de plus d'une heure est datée, et une caméra hors
-  // ligne est signalée comme telle : sa dernière température connue peut
-  // remonter à plusieurs semaines.
-  const vieille = c.age_seconds !== null && c.age_seconds > 3600;
-  const num = (v) => v !== null && v !== undefined;
-  const releve = [
-    c.battery ? tf("camera.battery", { v: c.battery }) + (num(c.battery_signal) ? ` (${c.battery_signal})` : "") : null,
-    num(c.temperature) ? `${c.temperature.toFixed(1).replace(".", ",")} °C` : null,
-    num(c.wifi) ? tf("camera.wifi", { v: c.wifi }) : null,
-    num(c.lfr) ? tf("camera.lfr", { v: c.lfr }) : null,
-  ].filter(Boolean).join(" · ");
-  const date = c.measured_at
-    ? (c.measured_at.includes("à") ? tf("camera.measured.on", { v: c.measured_at })
-                                   : tf("camera.measured.at", { v: c.measured_at }))
-    : null;
-  const details = [
-    c.offline ? t("camera.offline") : null,
-    releve || null,
-    date,
-    c.armed && !systemArmed ? t("camera.noeffect") : null,
-  ].filter(Boolean).join(" · ");
-  return `<div class="card ${c.offline ? "out" : ""}">
-    <div class="live" id="live-${cssId(c.name)}">${repos(c.name, t("watch.live"))}</div>
-    <div class="meta">
-      <div>
-        <div class="time">${c.name}</div>
-        <div class="sub">${details || t("camera.none")}</div>
-        <div class="sub tiny">${[c.model,
-          c.firmware ? tf("camera.firmware", { v: c.firmware }) : null, c.serial,
-          c.clips_source ? tf("camera.clipssource", { v: c.clips_source }) : t("camera.noclips"),
-        ].filter(Boolean).join(" · ")}</div>
-      </div>
-      <button class="act ${c.armed ? "in" : "out"}"
-              onclick="setArmed('camera', '${c.name}', ${!c.armed})">
-        ${c.armed ? t("camera.detection.on") : t("camera.detection.off")}
-      </button>
-      <button class="act grouped" title="${t("camera.wake.title")}"
-              onclick="reveillerCamera('${c.name}', event)">${t("camera.wake")}</button>
-    </div>
-  </div>`;
-}
-
-const cssId = (name) => name.replace(/[^\\w-]/g, "_");
-
-// Un direct qui échoue doit rendre son bouton d'origine : laisser « Arrêter »
-// laisserait croire qu'un flux tourne, et il n'y aurait plus aucun moyen de
-// relancer. Retirer la balise <img> ferme au passage la connexion restée
-// ouverte côté serveur.
-function failWatch(name, message) {
-  const box = $("live-" + cssId(name));
-  box.innerHTML = repos(name, t("watch.retry")) + `<p class="hint overlay">${message}</p>`;
-}
-
-// Ni <img> (MJPEG) ni la balise <video> du direct MSE ne portent l'attribut
-// controls (un scrubber n'aurait aucun sens sur un flux sans fin) : le
-// plein écran ne peut donc pas venir gratuitement du navigateur comme pour
-// les clips enregistrés. Bouton dédié plutôt qu'un clic sur toute la case :
-// essayé d'abord, jugé peu explicite à l'usage.
-function toggleFullscreen(name) {
-  if (document.fullscreenElement || document.webkitFullscreenElement) {
-    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    return;
-  }
-  const box = $("live-" + cssId(name));
-  (box.requestFullscreen || box.webkitRequestFullscreen).call(box);
-}
-
-function stopWatch(name) {
-  // La case peut avoir disparu sous nos pieds (actualisation de la vue
-  // pendant le direct) : la remise au repos est cosmétique, mais couper les
-  // flux ci-dessous ne doit jamais en dépendre.
-  const box = $("live-" + cssId(name));
-  if (box) box.innerHTML = repos(name, t("watch.live"));
-  const controller = MSE_ABORT[name];
-  if (controller) { controller.abort(); delete MSE_ABORT[name]; }
-}
-
-// --- MSE/fMP4 : remux sans réencodage, <video> décodé par le navigateur ---
-// Contrairement à <img>, un fetch() ne s'arrête pas tout seul quand on jette
-// la balise : il faut son propre AbortController, gardé ici par caméra pour
-// que stopWatch() puisse le couper.
-const MSE_ABORT = {};
-// Blink referme parfois la session en cours de route, sans rapport avec ce
-// projet (vu en vrai : entre quelques images et ~1 Mo transmis, puis la
-// connexion vers son relais s'interrompt en plein paquet - cause identifiée
-// côté blinkpy, voir blink_engine.py). Une reprise manuelle marche presque
-// toujours : on l'automatise. Le compteur d'échecs ne grimpe que sur une
-// reprise qui n'aura livré aucune image ; dès qu'une image arrive, il
-// retombe à zéro, pour ne pas abandonner un direct qui fonctionne juste par
-// à-coups. MSE_BUDGET_TOTAL_MS borne quand même la durée totale : un onglet
-// oublié ouvert ne doit pas relancer la caméra indéfiniment. Le délai entre
-// deux tentatives n'est pas cosmétique : Blink n'accepte qu'une seule
-// session de direct par compte à la fois et met du temps à libérer la
-// précédente côté serveur ; une reprise trop rapide se heurte à cette
-// session pas encore relâchée, pas à un vrai problème.
-const MSE_MAX_ECHECS_A_VIDE = 5;
-const MSE_DELAI_RECONNEXION_MS = 3000;
-const MSE_BUDGET_TOTAL_MS = 10 * 60 * 1000;
-
-function attendreOuAbandon(ms, signal) {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
-    const id = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
-      clearTimeout(id);
-      reject(new DOMException("Aborted", "AbortError"));
-    }, { once: true });
-  });
-}
-
-// Un cycle connexion -> flux -> fin. Renvoie si au moins une image est
-// arrivée (utilisé par watchMse pour décider de réessayer ou d'abandonner).
-async function connecterMse(name, video, signal, texteAttente, t0) {
-  const box = $("live-" + cssId(name));
-  if (box && !$("hint-" + cssId(name))) {
-    box.insertAdjacentHTML(
-      "beforeend",
-      `<p class="hint overlay" id="hint-${cssId(name)}">${texteAttente}</p>`
-    );
-  }
-  const hint = $("hint-" + cssId(name));
-
-  const mediaSource = new MediaSource();
-  const url = URL.createObjectURL(mediaSource);
-  video.src = url;
-  let recu = false;
-  try {
-    await new Promise((resolve, reject) => {
-      mediaSource.addEventListener("sourceopen", async () => {
-        try {
-          const response = await fetch(`/live-mse/${encodeURIComponent(name)}`,
-                                        { signal });
-          if (!response.ok) {
-            let message = tf("watch.refused.code", { code: response.status });
-            try {
-              const info = await (await fetch("/api/live-error")).json();
-              if (info.camera === name && info.message) message = info.message;
-            } catch (error) { /* on garde le message générique */ }
-            throw new Error(message);
-          }
-          const codec = response.headers.get("X-Codec") || "avc1.42E01E";
-          const mimeType = `video/mp4; codecs="${codec}"`;
-          if (!MediaSource.isTypeSupported(mimeType)) {
-            throw new Error(tf("watch.codec.unsupported", { codec }));
-          }
-          const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
-          sourceBuffer.mode = "sequence";
-          const reader = response.body.getReader();
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            await new Promise((res, rej) => {
-              sourceBuffer.addEventListener("updateend", res, { once: true });
-              sourceBuffer.addEventListener("error", rej, { once: true });
-              sourceBuffer.appendBuffer(value);
-            });
-            if (!recu) {
-              recu = true;
-              if (hint) hint.remove();
-              if (window.__mseMetric == null) window.__mseMetric = performance.now() - t0;
-              // L'attribut autoplay seul ne suffit pas toujours à démarrer
-              // la lecture sur une balise <video> dont on change juste le
-              // src : on le force dès qu'assez de données sont arrivées.
-              video.play().catch(() => {});
-            }
-          }
-          if (mediaSource.readyState === "open") mediaSource.endOfStream();
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      }, { once: true });
-    });
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-  return recu;
-}
-
-async function watchMse(name) {
-  const box = $("live-" + cssId(name));
-  box.innerHTML =
-    `<video autoplay muted playsinline></video>
-     <button class="watch stop" data-i18n="watch.stop" onclick="stopWatch('${name}')">${t("watch.stop")}</button>
-     ${expandBtn(name)}`;
-  const video = box.querySelector("video");
-  const t0 = performance.now();
-  window.__mseMetric = null;
-
-  const controller = new AbortController();
-  MSE_ABORT[name] = controller;
-
-  let echecsAVide = 0;
-  let derniereErreur = null;
-  while (echecsAVide < MSE_MAX_ECHECS_A_VIDE
-         && performance.now() - t0 < MSE_BUDGET_TOTAL_MS) {
-    const texte = echecsAVide === 0 && derniereErreur === null
-      ? t("watch.waking.mse") : t("watch.reconnecting");
-    try {
-      const recu = await connecterMse(name, video, controller.signal, texte, t0);
-      derniereErreur = null;
-      echecsAVide = recu ? 0 : echecsAVide + 1;
-    } catch (error) {
-      if (error.name === "AbortError") { delete MSE_ABORT[name]; return; }
-      derniereErreur = error;
-      echecsAVide++;
-    }
-    if (controller.signal.aborted || echecsAVide >= MSE_MAX_ECHECS_A_VIDE) break;
-    try {
-      await attendreOuAbandon(MSE_DELAI_RECONNEXION_MS, controller.signal);
-    } catch (error) {
-      break;  // arrêt demandé pendant l'attente
-    }
-  }
-  delete MSE_ABORT[name];
-  if (controller.signal.aborted) return;
-  if (derniereErreur) {
-    failWatch(name, String(derniereErreur.message || derniereErreur));
-  } else {
-    // Budget total écoulé pendant que ça fonctionnait : pas un échec, on
-    // ramène juste au repos plutôt que d'afficher une erreur trompeuse.
-    stopWatch(name);
-  }
-}
-
-// L'état de repos d'un cadre : la dernière image connue de la caméra, et le
-// bouton par-dessus. Arrêter un direct ramène ici, donc la vignette revient au
-// lieu de laisser un rectangle noir jusqu'au rechargement de la page.
-function repos(name, libelle) {
-  return `<img class="still" src="/camthumb/${encodeURIComponent(name)}" alt="">
-     <button class="watch" onclick="watchMse('${name}')">${libelle}</button>
-     ${expandBtn(name)}`;
-}
-
-// Factorisé : posé à la fois ici (repos, y compris l'état d'échec qui
-// réutilise repos()) et dans watchMse() une fois le flux lancé, pour rester
-// visible dans tous les états plutôt que d'apparaître seulement en cours de
-// lecture.
-function expandBtn(name) {
-  // Icône seule, jamais de texte : un bouton neuf n'est jamais encore
-  // l'élément plein écran courant, donc l'état "entrer" est toujours le bon
-  // à la création. syncExpandButtons() corrige l'icône/le libellé ensuite,
-  // au changement de langue comme au passage en/hors plein écran.
-  return `<button class="watch expand" onclick="toggleFullscreen('${name}')"
-                   title="${t("live.fullscreen.title")}"
-                   aria-label="${t("live.fullscreen.title")}">⛶</button>`;
-}
-
-function syncExpandButtons() {
-  const actif = document.fullscreenElement || document.webkitFullscreenElement || null;
-  document.querySelectorAll(".watch.expand").forEach((b) => {
-    const estActif = b.closest(".live") === actif;
-    b.textContent = estActif ? "×" : "⛶";
-    const libelle = t(estActif ? "live.fullscreen.title.exit" : "live.fullscreen.title");
-    b.title = libelle;
-    b.setAttribute("aria-label", libelle);
-  });
-}
-document.addEventListener("fullscreenchange", syncExpandButtons);
-document.addEventListener("webkitfullscreenchange", syncExpandButtons);
-
-async function setArmed(scope, name, armed) {
-  $("count").textContent = t("command.sending");
-  const answer = await fetch("/api/arm", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ scope, name, armed }),
-  });
-  const result = await answer.json();
-  if (result.error) { alert(result.error); return loadSystem(true); }
-  system = result;
-  renderLive();
-}
-
-// Contrairement a setArmed(), peut prendre jusqu'a 2 minutes (voir
-// reveiller_camera cote serveur) : le bouton se desactive pendant l'attente
-// plutot que de laisser croire qu'un second clic accelererait quoi que ce
-// soit. Le try/finally, pas juste le chemin normal, couvre aussi le cas ou
-// renderLive() est gele (direct actif ailleurs, voir 28.20) et ne
-// remplace donc jamais ce bouton par un neuf.
-async function reveillerCamera(name, event) {
-  const bouton = event.target;
-  const libelle = bouton.textContent;
-  bouton.disabled = true;
-  bouton.textContent = t("camera.waking");
-  try {
-    const answer = await fetch("/api/reveiller", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    const result = await answer.json();
-    if (result.error) { alert(result.error); return loadSystem(true); }
-    system = result;
-    renderLive();
-  } finally {
-    bouton.disabled = false;
-    bouton.textContent = libelle;
-  }
-}
-
-function renderClips() {
-  const clips = visible();
-  // Pas de décompte ici : les clips sont sous les yeux, et trois nombres de
-  // plus en haut de page ne disent rien qu'on cherchait.
-  $("count").textContent = "";
-
-  // À côté du résumé du filtre plutôt que dans la liste : un texte qui décrit
-  // ce qui est affiché reste avec le reste de ce qui décrit le filtre, pas
-  // mélangé aux résultats eux-mêmes qui défilent.
-  $("filtreCompte").textContent = data.filtered
-    ? tf("clips.window", { m: data.clips.length, total: data.total_known })
-    : "";
-
-  if (!clips.length) {
-    // Distinguer « rien ne correspond au filtre » de « rien n'a jamais été
-    // récupéré » : dans le second cas, la cause la plus fréquente est l'absence
-    // de clé USB sur le module, les enregistrements partant alors dans le cloud
-    // de l'abonnement Blink, que cet outil ne lit pas. « Lancez blink2video
-    // download » n'a plus sa place ici : avec la composition par défaut
-    // (start), le téléchargement tourne déjà en arrière-plan, et le dire
-    // dessus n'aidait qu'à confondre un premier utilisateur pile au moment
-    // où la page est encore vide (vu en vrai, essai à froid).
-    $("list").innerHTML = data.clips.length
-      ? `<p class="empty">${t("clips.none.filtered")}</p>`
-      : `<p class="empty">${t("clips.none.ever")}</p>`;
-    return;
-  }
-  const days = [...new Set(clips.map((c) => c.day))];
-  $("list").innerHTML = days.map((day) => `
-    <h2>${day}</h2>
-    <div class="grid">${clips.filter((c) => c.day === day).map(card).join("")}</div>
-  `).join("");
-}
-
-function renderVideos(kind) {
-  const items = (videos[kind] || [])
-    .filter((v) => !$("camera").value || v.camera === $("camera").value);
-  const total = items.reduce((sum, v) => sum + v.duration, 0);
-  $("count").textContent = items.length
-    ? tf("videos.count", { n: items.length, duree: duration(total) })
-    : "";
-  if (!items.length) {
-    $("list").innerHTML = `<p class="empty">${t("videos.none")}</p>`;
-    return;
-  }
-  const cameras = [...new Set(items.map((v) => v.camera))];
-  $("list").innerHTML = cameras.map((camera) => `
-    <h2>${camera}</h2>
-    <div class="grid wide">
-      ${items.filter((v) => v.camera === camera).map(videoCard).join("")}
-    </div>
-  `).join("");
-}
-
-function videoCard(v) {
-  const url = `${v.kind}/${encodeURI(v.path)}`;
-  return `<div class="card">
-    <video preload="none" controls playsinline
-           poster="/thumb/${url}" src="/media/${url}"></video>
-    <div class="meta">
-      <div>
-        <div class="time">${v.label}</div>
-        <div class="sub">${duration(v.duration)}</div>
-      </div>
-      <a class="act" href="/media/${url}" download>${t("videos.download")}</a>
-    </div>
-  </div>`;
-}
-
-function card(c) {
-  const [an, mois, jour] = c.day.split("-");
-  const ligne = [c.camera, duration(c.duration), `${jour}/${mois}/${an}`, c.time,
-                 c.model].filter(Boolean).join(" · ");
-  return `<div class="card ${c.excluded ? "out" : ""}">
-    <video preload="none" controls playsinline
-           poster="/thumb/clip/${encodeURI(c.identity)}"
-           src="/media/clip/${encodeURI(c.identity)}"></video>
-    <div class="meta">
-      <div class="time line">${ligne}</div>
-      <label class="act" title="${t("clip.discard.title")}">
-        <input type="checkbox" ${c.excludedStaged ? "checked" : ""}
-               onchange="stagerExclusion('${c.identity}', this.checked)">
-        ${t("clip.discard")}
-      </label>
-      ${c.sourceDeleted || (data.suppressionAuto || []).includes(c.camera) ? "" : `
-      <label class="act" title="${t("clip.deleteSource.title")}">
-        <input type="checkbox" ${c.supprimerStaged ? "checked" : ""}
-               onchange="stagerSuppression('${c.identity}', this.checked)">
-        ${t("clip.deleteSource")}
-      </label>`}
-    </div>
-  </div>`;
-}
-
-// Le filtre (caméra + période) survit d'une visite à l'autre : quelqu'un qui
-// ne veut voir que les clips de la semaine ne doit pas refaire ce choix à
-// chaque ouverture de la page. Défaut « tout l'historique » tant que rien
-// n'a jamais été choisi (constaté en réel, 2026-08-27).
-const CLE_FILTRE = "blink2video.filtre";
-
-function sauvegarderFiltre() {
-  try {
-    localStorage.setItem(CLE_FILTRE, JSON.stringify(
-      { camera: $("camera").value, plage: plageClips }));
-  } catch (erreur) { /* stockage indisponible (navigation privée…) : tant pis */ }
-}
-
-function restaurerFiltre() {
-  try {
-    const brut = localStorage.getItem(CLE_FILTRE);
-    return brut ? JSON.parse(brut) : null;
-  } catch (erreur) {
-    return null;
-  }
-}
-
-const _filtrePersiste = restaurerFiltre();
-let plageClips = _filtrePersiste?.plage || { preset: "all" };
-// Choix en cours dans le panneau, appliqué seulement au clic sur Filtrer -
-// tant qu'aucun préréglage ni plage personnalisée n'a été retouché dans
-// cette ouverture du panneau, Filtrer ne fait que reprendre plageClips.
-let plageEnAttente = null;
-// La caméra restaurée ne peut être posée qu'une fois la vraie liste connue
-// (premier fill(), voir load()) : un <select> vide ignore toute valeur qu'on
-// lui donne avant d'avoir ses <option>.
-let _filtreCameraAppliquee = false;
-
-function paramsPourPlage() {
-  const params = new URLSearchParams();
-  if (plageClips.preset === "all") params.set("all", "1");
-  else if (plageClips.preset) params.set("preset", plageClips.preset);
-  else {
-    if (plageClips.depuis) params.set("depuis", plageClips.depuis);
-    if (plageClips.jusqua) params.set("jusqua", plageClips.jusqua);
-  }
-  const s = params.toString();
-  return s ? `?${s}` : "";
-}
-
-// Deux load() peuvent se chevaucher (clics rapprochés entre préréglages, ou
-// un load() de fond pendant qu'un autre tourne encore) : sans annulation de
-// celui d'avant, une requête plus lente mais lancée plus tôt (souvent celle
-// du chargement initial, sur « ce mois-ci ») pouvait répondre après une plus
-// rapide et réappliquer des données périmées par-dessus - la sélection
-// paraissait alors bloquée sur ce mois-ci, ou la grille rendait deux fois
-// coup sur coup (clignotement). AbortController est le mécanisme standard
-// pour ça, pas une invention locale (constaté en réel, 2026-08-27).
-let __chargementEnCours = null;
-
-async function load() {
-  __chargementEnCours?.abort();
-  const controleur = new AbortController();
-  __chargementEnCours = controleur;
-  let answer, videoAnswer;
-  try {
-    [answer, videoAnswer] = await Promise.all([
-      fetch(`/api/clips${paramsPourPlage()}`, { signal: controleur.signal }),
-      fetch("/api/videos", { signal: controleur.signal }),
-    ]);
-  } catch (erreur) {
-    if (erreur.name === "AbortError") return; // une requête plus récente a pris le relais
-    throw erreur;
-  }
-  data = await answer.json();
-  videos = await videoAnswer.json();
-  if (data.error) { $("log").style.display = "block"; $("log").textContent = data.error; return; }
-  // État de la sélection : à zéro à chaque rechargement, il reflète l'état
-  // réel qu'on vient de relire, pas une intention encore en attente.
-  for (const c of data.clips || []) {
-    c.excludedStaged = c.excluded;
-    c.supprimerStaged = false;
-  }
-  // Le modèle accompagne le nom ici, une fois, plutôt que sur chaque vignette.
-  fill($("camera"), data.cameras, t("filter.allcameras"),
-       (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
-  // La caméra restaurée ne peut être posée qu'une fois ; les fois suivantes,
-  // fill() a déjà de quoi préserver seul la sélection en cours (voir sa
-  // propre note sur `kept`).
-  if (!_filtreCameraAppliquee) {
-    _filtreCameraAppliquee = true;
-    if (_filtrePersiste?.camera && data.cameras.includes(_filtrePersiste.camera)) {
-      $("camera").value = _filtrePersiste.camera;
-    }
-  }
-  render();
-  majBoutonAppliquer();
-}
-
-// Un préréglage suffit à retrouver un incident récent (aujourd'hui, cette
-// semaine…) ; la plage personnalisée, elle, vise une période précise à
-// l'heure près, pour ne pas défiler tout l'historique d'une caméra toujours
-// armée (signalé sur Reddit, 2026-08-27). Ni l'un ni l'autre ne s'applique
-// tant que Filtrer n'a pas été cliqué : choisir un préréglage puis se
-// raviser pour une caméra ne doit pas déjà avoir rechargé la grille une
-// première fois pour rien.
-function choisirPreset(nom) {
-  plageEnAttente = { preset: nom };
-  $("rangeFrom").value = ""; $("rangeTo").value = "";
-  for (const bouton of document.querySelectorAll("#filtre .presets button")) {
-    bouton.classList.toggle("primary", bouton.dataset.preset === nom);
-  }
-}
-
-function choisirPlagePersonnalisee() {
-  const depuis = $("rangeFrom").value, jusqua = $("rangeTo").value;
-  plageEnAttente = (depuis || jusqua) ? { depuis, jusqua } : null;
-  for (const bouton of document.querySelectorAll("#filtre .presets button")) {
-    bouton.classList.remove("primary");
-  }
-}
-
-function ouvrirFiltre() {
-  plageEnAttente = null;
-  for (const bouton of document.querySelectorAll("#filtre .presets button")) {
-    bouton.classList.toggle("primary", bouton.dataset.preset === plageClips.preset);
-  }
-  $("rangeFrom").value = plageClips.depuis || "";
-  $("rangeTo").value = plageClips.jusqua || "";
-  $("filtre").showModal();
-}
-
-async function appliquerFiltre() {
-  if (plageEnAttente) plageClips = plageEnAttente;
-  sauvegarderFiltre();
-  $("filtre").close();
-  // Pas de message de chargement intermédiaire : /api/clips répond en
-  // quelques millisecondes en local, trop vite pour se lire comme un
-  // chargement - seulement comme un clignotement de toute la grille à
-  // chaque changement de filtre (constaté en réel, 2026-08-27).
-  await load();
-}
-
-// Une plage personnalisée affiche les dates réellement choisies plutôt
-// qu'un « Période personnalisée » générique : c'est justement pour cibler
-// une période précise qu'on l'a choisie, autant la voir sans rouvrir le
-// panneau.
-function libellePlagePersonnalisee() {
-  const formater = (v) => {
-    if (!v) return null;
-    const [date, heure] = v.split("T");
-    const [, mois, jour] = date.split("-");
-    return `${jour}/${mois} ${heure || "00:00"}`;
-  };
-  const depuis = formater(plageClips.depuis);
-  const jusqua = formater(plageClips.jusqua);
-  if (depuis && jusqua) return `${depuis} → ${jusqua}`;
-  if (depuis) return tf("range.custom.depuis", { v: depuis });
-  if (jusqua) return tf("range.custom.jusqua", { v: jusqua });
-  return t("range.custom");
-}
-
-// Résumé affiché dans l'en-tête à côté du bouton Filtre, pour savoir ce qui
-// est actif sans rouvrir le panneau. La caméra y figure toujours, y compris
-// le défaut silencieux « toutes caméras » - même logique que la période,
-// déjà affichée même sur son propre défaut (« tout l'historique ») : les
-// deux disent la vérité sur ce qui est montré, jamais seulement ce qui
-// restreint quelque chose.
-function resumeFiltre() {
-  const morceaux = [];
-  const option = $("camera").selectedOptions[0];
-  morceaux.push(option ? option.textContent : t("filter.allcameras"));
-  if ($("view").value === "clips") {
-    morceaux.push(plageClips.preset ? t(`range.${plageClips.preset}`) : libellePlagePersonnalisee());
-  }
-  return morceaux.join(" · ");
-}
-
-// Écarter et Supprimer sont des cases, pas des actions immédiates : coup par
-// coup, la suppression USB paierait à chaque clic le délai de régénération
-// du manifeste par le Sync Module (jusqu'à une minute, voir AUDIT 28.73/75).
-// Le bouton Appliquer traite tout le lot en un seul appel, une seule lecture
-// de manifeste par Sync Module concerné plutôt qu'une par clip.
-function stagerExclusion(identity, coche) {
-  const clip = data.clips.find((c) => c.identity === identity);
-  if (clip) clip.excludedStaged = coche;
-  majBoutonAppliquer();
-}
-
-function stagerSuppression(identity, coche) {
-  const clip = data.clips.find((c) => c.identity === identity);
-  if (clip) clip.supprimerStaged = coche;
-  majBoutonAppliquer();
-}
-
-function calculerSelection() {
-  const exclure = [], inclure = [], supprimer = [];
-  for (const c of data.clips || []) {
-    if (!!c.excludedStaged !== !!c.excluded) (c.excludedStaged ? exclure : inclure).push(c.identity);
-    if (c.supprimerStaged && !c.sourceDeleted) supprimer.push(c.identity);
-  }
-  return { exclure, inclure, supprimer };
-}
-
-function majBoutonAppliquer() {
-  const bouton = $("applyButton");
-  if (!bouton) return;
-  const { exclure, inclure, supprimer } = calculerSelection();
-  const n = exclure.length + inclure.length + supprimer.length;
-  bouton.hidden = n === 0;
-  bouton.textContent = tf("selection.apply", { n });
-}
-
-async function appliquerSelection() {
-  const { exclure, inclure, supprimer } = calculerSelection();
-  if (!exclure.length && !inclure.length && !supprimer.length) return;
-  if (supprimer.length && !confirm(tf("selection.confirm.suppression", { n: supprimer.length }))) return;
-  const bouton = $("applyButton");
-  bouton.disabled = true;
-  bouton.textContent = t("clip.deleteSource.pending");
-  try {
-    const reponse = await fetch("/api/appliquer-selection", { method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ exclure, inclure, supprimer }) });
-    const resultat = await reponse.json();
-    if (resultat.error) { alert(resultat.error); return; }
-    // Écarter/Réintégrer : mise à jour optimiste, comme l'ancien toggle()
-    // (AUDIT 28.33/28.75). Le registre s'écrit en tâche de fond côté
-    // serveur pour ne jamais bloquer la réponse ; la relire tout de suite
-    // ici la course parfois, avant que l'écriture n'ait fini (constaté par
-    // Nico : « les écartés restent présents » jusqu'à un F5 manuel).
-    for (const identity of exclure) {
-      const clip = data.clips.find((c) => c.identity === identity);
-      if (clip) { clip.excluded = true; clip.excludedStaged = true; }
-    }
-    for (const identity of inclure) {
-      const clip = data.clips.find((c) => c.identity === identity);
-      if (clip) { clip.excluded = false; clip.excludedStaged = false; }
-    }
-    // Supprimer : l'appel était synchrone côté serveur, le résultat est
-    // donc fiable tout de suite, pas une supposition.
-    let echecs = 0;
-    for (const [identity, statut] of Object.entries(resultat.resultats || {})) {
-      const clip = data.clips.find((c) => c.identity === identity);
-      if (statut === "supprime" || statut === "deja_absent") {
-        if (clip) { clip.sourceDeleted = true; clip.supprimerStaged = false; }
-      } else {
-        echecs++;
-      }
-    }
-    if (echecs) alert(tf("selection.partial", { n: echecs }));
-    render();
-  } catch (erreur) {
-    alert(String(erreur));
-  } finally {
-    bouton.disabled = false;
-    majBoutonAppliquer();
-  }
-}
-
-// --- connexion Blink -------------------------------------------------------
-// Le serveur garde la session Blink ouverte entre les deux requêtes : la page
-// n'a qu'à poser les questions dans l'ordre où il les réclame.
-let authResolve = null;
-
-function showAuth(stage, message) {
-  $("authError").textContent = message || "";
-  const code = stage === "2fa";
-  $("authCreds").hidden = code;
-  $("authCode").hidden = !code;
-  $("authTitle").textContent = code ? t("auth.title.2fa") : t("auth.title");
-  $("authHint").textContent = code ? t("auth.hint.2fa") : t("auth.hint");
-  $("authOk").textContent = code ? t("auth.validate") : t("auth.ok");
-  if (!$("auth").open) $("auth").showModal();
-  (code ? $("code") : $("user")).focus();
-}
-
-function authenticate() {
-  return new Promise((resolve) => {
-    authResolve = resolve;
-    showAuth("creds", "");
-  });
-}
-
-$("passToggle").onclick = () => {
-  const masque = $("pass").type === "password";
-  $("pass").type = masque ? "text" : "password";
-  $("passToggle").textContent = t(masque ? "auth.hide" : "auth.show");
-  $("passToggle").setAttribute("aria-label", t(masque ? "auth.hide.aria" : "auth.show.aria"));
-};
-
-$("authCancel").onclick = () => {
-  $("auth").close();
-  if (authResolve) { authResolve(false); authResolve = null; }
-};
-
-$("authOk").onclick = async () => {
-  const code = !$("authCode").hidden;
-  $("authOk").disabled = true;
-  $("authError").textContent = t("auth.connecting");
-  const body = code
-    ? { code: $("code").value }
-    : { username: $("user").value, password: $("pass").value };
-  let result;
-  try {
-    const answer = await fetch(code ? "/api/2fa" : "/api/login", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    result = await answer.json();
-  } catch (error) {
-    result = { status: "error", message: String(error) };
-  }
-  $("authOk").disabled = false;
-  $("pass").value = "";
-  if (result.status === "ok") {
-    $("auth").close();
-    $("code").value = "";
-    // ?login=1 n'a servi qu'à ouvrir ce dialogue au premier lancement ; le
-    // laisser dans l'adresse referait apparaître la connexion à chaque
-    // actualisation ou depuis un signet, alors que la session est valide.
-    const parametres = new URLSearchParams(location.search);
-    if (parametres.get("login") === "1") {
-      parametres.delete("login");
-      const suite = parametres.toString();
-      history.replaceState(null, "", location.pathname + (suite ? `?${suite}` : ""));
-    }
-    if (authResolve) { authResolve(true); authResolve = null; }
-  } else if (result.status === "2fa") {
-    $("code").value = "";
-    showAuth("2fa", "");
-  } else {
-    showAuth(code ? "2fa" : "creds", result.message || t("auth.failed"));
-  }
-};
-
-$("refresh").onclick = async () => {
-  const status = await (await fetch("/api/status")).json();
-  if (!status.authenticated && !(await authenticate())) return;
-  if (status.initial_setup) {
-    await ouvrirReglages(true);
-    return;
-  }
-
-  const button = $("refresh");
-  button.disabled = true;
-  actualisationLocale = true;
-  $("log").style.display = "block";
-  $("log").textContent = "";
-  $("work").classList.add("on");
-  let label = t("refresh.starting");
-  $("phase").textContent = label;
-  $("bar").removeAttribute("value");   // barre indéterminée tant qu'on ne sait pas
-
-  const source = new EventSource("/api/refresh");
-  source.onmessage = (message) => {
-    const event = JSON.parse(message.data);
-    if (event.phase) {
-      label = event.phase_key === "phase.usb_section"
-        ? libellePhase(event.phase_key, event.phase, { hub: event.phase_hub })
-        : libellePhase(event.phase_key, event.phase);
-      $("phase").textContent = label;
-      $("bar").removeAttribute("value");
-    }
-    if (event.progress) {
-      // done est fractionnaire : la partie entière compte les clips terminés,
-      // la décimale l'avancement dans le clip en cours. La barre est donc
-      // continue au lieu de sauter d'un cran par clip.
-      const p = event.progress;
-      $("bar").max = p.total;
-      $("bar").value = p.done;
-      const current = Math.min(Math.floor(p.done) + 1, p.total);
-      $("phase").textContent =
-        `${label} ${current}/${p.total} (${Math.round((p.done / p.total) * 100)} %)`;
-    }
-    if (event.line !== undefined) {
-      $("log").textContent += event.line + "\\n";
-      $("log").scrollTop = $("log").scrollHeight;
-    }
-    if (event.done) {
-      // Sans close(), EventSource se reconnecte tout seul et relancerait
-      // l'actualisation en boucle.
-      source.close();
-      $("work").classList.remove("on");
-      button.disabled = false;
-      actualisationLocale = false;
-      if (!event.ok) $("phase").textContent = t("refresh.errors");
-      load();
-      // « Actualiser » ne rapatriait que les clips : la batterie, la
-      // température et le signal de chaque caméra restaient sur leur
-      // dernière lecture, parfois vieille de plusieurs jours, tant qu'on
-      // n'ouvrait pas soi-même l'onglet Direct (bug vécu en vrai : une
-      // caméra affichait une mesure ancienne jusqu'à un rafraîchissement
-      // manuel depuis l'appli officielle). loadSystem(true) force le même
-      // passage que cette appli fait de son côté (blink.refresh(force=True),
-      // qui relit vraiment chaque caméra, pas seulement le résumé du
-      // compte - voir system_state() côté serveur).
-      loadSystem(true);
-    }
-  };
-  source.onerror = () => {
-    source.close();
-    $("work").classList.remove("on");
-    button.disabled = false;
-    actualisationLocale = false;
-    $("log").textContent += t("refresh.disconnected");
-  };
-};
-
-for (const id of ["view", "showOut"]) $(id).onchange = render;
-// Seule cette ligne de texte se met à jour d'elle-même : elle sert précisément
-// à repérer une boucle arrêtée, ce qu'on ne verrait pas en regardant des clips
-// qui, eux, ne changent plus.
-// Un worker automatique peut commencer à n'importe quel moment. La sonde
-// dédiée ne lit que .blink_travail.json : trois secondes en permanence restent
-// légères, même sous Windows 7. Le bilan plus coûteux (registre + passages +
-// mise à jour) conserve, lui, sa cadence d'une minute.
-etatDuTravail();
-(function veillerTravail() {
-  setTimeout(async () => {
-    await etatDuTravail();
-    veillerTravail();
-  }, 3000);
-})();
-(function veillerPassages() {
-  setTimeout(async () => {
-    await heuresDePassage();
-    veillerPassages();
-  }, 60000);
-})();
-$("auto").checked = localStorage.getItem("auto") === "1";
-$("auto").onchange = () => {
-  localStorage.setItem("auto", $("auto").checked ? "1" : "0");
-  heuresDePassage();
-};
-// Reflète l'état réel du système (fichier de démarrage présent ou non), pas
-// une préférence mémorisée côté page : deux installations d'un même profil
-// navigateur ne doivent pas se faire croire l'état de l'autre.
-fetch("/api/autostart").then((r) => r.json()).then((etat) => {
-  $("autostart").checked = !!etat.actif;
-}).catch(() => {});
-$("autostart").onchange = async () => {
-  const voulu = $("autostart").checked;
-  $("autostart").disabled = true;
-  try {
-    const reponse = await fetch("/api/autostart", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ actif: voulu }),
-    });
-    const etat = await reponse.json();
-    if (etat.error) alert(etat.error);
-    $("autostart").checked = !!etat.actif;
-  } catch (error) {
-    alert(String(error));
-    $("autostart").checked = !voulu;
-  } finally {
-    $("autostart").disabled = false;
-  }
-};
-
-let portActuel = null;   // relu à chaque ouverture, comparé à l'envoi
-
-async function ouvrirReglages(configurationInitiale = false) {
-  try {
-    const reglages = await (await fetch("/api/reglages")).json();
-    configurationInitiale = configurationInitiale || !!reglages.initial_setup;
-    $("usbMinutes").value = reglages.usb_minutes;
-    $("cloudMinutes").value = reglages.cloud_minutes;
-    $("port").value = reglages.port;
-    portActuel = reglages.port;
-    $("storageDir").value = reglages.storage_dir;
-    $("timestamp").checked = reglages.timestamp;
-    $("timezone").value = reglages.timezone;
-    $("mergeJour").checked = reglages.merge_jour;
-    $("mergeSemaine").checked = reglages.merge_semaine;
-    $("mergeMois").checked = reglages.merge_mois;
-    appliquerDependanceMergeJour();
-    $("downloadAuto").checked = reglages.download_auto;
-    appliquerDependanceDownloadAuto();
-  } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
-  $("initialSetupHint").hidden = !configurationInitiale;
-  $("reglagesClose").hidden = configurationInitiale;
-  $("stopButton").hidden = configurationInitiale;
-  $("reglages").dataset.initialSetup = configurationInitiale ? "1" : "0";
-  chargerSourdine();
-  chargerSuppressionAuto();
-  $("reglages").showModal();
-}
-$("reglagesButton").onclick = () => ouvrirReglages(false);
-$("reglagesClose").onclick = () => $("reglages").close();
-$("reglages").addEventListener("cancel", (evenement) => {
-  // Échap ne doit pas transformer une installation neuve en page vide : le
-  // parent attend la validation et aucun téléchargement ne démarrera. Le
-  // dialogue reste fermable lors de toutes les ouvertures ordinaires.
-  if ($("reglages").dataset.initialSetup === "1") evenement.preventDefault();
-});
-
-$("filtreButton").onclick = ouvrirFiltre;
-$("filtreClose").onclick = () => $("filtre").close();
-$("filtreApply").onclick = appliquerFiltre;
-for (const bouton of document.querySelectorAll("#filtre .presets button")) {
-  bouton.onclick = () => choisirPreset(bouton.dataset.preset);
-}
-$("rangeFrom").oninput = choisirPlagePersonnalisee;
-$("rangeTo").oninput = choisirPlagePersonnalisee;
-
-// Ouvre le sélecteur natif côté serveur (tkinter : voir /api/choisir-dossier)
-// plutôt qu'un <input type="file" webkitdirectory> - celui-ci ne rend qu'un
-// nom de dossier relatif au navigateur, jamais un chemin absolu utilisable
-// par le serveur (restriction de vie privée du web, pas une limite de ce code).
-$("storageDirBrowse").onclick = async () => {
-  const bouton = $("storageDirBrowse");
-  bouton.disabled = true;
-  try {
-    const reponse = await fetch("/api/choisir-dossier");
-    const resultat = await reponse.json();
-    if (resultat.error) {
-      alert(t("reglages.storageDir.browse.unavailable"));
-    } else if (resultat.path) {
-      $("storageDir").value = resultat.path;
-    }
-  } catch (erreur) {
-    alert(t("reglages.storageDir.browse.unavailable"));
-  } finally {
-    bouton.disabled = false;
-  }
-};
-
-// Semaine et mois n'ont de sens que si la journalière tourne : décocher
-// « jour » les grise et les décoche, plutôt que de laisser espérer un
-// agrégat qui ne sera jamais construit faute de base.
-function appliquerDependanceMergeJour() {
-  const actif = $("mergeJour").checked;
-  $("mergeSemaine").disabled = !actif;
-  $("mergeMois").disabled = !actif;
-  if (!actif) {
-    $("mergeSemaine").checked = false;
-    $("mergeMois").checked = false;
-  }
-}
-$("mergeJour").onchange = appliquerDependanceMergeJour;
-
-// Les cadences n'ont plus de sens si rien n'est téléchargé : grisées plutôt
-// que retirées, pour retrouver la dernière valeur en recochant.
-function appliquerDependanceDownloadAuto() {
-  const actif = $("downloadAuto").checked;
-  $("usbMinutes").disabled = !actif;
-  $("cloudMinutes").disabled = !actif;
-}
-$("downloadAuto").onchange = appliquerDependanceDownloadAuto;
-
-// Séparé du reste du panneau : contrairement aux cadences, au port ou au
-// fuseau, la sourdine n'exige pas de redémarrage (watch relit son état à
-// chaque passage), donc chaque case s'applique tout de suite, comme le
-// bouton Écarter d'un clip.
-async function chargerSourdine() {
-  const conteneur = $("sourdineListe");
-  conteneur.textContent = t("sourdine.loading");
-  let etat;
-  try {
-    etat = await (await fetch("/api/sourdine")).json();
-  } catch (erreur) {
-    conteneur.textContent = t("sourdine.unavailable");
-    return;
-  }
-  if (!etat.cameras.length) {
-    conteneur.textContent = t("sourdine.none");
-    return;
-  }
-  conteneur.innerHTML = "";
-  for (const camera of etat.cameras) {
-    const label = document.createElement("label");
-    const case_ = document.createElement("input");
-    case_.type = "checkbox";
-    case_.checked = etat.ignored.includes(camera);
-    case_.onchange = async () => {
-      case_.disabled = true;
-      try {
-        const reponse = await fetch("/api/sourdine", { method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ camera, ignored: case_.checked }) });
-        const resultat = await reponse.json();
-        if (resultat.error) {
-          alert(resultat.error);
-          case_.checked = !case_.checked;
-        }
-      } catch (erreur) {
-        alert(String(erreur));
-        case_.checked = !case_.checked;
-      } finally {
-        case_.disabled = false;
-      }
-    };
-    label.appendChild(case_);
-    label.append(` ${camera}`);
-    conteneur.appendChild(label);
-  }
-}
-
-// Même motif que chargerSourdine() : chaque case s'applique tout de suite,
-// pas de redémarrage. Liste distincte (issue GitHub #1) : seules les
-// caméras vues sur la clé USB ont un sens ici, le cloud de l'abonnement
-// n'est jamais concerné par cette suppression.
-async function chargerSuppressionAuto() {
-  const conteneur = $("suppressionAutoListe");
-  conteneur.textContent = t("suppressionAuto.loading");
-  let etat;
-  try {
-    etat = await (await fetch("/api/suppression-auto")).json();
-  } catch (erreur) {
-    conteneur.textContent = t("suppressionAuto.unavailable");
-    return;
-  }
-  if (!etat.cameras.length) {
-    conteneur.textContent = t("suppressionAuto.none");
-    return;
-  }
-  conteneur.innerHTML = "";
-  for (const camera of etat.cameras) {
-    const label = document.createElement("label");
-    const case_ = document.createElement("input");
-    case_.type = "checkbox";
-    case_.checked = etat.actives.includes(camera);
-    case_.onchange = async () => {
-      case_.disabled = true;
-      try {
-        const reponse = await fetch("/api/suppression-auto", { method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ camera, actif: case_.checked }) });
-        const resultat = await reponse.json();
-        if (resultat.error) {
-          alert(resultat.error);
-          case_.checked = !case_.checked;
-        }
-      } catch (erreur) {
-        alert(String(erreur));
-        case_.checked = !case_.checked;
-      } finally {
-        case_.disabled = false;
-      }
-    };
-    label.appendChild(case_);
-    label.append(` ${camera}`);
-    conteneur.appendChild(label);
-  }
-}
-
-// Même déroulé que le bouton de mise à jour : enregistrer, attendre que le
-// serveur disparaisse puis revienne, recharger. Le verbe diffère (« restart »
-// au lieu de « update ») puisqu'aucune nouvelle version n'est en jeu, mais
-// c'est le même arrêt-puis-relance vu de la page. Si le port change, la page
-// qui redémarre n'écoute plus à la même adresse : le sondage habituel (même
-// origine) ne verrait jamais le retour, il faut viser la nouvelle adresse.
-$("reglagesApply").onclick = async () => {
-  const usb = parseInt($("usbMinutes").value, 10);
-  const cloud = parseInt($("cloudMinutes").value, 10);
-  const port = parseInt($("port").value, 10);
-  if (!(usb >= 1) || !(cloud >= 1)) {
-    alert(t("reglages.error.cadence"));
-    return;
-  }
-  if (!(port >= 1 && port <= 65535)) {
-    alert(t("reglages.error.port"));
-    return;
-  }
-  const timezone = $("timezone").value.trim();
-  if (!timezone) {
-    alert(t("reglages.error.timezone"));
-    return;
-  }
-  const bouton = $("reglagesApply");
-  let configurationInitiale = false;
-  bouton.disabled = true;
-  bouton.textContent = t("reglages.restarting");
-  try {
-    const storageDir = $("storageDir").value.trim();
-    const timestamp = $("timestamp").checked;
-    const mergeJour = $("mergeJour").checked;
-    const mergeSemaine = $("mergeSemaine").checked;
-    const mergeMois = $("mergeMois").checked;
-    const downloadAuto = $("downloadAuto").checked;
-    const reponse = await fetch("/api/reglages", { method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud, port,
-                             storage_dir: storageDir, timestamp, timezone,
-                             merge_jour: mergeJour, merge_semaine: mergeSemaine,
-                             merge_mois: mergeMois, download_auto: downloadAuto }) });
-    const resultat = await reponse.json();
-    if (resultat.error) {
-      alert(resultat.error);
-      bouton.disabled = false;
-      bouton.textContent = t("reglages.apply");
-      return;
-    }
-    configurationInitiale = !!resultat.initial_setup;
-  } catch (erreur) {
-    // Une erreur de validation arrive toujours en JSON propre, AVANT que le
-    // serveur ne se tue pour redémarrer (voir resultat.error ci-dessus) :
-    // si on arrive ici, c'est que la réponse a été coupée par ce
-    // redémarrage lui-même, pas que la sauvegarde a échoué. Même principe
-    // que le bouton Stop plus bas : on continue comme en cas de succès
-    // plutôt que d'alarmer à tort sur une erreur réseau qui ne veut rien
-    // dire ici.
-  }
-  bouton.disabled = false;
-  bouton.textContent = t("reglages.apply");
-  $("reglages").close();
-
-  if (port !== portActuel) {
-    // Un délai fixe se serait trompé de quelques secondes selon la charge
-    // de la machine : on attend plutôt la confirmation que l'ancien
-    // serveur (cette origine) a bien disparu, comme pour un redémarrage
-    // ordinaire, avant de viser la nouvelle adresse.
-    const nouvelleAdresse = `http://${location.hostname}:${port}/`;
-    $("phase").textContent = tf("reglages.portchange", { url: nouvelleAdresse });
-    $("bar").removeAttribute("value");
-    $("work").classList.add("on");
-    $("refresh").disabled = true;
-    let parti = false;
-    const attentePort = setInterval(async () => {
-      try {
-        await fetch("/api/status", { cache: "no-store" });
-      } catch (erreur) {
-        parti = true;
-      }
-      if (parti) {
-        clearInterval(attentePort);
-        // L'ancien a disparu ; le nouveau, déjà en cours de lancement,
-        // a besoin d'un instant de plus pour se lier au port.
-        setTimeout(() => { location.href = nouvelleAdresse; }, 3000);
-      }
-    }, 1000);
-    setTimeout(() => {
-      if (!parti) {
-        clearInterval(attentePort);
-        $("phase").textContent = t("reglages.restartFailed");
-        $("bar").value = 0;
-        $("refresh").disabled = false;
-      }
-    }, 45000);
-    return;
-  }
-
-  if (configurationInitiale) {
-    // Le parent ``start`` remplace le serveur temporaire par le serveur
-    // complet seulement après avoir vu la validation. Attendre explicitement
-    // un /api/status sorti du mode initial évite de manquer une coupure très
-    // brève sur une machine rapide et de rester bloqué inutilement.
-    $("phase").textContent = t("reglages.restarting.settings");
-    $("bar").removeAttribute("value");
-    $("work").classList.add("on");
-    $("refresh").disabled = true;
-    let delaiInitial = null;
-    const attenteInitiale = setInterval(async () => {
-      try {
-        const etat = await (await fetch("/api/status", { cache: "no-store" })).json();
-        if (etat.initial_setup === false) {
-          clearInterval(attenteInitiale);
-          clearTimeout(delaiInitial);
-          // Retire ?setup=1 : le serveur définitif ne doit pas rouvrir le
-          // panneau qui vient précisément d'être validé.
-          location.href = location.pathname;
-        }
-      } catch (erreur) { /* coupure attendue entre les deux serveurs */ }
-    }, 1000);
-    delaiInitial = setTimeout(() => {
-      clearInterval(attenteInitiale);
-      $("phase").textContent = t("reglages.restartFailed");
-      $("bar").value = 0;
-      $("refresh").disabled = false;
-    }, 60000);
-    return;
-  }
-
-  $("phase").textContent = t("reglages.restarting.settings");
-  $("bar").removeAttribute("value");
-  $("work").classList.add("on");
-  $("refresh").disabled = true;
-  let parti = false;
-  const attente = setInterval(async () => {
-    try {
-      await fetch("/api/status", { cache: "no-store" });
-      if (parti) location.reload();
-    } catch (erreur) {
-      parti = true;      // il s'est arrêté : la relance suit
-    }
-  }, 2000);
-  setTimeout(() => {
-    if (!parti) {
-      clearInterval(attente);
-      $("phase").textContent = t("reglages.restartFailed");
-      $("bar").value = 0;
-      $("refresh").disabled = false;
-    }
-  }, 45000);
-};
-
-$("stopButton").onclick = async () => {
-  const bouton = $("stopButton");
-  bouton.disabled = true;
-  bouton.textContent = t("stop.stopping");
-  try {
-    const reponse = await fetch("/api/stop", { method: "POST",
-      headers: { "Content-Type": "application/json" }, body: "{}" });
-    const resultat = await reponse.json();
-    if (resultat.error) {
-      alert(resultat.error);
-      bouton.disabled = false;
-      bouton.textContent = t("reglages.stop");
-      return;
-    }
-  } catch (erreur) { /* la réponse peut ne pas arriver, l'arrêt est déjà lancé */ }
-  document.body.innerHTML = `<p class="empty">${t("stop.stopped")}</p>`;
-  // « accepté » n'est pas « terminé ». Si le serveur répond encore après le
-  // délai maximal de grâce + kill, rendre l'échec visible au lieu d'affirmer
-  // indéfiniment que l'application est arrêtée.
-  setTimeout(async () => {
-    try {
-      const reponse = await fetch("/api/status", { cache: "no-store" });
-      if (reponse.ok) {
-        document.body.innerHTML = `<p class="empty">${t("stop.failed")}</p>`;
-      }
-    } catch (erreur) { /* disparition attendue : arrêt confirmé */ }
-  }, 30000);
-};
-
-// Vue par défaut posée AVANT setLang() : celui-ci appelle render(), qui lit
-// $("view").value pour décider quoi peindre. Sans cadre du navigateur pour
-// distinguer une option "selected" ici, la valeur par défaut du <select>
-// serait la première déclarée (Direct) - render() y déclencherait alors un
-// appel réseau vers /api/system dont la réponse, arrivée en retard, écrase
-// la liste de clips déjà affichée sans que le menu déroulant ne bouge (bug
-// vécu en conditions réelles : la page « repassait en Direct toute seule »).
-$("view").value = "clips";
-// Override manuel mémorisé prioritaire ; sinon la langue du navigateur, comme
-// au premier lancement de lidar2map. Placé ici, en fin de script : setLang()
-// appelle render()/renderLive(), qui référencent des `let` déclarés plus haut
-// (MSE_ABORT, actualisationLocale...) — appelé trop tôt, avant l'exécution de
-// ces déclarations, ça lève ReferenceError (zone morte temporelle), comme vu
-// en testant réellement au navigateur.
-setLang(localStorage.getItem("lang") || detectLang(), false);
-
-load();
-// E-01 : connexion puis réglages s'enchaînent dans le même onglet. Le second
-// dialogue n'est ouvert qu'après une authentification réussie ; l'annulation
-// laisse le parent en attente et garantit qu'aucun worker ne démarre.
-(async function lancerParcoursInitial() {
-  const parametres = new URLSearchParams(location.search);
-  let continuer = true;
-  if (parametres.get("login") === "1") continuer = await authenticate();
-  if (continuer && parametres.get("setup") === "1") {
-    await ouvrirReglages(true);
-  }
-})();
+<script nonce="__SCRIPT_NONCE__">
+__APP_JS__
 </script>
 </body>
 </html>
 """
+
+# CSS et JS vivent dans leurs propres fichiers (serve_style.css,
+# serve_app.js) : un .py qui les contenait en dur n'avait ni coloration ni
+# lint corrects pour l'un ou l'autre. Splicés ici avant les substitutions
+# suivantes pour que __TOKEN__ (dans serve_app.js) en profite comme le reste
+# du gabarit. runtime.resource_dir() plutôt que Path(__file__).parent : seul
+# le premier reste correct une fois le bundle figé (voir assets/, même
+# convention pour le favicon).
+PAGE = PAGE.replace(
+    "__CSS__",
+    (runtime.resource_dir() / "serve_style.css").read_text(encoding="utf-8"),
+)
+PAGE = PAGE.replace(
+    "__APP_JS__",
+    (runtime.resource_dir() / "serve_app.js").read_text(encoding="utf-8"),
+)
 
 # La page est un gabarit constant, plein d'accolades CSS et JavaScript :
 # impossible d'en faire une f-string. Une substitution unique au chargement
@@ -4429,6 +2692,8 @@ PAGE = PAGE.replace("__VERSION__", runtime.VERSION)
 # (runtime.py, verrou disque ; blink_auth.py, fichiers temporaires).
 TOKEN = uuid.uuid4().hex
 PAGE = PAGE.replace("__TOKEN__", TOKEN)
+SCRIPT_NONCE = uuid.uuid4().hex
+PAGE = PAGE.replace("__SCRIPT_NONCE__", SCRIPT_NONCE)
 
 
 def parse_args() -> argparse.Namespace:

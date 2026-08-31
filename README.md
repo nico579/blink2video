@@ -141,7 +141,8 @@ Or, without cloning, using the image published on
 
 ```bash
 docker run -d --name blink2video --restart unless-stopped \
-  -p 127.0.0.1:8765:8765 -v blink_data:/data nico579dock/blink2video
+  -p 127.0.0.1:8765:8765 -e BLINK_TRUSTED_LOOPBACK_PROXY=1 \
+  -v blink_data:/data nico579dock/blink2video
 ```
 
 Open `http://127.0.0.1:8765` and sign in the same way. Settings, the session
@@ -383,7 +384,7 @@ nobody is listening. `--port` if you moved it.
 |---|---|
 | `BLINK_HOME` | data folder, defaulting to the executable's own |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` or `none`: how the Python environment is handled |
-| `BLINK_BIND` | address `serve` listens on, defaulting to `127.0.0.1` (localhost only). Set to `0.0.0.0` to reach the interface from other machines on your network. There is no authentication on the web UI: only do this on a trusted home network, never expose it to the internet |
+| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. The UI deliberately remains local-only: `0.0.0.0` is for the official container behind a `127.0.0.1` port publication, not for exposing the dashboard to the LAN |
 
 </details>
 

@@ -307,7 +307,7 @@ class CloudClip:
         self.download_issue = None
 
     async def download_to(self, blink: Blink, target: Path) -> bool:
-        """Écrit le média dans `target`, en passant par la session Blink."""
+        """Diffuse le média vers le fichier temporaire choisi par l'appelant."""
         self.download_issue = None
         target.unlink(missing_ok=True)
         if not self.address:
@@ -325,21 +325,62 @@ class CloudClip:
                 with contextlib.suppress(Exception):
                     await reponse.read()
                 return False
-            contenu = await reponse.read()
-            if not contenu:
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            recus = 0
+            flux = getattr(reponse, "content", None)
+            iter_chunked = getattr(flux, "iter_chunked", None)
+            if callable(iter_chunked):
+                # aiohttp décompresse éventuellement à la volée ; la taille
+                # du bloc borne donc la mémoire sans présumer du Content-Length.
+                with target.open("wb") as destination:
+                    async for bloc in iter_chunked(256 * 1024):
+                        if bloc:
+                            destination.write(bloc)
+                            recus += len(bloc)
+            else:
+                # Compatibilité avec les réponses minimales de blinkpy et les
+                # doubles de tests qui n'exposent que ``read()``.
+                contenu = await reponse.read()
+                with target.open("wb") as destination:
+                    destination.write(contenu)
+                recus = len(contenu)
+
+            if recus == 0:
                 self.download_issue = ("HTTP", "réponse vide")
                 return False
-            target.write_bytes(contenu)
-            # I-15 : un corps non vide n'est pas forcément un MP4 complet (une
-            # réponse 2xx tronquée, par exemple). md.valid_mp4 relit la boîte
-            # ftyp plutôt que de se fier à une simple taille non nulle.
+
+            entetes = getattr(reponse, "headers", None)
+            encodage = entetes.get("Content-Encoding") if entetes is not None else None
+            longueur = entetes.get("Content-Length") if entetes is not None else None
+            if not encodage and longueur is not None:
+                try:
+                    attendu = int(longueur)
+                except (TypeError, ValueError):
+                    attendu = None
+                if attendu is not None and attendu >= 0 and recus != attendu:
+                    self.download_issue = (
+                        "données",
+                        f"réponse tronquée ({recus} octets reçus sur {attendu})",
+                    )
+                    return False
+
+            # Contrôle structurel peu coûteux ici ; l'appelant effectue la
+            # lecture approfondie avant le renommage atomique et la suppression.
             if not md.valid_mp4(target):
-                self.download_issue = ("données", "corps reçu, mais pas un MP4 valide")
+                self.download_issue = (
+                    "données", "corps reçu, mais MP4 incomplet ou invalide",
+                )
                 return False
             return True
+        except Exception as erreur:
+            categorie = "écriture" if isinstance(erreur, OSError) else "réseau"
+            self.download_issue = (categorie, type(erreur).__name__)
+            return False
         finally:
             if self.download_issue is not None:
-                target.unlink(missing_ok=True)
+                with contextlib.suppress(OSError):
+                    target.unlink(missing_ok=True)
 
     async def delete_video(self, blink: Blink) -> bool:
         """Supprime ce clip du cloud de l'abonnement (issue GitHub #1).

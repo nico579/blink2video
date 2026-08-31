@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 
 import build
+import runtime
+from build_support import ecrire_version_info
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -15,6 +17,18 @@ VENV = BASE_DIR / "build_venv"
 WORK = BASE_DIR / "build-xr-tester"
 DIST = BASE_DIR / "dist-xr-tester"
 SPEC = BASE_DIR / "xr_tester.spec"
+
+
+def preparer_version_info() -> Path:
+    """Crée la ressource PE du testeur, même depuis un checkout propre."""
+    return ecrire_version_info(
+        runtime.VERSION,
+        BASE_DIR / ".version_info.txt",
+        description="blink2video - diagnostic du stockage local XR",
+        internal_name="Tester-XR",
+        original_filename="Tester-XR.exe",
+        product_name="blink2video Tester-XR",
+    )
 
 
 def main() -> int:
@@ -28,6 +42,8 @@ def main() -> int:
 
     if sys.platform != "win32":
         raise SystemExit("Le testeur direct est actuellement destiné à Windows.")
+
+    preparer_version_info()
 
     if args.propre:
         for path in (WORK, DIST):
@@ -48,7 +64,8 @@ def main() -> int:
         "mise à jour de pip",
     )
     build.executer(
-        [str(python), "-m", "pip", "install", "--quiet", *build.PAQUETS],
+        [str(python), "-m", "pip", "install", "--quiet",
+         "-r", str(build.REQUIREMENTS)],
         "installation des dépendances",
     )
     build.executer(

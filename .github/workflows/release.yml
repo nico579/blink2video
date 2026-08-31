@@ -110,7 +110,7 @@ jobs:
         env:
           BLINK_TEST_BUNDLE: ${{ matrix.exe }}
         run: |
-          python -m pip install --quiet aiohttp blinkpy certifi tzdata imageio-ffmpeg
+          python -m pip install --quiet -r requirements.txt
           python tests.py
 
       - name: Empaqueter (zip)
@@ -121,6 +121,32 @@ jobs:
       - name: Empaqueter (tar.gz)
         if: matrix.archive == 'tar'
         run: cd dist && tar czf "${{ matrix.asset }}.tar.gz" blink2video
+
+      # L'updater refuse désormais toute archive sans empreinte vérifiable.
+      # Le nom du fichier est inclus afin d'empêcher d'associer par erreur
+      # l'empreinte d'une autre plateforme au bundle téléchargé.
+      - name: Publier l'empreinte SHA-256
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          racine = Path("dist")
+          prefixe = "${{ matrix.asset }}."
+          archives = [p for p in racine.iterdir()
+                      if p.is_file() and p.name.startswith(prefixe)
+                      and not p.name.endswith(".sha256")]
+          if len(archives) != 1:
+              raise SystemExit(f"archive unique introuvable : {archives}")
+          archive = archives[0]
+          empreinte = hashlib.sha256()
+          with archive.open("rb") as source:
+              for bloc in iter(lambda: source.read(1024 * 1024), b""):
+                  empreinte.update(bloc)
+          archive.with_name(archive.name + ".sha256").write_text(
+              f"{empreinte.hexdigest()}  {archive.name}\n", encoding="ascii")
+          PY
 
       - uses: actions/upload-artifact@v4
         with:
@@ -199,7 +225,11 @@ jobs:
     # lent que le reste) mais ne l'exige pas : "if" ne verifie que build,
     # les trois bundles stables partent meme si l'edition Win7 a echoue.
     needs: [build, build-win7]
-    if: needs.build.result == 'success'
+    # Sans always(), GitHub saute implicitement tout job dont une dependance a
+    # echoue, avant meme d'evaluer needs.build.result. Win7 reste donc attendu
+    # pour recuperer son artefact s'il existe, mais son echec experimental ne
+    # retient plus les trois editions stables.
+    if: ${{ always() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

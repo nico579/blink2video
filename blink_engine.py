@@ -87,8 +87,18 @@ async def _recv_corrige(self):
             _blinkpy_livestream._LOGGER.debug("Sending %d bytes to clients", len(data))
             for writer in self.clients:
                 if not writer.is_closing():
-                    writer.write(data)
-                    await writer.drain()
+                    # Une déconnexion d'UN client pendant drain() ne doit pas
+                    # remonter jusqu'au except/finally de recv() : ça fermerait
+                    # target_writer et couperait le direct pour tous les autres
+                    # clients encore là. join() (blinkpy/livestream.py) reste
+                    # seul responsable de retirer ce writer de self.clients.
+                    try:
+                        writer.write(data)
+                        await writer.drain()
+                    except OSError:
+                        _blinkpy_livestream._LOGGER.debug(
+                            "Client disconnected during drain, skipping it"
+                        )
 
             await asyncio.sleep(0)
     except _blinkpy_livestream.ssl.SSLError as e:
@@ -102,6 +112,25 @@ async def _recv_corrige(self):
 
 
 _blinkpy_livestream.BlinkLiveStream.recv = _recv_corrige
+
+
+async def _auth_corrige(self):
+    """Remplace BlinkLiveStream.auth (blinkpy/livestream.py) : la version
+    d'origine désactive check_hostname et utilise CERT_NONE, acceptant le
+    certificat de n'importe qui sur le chemin réseau vers le relais du
+    direct. Mêmes valeurs par défaut que blink_auth.py pour la session
+    principale (chaîne ET nom d'hôte vérifiés), rien de custom."""
+    ssl_context = _blinkpy_livestream.ssl.create_default_context()
+    self.target_reader, self.target_writer = await asyncio.open_connection(
+        self.target.hostname, self.target.port, ssl=ssl_context
+    )
+
+    auth_header = self.get_auth_header()
+    self.target_writer.write(auth_header)
+    await self.target_writer.drain()
+
+
+_blinkpy_livestream.BlinkLiveStream.auth = _auth_corrige
 
 
 class CloudResult(NamedTuple):
@@ -219,11 +248,9 @@ async def download_clip(blink: Blink, clip, target: Path, overwrite: bool) -> st
 
     La suppression éventuelle (issue GitHub #1) est décidée par l'appelant,
     après coup : voir un_passage() et runtime.lire_suppression_auto()."""
-    # md.valid_mp4, pas une simple taille non nulle (revue de code du
-    # 0eab463, bug #4) : un fichier déjà présent mais corrompu (écriture
-    # interrompue, disque en cause) était sinon tenu pour acquis et jamais
-    # retéléchargé.
-    if target.exists() and md.valid_mp4(target) and not overwrite:
+    # Un fichier non inscrit trouvé au chemin attendu doit subir la même
+    # validation approfondie qu'un nouveau transfert avant d'être adopté.
+    if target.exists() and md.valid_mp4_complet(target) and not overwrite:
         return "skipped"
 
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -234,11 +261,9 @@ async def download_clip(blink: Blink, clip, target: Path, overwrite: bool) -> st
         prepared = await clip.prepare_download(blink)
         if not prepared or not await clip.download_video(blink, str(partial)):
             return "failed"
-        # I-15 : un fichier d'un octet passait ce contrôle et était inscrit
-        # comme acquis. valid_mp4 lit la boîte ftyp, présente dès les
-        # premiers octets d'un MP4 réel ; un flux tronqué ou une page
-        # d'erreur HTML ne l'ont jamais.
-        if not partial.exists() or not md.valid_mp4(partial):
+        # La sonde parcourt les paquets du .part avant son renommage : un
+        # ftyp/moov intact ne suffit pas si mdat a été écourté en transit.
+        if not partial.exists() or not md.valid_mp4_complet(partial):
             return "failed"
         partial.replace(target)
         return "downloaded"
@@ -300,7 +325,7 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
             entree_connue is None
             and target.exists()
             and target.is_file()
-            and md.valid_mp4(target)
+            and md.valid_mp4_complet(target)
             and not args.overwrite
         ):
             blink_registre.remember_download(state, sync, args.hub or "cloud", clip, output,
@@ -364,7 +389,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                 entree_connue is None
                 and target.exists()
                 and target.is_file()
-                and md.valid_mp4(target)
+                and md.valid_mp4_complet(target)
                 and not args.overwrite
             ):
                 blink_registre.remember_download(
@@ -376,7 +401,8 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                 resultat = "adopted"
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                if await clip.download_to(blink, partiel):
+                telecharge = await clip.download_to(blink, partiel)
+                if telecharge and md.valid_mp4_complet(partiel):
                     partiel.replace(target)
                     blink_registre.remember_download(
                         state, sync, args.hub or "cloud", clip, output, target,
@@ -385,7 +411,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                     blink_registre.save_download_state(output, state)
                     downloaded += 1
                     resultat = "downloaded"
-                    if clip.name in suppression_auto:
+                    if blink_registre.camera_setting_key(sync, clip) in suppression_auto:
                         if await clip.delete_video(blink):
                             print("    Supprimé du cloud (caméra en suppression "
                                   "automatique).")
@@ -397,6 +423,10 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                             print("    ! Échec de la suppression sur le cloud "
                                   "(clip conservé là-bas).")
                 else:
+                    if telecharge:
+                        clip.download_issue = (
+                            "données", "MP4 tronqué ou illisible après téléchargement",
+                        )
                     categorie, detail = getattr(
                         clip, "download_issue", None
                     ) or ("média", "contenu indisponible")
@@ -664,7 +694,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                 entree_connue is None
                 and target.exists()
                 and target.is_file()
-                and md.valid_mp4(target)
+                and md.valid_mp4_complet(target)
                 and not args.overwrite
             ):
                 blink_registre.remember_download(
@@ -754,7 +784,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                             state, plan.sync, plan.nom, clip, output, target,
                         )
                         blink_registre.save_download_state(output, state)
-                        if clip.name in suppression_auto:
+                        if blink_registre.camera_setting_key(plan.sync, clip) in suppression_auto:
                             # La copie locale est déjà valide et inscrite. Une
                             # panne de l'API de suppression ne doit ni annuler
                             # ce succès, ni interrompre tous les clips suivants,

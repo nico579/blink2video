@@ -2,10 +2,13 @@
 last_clip_per_camera() ignorait les clips ecartes pour la derniere
 activite (fausse alerte de silence possible), et compare() ne
 declenchait aucune alerte batterie quand la premiere observation d'une
-camera la montrait deja faible."""
+camera la montrait deja faible. Meme defaut retrouve et corrige ensuite
+pour l'armement et le silence prolonge (revue de l'audit non date, section
+« Autres bugs confirmes »)."""
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import tempfile
 import unittest
@@ -81,6 +84,70 @@ class TestsAlerteBatterie(unittest.TestCase):
     def test_batterie_ok_au_premier_passage_n_alerte_pas(self):
         alerts, _ = watch.compare({}, self._etat("ok"), ZoneInfo("UTC"), set())
         self.assertFalse(any("batterie" in a for a in alerts))
+
+
+class TestsAlerteDetectionCoupee(unittest.TestCase):
+    """Même défaut que la batterie (bug #11), pour l'armement cette fois."""
+
+    def _etat(self, armed: bool) -> dict:
+        return {"cameras": {"jardin": {"online": True, "armed": armed,
+                                       "battery": "ok", "system_armed": armed}},
+                "modules": [], "last_clip": {}}
+
+    def test_deja_desarmee_au_premier_passage_alerte(self):
+        alerts, _ = watch.compare({}, self._etat(False), ZoneInfo("UTC"), set())
+        self.assertTrue(any("détection" in a for a in alerts))
+
+    def test_armee_puis_desarmee_alerte(self):
+        alerts, _ = watch.compare(self._etat(True), self._etat(False),
+                                  ZoneInfo("UTC"), set())
+        self.assertTrue(any("détection" in a for a in alerts))
+
+    def test_desarmee_puis_toujours_desarmee_n_alerte_pas_deux_fois(self):
+        alerts, _ = watch.compare(self._etat(False), self._etat(False),
+                                  ZoneInfo("UTC"), set())
+        self.assertFalse(any("détection" in a for a in alerts))
+
+    def test_armee_au_premier_passage_n_alerte_pas(self):
+        alerts, _ = watch.compare({}, self._etat(True), ZoneInfo("UTC"), set())
+        self.assertFalse(any("détection" in a for a in alerts))
+
+
+class TestsAlerteSilence(unittest.TestCase):
+    """Même défaut que la batterie (bug #11), pour le silence prolongé :
+    un « at » précédent absent retombait sur now(), masquant un premier
+    passage déjà silencieux depuis longtemps."""
+
+    @staticmethod
+    def _cameras() -> dict:
+        return {"jardin": {"online": True, "armed": True, "battery": "ok",
+                           "system_armed": True}}
+
+    def test_deja_silencieuse_au_premier_passage_alerte(self):
+        now = dt.datetime.now(ZoneInfo("UTC"))
+        iso = (now - dt.timedelta(days=5)).isoformat()
+        current = {"cameras": self._cameras(), "modules": [],
+                  "last_clip": {"jardin": iso}}
+        alerts, _ = watch.compare({}, current, ZoneInfo("UTC"), set())
+        self.assertTrue(any("aucun clip" in a for a in alerts))
+
+    def test_clip_recent_au_premier_passage_n_alerte_pas(self):
+        now = dt.datetime.now(ZoneInfo("UTC"))
+        iso = (now - dt.timedelta(hours=1)).isoformat()
+        current = {"cameras": self._cameras(), "modules": [],
+                  "last_clip": {"jardin": iso}}
+        alerts, _ = watch.compare({}, current, ZoneInfo("UTC"), set())
+        self.assertFalse(any("aucun clip" in a for a in alerts))
+
+    def test_silence_deja_signale_ne_repete_pas(self):
+        now = dt.datetime.now(ZoneInfo("UTC"))
+        iso = (now - dt.timedelta(days=10)).isoformat()
+        cameras = self._cameras()
+        previous = {"at": (now - dt.timedelta(days=5)).isoformat(),
+                    "cameras": cameras, "modules": [], "last_clip": {"jardin": iso}}
+        current = {"cameras": cameras, "modules": [], "last_clip": {"jardin": iso}}
+        alerts, _ = watch.compare(previous, current, ZoneInfo("UTC"), set())
+        self.assertFalse(any("aucun clip" in a for a in alerts))
 
 
 if __name__ == "__main__":

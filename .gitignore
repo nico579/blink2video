@@ -21,6 +21,7 @@ blink_suppression_auto.json
 watch.log
 maj.log
 merge.log
+serve_erreurs.log
 
 # Images de surveillance du domicile. Rien de tout cela n'a vocation à
 # quitter la machine.

@@ -52,10 +52,9 @@ jobs:
       - name: Tests applicatifs sous Python 3.8
         env:
           BLINK_BOOTSTRAP: none
-        run: >-
-          .\build_venv_win7\Scripts\python.exe -B -m unittest -v
-          test_blink2video_audit.py test_runtime_validation.py
-          test_stage2_identity.py test_windows7_build.py
+        # Même découverte complète que l'édition courante : les tests XR et les
+        # nouveaux modules de régression ne doivent pas échapper au profil legacy.
+        run: .\build_venv_win7\Scripts\python.exe -B -m unittest discover -v
 
       - name: Vérifier le verrou et les imports PE
         shell: pwsh

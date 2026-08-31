@@ -18,6 +18,15 @@ except ImportError:  # Python 3.8, édition Windows 7
 import merge_daily
 
 
+def mp4_structurel() -> bytes:
+    def boite(nom, contenu=b""):
+        return (len(contenu) + 8).to_bytes(4, "big") + nom + contenu
+    return (
+        boite(b"ftyp", b"isom\x00\x00\x02\x00isom")
+        + boite(b"moov") + boite(b"mdat", b"video")
+    )
+
+
 class TestsJourneeEcartee(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -41,7 +50,7 @@ class TestsJourneeEcartee(unittest.TestCase):
     def test_journee_partiellement_ecartee_ignore_pas_le_reste(self):
         clip_valide = self.input_dir / "jardin" / "b.mp4"
         clip_valide.parent.mkdir(parents=True)
-        clip_valide.write_bytes(b"    ftyp" + b"\x00" * 56)
+        clip_valide.write_bytes(mp4_structurel())
         self._ecrire_registre({
             "a": {"path": "jardin/a.mp4", "camera": "jardin", "excluded": True,
                   "created_at": "2026-08-10T09:00:00+00:00"},

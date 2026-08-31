@@ -36,7 +36,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.10.5"
+VERSION = "0.10.6"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -349,14 +349,14 @@ DEPENDANCES = {
     "tzdata": "tzdata",
     # find_ffmpeg() (merge_daily.py) s'en sert par défaut, pour ne pas
     # dépendre d'un ffmpeg déjà présent sur la machine (revue du 27/08,
-    # bug 4 : absent d'ici jusque-là, alors que build.py::PAQUETS et
-    # requirements.txt l'ont toujours listé).
+    # bug 4 : absent d'ici jusque-là, alors que requirements.in l'a
+    # toujours listé).
     "imageio_ffmpeg": "imageio-ffmpeg",
 }
 if sys.version_info < (3, 9):
     # zoneinfo est stdlib depuis 3.9 ; en dessous (édition Windows 7,
     # Python 3.8), backports.zoneinfo le fournit - même condition que
-    # requirements.txt et build.py::PAQUETS.
+    # requirements.in.
     DEPENDANCES["backports.zoneinfo"] = "backports.zoneinfo"
 
 

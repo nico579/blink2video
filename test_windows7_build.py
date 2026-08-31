@@ -11,6 +11,7 @@ from unittest import mock
 
 import build
 import build_blinkpy_win7
+import build_xr_tester
 import maj
 import runtime
 
@@ -24,15 +25,18 @@ class Windows7BuildTests(unittest.TestCase):
         self.assertEqual(build_blinkpy_win7.WIN7_VERSION, "0.25.9+win7.1")
 
     def test_certifi_is_a_direct_common_dependency(self):
+        # requirements.in porte l'intention (paquets non figés) ; .txt est
+        # généré par pip-compile (versions et empreintes, jamais à la main).
         requirements = {
             ligne.strip()
-            for ligne in (Path(__file__).parent / "requirements.txt")
+            for ligne in (Path(__file__).parent / "requirements.in")
             .read_text(encoding="utf-8")
             .splitlines()
             if ligne.strip() and not ligne.lstrip().startswith("#")
         }
         self.assertIn("certifi", requirements)
-        self.assertIn("certifi", build.PAQUETS)
+        verrouille = build.REQUIREMENTS.read_text(encoding="utf-8")
+        self.assertIn("certifi==", verrouille)
         self.assertEqual(runtime.DEPENDANCES.get("certifi"), "certifi")
 
     def test_workflows_build_both_profiles_from_main_only(self):
@@ -59,6 +63,36 @@ class Windows7BuildTests(unittest.TestCase):
         self.assertIn("workflow_call:", win7)
         self.assertIn("uses: ./.github/workflows/build-win7.yml", release)
         self.assertIn("needs: [build, build-win7]", release)
+
+    def test_ci_execute_tous_les_modules_unittest(self):
+        workflows = Path(__file__).parent / ".github" / "workflows"
+        ci = (workflows / "ci.yml").read_text(encoding="utf-8")
+        win7 = (workflows / "build-win7.yml").read_text(encoding="utf-8")
+        commande = "python -B -m unittest discover -v"
+        self.assertIn(commande, ci)
+        self.assertIn(commande, win7.replace(
+            ".\\build_venv_win7\\Scripts\\python.exe", "python"
+        ))
+
+    def test_publication_stable_survit_a_un_echec_win7(self):
+        release = (
+            Path(__file__).parent / ".github" / "workflows" / "release.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "if: ${{ always() && needs.build.result == 'success' }}",
+            release,
+        )
+
+    def test_testeur_xr_prepare_sa_version_depuis_un_checkout_propre(self):
+        with tempfile.TemporaryDirectory() as dossier, mock.patch.object(
+            build_xr_tester, "BASE_DIR", Path(dossier)
+        ):
+            version_info = build_xr_tester.preparer_version_info()
+
+            self.assertEqual(version_info, Path(dossier) / ".version_info.txt")
+            contenu = version_info.read_text(encoding="utf-8")
+            self.assertIn(f"FileVersion', u'{runtime.VERSION}'", contenu)
+            self.assertIn("OriginalFilename', u'Tester-XR.exe'", contenu)
 
     def test_win7_build_rejects_another_platform(self):
         with mock.patch.object(build.sys, "platform", "linux"):

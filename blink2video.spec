@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
+from build_support import ecrire_version_info
 
 
 SRC = Path(SPECPATH)
@@ -23,6 +24,11 @@ FAVICON = SRC / "assets" / "blink2video.ico"
 # Marqueur absent des bundles officiels. L'édition Windows 7 s'en sert pour
 # s'identifier et pour refuser une mise à jour vers le runtime Python 3.12.
 WIN7_MARKER = SRC / "assets" / "windows7-build.txt"
+# CSS/JS de la page web (serve.py), extraits pour ne plus vivre en dur dans
+# un .py : lus par runtime.resource_dir() à la racine du bundle, comme
+# FFMPEG ci-dessous, jamais sous assets/ (contrairement à FAVICON).
+SERVE_STYLE = SRC / "serve_style.css"
+SERVE_APP_JS = SRC / "serve_app.js"
 
 # ffmpeg est propre à la plateforme : on demande le binaire à imageio_ffmpeg,
 # installé dans l'environnement de construction, qui fournit celui de l'hôte.
@@ -67,48 +73,6 @@ def _modules(runtime) -> list:
                   - {runtime.ENTREE} | {"runtime", "tzdata"})
 
 
-# Ressource VERSIONINFO du binaire Windows. Un PE PyInstaller sans éditeur,
-# description ni copyright renseignés ressemble statistiquement aux
-# échantillons malveillants des jeux d'entraînement des moteurs antivirus à
-# heuristique ML (SentinelOne, Zillya...) : constaté sur les faux positifs
-# remontés par un utilisateur sur Reddit, ce champ manquant est un signal
-# faible mais réel pour ces classifieurs. Sans effet hors Windows, PyInstaller
-# ignore "version=" sur les autres plateformes.
-def _version_info(version: str) -> str:
-    parties = (version.split(".") + ["0", "0", "0"])[:3]
-    tuple_version = tuple(int(p) for p in parties) + (0,)
-    chemin = SRC / ".version_info.txt"
-    chemin.write_text(f"""VSVersionInfo(
-  ffi=FixedFileInfo(
-    filevers={tuple_version},
-    prodvers={tuple_version},
-    mask=0x3f,
-    flags=0x0,
-    OS=0x40004,
-    fileType=0x1,
-    subtype=0x0,
-    date=(0, 0)
-  ),
-  kids=[
-    StringFileInfo(
-      [StringTable(
-        u'040904B0',
-        [StringStruct(u'CompanyName', u'nico579'),
-         StringStruct(u'FileDescription', u'blink2video - enregistreur video pour cameras Blink'),
-         StringStruct(u'FileVersion', u'{version}'),
-         StringStruct(u'InternalName', u'blink2video'),
-         StringStruct(u'LegalCopyright', u'GPLv3 - nico579'),
-         StringStruct(u'OriginalFilename', u'blink2video.exe'),
-         StringStruct(u'ProductName', u'blink2video'),
-         StringStruct(u'ProductVersion', u'{version}')])
-      ]),
-    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
-  ]
-)
-""", encoding="utf-8")
-    return str(chemin)
-
-
 FFMPEG = _ffmpeg()
 RUNTIME = _runtime()
 
@@ -121,6 +85,11 @@ analysis = Analysis(
     # Windows n'a pas de base de fuseaux horaires système : sans ces données,
     # ZoneInfo("Europe/Paris") échoue et tout l'horodatage avec.
     datas=(collect_data_files("tzdata", include_py_files=False)
+           # Non optionnels (contrairement à APP_ICON/FAVICON ci-dessous) :
+           # serve.py les lit sans condition au chargement du module, leur
+           # absence du bundle serait un crash au démarrage, pas une
+           # dégradation propre.
+           + [(str(SERVE_STYLE), "."), (str(SERVE_APP_JS), ".")]
            + ([(str(APP_ICON), ".")] if APP_ICON.exists() else [])
            + ([(str(FAVICON), "assets")] if FAVICON.exists() else [])
            + ([(str(WIN7_MARKER), ".")]
@@ -166,7 +135,7 @@ executable = EXE(
     # Même mécanisme que lidar2map : PNG source portable, converti par
     # PyInstaller en ressource native sur la plateforme de construction.
     icon=str(APP_ICON),
-    version=_version_info(RUNTIME.VERSION),
+    version=str(ecrire_version_info(RUNTIME.VERSION, SRC / ".version_info.txt")),
 )
 
 COLLECT(

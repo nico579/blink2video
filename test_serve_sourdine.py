@@ -75,7 +75,10 @@ class TestSourdine(unittest.TestCase):
         # sur do_GET comme do_POST : sans lui, ce handler construit à la
         # main (pas de vraie requête HTTP derrière) est rejeté en 403 avant
         # même d'atteindre la route testée.
-        handler.headers = {"Host": "127.0.0.1"}
+        handler.headers = {
+            "Host": "127.0.0.1",
+            "X-Blink-Token": serve.TOKEN,
+        }
         return handler
 
     def appeler_get(self, handler):

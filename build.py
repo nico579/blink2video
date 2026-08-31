@@ -26,12 +26,11 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 SPEC = BASE_DIR / "blink2video.spec"
 
-# Profil ordinaire : versions courantes et chemins historiques inchangés.
-PAQUETS = [
-    "aiohttp", "blinkpy", "certifi", "tzdata", "imageio-ffmpeg",
-    "pyinstaller", "Pillow", "pystray",
-    'backports.zoneinfo; python_version < "3.9"',
-]
+# Profil ordinaire : verrouillé et à empreintes (requirements.in -> .txt via
+# pip-compile), même esprit que WIN7_REQUIREMENTS ci-dessous. blink_engine.py
+# rattrape une API privée de blinkpy (monkey-patch sur BlinkLiveStream) ;
+# une version flottante pourrait la casser en silence à la prochaine release.
+REQUIREMENTS = BASE_DIR / "requirements-build.txt"
 
 # Profil Windows 7 : jamais mélangé au venv ni aux sorties officielles.
 WIN7_PYTHON = (3, 8, 10)
@@ -273,7 +272,8 @@ def main() -> int:
     else:
         executer([str(python), "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
                  "mise à jour de pip")
-        executer([str(python), "-m", "pip", "install", "--quiet", *PAQUETS],
+        executer([str(python), "-m", "pip", "install", "--quiet",
+                  "-r", str(REQUIREMENTS)],
                  "installation des dépendances")
 
     ffmpeg = ffmpeg_utilisable(python, travail)

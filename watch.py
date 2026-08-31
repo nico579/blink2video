@@ -206,9 +206,12 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
                 not ancien or ancien.get("battery") == "ok"):
             alerts.append(_msg("camera_batterie", nom=name, etat=etat["battery"]))
 
-        if ancien and ancien.get("armed") and not etat["armed"]:
+        # Même règle que online/battery ci-dessus (bug #11) : une caméra déjà
+        # désarmée dès sa première observation doit alerter, pas seulement
+        # une transition armé -> désarmé.
+        if not etat["armed"] and (not ancien or ancien.get("armed")):
             alerts.append(_msg("camera_detection_coupee", nom=name))
-        elif ancien and not ancien.get("armed") and etat["armed"]:
+        elif etat["armed"] and ancien and not ancien.get("armed"):
             recoveries.append(_msg("camera_detection_reactivee", nom=name))
 
     if maintenant and not any(e["system_armed"] for e in maintenant.values()):
@@ -226,12 +229,18 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
             jours = (now - dt.datetime.fromisoformat(iso)).days
         except ValueError:
             continue
+        # deja reste à 0 (donc < SILENCE_DAYS, alerte possible) faute de
+        # passage précédent : un « at » absent par défaut sur now() masquait
+        # un premier passage déjà silencieux depuis longtemps (même bug #11
+        # que l'armement ci-dessus et la batterie).
         deja = 0
-        try:
-            deja = (dt.datetime.fromisoformat(previous.get("at", now.isoformat()))
-                    - dt.datetime.fromisoformat(iso)).days
-        except ValueError:
-            pass
+        previous_at = previous.get("at")
+        if previous_at:
+            try:
+                deja = (dt.datetime.fromisoformat(previous_at)
+                        - dt.datetime.fromisoformat(iso)).days
+            except ValueError:
+                pass
         if jours >= SILENCE_DAYS > deja:
             alerts.append(_msg("camera_silence", nom=name, jours=jours))
 
@@ -317,14 +326,19 @@ def _controler(args, timezone) -> None:
         popup(_msg("titre_echec"), message)
         return
 
-    previous = md.load_json(WATCH_STATE, {})
-    ignores = set(previous.get("ignored") or [])
-    alerts, recoveries = compare(previous, current, timezone, ignores)
-    current["ignored"] = sorted(ignores)
-    # Écrire avant de prévenir : la boîte de dialogue attend un clic, et une
-    # anomalie non notée serait signalée deux fois au tour suivant.
-    if not args.dry_run:
-        md.save_json(WATCH_STATE, current)
+    # Même verrou que --ignore/--unignore (main()) : sans lui, un tour de
+    # fond qui relit puis réécrit pendant qu'une commande --ignore fait de
+    # même perd silencieusement l'une des deux mises à jour (dernier
+    # écrivain gagne).
+    with runtime.verrou("watch", "controle", stale_after=60, attente=10):
+        previous = md.load_json(WATCH_STATE, {})
+        ignores = set(previous.get("ignored") or [])
+        alerts, recoveries = compare(previous, current, timezone, ignores)
+        current["ignored"] = sorted(ignores)
+        # Écrire avant de prévenir : la boîte de dialogue attend un clic, et une
+        # anomalie non notée serait signalée deux fois au tour suivant.
+        if not args.dry_run:
+            md.save_json(WATCH_STATE, current)
 
     moment = dt.datetime.now(timezone).strftime("%d/%m/%Y à %H:%M")
     for ligne in alerts:
@@ -388,12 +402,15 @@ def main() -> int:
     # détourner de son objet. C'est le même parti que « merge --exclude », qui
     # écarte un clip puis assemble.
     if args.ignore or args.unignore:
-        state = md.load_json(WATCH_STATE, {})
-        ignores = set(state.get("ignored") or [])
-        ignores |= set(args.ignore)
-        ignores -= set(args.unignore)
-        state["ignored"] = sorted(ignores)
-        md.save_json(WATCH_STATE, state)
+        # Même verrou que _controler() : un tour de fond peut être en train
+        # de relire/réécrire WATCH_STATE pendant qu'on modifie la sourdine.
+        with runtime.verrou("watch", "sourdine", stale_after=60, attente=10):
+            state = md.load_json(WATCH_STATE, {})
+            ignores = set(state.get("ignored") or [])
+            ignores |= set(args.ignore)
+            ignores -= set(args.unignore)
+            state["ignored"] = sorted(ignores)
+            md.save_json(WATCH_STATE, state)
         print("Caméras en sourdine :", ", ".join(state["ignored"]) or "aucune")
 
     if args.test:

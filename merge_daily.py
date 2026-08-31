@@ -19,6 +19,7 @@ from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotat
 
 import argparse
 import datetime as dt
+import functools
 import hashlib
 import json
 import platform
@@ -104,29 +105,131 @@ def safe_name(value: str) -> str:
 
 
 def valid_mp4(path: Path) -> bool:
-    """Vrai si le fichier porte une boîte ftyp dans ses 64 premiers octets.
+    """Valide rapidement la structure externe d'un MP4/MP4 fragmenté.
 
-    Lecture bornée (``read(64)``), pas ``read_bytes()[:64]`` : ce dernier
-    charge le fichier entier avant de ne garder que le début, coût
-    invisible sur un clip mais réel sur une vidéo assemblée de plusieurs
-    centaines de Mo à quelques Go (vu en vrai : /api/videos mettait
-    plusieurs dizaines de secondes à répondre, dominé par cette relecture
-    complète répétée à chaque appel, sur chaque fichier, sans cache).
-
-    Le plancher de 64 octets (revue de code du 0eab463, bug #4) coûte rien
-    de plus - la taille est déjà lue pour le premier contrôle : une boîte
-    ftyp à elle seule tient sur une vingtaine d'octets, mais aucun MP4 réel
-    ne s'arrête là (il porte au moins un index moov). Un fichier de 8 octets
-    contenant littéralement "ftyp" passait ce contrôle avant ce plancher."""
+    On parcourt uniquement les en-têtes des boîtes ISO-BMFF, en sautant leurs
+    contenus. C'est suffisamment peu coûteux pour les inventaires récurrents,
+    mais bien plus strict que la simple recherche de ``ftyp`` : chaque boîte
+    doit tenir entièrement dans le fichier et un média autonome doit contenir
+    ``ftyp``, ``moov`` et ``mdat``. La validation approfondie d'un nouveau
+    téléchargement est assurée par :func:`valid_mp4_complet`.
+    """
     try:
-        taille = path.stat().st_size
-        if taille < 64:
+        taille_fichier = path.stat().st_size
+        # Trois en-têtes de boîte au minimum ; ftyp requiert en outre les
+        # champs major_brand et minor_version (16 octets boîte comprise).
+        if taille_fichier < 32:
             return False
-        with path.open("rb") as f:
-            en_tete = f.read(64)
-        return b"ftyp" in en_tete
-    except OSError:
+
+        trouvees = set()
+        position = 0
+        with path.open("rb") as fichier:
+            while position < taille_fichier:
+                restant = taille_fichier - position
+                if restant < 8:
+                    return False
+                fichier.seek(position)
+                entete = fichier.read(8)
+                if len(entete) != 8:
+                    return False
+
+                taille_boite = int.from_bytes(entete[:4], "big")
+                type_boite = entete[4:8]
+                taille_entete = 8
+                if taille_boite == 1:
+                    extension = fichier.read(8)
+                    if len(extension) != 8:
+                        return False
+                    taille_boite = int.from_bytes(extension, "big")
+                    taille_entete = 16
+                elif taille_boite == 0:
+                    # Une boîte de taille nulle s'étend, par définition,
+                    # jusqu'à EOF et doit donc nécessairement être la dernière.
+                    taille_boite = restant
+
+                if taille_boite < taille_entete or taille_boite > restant:
+                    return False
+                if type_boite == b"ftyp" and taille_boite < taille_entete + 8:
+                    return False
+                if type_boite in {b"ftyp", b"moov", b"mdat"}:
+                    trouvees.add(type_boite)
+                position += taille_boite
+
+        return position == taille_fichier and trouvees == {b"ftyp", b"moov", b"mdat"}
+    except (OSError, OverflowError):
         return False
+
+
+@functools.lru_cache(maxsize=1)
+def _outil_validation_media() -> tuple[str, str] | None:
+    """Trouve une sonde média une fois, hors du chemin des simples listings."""
+    candidats_ffprobe = []
+    for motif in ("ffprobe*.exe", "ffprobe-*", "ffprobe"):
+        candidats_ffprobe.extend(
+            str(candidat)
+            for candidat in sorted(runtime.resource_dir().glob(motif))
+            if candidat.is_file()
+        )
+    systeme = shutil.which("ffprobe")
+    if systeme:
+        candidats_ffprobe.append(systeme)
+    if candidats_ffprobe:
+        return "ffprobe", candidats_ffprobe[0]
+
+    try:
+        return "ffmpeg", find_ffmpeg()
+    except RuntimeError:
+        return None
+
+
+def valid_mp4_complet(path: Path) -> bool:
+    """Vérifie un téléchargement entier avant de le publier ou le supprimer.
+
+    La vérification structurelle élimine les réponses HTML et les fichiers
+    tronqués au niveau d'une boîte. Une sonde parcourt ensuite tous les paquets
+    vidéo : elle détecte notamment un ``mdat`` écourté malgré un ``ftyp`` et un
+    ``moov`` encore lisibles. Faute de sonde, on échoue fermé afin qu'aucune
+    source distante ne soit supprimée sur la foi d'un contrôle incomplet.
+    """
+    if not valid_mp4(path):
+        return False
+    outil = _outil_validation_media()
+    if outil is None:
+        return False
+    genre, executable = outil
+    if genre == "ffprobe":
+        commande = [
+            executable, "-v", "error", "-select_streams", "v:0",
+            "-count_packets", "-show_entries", "stream=nb_read_packets",
+            "-of", "csv=p=0", str(path),
+        ]
+        sortie = subprocess.PIPE
+    else:
+        commande = [
+            executable, "-hide_banner", "-loglevel", "error", "-xerror",
+            "-i", str(path), "-map", "0:v:0", "-c", "copy",
+            "-f", "null", "-",
+        ]
+        sortie = subprocess.DEVNULL
+    try:
+        resultat = runtime.lancer(
+            commande, stdin=subprocess.DEVNULL, stdout=sortie,
+            stderr=subprocess.PIPE, text=True, encoding="utf-8",
+            errors="replace", check=False, timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if resultat.returncode != 0:
+        return False
+    if genre == "ffprobe":
+        if (resultat.stderr or "").strip():
+            return False
+        nombres = [ligne.strip() for ligne in (resultat.stdout or "").splitlines()]
+        try:
+            return any(int(nombre) > 0 for nombre in nombres if nombre)
+        except ValueError:
+            return False
+    return True
 
 
 def load_json(path: Path, default: dict) -> dict:

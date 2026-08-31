@@ -129,10 +129,12 @@ class TestAppliquerSelectionNAttendPasLeVerrouRegistre(unittest.TestCase):
 
         # Le travail réel (l'exclusion) doit tout de même aboutir une fois le
         # verrou libre, même si la réponse HTTP n'a pas attendu dessus.
-        etat_fichier = self.paths["input"] / ".blink_download_state.json"
+        # load_download_state() plutôt qu'une lecture JSON directe : un
+        # remplacement atomique en cours peut transitoirement refuser la
+        # lecture côté Windows (PermissionError), déjà toléré par ce helper.
         for _ in range(30):
-            etat = json.loads(etat_fichier.read_text(encoding="utf-8"))
-            if etat["clips"]["cle-1"].get("excluded"):
+            etat = serve.blink_registre.load_download_state(self.paths["input"])
+            if etat["clips"].get("cle-1", {}).get("excluded"):
                 break
             time.sleep(0.1)
         else:

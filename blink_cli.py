@@ -522,12 +522,11 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0,
     import webbrowser
 
     delai = float(os.environ.get("BLINK_ONBOARDING_TIMEOUT", delai))
-    port = 8765
-    if "--port" in supplement:
-        try:
-            port = int(supplement[supplement.index("--port") + 1])
-        except (IndexError, ValueError):
-            pass
+    # Le parseur minimal commun comprend les deux formes argparse,
+    # ``--port 9000`` et ``--port=9000``. Une seconde extraction manuelle
+    # vivait auparavant ici : la forme avec ``=`` lançait bien serve sur le
+    # port demandé, mais l'onboarding sondait et ouvrait encore 8765.
+    port = _port_demande(supplement) or 8765
 
     connexion_requise = not bool(etat.get("authenticated"))
     if etat.get("error"):
@@ -628,6 +627,25 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0,
     finally:
         if processus.poll() is None:
             runtime.arreter_processus(processus.pid, avec_descendance=True)
+
+
+def _groupe_persistant(groupe: list) -> bool:
+    """Vrai si ce groupe reste actif jusqu'à un arrêt explicite.
+
+    ``argparse`` accepte aussi bien ``--loop 10`` que ``--loop=10``. Garder
+    cette reconnaissance à un seul endroit évite qu'une commande soit lancée
+    en boucle tout en étant classée comme ponctuelle par le superviseur.
+    """
+    if not groupe:
+        return False
+    if groupe[0] == "serve":
+        return True
+    options = ("--loop", "--usb-loop", "--cloud-loop")
+    return any(
+        argument == option or argument.startswith(option + "=")
+        for argument in groupe[1:]
+        for option in options
+    )
 
 
 def executer(groupes: list) -> int:
@@ -746,6 +764,17 @@ def executer(groupes: list) -> int:
                     print(f"Impossible de démarrer pendant un arrêt ({erreur}).")
                     return 1
             return deleguer(verbe, arguments)
+        if _groupe_persistant(groupes[0]):
+            # Un download lancé seul ne passe pas par le superviseur de la
+            # branche multi-verbes. Sans fiche, ``stop`` concluait donc « rien
+            # ne tourne » alors que la boucle restait active. Publier le parent
+            # courant suffit, comme pour un verbe délégué lancé seul.
+            try:
+                with runtime.verrou_controle("launch", attente=10):
+                    runtime.inscrire_instance(groupes)
+            except runtime.BusyError as erreur:
+                print(f"Impossible de démarrer pendant un arrêt ({erreur}).")
+                return 1
         sys.argv = ["blink2video", verbe, *arguments]
         return asyncio.run(main(parse_args()))
 
@@ -754,11 +783,7 @@ def executer(groupes: list) -> int:
     # tout verbe à qui on demande de se répéter. Les autres font un passage et
     # s'arrêtent, donc les faire tourner en même temps n'aurait aucun sens :
     # l'assemblage démarrerait pendant que le téléchargement écrit encore.
-    persistant = [
-        g for g in groupes
-        if g[0] == "serve"
-        or any(option in g for option in ("--loop", "--usb-loop", "--cloud-loop"))
-    ]
+    persistant = [g for g in groupes if _groupe_persistant(g)]
     ponctuels = [g for g in groupes if g not in persistant]
 
     lances = []
@@ -801,18 +826,26 @@ def executer(groupes: list) -> int:
     pire = 0
     annonces = set()
 
-    def surveiller(sur_fin=None) -> None:
+    def relever_arrets() -> None:
         nonlocal pire
+        for rang, (verbe, processus) in enumerate(lances):
+            code = processus.poll()
+            if code is None or rang in annonces:
+                continue
+            annonces.add(rang)
+            pire = max(pire, abs(code))
+            print(f"Arrêté : {verbe}"
+                  + (f" (code {code})" if code else " (fin normale)"))
+
+    def surveiller(sur_fin=None) -> None:
         while any(processus.poll() is None for _, processus in lances):
-            for rang, (verbe, processus) in enumerate(lances):
-                code = processus.poll()
-                if code is None or rang in annonces:
-                    continue
-                annonces.add(rang)
-                pire = max(pire, abs(code))
-                print(f"Arrêté : {verbe}"
-                      + (f" (code {code})" if code else " (fin normale)"))
+            relever_arrets()
             time.sleep(1)
+        # Le dernier processus (ou tous, s'ils ont fini avant notre premier
+        # passage) rend la condition du while fausse. Il faut donc une collecte
+        # terminale explicite, faute de quoi son code de sortie disparaît et un
+        # échec isolé est annoncé comme un succès.
+        relever_arrets()
         if sur_fin:
             sur_fin()
 

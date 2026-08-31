@@ -15,11 +15,20 @@ from unittest import mock
 import blink_engine
 import blink_cli
 import blink_models
+import blink_registre
 import runtime
 import serve
 
 
-VIDEO_VALIDE = b"    ftyp" + b"\x00" * 56
+def boite_mp4(nom: bytes, contenu: bytes = b"") -> bytes:
+    return (len(contenu) + 8).to_bytes(4, "big") + nom + contenu
+
+
+VIDEO_VALIDE = (
+    boite_mp4(b"ftyp", b"isom\x00\x00\x02\x00isomiso2")
+    + boite_mp4(b"moov")
+    + boite_mp4(b"mdat", b"paquet-video")
+)
 
 
 class FauxSync:
@@ -55,6 +64,14 @@ class ProgressionGlobaleTests(unittest.IsolatedAsyncioTestCase):
         self.home = Path(self.temporaire.name)
         self.ancien_home = os.environ.get("BLINK_HOME")
         os.environ["BLINK_HOME"] = str(self.home)
+        # Les tests de cette classe portent sur l'ordonnancement ; leurs MP4
+        # synthétiques passent le contrôle structurel sans lancer ffmpeg.
+        self.sonde_media = mock.patch.object(
+            blink_engine.md, "valid_mp4_complet",
+            side_effect=blink_engine.md.valid_mp4,
+        )
+        self.sonde_media.start()
+        self.addCleanup(self.sonde_media.stop)
 
     async def asyncTearDown(self):
         if self.ancien_home is None:
@@ -253,6 +270,10 @@ class ProgressionGlobaleTests(unittest.IsolatedAsyncioTestCase):
             "usb-2", "Jardin", instant + dt.timedelta(minutes=1), 7, "cam-b",
         )
         premier.delete_video = mock.AsyncMock(side_effect=RuntimeError("API indisponible"))
+        cles_suppression_auto = {
+            blink_registre.camera_setting_key(sync, premier),
+            blink_registre.camera_setting_key(sync, second),
+        }
         appels_travail = []
         arguments = SimpleNamespace(
             since=None, camera=None, command="download",
@@ -275,7 +296,7 @@ class ProgressionGlobaleTests(unittest.IsolatedAsyncioTestCase):
             side_effect=lambda _q, fait=0, total=0, cle=None:
                 appels_travail.append((fait, total, cle)),
         ), mock.patch.object(
-            runtime, "lire_suppression_auto", return_value={"Entrée", "Jardin"},
+            runtime, "lire_suppression_auto", return_value=cles_suppression_auto,
         ), mock.patch.object(runtime, "marquer"), \
              mock.patch.object(runtime, "toast"), \
              mock.patch.object(runtime, "lire_langue", return_value="fr"), \
@@ -472,6 +493,7 @@ class ProgressionInterfaceTests(unittest.TestCase):
         faux = SimpleNamespace(
             path="/api/travail",
             hote_autorise=lambda: True,
+            jeton_valide=lambda: True,
             send_json=lambda corps, *_args: reponses.append(corps),
         )
         travail = {"quoi": "Téléchargement", "fait": 2, "total": 8}

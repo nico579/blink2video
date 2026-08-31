@@ -235,6 +235,42 @@ def state_key(sync, clip, source: str = "usb") -> str:
     return "v2:" + hashlib.sha256(identite.encode("utf-8")).hexdigest()
 
 
+def camera_setting_key(sync, clip) -> str:
+    """Clé stable d'un réglage destructif propre à une caméra."""
+    network_id = _identifiant_reseau(clip, sync)
+    device_id = _identifiant_camera(clip)
+    material = (
+        ["device", network_id, device_id]
+        if device_id
+        else [
+            "legacy", network_id, str(getattr(sync, "sync_id", "")),
+            str(getattr(clip, "name", "camera")).strip().casefold(),
+        ]
+    )
+    digest = hashlib.sha256(
+        json.dumps(material, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"camera-v2-{digest[:32]}"
+
+
+def camera_setting_key_from_entry(entry: dict) -> str:
+    """Même clé à partir d'une entrée persistée du registre."""
+    network_id = str(entry.get("network_id") or "")
+    device_id = str(entry.get("device_id") or "")
+    material = (
+        ["device", network_id, device_id]
+        if device_id
+        else [
+            "legacy", network_id, str(entry.get("sync_id") or ""),
+            str(entry.get("camera") or "camera").strip().casefold(),
+        ]
+    )
+    digest = hashlib.sha256(
+        json.dumps(material, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"camera-v2-{digest[:32]}"
+
+
 def remember_download(state: dict, sync, hub_name: str, clip, output: Path,
                       target: Path, source: str = "usb") -> None:
     """Marque un clip comme acquis uniquement lorsque son fichier existe.

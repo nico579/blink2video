@@ -44,19 +44,15 @@ jobs:
       # imports de serve.py/watch.py déjà existants), ce qui a suffi à révéler
       # ce trou dès la première exécution réelle de ce job.
       - name: Installer les dépendances minimales
-        run: python -m pip install --quiet aiohttp blinkpy certifi tzdata imageio-ffmpeg
+        run: python -m pip install --quiet -r requirements.txt
 
-      # Les anomalies confirmées sont des expectedFailure nommés par leur ID
-      # d'audit. Un correctif qui passe sans retirer ce marqueur devient un
-      # unexpected success : unittest échoue alors jusqu'à la mise à jour du
-      # test et du journal, ce qui empêche de cacher une correction.
-      - name: Tests isolés de caractérisation blink2video
+      # Découverte complète : chaque nouveau fichier test_*.py entre
+      # automatiquement dans la CI. Une liste écrite à la main en laissait plus
+      # de la moitié de côté, notamment le stockage XR et la supervision.
+      - name: Tests unitaires et de caractérisation blink2video
         env:
           BLINK_BOOTSTRAP: none
-        run: >-
-          python -B -m unittest -v
-          test_blink2video_audit.py test_runtime_validation.py
-          test_stage2_identity.py test_windows7_build.py
+        run: python -B -m unittest discover -v
 
   tester:
     name: chaîne vidéo ${{ matrix.os }}
@@ -82,7 +78,7 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
       - name: Installer les dépendances
-        run: python -m pip install --quiet aiohttp blinkpy certifi tzdata imageio-ffmpeg
+        run: python -m pip install --quiet -r requirements.txt
 
       - name: Compiler tous les modules
         # Tout le dépôt, et non une liste de fichiers : celle-ci citait encore
@@ -168,7 +164,7 @@ jobs:
         env:
           BLINK_TEST_BUNDLE: ${{ matrix.exe }}
         run: |
-          python -m pip install --quiet aiohttp blinkpy certifi tzdata imageio-ffmpeg
+          python -m pip install --quiet -r requirements.txt
           python tests.py
 
       - uses: actions/upload-artifact@v4
