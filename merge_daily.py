@@ -22,6 +22,7 @@ import datetime as dt
 import functools
 import hashlib
 import json
+import os
 import platform
 import re
 import shutil
@@ -354,7 +355,7 @@ def check_timestamp_rendering(ffmpeg: str, font_path: Path) -> None:
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env=dict(__import__("os").environ, TZ="UTC0"),
+        env=dict(os.environ, TZ="UTC0"),
         check=False,
     )
     stderr = result.stderr.decode("utf-8", "replace").strip()
@@ -383,7 +384,7 @@ def find_font(explicit: Path | None) -> Path:
     ]
     system = platform.system()
     if system == "Windows":
-        windir = Path(__import__("os").environ.get("WINDIR", r"C:\Windows"))
+        windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
         candidates += [
             windir / "Fonts" / "arialbd.ttf",
             windir / "Fonts" / "arial.ttf",
@@ -832,7 +833,7 @@ def run_ffmpeg_batch(
         "-progress", "pipe:1", "-nostats",
         str(output_path),
     ]
-    env = dict(__import__("os").environ, TZ="UTC0")
+    env = dict(os.environ, TZ="UTC0")
     process = runtime.demarrer(
         command,
         stdin=subprocess.DEVNULL,
