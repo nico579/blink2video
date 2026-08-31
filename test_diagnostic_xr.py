@@ -40,25 +40,29 @@ class DiagnosticXRTests(unittest.IsolatedAsyncioTestCase):
             },
             sync={"Porte secrète": SimpleNamespace()},
         )
-        clips = [SimpleNamespace(name="Porte secrète"), SimpleNamespace(name="Porte secrète")]
-        read_manifest = mock.AsyncMock(return_value=clips)
+        manifest_probe = mock.AsyncMock(return_value={
+            "clips": 2,
+            "schema_clips": 2,
+            "mapped_clips": 2,
+            "cameras": 1,
+        })
 
         code, lines = await diagnostic_xr.inspect_blink(
             blink,
             select_modules=lambda _blink, _name: [("Jardin privé", sync)],
-            read_manifest=read_manifest,
+            manifest_probe=manifest_probe,
         )
         report = "\n".join(lines)
 
         self.assertEqual(code, 0)
-        self.assertIn("manifest: OK", report)
-        self.assertIn("clips reported: 2", report)
+        self.assertIn("manifest API: OK", report)
+        self.assertIn("clips reported by API: 2", report)
         self.assertIn("Overall result: PASS_WITH_CLIPS", report)
         for private in ("Jardin privé", "Porte secrète", "SECRET-SERIAL"):
             self.assertNotIn(private, report)
         self.assertNotIn("900", report)
         self.assertNotIn("network identifier: 7", report)
-        read_manifest.assert_awaited_once_with(sync)
+        manifest_probe.assert_awaited_once_with(sync)
 
     async def test_manifeste_vide_valide_la_route_sans_inventer_de_clips(self):
         sync = SimpleNamespace(
@@ -71,7 +75,12 @@ class DiagnosticXRTests(unittest.IsolatedAsyncioTestCase):
         code, lines = await diagnostic_xr.inspect_blink(
             SimpleNamespace(homescreen={}, sync={}),
             select_modules=lambda _blink, _name: [("secret", sync)],
-            read_manifest=mock.AsyncMock(return_value=[]),
+            manifest_probe=mock.AsyncMock(return_value={
+                "clips": 0,
+                "schema_clips": 0,
+                "mapped_clips": 0,
+                "cameras": 0,
+            }),
         )
 
         self.assertEqual(code, 0)
@@ -81,11 +90,18 @@ class DiagnosticXRTests(unittest.IsolatedAsyncioTestCase):
         from test_xr_local_storage import compte_avec_stockage_local
 
         blink, doorbell = compte_avec_stockage_local()
-        read_manifest = mock.AsyncMock(return_value=[])
-        with mock.patch("blink_models.read_local_manifest", new=read_manifest):
+        manifest_probe = mock.AsyncMock(return_value={
+            "clips": 0,
+            "schema_clips": 0,
+            "mapped_clips": 0,
+            "cameras": 0,
+        })
+        with mock.patch.object(
+            diagnostic_xr, "probe_local_manifest", new=manifest_probe,
+        ):
             code, lines = await diagnostic_xr.inspect_blink(blink)
 
-        selected = read_manifest.await_args.args[0]
+        selected = manifest_probe.await_args.args[0]
         self.assertEqual(code, 0)
         self.assertIsNot(selected, doorbell)
         self.assertEqual(str(selected.sync_id), "900")
@@ -100,7 +116,7 @@ class DiagnosticXRTests(unittest.IsolatedAsyncioTestCase):
         code, lines = await diagnostic_xr.inspect_blink(
             blink,
             select_modules=lambda _blink, _name: [],
-            read_manifest=mock.AsyncMock(),
+            manifest_probe=mock.AsyncMock(),
         )
 
         self.assertEqual(code, 1)
@@ -135,7 +151,7 @@ class DiagnosticXRTests(unittest.IsolatedAsyncioTestCase):
         code, lines = await diagnostic_xr.inspect_blink(
             blink,
             select_modules=mock.Mock(side_effect=RuntimeError(message)),
-            read_manifest=mock.AsyncMock(),
+            manifest_probe=mock.AsyncMock(),
         )
         report = "\n".join(lines)
 
@@ -145,6 +161,85 @@ class DiagnosticXRTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("blink_auth.json", report)
         self.assertNotIn("example.test", report)
         self.assertNotIn("abcdefghijklmnopqrstuvwxyz", report)
+
+    async def test_xr_actif_est_sonde_meme_si_compatible_vaut_faux(self):
+        poll = mock.AsyncMock(side_effect=[
+            {"id": 51},
+            {
+                "manifest_id": 61,
+                "clips": [{
+                    "id": 71,
+                    "camera_name": "CameraAnonyme",
+                    "created_at": "2026-08-31T10:00:00+00:00",
+                    "size": "128",
+                }],
+            },
+        ])
+        sync = SimpleNamespace(
+            network_id=7,
+            sync_id=900,
+            _local_storage={
+                "compatible": False,
+                "enabled": True,
+                "status": True,
+            },
+            local_storage=True,
+            _names_table={"CameraAnonyme": "Nom privé"},
+            poll_local_storage_manifest=poll,
+        )
+
+        code, lines = await diagnostic_xr.inspect_blink(
+            SimpleNamespace(homescreen={}, sync={}),
+            select_modules=lambda _blink, _name: [("secret", sync)],
+        )
+        report = "\n".join(lines)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            poll.await_args_list,
+            [mock.call(), mock.call(51)],
+        )
+        self.assertIn("compatible=no, enabled=yes, active=yes", report)
+        self.assertIn("compatibility flag: informational", report)
+        self.assertIn("clips matching expected schema: 1/1", report)
+        self.assertIn("clips mapped to known cameras: 1/1", report)
+        self.assertIn("PASS_WITH_CLIPS", report)
+        for private in ("CameraAnonyme", "Nom privé", "900", "51", "61", "71"):
+            self.assertNotIn(private, report)
+
+    async def test_manifeste_accessible_mais_camera_inconnue_est_partiel(self):
+        sync = SimpleNamespace(
+            network_id=7,
+            sync_id=900,
+            _local_storage={"compatible": False, "enabled": True, "status": True},
+            local_storage=True,
+        )
+        probe = mock.AsyncMock(return_value={
+            "clips": 2,
+            "schema_clips": 2,
+            "mapped_clips": 0,
+            "cameras": 1,
+        })
+
+        code, lines = await diagnostic_xr.inspect_blink(
+            SimpleNamespace(homescreen={}, sync={}),
+            select_modules=lambda _blink, _name: [("secret", sync)],
+            manifest_probe=probe,
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("Overall result: PARTIAL", "\n".join(lines))
+
+    async def test_reponse_manifeste_invalide_reste_anonyme(self):
+        sync = SimpleNamespace(
+            poll_local_storage_manifest=mock.AsyncMock(
+                side_effect=[{"id": 51}, {"manifest_id": 61, "private": "SECRET"}],
+            ),
+            _names_table={},
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "manifest response"):
+            await diagnostic_xr.probe_local_manifest(sync)
 
     async def test_ecriture_atomique_remplace_le_rapport(self):
         with tempfile.TemporaryDirectory() as directory:

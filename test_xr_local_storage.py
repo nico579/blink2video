@@ -117,6 +117,25 @@ class DecouverteStockageLocalTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(sync._local_storage["compatible"])
 
+    async def test_xr_actif_prime_sur_compatible_faux(self):
+        """Triplet observé sur un vrai XR : false/true/active."""
+        blink, _appareil = compte_avec_stockage_local()
+        blink.homescreen["sync_modules"][0]["local_storage_compatible"] = False
+        sync = blink_models.select_sync_modules(blink, None)[0][1]
+        poll = mock.AsyncMock(side_effect=[
+            {"id": 51},
+            {"manifest_id": 61, "clips": []},
+        ])
+
+        with mock.patch.object(sync, "poll_local_storage_manifest", new=poll):
+            clips = await blink_models.read_local_manifest(sync)
+
+        self.assertFalse(sync._local_storage["compatible"])
+        self.assertTrue(sync._local_storage["enabled"])
+        self.assertTrue(sync.local_storage)
+        self.assertEqual(clips, [])
+        self.assertEqual(poll.await_args_list, [mock.call(), mock.call(51)])
+
     async def test_manifeste_utilise_id_module_et_restitue_nom_camera(self):
         blink, _appareil = compte_avec_stockage_local()
         sync = blink_models.select_sync_modules(blink, "Jardin")[0][1]

@@ -254,9 +254,12 @@ async def read_local_manifest(sync) -> list:
     import asyncio
 
     storage = sync._local_storage  # blinkpy n'expose pas encore d'accesseur public.
-    if not storage.get("compatible"):
-        raise RuntimeError("ce hub n'est pas compatible avec le stockage local")
-    if not storage.get("enabled"):
+    # Un vrai Sync Module XR avec microSD active annonce
+    # ``compatible=false, enabled=true, status=active``. Le premier drapeau
+    # décrit donc une compatibilité historique (notamment USB), pas la capacité
+    # opérationnelle à lire le manifeste XR. blinkpy ne bloque lui-même que sur
+    # ``status`` : un stockage actif est la preuve la plus forte et doit primer.
+    if not sync.local_storage and not storage.get("enabled"):
         raise RuntimeError("le stockage local n'est pas activé sur ce hub")
     if not sync.local_storage:
         raise RuntimeError(
