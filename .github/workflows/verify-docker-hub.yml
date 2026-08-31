@@ -24,7 +24,7 @@ jobs:
 
       - name: Demarrer le conteneur
         run: |
-          docker run -d --name verif -p 127.0.0.1:8765:8765 \
+          docker run -d --name verif -e BLINK_TRUSTED_LOOPBACK_PROXY=1 -p 127.0.0.1:8765:8765 \
             "nico579dock/blink2video:${{ github.event.inputs.tag }}"
 
       - name: Attendre que la page reponde
