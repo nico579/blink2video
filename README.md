@@ -384,7 +384,7 @@ nobody is listening. `--port` if you moved it.
 |---|---|
 | `BLINK_HOME` | data folder, defaulting to the executable's own |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` or `none`: how the Python environment is handled |
-| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. The UI deliberately remains local-only: `0.0.0.0` is for the official container behind a `127.0.0.1` port publication, not for exposing the dashboard to the LAN |
+| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. The UI deliberately remains local-only unless you opt in: set `0.0.0.0` to reach it from other machines on the LAN, or to bind it inside the official Docker container behind a `127.0.0.1` port publication. There is no authentication on the web UI, so only do this on a trusted home network, never expose it to the internet |
 
 </details>
 

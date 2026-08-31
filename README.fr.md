@@ -406,7 +406,7 @@ de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
 |---|---|
 | `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
-| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. L'interface reste volontairement limitée à la machine locale : `0.0.0.0` sert au conteneur officiel derrière une publication `127.0.0.1`, pas à exposer le tableau de bord au LAN |
+| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. L'interface reste volontairement limitée à la machine locale sauf choix explicite : mettre `0.0.0.0` pour y accéder depuis d'autres machines du LAN, ou pour l'utiliser à l'intérieur du conteneur Docker officiel derrière une publication `127.0.0.1`. Le tableau de bord n'a aucune authentification : ne faire ça que sur un réseau domestique de confiance, jamais exposé sur internet |
 
 </details>
 

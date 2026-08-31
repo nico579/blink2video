@@ -2768,13 +2768,16 @@ def main() -> int:
         print(f"Erreur : {error}")
         return 1
 
-    # 127.0.0.1 et pas 0.0.0.0 par défaut : cet outil déplace des fichiers, il
-    # n'a rien à faire sur le réseau local. BLINK_BIND permet d'y déroger,
-    # nécessaire dans un conteneur Docker où 127.0.0.1 désignerait la boucle
-    # locale du conteneur, injoignable depuis l'hôte même avec le port publié
-    # (le réseau en pont route vers l'interface du conteneur, pas sa boucle
-    # locale) : la frontière de sécurité reste alors posée par la publication
-    # du port elle-même (voir docker-compose.yml, 127.0.0.1: en dur).
+    # 127.0.0.1 et pas 0.0.0.0 par défaut : le tableau de bord n'a aucune
+    # authentification, il n'a rien à faire sur le réseau local sans un
+    # choix explicite. BLINK_BIND permet d'y déroger pour deux usages :
+    # accès direct depuis d'autres machines du LAN (à réserver à un réseau
+    # domestique de confiance, jamais exposé sur internet), ou conteneur
+    # Docker où 127.0.0.1 désignerait la boucle locale du conteneur,
+    # injoignable depuis l'hôte même avec le port publié (le réseau en pont
+    # route vers l'interface du conteneur, pas sa boucle locale) : la
+    # frontière de sécurité reste alors posée par la publication du port
+    # elle-même (voir docker-compose.yml, 127.0.0.1: en dur).
     bind = os.environ.get("BLINK_BIND", "127.0.0.1")
 
     class Server(http.server.ThreadingHTTPServer):
@@ -2814,6 +2817,15 @@ def main() -> int:
         return 1
     url = f"http://127.0.0.1:{args.port}/"
     print(f"Interface disponible sur {url}   (Ctrl+C pour arrêter)")
+    if bind not in ("127.0.0.1", "localhost"):
+        # webbrowser.open() ci-dessous garde volontairement 127.0.0.1 (le
+        # navigateur ouvert est celui de cette machine), mais quelqu'un qui a
+        # positionné BLINK_BIND pour l'accès LAN doit voir, sans avoir à
+        # relire la doc, qu'il vient d'ouvrir l'interface sans authentification
+        # au reste du réseau.
+        print(f"Attention : BLINK_BIND={bind} - interface aussi joignable "
+              f"depuis le reste du réseau sur le port {args.port}, sans "
+              f"authentification. À réserver à un réseau de confiance.")
     # Le serveur de configuration initiale ne doit créer aucun travail de
     # fond avant validation. Même la veille de version, sans rapport avec les
     # clips, attend donc le vrai démarrage pour garder ce mode strictement
