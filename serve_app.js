@@ -20,6 +20,24 @@ const h = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
 })[char]);
 const avecJeton = (url) => `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(BLINK_TOKEN)}`;
 
+// Si le serveur a redémarré hors des trois transitions suivies plus bas
+// (réinstallation manuelle pendant que l'onglet restait ouvert, crash...),
+// le jeton posé par cette page est périmé : toute route protégée retombe
+// sur le send_error() par défaut de http.server, qui répond en HTML
+// (DOCTYPE), jamais en JSON. .json() y échoue avec un SyntaxError précis,
+// jamais levé par une vraie erreur JSON (send_json() reste toujours du
+// JSON valide, même à 500). La seule récupération sensée est un
+// rechargement complet, qui obtient une page et un jeton frais (signalé
+// par cutthin sur Reddit, 2026-08-31).
+async function lireJSON(reponse) {
+  try {
+    return await reponse.json();
+  } catch (erreur) {
+    if (erreur instanceof SyntaxError) location.reload();
+    throw erreur;
+  }
+}
+
 let data = { clips: [], cameras: [], days: [] };
 let videos = { daily: [], weekly: [], monthly: [] };
 const $ = (id) => document.getElementById(id);
@@ -417,7 +435,7 @@ async function loadSystem(force) {
     $("count").textContent = "";
   }
   try {
-    system = await (await fetch("/api/system")).json();
+    system = await lireJSON(await fetch("/api/system"));
   } catch (error) {
     system = { error: String(error) };
   }
@@ -504,7 +522,7 @@ $("update").onclick = async () => {
   bouton.textContent = t("update.updating");
   const reponse = await fetch("/api/update", { method: "POST",
     headers: { "Content-Type": "application/json" }, body: "{}" });
-  const resultat = await reponse.json();
+  const resultat = await lireJSON(reponse);
   if (resultat.error) {
     alert(resultat.error);
     bouton.disabled = false;
@@ -548,7 +566,7 @@ function rechargerEnArrierePlan() {
 async function heuresDePassage() {
   let etat = {};
   try {
-    etat = await (await fetch("/api/passages")).json();
+    etat = await lireJSON(await fetch("/api/passages"));
   } catch (erreur) { return; }
   montrerMaj(etat.maj);
   const vus = etat.passages || {};
@@ -587,7 +605,7 @@ async function heuresDePassage() {
 
 async function etatDuTravail() {
   try {
-    const etat = await (await fetch("/api/travail", { cache: "no-store" })).json();
+    const etat = await lireJSON(await fetch("/api/travail", { cache: "no-store" }));
     montrerTravail(etat.travail);
   } catch (erreur) { /* le prochain passage réessaiera */ }
 }
@@ -763,7 +781,7 @@ async function connecterMse(name, video, signal, texteAttente, t0) {
           if (!response.ok) {
             let message = tf("watch.refused.code", { code: response.status });
             try {
-              const info = await (await fetch("/api/live-error")).json();
+              const info = await lireJSON(await fetch("/api/live-error"));
               if (info.camera === name && info.message) message = info.message;
             } catch (error) { /* on garde le message générique */ }
             throw new Error(message);
@@ -896,7 +914,7 @@ async function setArmed(scope, name, armed) {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scope, name, armed }),
   });
-  const result = await answer.json();
+  const result = await lireJSON(answer);
   if (result.error) { alert(result.error); return loadSystem(true); }
   system = result;
   renderLive();
@@ -917,7 +935,7 @@ async function reveillerCamera(name, bouton) {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
-    const result = await answer.json();
+    const result = await lireJSON(answer);
     if (result.error) { alert(result.error); return loadSystem(true); }
     system = result;
     renderLive();
@@ -1092,8 +1110,8 @@ async function load() {
     if (erreur.name === "AbortError") return; // une requête plus récente a pris le relais
     throw erreur;
   }
-  data = await answer.json();
-  videos = await videoAnswer.json();
+  data = await lireJSON(answer);
+  videos = await lireJSON(videoAnswer);
   if (data.error) { $("log").style.display = "block"; $("log").textContent = data.error; return; }
   // État de la sélection : à zéro à chaque rechargement, il reflète l'état
   // réel qu'on vient de relire, pas une intention encore en attente.
@@ -1242,7 +1260,7 @@ async function appliquerSelection() {
     const reponse = await fetch("/api/appliquer-selection", { method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ exclure, inclure, supprimer }) });
-    const resultat = await reponse.json();
+    const resultat = await lireJSON(reponse);
     if (resultat.error) { alert(resultat.error); return; }
     // Écarter/Réintégrer : mise à jour optimiste, comme l'ancien toggle()
     // (AUDIT 28.33/28.75). Le registre s'écrit en tâche de fond côté
@@ -1327,7 +1345,7 @@ $("authOk").onclick = async () => {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    result = await answer.json();
+    result = await lireJSON(answer);
   } catch (error) {
     result = { status: "error", message: String(error) };
   }
@@ -1355,7 +1373,7 @@ $("authOk").onclick = async () => {
 };
 
 $("refresh").onclick = async () => {
-  const status = await (await fetch("/api/status")).json();
+  const status = await lireJSON(await fetch("/api/status"));
   if (!status.authenticated && !(await authenticate())) return;
   if (status.initial_setup) {
     await ouvrirReglages(true);
@@ -1456,7 +1474,7 @@ $("auto").onchange = () => {
 // Reflète l'état réel du système (fichier de démarrage présent ou non), pas
 // une préférence mémorisée côté page : deux installations d'un même profil
 // navigateur ne doivent pas se faire croire l'état de l'autre.
-fetch("/api/autostart").then((r) => r.json()).then((etat) => {
+fetch("/api/autostart").then(lireJSON).then((etat) => {
   $("autostart").checked = !!etat.actif;
 }).catch(() => {});
 $("autostart").onchange = async () => {
@@ -1467,7 +1485,7 @@ $("autostart").onchange = async () => {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actif: voulu }),
     });
-    const etat = await reponse.json();
+    const etat = await lireJSON(reponse);
     if (etat.error) alert(etat.error);
     $("autostart").checked = !!etat.actif;
   } catch (error) {
@@ -1482,7 +1500,7 @@ let portActuel = null;   // relu à chaque ouverture, comparé à l'envoi
 
 async function ouvrirReglages(configurationInitiale = false) {
   try {
-    const reglages = await (await fetch("/api/reglages")).json();
+    const reglages = await lireJSON(await fetch("/api/reglages"));
     configurationInitiale = configurationInitiale || !!reglages.initial_setup;
     $("usbMinutes").value = reglages.usb_minutes;
     $("cloudMinutes").value = reglages.cloud_minutes;
@@ -1533,7 +1551,7 @@ $("storageDirBrowse").onclick = async () => {
   bouton.disabled = true;
   try {
     const reponse = await fetch("/api/choisir-dossier");
-    const resultat = await reponse.json();
+    const resultat = await lireJSON(reponse);
     if (resultat.error) {
       alert(t("reglages.storageDir.browse.unavailable"));
     } else if (resultat.path) {
@@ -1578,7 +1596,7 @@ async function chargerSourdine() {
   conteneur.textContent = t("sourdine.loading");
   let etat;
   try {
-    etat = await (await fetch("/api/sourdine")).json();
+    etat = await lireJSON(await fetch("/api/sourdine"));
   } catch (erreur) {
     conteneur.textContent = t("sourdine.unavailable");
     return;
@@ -1604,7 +1622,7 @@ async function chargerSourdine() {
         const reponse = await fetch("/api/sourdine", { method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ camera, ignored: case_.checked }) });
-        const resultat = await reponse.json();
+        const resultat = await lireJSON(reponse);
         if (resultat.error) {
           alert(resultat.error);
           case_.checked = !case_.checked;
@@ -1631,7 +1649,7 @@ async function chargerSuppressionAuto() {
   conteneur.textContent = t("suppressionAuto.loading");
   let etat;
   try {
-    etat = await (await fetch("/api/suppression-auto")).json();
+    etat = await lireJSON(await fetch("/api/suppression-auto"));
   } catch (erreur) {
     conteneur.textContent = t("suppressionAuto.unavailable");
     return;
@@ -1652,7 +1670,7 @@ async function chargerSuppressionAuto() {
         const reponse = await fetch("/api/suppression-auto", { method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ camera: camera.key, actif: case_.checked }) });
-        const resultat = await reponse.json();
+        const resultat = await lireJSON(reponse);
         if (resultat.error) {
           alert(resultat.error);
           case_.checked = !case_.checked;
@@ -1710,7 +1728,7 @@ $("reglagesApply").onclick = async () => {
                              storage_dir: storageDir, timestamp, timezone,
                              merge_jour: mergeJour, merge_semaine: mergeSemaine,
                              merge_mois: mergeMois, download_auto: downloadAuto }) });
-    const resultat = await reponse.json();
+    const resultat = await lireJSON(reponse);
     if (resultat.error) {
       alert(resultat.error);
       bouton.disabled = false;
