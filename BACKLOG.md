@@ -17,6 +17,24 @@ les perdre, pas forcement les construire toutes.
   bascule "Mettre a jour" dans reglages (et maintenant dans le menu de
   l'icone tray, 28.58).
 
+- **Tester-XR.exe affiche une "blink2video version" perimee dans son
+  rapport.** Source : reddit/cutthin, auteur de la demande initiale de prise
+  en charge du Sync Module XR et des tests sur materiel reel, 2026-08-31. Le
+  rapport du testeur XR (r2, tag xr-local-storage-test-r2) annoncait "blink2video
+  version: 0.10.6" alors que l'utilisateur confirmait tourner sous 0.10.08.
+  Confirme via `gh release list` : le tag r2 a ete publie le
+  2026-08-31T10:01Z, alors que v0.10.7 et v0.10.8 sont sortis apres (12:23Z
+  et 12:39Z le meme jour) sans rebuild du testeur. Ce n'est pas une erreur
+  de l'utilisateur : diagnostic_xr.py:88 lit `runtime.VERSION` au moment du
+  build PyInstaller de Tester-XR.exe (`build_xr_tester.py`/`xr_tester.spec`),
+  qui ne sont references ni dans `deploy.py` ni dans
+  `.github/workflows/*.yml` (verifie, zero occurrence) - ca redivergera a
+  chaque bump tant que ce n'est pas rattache. Deux corrections possibles,
+  pas exclusives : rebuild+republish Tester-XR a chaque version (mecanique
+  a ajouter au pipeline), ou faire lire au testeur la version reelle du
+  blink2video.exe voisin plutot que sa propre runtime.VERSION figee au
+  build.
+
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
 Les onze bugs numerotes de la revue sont tous traites (28.59 a 28.68) :
