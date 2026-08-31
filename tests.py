@@ -23,6 +23,7 @@ from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotat
 
 import atexit
 import json
+import re
 import os
 import shutil
 import socket
@@ -431,8 +432,9 @@ def test_arret() -> None:
         )
         verifier(page is not None,
                  "le serveur de la composition expose la version attendue")
+        jeton = jeton_depuis_page(page)
         inventaire_brut = attendre(
-            adresse + "/api/clips", processus=parent,
+            avec_jeton(adresse + "/api/clips", jeton), processus=parent,
             attendu=lambda corps: marque.encode("utf-8") in corps,
         )
         try:
@@ -826,11 +828,12 @@ def main() -> int:
             )
             verifier(page is not None,
                      "la page répond avec la version attendue")
+            jeton = jeton_depuis_page(page)
             # ?all=1 : ce test vérifie l'inventaire complet, or les clips
             # synthétiques du test d'horodatage sont répartis sur plusieurs
             # mois, hors de la fenêtre par défaut de /api/clips (serve.py).
             clips_bruts = attendre(
-                adresse + "/api/clips?all=1", processus=serveur,
+                avec_jeton(adresse + "/api/clips?all=1", jeton), processus=serveur,
                 attendu=lambda corps: identite_témoin.encode("utf-8") in corps,
             )
             verifier(clips_bruts is not None,
@@ -841,11 +844,13 @@ def main() -> int:
                      f"{len(clips.get('clips', []))} au lieu de {attendus}")
             verifier(sum(1 for c in clips.get("clips", []) if c["excluded"]) == 1,
                      "un seul clip est marqué écarté")
-            videos = json.loads(attendre(adresse + "/api/videos", processus=serveur)
-                                or b"{}")
+            videos = json.loads(
+                attendre(avec_jeton(adresse + "/api/videos", jeton), processus=serveur)
+                or b"{}")
             verifier(len(videos.get("monthly", [])) == 1,
                      "la mensuelle apparaît dans l'inventaire")
-            verifier(statut(adresse + "/media/monthly/../../blink2video.py") == 404,
+            verifier(statut(avec_jeton(
+                adresse + "/media/monthly/../../blink2video.py", jeton)) == 404,
                      "une traversée de chemin est refusée")
         finally:
             if serveur.poll() is None:
@@ -864,6 +869,20 @@ def main() -> int:
         return 1
     print("Tout est vert.")
     return 0
+
+
+def jeton_depuis_page(page: bytes | None) -> str:
+    """Extrait BLINK_TOKEN de la page servie (28.60) : seul moyen de le
+    connaître depuis ce process, engendré une fois par le serveur à son
+    démarrage, jamais par cette suite."""
+    if page is None:
+        return ""
+    correspondance = re.search(rb'BLINK_TOKEN = "([0-9a-f]+)"', page)
+    return correspondance.group(1).decode("ascii") if correspondance else ""
+
+
+def avec_jeton(url: str, jeton: str) -> str:
+    return f"{url}{'&' if '?' in url else '?'}token={jeton}"
 
 
 def attendre(url: str, essais: int = 40, processus=None,
