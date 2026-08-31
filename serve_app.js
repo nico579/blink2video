@@ -670,7 +670,7 @@ function cameraCard(c, systemArmed) {
   </div>`;
 }
 
-const cssId = (name) => name.replace(/[^\\w-]/g, "_");
+const cssId = (name) => name.replace(/[^\w-]/g, "_");
 
 // Un direct qui échoue doit rendre son bouton d'origine : laisser « Arrêter »
 // laisserait croire qu'un flux tourne, et il n'y aurait plus aucun moyen de
