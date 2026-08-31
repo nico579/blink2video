@@ -54,6 +54,11 @@ NORMALIZE_VERSION = "normalized-v1-hardsub"
 RENDER_VERSION = "daily-v7-normalized"
 PERIOD_VERSION = "period-v2-copy-first"
 
+# Partagé par run_ffmpeg_batch et concat_copy : un ffmpeg bloqué (constaté en
+# réel, AUDIT-2026-08-13 28.82) ne doit jamais laisser l'assemblage figé en
+# silence indéfiniment.
+SILENCE_MAX = 300.0  # 5 min : au-delà, ffmpeg est considéré bloqué.
+
 # Nom d'une vidéo journalière : 2026-08-10_jardin.mp4. Les agrégats hebdo et
 # mensuel sont construits à partir de ces fichiers (déjà horodatés et
 # normalisés), pas à partir des clips bruts.
@@ -873,8 +878,8 @@ def run_ffmpeg_batch(
     # fallu deviner un facteur de vitesse (PC lent, machine chargée par
     # ailleurs...) forcément arbitraire ; ici, peu importe que ce lot prenne
     # 10 secondes ou 2 heures du moment que ça continue d'avancer, seul un
-    # silence prolongé est suspect.
-    SILENCE_MAX = 300.0  # 5 min sans la moindre ligne : ffmpeg est bloqué.
+    # silence prolongé est suspect. SILENCE_MAX (module) : même seuil que
+    # concat_copy, qui n'a pas de -progress à observer.
     dernier_signe = time.monotonic()
     signe_verrou = threading.Lock()
     termine = threading.Event()
@@ -963,7 +968,24 @@ def concat_copy(ffmpeg: str, parts: list, destination: Path) -> tuple[bool, str]
         # s'applique jamais au PID principal (protection du navigateur).
         runtime.inscrire_travailleur(process.pid)
         try:
-            _, stderr = process.communicate()
+            try:
+                _, stderr = process.communicate(timeout=SILENCE_MAX)
+            except subprocess.TimeoutExpired:
+                # Même risque documenté que run_ffmpeg_batch (AUDIT-2026-08-13
+                # 28.82) : un ffmpeg bloqué laisserait sinon communicate()
+                # attendre indéfiniment, gelant l'assemblage hebdomadaire ou
+                # mensuel en silence. Pas de -progress ici (simple copie de
+                # flux, rien à observer) : un délai fixe fait donc office de
+                # chien de garde, faute de mieux. kill() puis un second
+                # communicate() sans timeout : la doc subprocess prévient que
+                # TimeoutExpired ne tue pas l'enfant, sans quoi ses tubes
+                # restent ouverts et un futur wait() peut se bloquer à son tour.
+                process.kill()
+                process.communicate()
+                return False, (
+                    f"FFmpeg silencieux plus de {int(SILENCE_MAX)} s, "
+                    f"processus tué (reprise au prochain passage)"
+                )
         finally:
             runtime.retirer_travailleur(process.pid)
         if process.returncode != 0 or not valid_mp4(destination):
