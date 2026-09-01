@@ -838,8 +838,22 @@ def executer(groupes: list) -> int:
                   + (f" (code {code})" if code else " (fin normale)"))
 
     def surveiller(sur_fin=None) -> None:
+        # Purge des fiches d'instances mortes sans passage par « stop » (kill
+        # externe, plantage, coupure de courant) : lire_instances() les
+        # nettoie déjà comme effet de bord de sa lecture, mais rien ne
+        # l'appelait plus tant que la session tourne ici sans redémarrer,
+        # parfois des jours (constaté en réel, 2026-09-01 : fiches vieilles de
+        # plusieurs jours toujours dans .blink_run). C'est ce tour, pas
+        # relever_arrets() ni un_tour() d'un verbe, qui vit aussi longtemps
+        # que la session : la responsabilité reste ici plutôt que dispersée
+        # dans un verbe dont le rôle documenté est autre chose.
+        MENAGE_INSTANCES_SECONDES = 600
+        prochain_menage = time.monotonic() + MENAGE_INSTANCES_SECONDES
         while any(processus.poll() is None for _, processus in lances):
             relever_arrets()
+            if time.monotonic() >= prochain_menage:
+                runtime.lire_instances(journal=print)
+                prochain_menage = time.monotonic() + MENAGE_INSTANCES_SECONDES
             time.sleep(1)
         # Le dernier processus (ou tous, s'ils ont fini avant notre premier
         # passage) rend la condition du while fausse. Il faut donc une collecte

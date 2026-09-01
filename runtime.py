@@ -1003,7 +1003,8 @@ def inscrire_instance(entrees: list, enfants=None) -> Path:
 
     Sans elle, arrêter une instance lancée sans console reviendrait à chercher
     des numéros de processus à la main, puis à tuer un arbre en espérant
-    n'oublier personne."""
+    n'oublier personne. Purge aussi au passage les fiches d'instances mortes
+    sans passage par « stop »."""
     import atexit
     import datetime as dt
 
@@ -1012,12 +1013,21 @@ def inscrire_instance(entrees: list, enfants=None) -> Path:
     # fiche enrichir lorsqu'ils inscrivent un ffmpeg.
     os.environ[INSTANCE_PID_ENV] = str(os.getpid())
 
+    # Purge les fiches mortes sans passage par « stop » (kill externe,
+    # plantage, coupure de courant) : lire_instances() les nettoie déjà comme
+    # effet de bord de sa lecture, mais rien ne le lui demandait plus une fois
+    # une session lancée, qui peut ensuite tourner des jours sans jamais
+    # rappeler cette fonction (constaté en réel, 2026-09-01 : fiches vieilles
+    # de plusieurs jours toujours dans .blink_run). Chaque lancement est
+    # l'occasion de balayer les restes du précédent.
+    instances_vivantes = lire_instances(journal=print)
+
     # Ne jamais effacer la demande d'un arrêt réellement en cours. Une nouvelle
     # instance lancée au même instant annulait sinon le signal sous les pieds
     # des anciennes boucles. Seul un drapeau orphelin, sans aucune instance
     # encore reconnue, appartient forcément à une session précédente.
     if arret_demande():
-        if lire_instances():
+        if instances_vivantes:
             raise BusyError("arrêt en cours")
         effacer_arret_demande()
 
@@ -1085,14 +1095,23 @@ def inscrire_instance(entrees: list, enfants=None) -> Path:
     return fiche
 
 
-def lire_instances() -> list:
+def lire_instances(journal=None) -> list:
     """Fiches des instances réellement en cours, les périmées étant effacées.
 
     I-13 : un parent mort ne suffit pas à dire l'instance terminée. Un enfant
     persistant peut lui survivre (le parent supervise, mais ne fait pas
     partie du même groupe de processus que ses enfants sous POSIX), et
     « stop » a besoin de la fiche pour retrouver ce survivant. On n'efface
-    donc que les fiches dont ni le parent, ni aucun enfant, ne vivent plus."""
+    donc que les fiches dont ni le parent, ni aucun enfant, ne vivent plus.
+
+    L'identité (PID + heure de création native, voir `identite_processus`)
+    décide seule qui est encore « nous » : plus fort qu'un rapprochement sur
+    la ligne de commande, déjà responsable d'avoir arrêté par erreur un
+    service HP, un terminal et une messagerie sur la machine d'un utilisateur
+    (voir `processus_correspond`). `journal`, optionnel, reçoit une ligne
+    lisible (PID et verbes d'origine) pour chaque fiche périmée retirée : de
+    quoi vérifier après coup *quelle* instance a été jugée morte, sans pour
+    autant fonder la décision elle-même sur ce texte."""
     dossier = _dossier_controle() / INSTANCES
     vivantes = []
     for fiche in sorted(dossier.glob("*.json")) if dossier.is_dir() else []:
@@ -1135,6 +1154,10 @@ def lire_instances() -> list:
             donnees["fiche"] = fiche
             vivantes.append(donnees)
         else:
+            if journal:
+                commande = " ".join(" ".join(g) for g in donnees.get("verbes") or [])
+                journal(f"fiche perimee retiree : PID {donnees.get('pid')} "
+                        f"({commande or '?'}), depuis {donnees.get('depuis', '?')}")
             fiche.unlink(missing_ok=True)
     return vivantes
 
