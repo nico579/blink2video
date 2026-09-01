@@ -113,24 +113,12 @@ async def _recv_corrige(self):
 
 _blinkpy_livestream.BlinkLiveStream.recv = _recv_corrige
 
-
-async def _auth_corrige(self):
-    """Remplace BlinkLiveStream.auth (blinkpy/livestream.py) : la version
-    d'origine désactive check_hostname et utilise CERT_NONE, acceptant le
-    certificat de n'importe qui sur le chemin réseau vers le relais du
-    direct. Mêmes valeurs par défaut que blink_auth.py pour la session
-    principale (chaîne ET nom d'hôte vérifiés), rien de custom."""
-    ssl_context = _blinkpy_livestream.ssl.create_default_context()
-    self.target_reader, self.target_writer = await asyncio.open_connection(
-        self.target.hostname, self.target.port, ssl=ssl_context
-    )
-
-    auth_header = self.get_auth_header()
-    self.target_writer.write(auth_header)
-    await self.target_writer.drain()
-
-
-_blinkpy_livestream.BlinkLiveStream.auth = _auth_corrige
+# Ne pas remplacer BlinkLiveStream.auth : le relais vidéo Blink présente un
+# certificat auto-signé, et blinkpy lui applique donc un contexte TLS CERT_NONE
+# limité à cette connexion. Une validation CA classique a été tentée dans
+# v0.10.6 ; elle a cassé tous les directs avec CERTIFICATE_VERIFY_FAILED avant
+# le premier octet. Les appels API Blink ordinaires restent, eux, strictement
+# validés par blink_auth.contexte_tls().
 
 
 class CloudResult(NamedTuple):

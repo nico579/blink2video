@@ -1760,6 +1760,36 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
 
         client.write.assert_called_once_with(charge)
 
+    async def test_livestream_relais_auto_signe_conserve_le_contexte_amont(self):
+        """Le relais vidéo Blink utilise un certificat auto-signé.
+
+        Les API ordinaires restent vérifiées par blink_auth, mais remplacer le
+        contexte spécialisé de BlinkLiveStream.auth par create_default_context
+        coupe le direct avant son premier octet (régression v0.10.6).
+        """
+        stream = blink_engine._blinkpy_livestream.BlinkLiveStream.__new__(
+            blink_engine._blinkpy_livestream.BlinkLiveStream
+        )
+        stream.target = SimpleNamespace(hostname="relay.invalid", port=443)
+        stream.get_auth_header = mock.Mock(return_value=b"AUTH\r\n")
+        reader = object()
+        writer = SimpleNamespace(write=mock.Mock(), drain=mock.AsyncMock())
+        connexion = mock.AsyncMock(return_value=(reader, writer))
+
+        with mock.patch.object(asyncio, "open_connection", new=connexion):
+            await stream.auth()
+
+        contexte = connexion.await_args.kwargs["ssl"]
+        self.assertEqual(
+            contexte.verify_mode,
+            blink_engine._blinkpy_livestream.ssl.CERT_NONE,
+        )
+        self.assertFalse(contexte.check_hostname)
+        self.assertIs(stream.target_reader, reader)
+        self.assertIs(stream.target_writer, writer)
+        writer.write.assert_called_once_with(b"AUTH\r\n")
+        writer.drain.assert_awaited_once_with()
+
 
 class FauxProcessusServe:
     """Simule le subprocess.Popen de « serve » lancé par accueillir()."""

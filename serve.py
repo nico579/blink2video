@@ -685,7 +685,9 @@ async def _stop_stream(stream, feed) -> str:
     except asyncio.TimeoutError:
         pass
     except Exception as error:
-        return f"fin de flux : {type(error).__name__}"
+        detail = str(error).strip()
+        suffixe = f" : {detail}" if detail else ""
+        return f"fin de flux : {type(error).__name__}{suffixe}"
 
     try:
         from blinkpy import api
