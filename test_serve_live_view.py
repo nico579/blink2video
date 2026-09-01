@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import io
 import os
 import tempfile
+import threading
 import time
 import unittest
+from unittest import mock
 
 os.environ["BLINK_BOOTSTRAP"] = "none"
 _TEST_HOME = tempfile.TemporaryDirectory(prefix="blink-live-view-")
@@ -61,6 +65,45 @@ class FauxPipeLent:
         time.sleep(self._attente)
         self._rendu = True
         return self._morceau
+
+
+class FauxVerrou:
+    def __init__(self, echec_sortie: bool = False):
+        self.entre = False
+        self.sorti = False
+        self._echec_sortie = echec_sortie
+
+    def __enter__(self):
+        self.entre = True
+        return self
+
+    def __exit__(self, *_args):
+        self.sorti = True
+        if self._echec_sortie:
+            raise OSError("verrou illisible")
+
+
+class FauxProcessus:
+    def __init__(self, sortie: bytes, erreurs: bytes = b""):
+        self.stdout = FauxPipeMorceaux([sortie, b""])
+        self.stderr = io.BytesIO(erreurs)
+        self.termine = False
+        self.attendu = False
+        self.tue = False
+
+    def terminate(self):
+        self.termine = True
+
+    def wait(self, timeout=None):
+        self.attendu = True
+
+    def kill(self):
+        self.tue = True
+
+
+class SortieDeconnectee:
+    def write(self, _data: bytes):
+        raise BrokenPipeError
 
 
 class TestsInitSegmentMse(unittest.TestCase):
@@ -126,6 +169,176 @@ class TestsLecteurTube(unittest.TestCase):
         flux qui ne reviendra plus."""
         lecteur = serve.LecteurTube(FauxPipeMorceaux([b""]))
         self.assertEqual(lecteur.lire(1.0), b"")
+
+
+class TestsCycleDirectMse(unittest.TestCase):
+    def setUp(self):
+        serve.MODULE_SLOT_INFO.clear()
+        serve._effacer_erreur_direct()
+
+    def tearDown(self):
+        serve.MODULE_SLOT_INFO.clear()
+        serve._effacer_erreur_direct()
+
+    @staticmethod
+    def handler(wfile=None):
+        handler = serve.Handler.__new__(serve.Handler)
+        handler.ffmpeg = "ffmpeg-test"
+        handler.wfile = wfile if wfile is not None else io.BytesIO()
+        handler.send_response = mock.Mock()
+        handler.send_header = mock.Mock()
+        handler.end_headers = mock.Mock()
+        handler.send_error = mock.Mock()
+        return handler
+
+    @staticmethod
+    def slot_est_libre(slot) -> bool:
+        libre = slot.acquire(blocking=False)
+        if libre:
+            slot.release()
+        return libre
+
+    def test_503_n_est_envoye_qu_apres_nettoyage_et_remplace_erreur_obsolete(self):
+        slot = threading.Semaphore(1)
+        verrou = FauxVerrou()
+        handler = self.handler()
+        etat_lors_du_503 = {}
+        erreur_vue_par_blink = []
+        serve._memoriser_erreur_direct("Jardin", "ancienne erreur", 503)
+
+        def echec_blink(*_args, **_kwargs):
+            erreur_vue_par_blink.append(serve._derniere_erreur_direct())
+            raise RuntimeError("Blink refuse le direct")
+
+        def noter_503(code, message):
+            etat_lors_du_503.update({
+                "code": code,
+                "message": message,
+                "verrou_sorti": verrou.sorti,
+                "slot_libre": self.slot_est_libre(slot),
+                "slot_info": dict(serve.MODULE_SLOT_INFO),
+            })
+
+        handler.send_error = noter_503
+        with mock.patch.object(serve, "MODULE_SLOT", slot), \
+             mock.patch.object(serve.blink_engine, "hub_lock", return_value=verrou), \
+             mock.patch.object(serve.BLINK, "call", side_effect=echec_blink):
+            serve.Handler.send_live_mse(handler, "Jardin")
+
+        self.assertEqual(erreur_vue_par_blink, [{}])
+        self.assertEqual(etat_lors_du_503["code"], 503)
+        self.assertEqual(etat_lors_du_503["message"], "Live stream unavailable")
+        self.assertTrue(etat_lors_du_503["verrou_sorti"])
+        self.assertTrue(etat_lors_du_503["slot_libre"])
+        self.assertEqual(etat_lors_du_503["slot_info"], {})
+        self.assertEqual(serve._derniere_erreur_direct(), {
+            "camera": "Jardin", "message": "Blink refuse le direct", "status": 503,
+        })
+
+    def test_flux_cree_est_referme_si_son_demarrage_echoue(self):
+        slot = threading.Semaphore(1)
+        verrou = FauxVerrou()
+        handler = self.handler()
+
+        class FauxFlux:
+            def __init__(self):
+                self.arrete = False
+
+            async def start(self):
+                raise RuntimeError("demarrage refuse")
+
+            def stop(self):
+                self.arrete = True
+
+        flux = FauxFlux()
+
+        class FausseCamera:
+            async def init_livestream(self):
+                return flux
+
+        def appel(coroutine_factory, timeout):
+            return asyncio.run(coroutine_factory(object()))
+
+        with mock.patch.object(serve, "MODULE_SLOT", slot), \
+             mock.patch.object(serve.blink_engine, "hub_lock", return_value=verrou), \
+             mock.patch.object(
+                 serve.BLINK, "find_camera", return_value=(object(), FausseCamera())
+             ), \
+             mock.patch.object(serve.BLINK, "call", side_effect=appel):
+            serve.Handler.send_live_mse(handler, "Jardin")
+
+        self.assertTrue(flux.arrete)
+        self.assertTrue(verrou.sorti)
+        self.assertTrue(self.slot_est_libre(slot))
+        handler.send_error.assert_called_once_with(503, "Live stream unavailable")
+
+    def test_stderr_bytes_ne_bloque_plus_la_liberation_apres_deconnexion(self):
+        slot = threading.Semaphore(1)
+        verrou = FauxVerrou()
+        process = FauxProcessus(
+            _segment_synthetique(),
+            b"dimensions not set\nCould not write header",
+        )
+        handler = self.handler(SortieDeconnectee())
+
+        with mock.patch.object(serve, "MODULE_SLOT", slot), \
+             mock.patch.object(serve.blink_engine, "hub_lock", return_value=verrou), \
+             mock.patch.object(serve.BLINK, "call", return_value="rtsp://camera"), \
+             mock.patch.object(serve.runtime, "demarrer", return_value=process), \
+             mock.patch("builtins.print") as journal:
+            serve.Handler.send_live_mse(handler, "Salon")
+
+        self.assertTrue(process.termine)
+        self.assertTrue(process.attendu)
+        self.assertTrue(verrou.sorti)
+        self.assertTrue(self.slot_est_libre(slot))
+        self.assertEqual(serve.MODULE_SLOT_INFO, {})
+        self.assertIn(
+            "dimensions not set",
+            " ".join(str(call) for call in journal.call_args_list),
+        )
+
+    def test_echec_secondaire_du_verrou_ne_fait_pas_fuir_le_slot(self):
+        slot = threading.Semaphore(1)
+        verrou = FauxVerrou(echec_sortie=True)
+        handler = self.handler()
+
+        with mock.patch.object(serve, "MODULE_SLOT", slot), \
+             mock.patch.object(serve.blink_engine, "hub_lock", return_value=verrou), \
+             mock.patch.object(
+                 serve.BLINK, "call", side_effect=RuntimeError("camera indisponible")
+             ):
+            serve.Handler.send_live_mse(handler, "Entrée")
+
+        self.assertTrue(verrou.sorti)
+        self.assertTrue(self.slot_est_libre(slot))
+        self.assertEqual(serve.MODULE_SLOT_INFO, {})
+        handler.send_error.assert_called_once()
+        self.assertEqual(handler.send_error.call_args.args[0], 503)
+
+    def test_409_publie_le_refus_courant_pas_un_ancien_503(self):
+        slot = threading.Semaphore(1)
+        slot.acquire()
+        serve.MODULE_SLOT_INFO.update({
+            "quoi": "direct MSE", "camera": "Salon", "depuis": time.monotonic(),
+        })
+        serve._memoriser_erreur_direct("Jardin", "ancienne erreur", 503)
+        handler = self.handler()
+        try:
+            with mock.patch.object(serve, "MODULE_SLOT", slot):
+                serve.Handler.send_live_mse(handler, "Jardin")
+        finally:
+            slot.release()
+
+        handler.send_error.assert_called_once()
+        code, raison = handler.send_error.call_args.args
+        self.assertEqual(code, 409)
+        self.assertEqual(raison, "Live stream busy")
+        message = serve._derniere_erreur_direct()["message"]
+        self.assertIn("Salon", message)
+        self.assertEqual(serve._derniere_erreur_direct(), {
+            "camera": "Jardin", "message": message, "status": 409,
+        })
 
 
 if __name__ == "__main__":

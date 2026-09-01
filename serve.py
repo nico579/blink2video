@@ -622,6 +622,46 @@ def read_mp4_init_segment(lecteur: LecteurTube, seconds: float) -> bytes:
 # Dernier échec de direct, relu par la page : une balise <img> ne peut pas lire
 # le corps d'une réponse en erreur, elle ne voit qu'un échec de chargement.
 LAST_LIVE_ERROR: dict = {}
+LAST_LIVE_ERROR_LOCK = threading.Lock()
+
+
+def _memoriser_erreur_direct(camera: str, message: str, status: int) -> None:
+    """Publie d'un seul bloc l'échec que le navigateur viendra relire."""
+    with LAST_LIVE_ERROR_LOCK:
+        LAST_LIVE_ERROR.clear()
+        LAST_LIVE_ERROR.update({
+            "camera": camera, "message": message, "status": status,
+        })
+
+
+def _effacer_erreur_direct() -> None:
+    """Une nouvelle tentative acceptée rend tout ancien échec caduc."""
+    with LAST_LIVE_ERROR_LOCK:
+        LAST_LIVE_ERROR.clear()
+
+
+def _derniere_erreur_direct() -> dict:
+    """Copie cohérente pour le thread HTTP qui sert /api/live-error."""
+    with LAST_LIVE_ERROR_LOCK:
+        return dict(LAST_LIVE_ERROR)
+
+
+def _texte_stderr_ffmpeg(errors: list) -> str:
+    """Normalise stderr, que subprocess livre en bytes dans ce pipeline."""
+    if not errors:
+        return ""
+    raw = errors[0] or b""
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", "replace").strip()[:300]
+    return str(raw).strip()[:300]
+
+
+def _journal_direct_mse(name: str, message: str) -> None:
+    """Un journal indisponible ne doit jamais interrompre un direct."""
+    try:
+        print(f"[direct-mse] {name} : {message}", flush=True)
+    except Exception:
+        pass
 
 
 async def _stop_stream(stream, feed) -> str:
@@ -1440,14 +1480,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         d'initialisation MP4 (moov > trak > mdia > minf > stbl > stsd >
         avc1 > avcC) plutôt que de le lire via une API."""
         if not MODULE_SLOT.acquire(blocking=False):
-            self.send_error(409, _slot_occupe_message())
+            message = _slot_occupe_message()
+            _memoriser_erreur_direct(name, message, 409)
+            # Le détail peut contenir un nom de caméra non latin-1 ou un saut
+            # de ligne. Il reste disponible via /api/live-error ; la ligne de
+            # statut HTTP, elle, doit toujours rester ASCII et bien formée.
+            self.send_error(409, "Live stream busy")
             return
-        _slot_pris("direct MSE", name)
 
         holder: dict = {}
+        errors: list = []
+        erreur_direct = None
+        reponse_commencee = False
+        journaux_nettoyage: list = []
         try:
+            _slot_pris("direct MSE", name)
+            # Une tentative réellement admise remplace l'ancien diagnostic.
+            # En particulier, un 409 ne doit jamais faire relire au navigateur
+            # le 503 d'une tentative précédente de la même caméra.
+            _effacer_erreur_direct()
             holder["lock"] = blink_engine.hub_lock("direct")
             holder["lock"].__enter__()
+            holder["lock_entered"] = True
 
             def start(blink):
                 async def run(_blink=blink):
@@ -1466,14 +1520,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             f"Cette caméra diffuse dans un format non pris en "
                             f"charge ({error})."
                         ) from error
-                    await stream.start()
+                    # init_livestream() a déjà créé une commande distante. Si
+                    # start() échoue, le finally doit tout de même retrouver ce
+                    # flux et envoyer stop/done à Blink.
                     holder["stream"] = stream
+                    await stream.start()
                     holder["feed"] = asyncio.ensure_future(stream.feed())
                     return stream.url
                 return run()
 
             url = BLINK.call(start, timeout=45)
-            print(f"[direct-mse] {name} : flux Blink ouvert sur {url}", flush=True)
+            _journal_direct_mse(name, f"flux Blink ouvert sur {url}")
 
             process = runtime.demarrer(
                 [self.ffmpeg, "-hide_banner", "-loglevel", "error",
@@ -1500,7 +1557,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 stderr=subprocess.PIPE,
             )
             holder["process"] = process
-            errors: list = []
             holder["drain"] = threading.Thread(
                 target=lambda: errors.append(process.stderr.read()), daemon=True
             )
@@ -1508,7 +1564,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             lecteur = LecteurTube(process.stdout)
             first = read_mp4_init_segment(lecteur, LIVE_FIRST_FRAME_SECONDS)
-            print(f"[direct-mse] {name} : segment initial {len(first)} octets", flush=True)
+            _journal_direct_mse(name, f"segment initial {len(first)} octets")
             if not first:
                 reason = self.live_failure_reason(holder.get("stream"))
                 # ffmpeg peut s'être arrêté avant tout octet exploitable (pas
@@ -1519,13 +1575,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 drain = holder.get("drain")
                 if drain is not None:
                     drain.join(timeout=2)
-                trace = (errors[0] or b"").decode("utf-8", "replace").strip()[:300] \
-                    if errors else ""
+                trace = _texte_stderr_ffmpeg(errors)
                 if trace:
                     reason = f"{reason} | ffmpeg : {trace}"
                 raise RuntimeError(reason)
             codec_str = h264_mime_codec_from_moov(first)
 
+            # À partir de ce point, une seconde ligne de statut HTTP ne peut
+            # plus être envoyée proprement, même si end_headers() échoue.
+            reponse_commencee = True
             self.send_response(200)
             self.send_header("Content-Type", "video/mp4")
             self.send_header("Cache-Control", "no-store")
@@ -1533,7 +1591,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.close_connection = True
             self.end_headers()
-            print(f"[direct-mse] {name} : en-tetes envoyes, codec {codec_str}", flush=True)
+            _journal_direct_mse(name, f"en-tetes envoyes, codec {codec_str}")
 
             def _ecrire(data: bytes) -> bool:
                 # Même tolérance sur ce premier envoi que sur les suivants :
@@ -1569,23 +1627,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 sent += len(chunk)
             holder["sent"] = sent
         except Exception as error:
-            message = str(error) if isinstance(error, RuntimeError) \
+            erreur_direct = str(error) if isinstance(error, RuntimeError) \
                 else f"{type(error).__name__}: {error}"
-            LAST_LIVE_ERROR.clear()
-            LAST_LIVE_ERROR.update({"camera": name, "message": message})
-            print(f"[direct-mse] {name} : echec, {message}", flush=True)
-            try:
-                self.send_error(503, message[:200])
-            except Exception:
-                pass  # en-tetes deja envoyes : le flux s'arrete, c'est tout
         finally:
             process = holder.get("process")
             if process is not None:
-                process.terminate()
+                try:
+                    process.terminate()
+                except Exception as error:
+                    journaux_nettoyage.append(
+                        f"echec de terminate ffmpeg, {type(error).__name__}: {error}"
+                    )
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    process.kill()
+                    try:
+                        process.kill()
+                    except Exception as error:
+                        journaux_nettoyage.append(
+                            f"echec de kill ffmpeg, {type(error).__name__}: {error}"
+                        )
+                except Exception as error:
+                    journaux_nettoyage.append(
+                        f"echec d'attente ffmpeg, {type(error).__name__}: {error}"
+                    )
             stream = holder.get("stream")
             if stream is not None:
                 try:
@@ -1595,24 +1660,70 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     )
                 except Exception as error:
                     verdict = f"echec de fermeture, {type(error).__name__}: {error}"
-                print(f"[direct-mse] {name} : {verdict}", flush=True)
+                journaux_nettoyage.append(verdict)
+            verrou = holder.get("lock")
+            if verrou is not None and holder.get("lock_entered"):
+                try:
+                    verrou.__exit__(None, None, None)
+                except Exception as error:
+                    journaux_nettoyage.append(
+                        f"echec de liberation du verrou disque, "
+                        f"{type(error).__name__}: {error}"
+                    )
+            # Publier l'échec avant de rendre le jeton empêche une nouvelle
+            # tentative d'effacer LAST_LIVE_ERROR puis de voir cet ancien
+            # diagnostic réapparaître sous ses pieds. La réponse HTTP reste,
+            # elle, différée jusqu'après la libération du jeton.
+            if erreur_direct is not None:
+                try:
+                    _memoriser_erreur_direct(name, erreur_direct, 503)
+                except Exception as error:
+                    journaux_nettoyage.append(
+                        f"diagnostic d'echec indisponible, "
+                        f"{type(error).__name__}: {error}"
+                    )
+            # Ces deux libérations mémoire sont la dernière ceinture : aucune
+            # erreur de fermeture de ffmpeg/Blink/verrou disque, ni aucun
+            # diagnostic, ne doit pouvoir les sauter.
+            try:
+                _slot_rendu()
+            finally:
+                MODULE_SLOT.release()
+
+            # Diagnostic seulement après avoir rendu toutes les ressources :
+            # sa lecture attend un fil et manipulait auparavant bytes comme str,
+            # ce qui pouvait lever ici et laisser le module occupé à jamais.
             sent = holder.get("sent")
             if sent is not None:
-                detail = ""
-                if not sent:
-                    drain = holder.get("drain")
-                    if drain is not None:
-                        drain.join(timeout=3)
-                    detail = " | ffmpeg : " + (
-                        (errors[0] or "").strip()[:300] if errors else "rien"
+                try:
+                    detail = ""
+                    if not sent:
+                        drain = holder.get("drain")
+                        if drain is not None:
+                            drain.join(timeout=3)
+                        detail = " | ffmpeg : " + (
+                            _texte_stderr_ffmpeg(errors) or "rien"
+                        )
+                    journaux_nettoyage.append(
+                        f"termine, {sent} octets transmis{detail}"
                     )
-                print(f"[direct-mse] {name} : termine, {sent} octets transmis{detail}",
-                      flush=True)
-            verrou = holder.get("lock")
-            if verrou is not None:
-                verrou.__exit__(None, None, None)
-            _slot_rendu()
-            MODULE_SLOT.release()
+                except Exception as error:
+                    journaux_nettoyage.append(
+                        f"diagnostic final indisponible, {type(error).__name__}: {error}"
+                    )
+            for journal in journaux_nettoyage:
+                _journal_direct_mse(name, journal)
+
+        if erreur_direct is not None:
+            # Le client ne voit ce 503 qu'une fois ffmpeg arrêté, la session
+            # Blink fermée et les verrous rendus. Sa prochaine tentative ne
+            # peut donc plus consommer ses reprises sur nos propres 409.
+            _journal_direct_mse(name, f"echec, {erreur_direct}")
+            if not reponse_commencee:
+                try:
+                    self.send_error(503, "Live stream unavailable")
+                except Exception:
+                    pass
 
     def resolve_media(self, route: str) -> Path | None:
         """Traduit « clip/… » ou « daily/… » en fichier réel, ou rien.
@@ -1692,7 +1803,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/live-error":
-            self.send_json(LAST_LIVE_ERROR or {})
+            self.send_json(_derniere_erreur_direct())
             return
 
         if route == "/api/system":
