@@ -743,86 +743,318 @@ const MSE_ABORT = {};
 // session pas encore relâchée, pas à un vrai problème.
 const MSE_MAX_ECHECS_A_VIDE = 5;
 const MSE_DELAI_RECONNEXION_MS = 3000;
+const MSE_DELAI_MODULE_OCCUPE_MS = 10000;
 const MSE_BUDGET_TOTAL_MS = 10 * 60 * 1000;
+// sourceopen est purement local et doit être quasi immédiat. La réponse HTTP,
+// elle, couvre jusqu'à 45 s pour ouvrir Blink puis 40 s pour obtenir le moov ;
+// sa borne est donc volontairement plus large. Une fois les en-têtes reçus,
+// le navigateur a encore une minute pour décoder sa première vraie image.
+const MSE_DELAI_SOURCEOPEN_MS = 10 * 1000;
+const MSE_DELAI_REPONSE_MS = 110 * 1000;
+const MSE_DELAI_PREMIERE_IMAGE_MS = 60 * 1000;
+// Le serveur coupe lui-même un direct après 300 s. Cette marge interrompt
+// aussi read() ou updateend si le navigateur ne propage pas sa fermeture.
+const MSE_DUREE_APRES_LECTURE_MS = 330 * 1000;
+const MSE_DELAI_DECODAGE_FINAL_MS = 1000;
+
+function erreurAnnulationMse() {
+  // Error + name reste compris des navigateurs qui n'acceptent pas encore
+  // le constructeur DOMException à deux arguments (notamment les vieux
+  // moteurs encore rencontrés sur Windows 7).
+  const error = new Error("Aborted");
+  error.name = "AbortError";
+  return error;
+}
 
 function attendreOuAbandon(ms, signal) {
   return new Promise((resolve, reject) => {
-    if (signal.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
-    const id = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
+    if (signal.aborted) { reject(erreurAnnulationMse()); return; }
+    let id = null;
+    const nettoyer = () => {
+      if (id !== null) clearTimeout(id);
+      signal.removeEventListener("abort", abandonner);
+    };
+    const abandonner = () => {
+      nettoyer();
+      reject(erreurAnnulationMse());
+    };
+    signal.addEventListener("abort", abandonner, { once: true });
+    id = setTimeout(() => {
+      nettoyer();
+      resolve();
+    }, ms);
+  });
+}
+
+// Contrairement à fetch(), une Promise quelconque (reader.read() compris
+// selon le moteur) n'est pas tenue de rejeter quand son signal est annulé.
+// Cette enveloppe garantit que chaque attente rend la main ; l'appelant peut
+// alors annuler explicitement le reader dans son finally.
+function operationOuAbandon(operation, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(erreurAnnulationMse()); return; }
+    let terminee = false;
+    const finir = (suite, valeur) => {
+      if (terminee) return;
+      terminee = true;
+      signal.removeEventListener("abort", abandonner);
+      suite(valeur);
+    };
+    const abandonner = () => finir(reject, erreurAnnulationMse());
+    signal.addEventListener("abort", abandonner, { once: true });
+    try {
+      Promise.resolve(operation()).then(
+        (valeur) => finir(resolve, valeur),
+        (error) => finir(reject, error)
+      );
+    } catch (error) {
+      finir(reject, error);
+    }
+  });
+}
+
+function creerTentativeMse(signalParent) {
+  const controller = new AbortController();
+  let expiree = false;
+  let id = null;
+  const expirer = () => {
+    expiree = true;
+    controller.abort();
+  };
+  const propagerArret = () => controller.abort();
+  const armer = (ms) => {
+    if (id !== null) clearTimeout(id);
+    id = setTimeout(expirer, ms);
+  };
+
+  if (signalParent.aborted) controller.abort();
+  else {
+    signalParent.addEventListener("abort", propagerArret, { once: true });
+    armer(MSE_DELAI_SOURCEOPEN_MS);
+  }
+
+  return {
+    signal: controller.signal,
+    abandonner: () => controller.abort(),
+    attendreServeur: () => {
+      if (!controller.signal.aborted) armer(MSE_DELAI_REPONSE_MS);
+    },
+    attendrePremiereImage: () => {
+      if (!controller.signal.aborted) armer(MSE_DELAI_PREMIERE_IMAGE_MS);
+    },
+    confirmerLecture: () => {
+      if (!controller.signal.aborted) armer(MSE_DUREE_APRES_LECTURE_MS);
+    },
+    aExpire: () => expiree,
+    nettoyer: () => {
       clearTimeout(id);
-      reject(new DOMException("Aborted", "AbortError"));
-    }, { once: true });
+      signalParent.removeEventListener("abort", propagerArret);
+    },
+  };
+}
+
+function attendreOuvertureMse(mediaSource, signal) {
+  if (mediaSource.readyState === "open") return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(erreurAnnulationMse()); return; }
+    let terminee = false;
+    const nettoyer = () => {
+      mediaSource.removeEventListener("sourceopen", ouverte);
+      mediaSource.removeEventListener("sourceclose", fermee);
+      mediaSource.removeEventListener("error", fermee);
+      signal.removeEventListener("abort", abandonner);
+    };
+    const finir = (suite, valeur) => {
+      if (terminee) return;
+      terminee = true;
+      nettoyer();
+      suite(valeur);
+    };
+    const ouverte = () => finir(resolve);
+    const fermee = () => finir(reject, new Error(t("watch.noimage")));
+    const abandonner = () => finir(reject, erreurAnnulationMse());
+    mediaSource.addEventListener("sourceopen", ouverte, { once: true });
+    mediaSource.addEventListener("sourceclose", fermee, { once: true });
+    mediaSource.addEventListener("error", fermee, { once: true });
+    signal.addEventListener("abort", abandonner, { once: true });
+  });
+}
+
+function ajouterSegmentMse(sourceBuffer, value, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(erreurAnnulationMse()); return; }
+    let terminee = false;
+    const nettoyer = () => {
+      sourceBuffer.removeEventListener("updateend", ajoute);
+      sourceBuffer.removeEventListener("error", echoue);
+      signal.removeEventListener("abort", abandonner);
+    };
+    const finir = (suite, valeur) => {
+      if (terminee) return;
+      terminee = true;
+      nettoyer();
+      suite(valeur);
+    };
+    const ajoute = () => finir(resolve);
+    const echoue = () => finir(reject, new Error(t("watch.noimage")));
+    const abandonner = () => finir(reject, erreurAnnulationMse());
+    sourceBuffer.addEventListener("updateend", ajoute, { once: true });
+    sourceBuffer.addEventListener("error", echoue, { once: true });
+    signal.addEventListener("abort", abandonner, { once: true });
+    try {
+      sourceBuffer.appendBuffer(value);
+    } catch (error) {
+      finir(reject, error);
+    }
   });
 }
 
 // Un cycle connexion -> flux -> fin. Renvoie si au moins une image est
 // arrivée (utilisé par watchMse pour décider de réessayer ou d'abandonner).
-async function connecterMse(name, video, signal, texteAttente, t0) {
+async function connecterMse(name, video, signalGlobal, texteAttente, t0) {
   const box = $("live-" + cssId(name));
-  if (box && !$("hint-" + cssId(name))) {
+  let hint = $("hint-" + cssId(name));
+  if (box && !hint) {
     box.insertAdjacentHTML(
       "beforeend",
-      `<p class="hint overlay" id="hint-${cssId(name)}">${texteAttente}</p>`
+      `<p class="hint overlay" id="hint-${cssId(name)}">${h(texteAttente)}</p>`
     );
+    hint = $("hint-" + cssId(name));
   }
-  const hint = $("hint-" + cssId(name));
+  if (hint) hint.textContent = texteAttente;
 
-  const mediaSource = new MediaSource();
-  const url = URL.createObjectURL(mediaSource);
-  video.src = url;
-  let recu = false;
+  const tentative = creerTentativeMse(signalGlobal);
+  const signal = tentative.signal;
+  let mediaSource = null;
+  let url = null;
+  let response = null;
+  let reader = null;
+  let sourceBuffer = null;
+  let lecture = false;
+  let erreurMedia = null;
+
+  const confirmerLecture = () => {
+    if (lecture) return;
+    lecture = true;
+    tentative.confirmerLecture();
+    if (hint) hint.remove();
+    if (window.__mseMetric == null) window.__mseMetric = performance.now() - t0;
+  };
+  const signalerErreurMedia = () => {
+    if (signal.aborted) return;
+    erreurMedia = new Error(t("watch.noimage"));
+    tentative.abandonner();
+  };
   try {
-    await new Promise((resolve, reject) => {
-      mediaSource.addEventListener("sourceopen", async () => {
+    mediaSource = new MediaSource();
+    url = URL.createObjectURL(mediaSource);
+    video.addEventListener("loadeddata", confirmerLecture);
+    video.addEventListener("playing", confirmerLecture);
+    video.addEventListener("error", signalerErreurMedia);
+    const ouverture = attendreOuvertureMse(mediaSource, signal);
+    video.src = url;
+    await ouverture;
+    tentative.attendreServeur();
+    mediaSource.addEventListener("error", signalerErreurMedia);
+
+    response = await operationOuAbandon(
+      () => fetch(`/live-mse/${encodeURIComponent(name)}`, { signal }), signal
+    );
+    if (!response.ok) {
+      let message = response.status === 409
+        ? t("watch.refused.retry")
+        : tf("watch.refused.code", { code: response.status });
+      // Un 409 décrit le verrou courant, pas LAST_LIVE_ERROR. Consulter cet
+      // endpoint dans ce cas réaffichait souvent l'ancien 503 de la caméra.
+      if (response.status !== 409) {
         try {
-          const response = await fetch(`/live-mse/${encodeURIComponent(name)}`,
-                                        { signal });
-          if (!response.ok) {
-            let message = tf("watch.refused.code", { code: response.status });
-            try {
-              const info = await lireJSON(await fetch("/api/live-error"));
-              if (info.camera === name && info.message) message = info.message;
-            } catch (error) { /* on garde le message générique */ }
-            throw new Error(message);
-          }
-          const codec = response.headers.get("X-Codec") || "avc1.42E01E";
-          const mimeType = `video/mp4; codecs="${codec}"`;
-          if (!MediaSource.isTypeSupported(mimeType)) {
-            throw new Error(tf("watch.codec.unsupported", { codec }));
-          }
-          const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
-          sourceBuffer.mode = "sequence";
-          const reader = response.body.getReader();
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            await new Promise((res, rej) => {
-              sourceBuffer.addEventListener("updateend", res, { once: true });
-              sourceBuffer.addEventListener("error", rej, { once: true });
-              sourceBuffer.appendBuffer(value);
-            });
-            if (!recu) {
-              recu = true;
-              if (hint) hint.remove();
-              if (window.__mseMetric == null) window.__mseMetric = performance.now() - t0;
-              // L'attribut autoplay seul ne suffit pas toujours à démarrer
-              // la lecture sur une balise <video> dont on change juste le
-              // src : on le force dès qu'assez de données sont arrivées.
-              video.play().catch(() => {});
-            }
-          }
-          if (mediaSource.readyState === "open") mediaSource.endOfStream();
-          resolve();
-        } catch (error) {
-          reject(error);
+          const reponseErreur = await operationOuAbandon(
+            () => fetch("/api/live-error", { cache: "no-store", signal }), signal
+          );
+          const info = await operationOuAbandon(() => lireJSON(reponseErreur), signal);
+          if (info.camera === name && info.message) message = info.message;
+        } catch (error) { /* on garde le message générique */ }
+      }
+      const error = new Error(message);
+      error.status = response.status;
+      throw error;
+    }
+
+    const codec = response.headers.get("X-Codec") || "avc1.42E01E";
+    const mimeType = `video/mp4; codecs="${codec}"`;
+    if (!MediaSource.isTypeSupported(mimeType)) {
+      throw new Error(tf("watch.codec.unsupported", { codec }));
+    }
+    if (!response.body || typeof response.body.getReader !== "function") {
+      throw new Error(t("watch.noimage"));
+    }
+    tentative.attendrePremiereImage();
+    sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+    sourceBuffer.mode = "sequence";
+    reader = response.body.getReader();
+
+    for (;;) {
+      const morceau = await operationOuAbandon(() => reader.read(), signal);
+      if (morceau.done) break;
+      if (!morceau.value || morceau.value.byteLength === 0) continue;
+      await ajouterSegmentMse(sourceBuffer, morceau.value, signal);
+      if (!lecture) {
+        // Le premier morceau est souvent seulement ftyp+moov. play() aide
+        // l'autoplay, mais seul loadeddata/playing ci-dessus prouve qu'une
+        // vraie image a été décodée.
+        const lancement = video.play();
+        if (lancement && typeof lancement.catch === "function") {
+          lancement.catch(() => {});
         }
-      }, { once: true });
-    });
+      }
+    }
+    if (mediaSource.readyState === "open" && !sourceBuffer.updating) {
+      mediaSource.endOfStream();
+    }
+    // Laisser au moteur un tour pour émettre loadeddata après le dernier
+    // append ; un EOF avec seulement le moov reste ensuite un vrai échec.
+    if (!lecture) await attendreOuAbandon(MSE_DELAI_DECODAGE_FINAL_MS, signal);
+    if (!lecture) throw new Error(t("watch.noimage"));
+    return true;
+  } catch (error) {
+    let finalError = erreurMedia || error;
+    if (signalGlobal.aborted) finalError = erreurAnnulationMse();
+    else if (tentative.aExpire()) finalError = new Error(t("watch.noimage"));
+    else if (!(finalError instanceof Error)) finalError = new Error(String(finalError));
+    finalError.mseLecture = lecture;
+    throw finalError;
   } finally {
-    URL.revokeObjectURL(url);
+    video.removeEventListener("loadeddata", confirmerLecture);
+    video.removeEventListener("playing", confirmerLecture);
+    video.removeEventListener("error", signalerErreurMedia);
+    if (mediaSource) mediaSource.removeEventListener("error", signalerErreurMedia);
+    // Même après un EOF ou une erreur codec (donc sans clic sur Arrêter), le
+    // fetch de cette tentative doit recevoir son abort : cancel() seul n'est
+    // pas uniformément propagé jusqu'à la connexion HTTP par les navigateurs.
+    tentative.abandonner();
+    // cancel() n'est volontairement pas awaité : certains moteurs savent
+    // abandonner la lecture mais ne résolvent la Promise qu'après fermeture
+    // réseau. Le nettoyage lui-même ne doit jamais devenir le nouveau blocage.
+    try {
+      const annulation = reader
+        ? reader.cancel()
+        : response && response.body && typeof response.body.cancel === "function"
+          ? response.body.cancel() : null;
+      if (annulation && typeof annulation.catch === "function") {
+        annulation.catch(() => {});
+      }
+    } catch (error) { /* flux déjà fermé */ }
+    if (sourceBuffer && mediaSource && mediaSource.readyState === "open") {
+      try { sourceBuffer.abort(); } catch (error) { /* déjà détaché */ }
+    }
+    if (mediaSource && mediaSource.readyState === "open") {
+      try { mediaSource.endOfStream(); } catch (error) { /* append interrompu */ }
+    }
+    if (url !== null) {
+      try { URL.revokeObjectURL(url); } catch (error) { /* URL déjà rendue */ }
+    }
+    tentative.nettoyer();
   }
-  return recu;
 }
 
 async function watchMse(name) {
@@ -838,37 +1070,66 @@ async function watchMse(name) {
 
   const controller = new AbortController();
   MSE_ABORT[name] = controller;
+  let budgetEcoule = false;
+  const idBudget = setTimeout(() => {
+    budgetEcoule = true;
+    controller.abort();
+  }, MSE_BUDGET_TOTAL_MS);
 
   let echecsAVide = 0;
   let derniereErreur = null;
-  while (echecsAVide < MSE_MAX_ECHECS_A_VIDE
-         && performance.now() - t0 < MSE_BUDGET_TOTAL_MS) {
-    const texte = echecsAVide === 0 && derniereErreur === null
-      ? t("watch.waking.mse") : t("watch.reconnecting");
-    try {
-      const recu = await connecterMse(name, video, controller.signal, texte, t0);
-      derniereErreur = null;
-      echecsAVide = recu ? 0 : echecsAVide + 1;
-    } catch (error) {
-      if (error.name === "AbortError") { delete MSE_ABORT[name]; return; }
-      derniereErreur = error;
-      echecsAVide++;
+  let lecturePendantBudget = false;
+  try {
+    while (echecsAVide < MSE_MAX_ECHECS_A_VIDE
+           && performance.now() - t0 < MSE_BUDGET_TOTAL_MS) {
+      const texte = echecsAVide === 0 && derniereErreur === null
+        ? t("watch.waking.mse") : t("watch.reconnecting");
+      try {
+        const aLu = await connecterMse(name, video, controller.signal, texte, t0);
+        lecturePendantBudget = lecturePendantBudget || aLu;
+        derniereErreur = null;
+        echecsAVide = aLu ? 0 : echecsAVide + 1;
+      } catch (error) {
+        if (error.name === "AbortError" && controller.signal.aborted) {
+          if (!budgetEcoule) return;  // bouton Arrêter
+          break;
+        }
+        derniereErreur = error;
+        if (error.mseLecture) {
+          lecturePendantBudget = true;
+          echecsAVide = 0;
+        } else if (error.status !== 409) {
+          // 409 = un autre onglet ou une actualisation tient encore le module.
+          // Ne pas consommer les cinq essais en quelques secondes ; le budget
+          // global de dix minutes reste la borne dure.
+          echecsAVide++;
+        }
+      }
+      if (controller.signal.aborted || echecsAVide >= MSE_MAX_ECHECS_A_VIDE) break;
+      const delai = derniereErreur && derniereErreur.status === 409
+        ? MSE_DELAI_MODULE_OCCUPE_MS : MSE_DELAI_RECONNEXION_MS;
+      try {
+        await attendreOuAbandon(delai, controller.signal);
+      } catch (error) {
+        if (!budgetEcoule) return;  // arrêt demandé pendant l'attente
+        break;
+      }
     }
-    if (controller.signal.aborted || echecsAVide >= MSE_MAX_ECHECS_A_VIDE) break;
-    try {
-      await attendreOuAbandon(MSE_DELAI_RECONNEXION_MS, controller.signal);
-    } catch (error) {
-      break;  // arrêt demandé pendant l'attente
-    }
+  } finally {
+    clearTimeout(idBudget);
+    if (MSE_ABORT[name] === controller) delete MSE_ABORT[name];
   }
-  delete MSE_ABORT[name];
-  if (controller.signal.aborted) return;
-  if (derniereErreur) {
+  if (controller.signal.aborted && !budgetEcoule) return;
+  const finParBudget = budgetEcoule
+    || performance.now() - t0 >= MSE_BUDGET_TOTAL_MS;
+  if (finParBudget && lecturePendantBudget) {
+    // Budget total écoulé après une vraie lecture : retour silencieux au
+    // repos, comme avant, plutôt qu'une fausse erreur de fin de flux.
+    stopWatch(name);
+  } else if (derniereErreur) {
     failWatch(name, String(derniereErreur.message || derniereErreur));
   } else {
-    // Budget total écoulé pendant que ça fonctionnait : pas un échec, on
-    // ramène juste au repos plutôt que d'afficher une erreur trompeuse.
-    stopWatch(name);
+    failWatch(name, t("watch.noimage"));
   }
 }
 
