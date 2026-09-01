@@ -450,6 +450,11 @@ async function loadSystem(force) {
 let travailEnCours = false;
 let travailVisible = false;
 let actualisationLocale = false;
+// Boucle d'attente d'un redémarrage après clic sur « Mettre à jour » (voir
+// son onclick plus bas). montrerTravail() l'arrête depuis l'extérieur quand
+// la mise à jour conclut sans redémarrer (phase.update_noop) : sans ça, elle
+// attendrait un retour du serveur qui ne viendra jamais.
+let miseAJourAttente = null;
 
 // Le serveur ne connaît jamais la langue affichée (choix propre à chaque
 // onglet, en localStorage) : un libellé de phase arrive donc toujours en
@@ -476,6 +481,21 @@ function montrerTravail(travail) {
     $("refresh").disabled = false;
     return;
   }
+  if (travail.cle === "phase.update_noop") {
+    // La mise à jour a conclu sans arrêter ni relancer le serveur (déjà à
+    // jour, archive absente, git pull refusé...). L'onclick du bouton
+    // n'attend qu'une chose, sa disparition-puis-retour : sans ce
+    // déblocage explicite, il resterait bloqué sur « Mise à jour… »
+    // indéfiniment alors que rien n'est en cours.
+    if (miseAJourAttente !== null) {
+      clearInterval(miseAJourAttente);
+      miseAJourAttente = null;
+    }
+    const bouton = $("update");
+    delete bouton.dataset.encours;
+    bouton.disabled = false;
+    gelerPendantMaj(false);
+  }
   const termine = !!travail.termine;
   const actif = travail.actif === undefined ? !termine : !!travail.actif;
   const etaitActif = travailEnCours;
@@ -488,7 +508,10 @@ function montrerTravail(travail) {
   const quoi = travail.cle === "phase.update_download"
     ? libellePhase(travail.cle, travail.quoi, { mo: Math.round(total) })
     : libellePhase(travail.cle, travail.quoi);
-  if (total) {
+  // total === 1 : un pas unique, pas une mesure de progression (ex. « déjà à
+  // jour », voir phase.update_noop) - une fraction « 1/1 (100 %) » n'y
+  // ajouterait rien.
+  if (total > 1) {
     $("bar").max = total;
     $("bar").value = fait;
     const courant = fait >= total ? total : fait + 1;
@@ -515,6 +538,21 @@ function montrerMaj(neuve) {
   bouton.title = tf("update.title", { version: neuve.version });
 }
 
+// Contrôles capables d'envoyer une requête ou d'ouvrir un nouvel état
+// (réglages, filtre, sélection, passage en direct) pendant qu'une mise à
+// jour est en vol : gelés le temps de l'opération, faute de quoi un clic
+// ailleurs peut atterrir sur un serveur en train de s'arrêter puis de
+// revenir sous une autre version. « refresh » a déjà sa propre règle (lié à
+// n'importe quel travail actif dans montrerTravail) et n'a pas besoin d'y être.
+const CONTROLES_GELES_PENDANT_MAJ = ["reglagesButton", "filtreButton", "applyButton", "view"];
+
+function gelerPendantMaj(gele) {
+  for (const id of CONTROLES_GELES_PENDANT_MAJ) {
+    const element = $(id);
+    if (element) element.disabled = gele;
+  }
+}
+
 $("update").onclick = async () => {
   const bouton = $("update");
   bouton.dataset.encours = "1";
@@ -529,14 +567,18 @@ $("update").onclick = async () => {
     delete bouton.dataset.encours;
     return;
   }
+  gelerPendantMaj(true);
   $("phase").textContent = tf("update.progress", { version: resultat.version });
   $("bar").removeAttribute("value");
   $("work").classList.add("on");
   $("refresh").disabled = true;
   // Le serveur va disparaître puis revenir sous sa nouvelle version. On teste
-  // sa présence, et c'est son retour qui sert de fin de course.
+  // sa présence, et c'est son retour qui sert de fin de course. Une conclusion
+  // qui ne redémarre rien (déjà à jour, échec...) ne déclenche jamais ça :
+  // c'est phase.update_noop, vu par montrerTravail(), qui arrête alors cette
+  // boucle et débloque le bouton depuis l'extérieur.
   let parti = false;
-  const attente = setInterval(async () => {
+  miseAJourAttente = setInterval(async () => {
     try {
       await fetch("/api/status", { cache: "no-store" });
       if (parti) location.reload();
@@ -544,7 +586,17 @@ $("update").onclick = async () => {
       parti = true;      // il s'est arrêté : la relance suit
     }
   }, 2000);
-  setTimeout(() => clearInterval(attente), 900000);
+  // Dernier filet si même phase.update_noop n'est jamais arrivé (ex. sous-
+  // processus mort avant de pouvoir écrire quoi que ce soit) : mieux vaut un
+  // bouton qui se débloque sans explication qu'un bouton mort pour de bon.
+  setTimeout(() => {
+    if (miseAJourAttente === null) return;
+    clearInterval(miseAJourAttente);
+    miseAJourAttente = null;
+    bouton.disabled = false;
+    delete bouton.dataset.encours;
+    gelerPendantMaj(false);
+  }, 900000);
 };
 
 let dernierRechargementAuto = 0;

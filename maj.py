@@ -137,6 +137,48 @@ def _interroger() -> dict:
         return json.loads(reponse.read().decode("utf-8"))
 
 
+def _version_locale() -> str:
+    """La VERSION réellement sur disque, pour qui tourne depuis les sources.
+
+    Un bundle ne peut pas diverger de lui-même en cours de route (voir
+    `frozen()`, seule la mise à jour remplace ses fichiers, et elle redémarre
+    toujours le processus) : `runtime.VERSION` suffit alors. Depuis les
+    sources, ce fichier peut changer sous un processus déjà lancé (tirage ou
+    commit pendant que blink2video tourne) ; comparer à la constante chargée
+    à l'import ferait croire qu'une version déjà installée reste à venir, et
+    la mise à jour déclenchée depuis ce faux positif ne trouverait plus rien
+    à faire (constaté en réel : bouton « Installer » qui ne fait jamais
+    rien)."""
+    if runtime.frozen():
+        return runtime.VERSION
+    try:
+        chemin = Path(__file__).resolve().parent / "runtime.py"
+        for ligne in chemin.read_text(encoding="utf-8").splitlines():
+            if ligne.startswith("VERSION = "):
+                return ligne.split('"')[1]
+    except OSError:
+        pass
+    return runtime.VERSION
+
+
+def _conclure_sans_relance(message: str) -> None:
+    """Publie une conclusion de mise à jour qui n'arrête ni ne relance rien.
+
+    `installer()` et `_depuis_les_sources()` partagent une contrainte : ni un
+    « déjà à jour », ni une archive absente, ni un `git pull` refusé ne vont
+    arrêter puis relancer le serveur. La page web attend pourtant précisément
+    cette disparition-puis-retour pour savoir que c'est fini (voir son
+    commentaire « le serveur va disparaître puis revenir »). Sans ce signal,
+    le bouton reste bloqué sur « Mise à jour… » indéfiniment, sans qu'aucune
+    erreur ni « déjà à jour » ne remonte jamais (constaté en réel : clic sans
+    effet visible). `total=1` : un seul pas, pas une mesure de progression,
+    donc pas de fraction affichée (montrerTravail ne montre un N/N que si
+    total > 1)."""
+    print(message)
+    runtime.travail(message, 1, 1, cle="phase.update_noop")
+    runtime.fin_travail(conserver=runtime.TRAVAIL_TERMINE_VISIBLE)
+
+
 def disponible(force: bool = False, reseau: bool = True) -> dict:
     """La version publiée si elle est plus récente que la nôtre, sinon rien.
 
@@ -173,7 +215,8 @@ def disponible(force: bool = False, reseau: bool = True) -> dict:
             pass
 
     version = str(cache.get("version") or "")
-    if not version or _numeros(version) <= _numeros(runtime.VERSION):
+    locale = _version_locale()
+    if not version or _numeros(version) <= _numeros(locale):
         return {}
     return {"version": version, "page": cache.get("page"),
             "archive": cache.get("archive") or {}}
@@ -753,34 +796,33 @@ def _depuis_les_sources() -> int:
     version n'est pas là, et c'est elle qui arrête et relance."""
     dossier = Path(__file__).resolve().parent
     if not (dossier / ".git").exists():
-        print("Ces sources ne viennent pas d'un dépôt git : rien à tirer. "
-              "Téléchargez l'archive publiée, ou clonez le dépôt.")
+        _conclure_sans_relance(
+            "Ces sources ne viennent pas d'un dépôt git : rien à tirer. "
+            "Téléchargez l'archive publiée, ou clonez le dépôt.")
         return 2
 
     neuve = disponible(force=True)
     if not neuve:
-        print(f"blink2video {runtime.VERSION} est à jour.")
+        _conclure_sans_relance(f"blink2video {_version_locale()} est à jour.")
         return 0
 
-    print(f"Mise à jour {runtime.VERSION} vers {neuve['version']} (git pull)")
+    print(f"Mise à jour {_version_locale()} vers {neuve['version']} (git pull)")
     tire = runtime.lancer(["git", "pull", "--ff-only"], cwd=str(dossier),
                           capture_output=True, text=True, check=False)
     print((tire.stdout or "").strip() or (tire.stderr or "").strip())
     if tire.returncode != 0:
-        print("« git pull » a refusé : des modifications locales attendent "
-              "peut-être. Rien n'a changé.")
+        _conclure_sans_relance(
+            "« git pull » a refusé : des modifications locales attendent "
+            "peut-être. Rien n'a changé.")
         return 1
 
     # Notre propre VERSION est celle d'avant le tirage : c'est le fichier sur
     # disque qui dit ce qui vient d'arriver.
-    obtenue = ""
-    for ligne in (dossier / "runtime.py").read_text(encoding="utf-8").splitlines():
-        if ligne.startswith("VERSION = "):
-            obtenue = ligne.split('"')[1]
-            break
+    obtenue = _version_locale()
     if obtenue != neuve["version"]:
-        print(f"Le dépôt annonce {obtenue or '?'} après le tirage, "
-              f"on attendait {neuve['version']}. Relance refusée.")
+        _conclure_sans_relance(
+            f"Le dépôt annonce {obtenue or '?'} après le tirage, "
+            f"on attendait {neuve['version']}. Relance refusée.")
         return 1
 
     print("Passage à la nouvelle version…")
@@ -805,12 +847,13 @@ def installer(force: bool = False) -> int:
 
     neuve = disponible(force=True)
     if not neuve:
-        print(f"blink2video {runtime.VERSION} est à jour.")
+        _conclure_sans_relance(f"blink2video {runtime.VERSION} est à jour.")
         return 0
     archive = neuve.get("archive") or {}
     if not archive.get("url"):
-        print(f"La version {neuve['version']} est publiée, mais sans archive "
-              f"pour ce système. Voir {neuve.get('page')}")
+        _conclure_sans_relance(
+            f"La version {neuve['version']} est publiée, mais sans archive "
+            f"pour ce système. Voir {neuve.get('page')}")
         return 1
 
     print(f"Mise à jour {runtime.VERSION} vers {neuve['version']}")
@@ -826,16 +869,17 @@ def installer(force: bool = False) -> int:
         dossier = _extraire(fichier, travail / "contenu")
         _rendre_executable(dossier)
         if not _verifier(dossier, neuve["version"]):
+            _conclure_sans_relance(
+                "Échec de la mise à jour : le nouvel exécutable n'a pas démarré correctement.")
             return 1
         fichier.unlink(missing_ok=True)
     except (OSError, urllib.error.URLError, zipfile.BadZipFile,
             tarfile.TarError) as erreur:
-        print(f"Échec de la mise à jour : {type(erreur).__name__}: {erreur}")
+        _conclure_sans_relance(f"Échec de la mise à jour : {type(erreur).__name__}: {erreur}")
         if travail is not None:
             shutil.rmtree(travail, ignore_errors=True)
         return 1
-    finally:
-        runtime.fin_travail()
+    runtime.fin_travail()
 
     # La suite appartient à la nouvelle version : elle seule peut remplacer
     # celle-ci sans se scier la branche. Détachée, car ce processus fait partie
