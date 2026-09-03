@@ -531,6 +531,58 @@ les perdre, pas forcement les construire toutes.
   plus grande ou un disque plus lent, mais le mecanisme est identique a
   celui deja eprouve pour les clips ecartes.
 
+- **"Redemarrer" depuis l'icone de zone de notification arrete tout sans
+  jamais rien relancer (2026-09-03).** Signale par l'utilisateur en
+  usage reel : "j'ai fait redemarrer avec le systray, ca s'est arrete,
+  mais pas reparti". Pas une regression de cette session (aucun fichier
+  concerne touche avant cet incident) : un incident deja rencontre et
+  partiellement investigue, documente dans le code lui-meme (tray.py,
+  commentaire de blink_cli.py) - constate a l'epoque sur Windows 7,
+  "sans qu'on ait pu etablir pourquoi le second processus detache
+  n'aboutissait pas toujours". Cette fois reproduit et sa cause
+  exacte identifiee dans le code (pas supposee).
+
+  redemarrer()/arreter() (tray.py) lancent nettoyer() - et pour
+  redemarrer, _relancer() ensuite - sur un thread demon separe du
+  thread de la pompe de messages de l'icone (necessaire : le geler
+  empecherait icon.stop() d'etre traite a temps). Mais icon.run()
+  rendait la main des icon.stop(), sans jamais attendre ce thread demon.
+  blink_cli.py (l'appelant) fait ensuite son propre nettoyage (deja
+  present pour couvrir un crash sans passer par le menu, idempotent -
+  "l'appeler deux fois... ne coute qu'un aller-retour inutile si la
+  premiere a deja tout nettoye", commentaire deja en place) : rapide,
+  puisque les workers sont deja arretes par le premier passage. Course
+  reelle entre les deux : si ce second nettoyage (rapide, synchrone,
+  sur le thread principal) termine avant le thread demon (nettoyer()
+  peut prendre jusqu'a 15+5s), le thread principal termine et le
+  processus sort - tuant net le thread demon avant qu'il n'ait atteint
+  _relancer() (un thread demon ne survit jamais a la fin du thread
+  principal). "Redemarrer" arrete alors tout sans jamais rien relancer.
+  Timing-dependant, jamais garanti dans un sens ou l'autre : explique
+  le "pas toujours" de l'investigation d'origine.
+
+  Corrige : icon.run() (tray.py) attend desormais le thread lance par
+  redemarrer()/arreter() avant de rendre la main a l'appelant (nonlocal
+  thread_de_sortie, join(timeout=30) - 30s, au-dela des 15+5s que
+  nettoyer() s'accorde deja a elle-meme). Le processus ne peut plus
+  sortir avant que _relancer() ait eu sa chance de s'executer.
+
+  Nouveau fichier test_tray_redemarrer_race.py (aucun test existant sur
+  tray.py au-dela de disponible()=False avant ceci) : FauxIcon remplace
+  pystray.Icon sans aucun vrai backend graphique, run() simule un clic
+  en appelant directement l'item de menu vise (item(icon), signature
+  confirmee dans pystray/_base.py MenuItem.__call__). Verifie en
+  rouge-puis-vert (pas seulement vert) : le test echoue bien avant le
+  correctif (ordre == [], la fonction rend la main avant meme que
+  nettoyer() n'ait eu le temps de s'executer une seule fois), passe
+  apres. Suite complete (414 tests) verte, redeploye localement.
+
+  Reste a confirmer par l'utilisateur en cliquant reellement sur
+  Redemarrer depuis l'icone : aucun outil disponible ici pour simuler
+  un vrai clic sur une icone de zone de notification Windows, la preuve
+  automatisee (test cible, rouge-puis-vert) est la limite de ce qui est
+  verifiable sans repasser par l'utilisateur pour ce mecanisme precis.
+
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
 Les onze bugs numerotes de la revue sont tous traites (28.59 a 28.68) :

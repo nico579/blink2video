@@ -77,16 +77,35 @@ def executer(port: int, arret: threading.Event, nettoyer) -> None:
     processus detache n'aboutissait pas toujours. Appeler nettoyer()
     directement, en synchrone, ne depend plus de ce second processus - la
     seule chose garantie de marcher est un Ctrl+C sur le processus lui-meme
-    (bug 6, revue du 27/08), donc ce menu doit produire le meme effet."""
+    (bug 6, revue du 27/08), donc ce menu doit produire le meme effet.
+
+    thread_de_sortie (plus bas) : redemarrer()/arreter() lancent leur
+    travail sur un thread demon separe du thread de la pompe de messages
+    (cf. juste en dessous, pourquoi), mais rien n'attendait ce thread avant
+    qu'icon.run() ne rende la main - blink_cli.py (l'appelant) pouvait
+    alors terminer son propre nettoyage (redondant mais rapide une fois
+    les workers deja arretes par le premier) et laisser le processus
+    sortir, tuant net ce thread demon avant qu'il n'ait atteint
+    _relancer() (un thread demon ne survit jamais a la fin du thread
+    principal). « Redemarrer » arretait alors tout sans jamais rien
+    relancer - constate en reel, 2026-09-03, et deja souleve sans
+    solution par le commentaire ci-dessus lui-meme ("sans qu'on ait pu
+    etablir pourquoi le second processus detache n'aboutissait pas
+    toujours"). icon.run() attend desormais ce thread avant de rendre la
+    main, borne au meme delai que nettoyer() s'accorde a elle-meme
+    (15+5s) plus une marge : jamais moins de temps que nettoyer() elle-
+    meme ne s'autorise deja."""
     import pystray
     from PIL import Image
 
     adresse = f"http://127.0.0.1:{port}/"
+    thread_de_sortie = None
 
     def ouvrir(icon=None, item=None):
         webbrowser.open(adresse)
 
     def redemarrer(icon, item):
+        nonlocal thread_de_sortie
         # nettoyer() en tâche de fond, pas ici : ce callback tourne sur le
         # même thread que la pompe de messages Windows de l'icône, et
         # nettoyer() peut bloquer jusqu'à 15 s (délai de grâce coopératif).
@@ -100,11 +119,14 @@ def executer(port: int, arret: threading.Event, nettoyer) -> None:
             nettoyer()
             _relancer(sans_relance=False)
 
-        threading.Thread(target=suite, daemon=True).start()
+        thread_de_sortie = threading.Thread(target=suite, daemon=True)
+        thread_de_sortie.start()
         icon.stop()
 
     def arreter(icon, item):
-        threading.Thread(target=nettoyer, daemon=True).start()
+        nonlocal thread_de_sortie
+        thread_de_sortie = threading.Thread(target=nettoyer, daemon=True)
+        thread_de_sortie.start()
         icon.stop()
 
     def creer_raccourci(icon, item):
@@ -166,3 +188,11 @@ def executer(port: int, arret: threading.Event, nettoyer) -> None:
     threading.Thread(target=veille, daemon=True).start()
     threading.Thread(target=rafraichir, daemon=True).start()
     icon.run()
+    # Voir la note plus haut : sans ceci, l'appelant peut sortir avant que
+    # thread_de_sortie (nettoyer(), et pour redemarrer() _relancer()
+    # ensuite) n'ait fini, le tuant net avant _relancer(). 30s : au-dela
+    # des 15+5s que nettoyer() s'accorde deja a elle-meme, jamais le
+    # facteur limitant sauf si nettoyer() elle-meme est deja bloquee bien
+    # au-dela de son propre delai - situation deja anormale par ailleurs.
+    if thread_de_sortie is not None:
+        thread_de_sortie.join(timeout=30)
