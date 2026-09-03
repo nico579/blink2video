@@ -234,9 +234,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      # pattern exclut l'artefact de provenance/attestation que docker/
+      # build-push-action@v6 depose automatiquement a cote (nom du type
+      # "<compte>~<repo>~<id>.dockerbuild", jamais nomme par ce workflow) :
+      # sans ce filtre, download-artifact telecharge aussi cet artefact-la,
+      # systematiquement en echec ("Artifact download failed after 5
+      # retries", constate en reel sur 3 tentatives, 2026-09-03), alors que
+      # les 4 vrais binaires (blink2video-*) telechargent sans probleme a
+      # chaque fois. L'image Docker elle-meme est deja publiee directement
+      # sur Docker Hub par ce meme step (push: true), rien a en recuperer
+      # ici.
       - uses: actions/download-artifact@v4
         with:
           path: artefacts
+          pattern: blink2video-*
 
       - name: Publier
         uses: softprops/action-gh-release@v2

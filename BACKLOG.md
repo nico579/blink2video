@@ -577,11 +577,39 @@ les perdre, pas forcement les construire toutes.
   nettoyer() n'ait eu le temps de s'executer une seule fois), passe
   apres. Suite complete (414 tests) verte, redeploye localement.
 
-  Reste a confirmer par l'utilisateur en cliquant reellement sur
-  Redemarrer depuis l'icone : aucun outil disponible ici pour simuler
-  un vrai clic sur une icone de zone de notification Windows, la preuve
-  automatisee (test cible, rouge-puis-vert) est la limite de ce qui est
-  verifiable sans repasser par l'utilisateur pour ce mecanisme precis.
+  Confirme par l'utilisateur en cliquant reellement sur Redemarrer
+  depuis l'icone (2026-09-03) : "j'ai teste la, ca marche".
+
+- **Release v0.11.5 : "publier la release" echoue systematiquement, 3
+  tentatives identiques (2026-09-03).** Chaque nouvelle version depuis
+  le debut de cette session (v0.11.0 a v0.11.4) avait publie sans
+  probleme : premiere fois que ceci se produit. Diagnostic instrumente
+  (logs reels de chaque tentative via gh run view --log-failed, pas
+  suppose) : les 3 fois, exactement le meme artefact echoue au
+  telechargement ("Artifact download failed after 5 retries"), les 4
+  autres (blink2video-windows7-x86_64-experimental, -windows-x86_64,
+  -linux-x86_64, -macos-arm64) reussissent a chaque fois - pas un alea
+  reseau generique, un artefact precis et reproductible.
+
+  Cause reelle : docker/build-push-action@v6 (job "publier l'image
+  Docker") depose automatiquement, en plus de l'image poussee sur
+  Docker Hub (push: true, deja suffisant en soi), un artefact de
+  provenance/attestation nomme "<compte>~<repo>~<id>.dockerbuild" -
+  jamais nomme explicitement par ce workflow, comportement par defaut
+  de l'action depuis la v5/v6. actions/download-artifact@v4 (job
+  "publier la release"), sans filtre, telecharge TOUS les artefacts du
+  run, y compris celui-la - qui echoue systematiquement a l'extraction
+  (format different, jamais concu pour etre un fichier de release).
+
+  Corrige (.github/workflows/release.yml) : pattern: blink2video-* sur
+  le download-artifact de "publier la release" - n'inclut que les 4
+  vrais binaires, exclut l'artefact d'attestation Docker sans jamais
+  toucher a la publication de l'image elle-meme (deja faite par push:
+  true, aucun rapport avec cet artefact). Tag v0.11.5 laisse tel quel,
+  orphelin (aucune vraie release jamais publiee pour lui, les 3
+  tentatives ont toutes echoue avant l'etape Publier) - pas nettoye
+  d'office, decision laissee a l'utilisateur. Nouvelle version (v0.11.6)
+  tentee ensuite avec le correctif en place.
 
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
