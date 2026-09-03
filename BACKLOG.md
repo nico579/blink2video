@@ -503,6 +503,34 @@ les perdre, pas forcement les construire toutes.
     correct a plusieurs telechargements en vol - a decider deliberement,
     pas un gain evident au meme titre que le premier point.
 
+  Premier point traite, sur demande explicite de l'utilisateur ("le
+  premier seulement") : collect_videos() (serve.py) probait la duree de
+  chaque video journaliere/hebdomadaire/mensuelle via probe_duration()
+  brut - celui-ci a bien un cache, mais seulement en memoire (_DURATIONS,
+  module-level), qui ne survit pas a un redemarrage du serveur. Chaque
+  redemarrage relancait donc ffmpeg -i pour TOUTES les videos existantes
+  des la premiere ouverture de l'onglet Clips. Corrige en reutilisant
+  telle quelle la mecanique deja en place pour les clips ecartes
+  (probe_duration_cached, empreinte taille+mtime) : nouveau fichier
+  ASSEMBLED_DURATIONS ("assembled_durations.json", meme dossier "thumbs"
+  que EXCLUDED_DURATIONS), nouvelle load_assembled_durations() miroir de
+  load_excluded_durations(). Identite de cache = kind/camera/nom (pas
+  seulement camera/nom) : daily et weekly peuvent chacun contenir un
+  fichier du meme nom pour la meme camera, sans rapport entre eux -
+  couvert par un test dedie.
+
+  Trois tests dedies (test_serve_collect_videos_cache.py, nouveau
+  fichier - aucun test existant sur collect_videos avant ceci) : duree
+  sondee une seule fois a travers deux appels, fichier remplace re-sonde
+  (empreinte changee), meme nom dans deux periodes differentes sonde
+  separement. Suite complete (412 tests) verte, redeploye. Verifie en
+  reel : /api/videos repond correctement (27 quotidiennes, 7
+  hebdomadaires, 3 mensuelles chez l'utilisateur), rapide des le premier
+  appel post-redemarrage - ffprobe s'est avere deja tres rapide sur ces
+  fichiers, le vrai gain se verra surtout sur une bibliotheque nettement
+  plus grande ou un disque plus lent, mais le mecanisme est identique a
+  celui deja eprouve pour les clips ecartes.
+
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
 Les onze bugs numerotes de la revue sont tous traites (28.59 a 28.68) :

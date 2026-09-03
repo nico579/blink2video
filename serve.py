@@ -243,6 +243,13 @@ CAMERA_FACTS = "cameras.json"
 # normalisé (voir collect) : sans ce cache, ffmpeg -i était relancé pour
 # chacun d'eux à chaque ouverture de la page.
 EXCLUDED_DURATIONS = "excluded_durations.json"
+# Même principe que EXCLUDED_DURATIONS, pour les vidéos assemblées
+# (collect_videos) : sans lui, chaque redémarrage du serveur relançait
+# ffmpeg -i pour TOUTES les journalières/hebdomadaires/mensuelles existantes
+# dès la première ouverture de l'onglet Clips - le cache mémoire de
+# probe_duration (_DURATIONS plus bas) ne survit pas à un redémarrage
+# (audit general demande par l'utilisateur, 2026-09-03).
+ASSEMBLED_DURATIONS = "assembled_durations.json"
 
 # Fenêtre par défaut de /api/clips : au-delà, le nombre de vignettes ne fait
 # que croître de jour en jour sans jamais être consulté. L'historique complet
@@ -338,6 +345,11 @@ def remember_cameras(paths: dict, systems: list) -> None:
 
 def load_excluded_durations(paths: dict) -> dict:
     cache = md.load_json(paths["thumbs"] / EXCLUDED_DURATIONS, {})
+    return cache if isinstance(cache, dict) else {}
+
+
+def load_assembled_durations(paths: dict) -> dict:
+    cache = md.load_json(paths["thumbs"] / ASSEMBLED_DURATIONS, {})
     return cache if isinstance(cache, dict) else {}
 
 
@@ -471,8 +483,15 @@ def collect_videos(paths: dict, ffmpeg: str) -> dict:
 
     On lit le disque plutôt qu'un registre : ces fichiers sont le produit
     visible du pipeline, et les lister tels qu'ils existent évite d'afficher
-    une entrée pour une vidéo effacée à la main."""
+    une entrée pour une vidéo effacée à la main.
+
+    Durée mise en cache sur disque (probe_duration_cached, même mécanisme
+    que pour les clips écartés) plutôt que le simple probe_duration en
+    mémoire seule utilisé jusque-là : sans ça, un redémarrage relançait
+    ffmpeg -i pour chaque vidéo existante dès la première ouverture de
+    l'onglet (audit général demandé par l'utilisateur, 2026-09-03)."""
     result = {}
+    duration_cache = None
     for kind in ("daily", "weekly", "monthly"):
         items = []
         root = paths[kind]
@@ -483,15 +502,24 @@ def collect_videos(paths: dict, ffmpeg: str) -> dict:
                 for video in sorted(camera_dir.glob("*.mp4"), reverse=True):
                     if not md.valid_mp4(video):
                         continue
+                    if duration_cache is None:
+                        duration_cache = load_assembled_durations(paths)
+                    # kind dans l'identité : daily/weekly/monthly peuvent
+                    # chacun contenir un fichier du même nom pour la même
+                    # caméra, sans rapport entre eux.
+                    identity = f"{kind}/{camera_dir.name}/{video.name}"
                     items.append({
                         "kind": kind,
                         "path": f"{camera_dir.name}/{video.name}",
                         "camera": camera_dir.name,
                         "label": video.stem.replace(f"_{camera_dir.name}", ""),
                         "bytes": video.stat().st_size,
-                        "duration": probe_duration(ffmpeg, video),
+                        "duration": probe_duration_cached(
+                            ffmpeg, video, identity, duration_cache),
                     })
         result[kind] = items
+    if duration_cache is not None:
+        md.save_json(paths["thumbs"] / ASSEMBLED_DURATIONS, duration_cache)
     return result
 
 
