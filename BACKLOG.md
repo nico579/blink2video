@@ -332,6 +332,91 @@ les perdre, pas forcement les construire toutes.
   pendant que l'ancienne camera revient a l'etat repos au meme instant.
   Suite complete verte, redeploye.
 
+  "ca bloque sur le liveview jardin" (2026-09-03, apres publication de
+  v0.11.0). Direct.log : "echec (webrtc), TimeoutError:" suivi 24s plus
+  tard de "session rendue de force". Cause reelle, verifiee dans
+  blink_webrtc.py (pas supposee) : l'attente du SPS/PPS envoye par la
+  camera (track.sps_pps_pret.wait(), le vrai reveil materiel) partageait
+  NEGOCIATION_MAX_SECONDS (15s) avec les etapes de negociation SDP/DTLS
+  purement locales - alors que MSE accorde deja 40s a cette meme attente
+  (LIVE_FIRST_FRAME_SECONDS, serve.py) precisement parce qu'une camera a
+  pile doit se reveiller. 15s suffisait le plus souvent (d'ou tous les
+  succes vus dans ce meme direct.log), pas toujours. Corrige : nouvelle
+  constante PREMIERE_IMAGE_MAX_SECONDS = 40 (meme valeur et raison que
+  cote MSE), dediee a cette seule attente ; NEGOCIATION_MAX_SECONDS reste
+  a 15s pour la suite (SDP/DTLS, purement locale, aucune raison d'etre
+  aussi patiente).
+
+  Message d'erreur corrige au passage : un TimeoutError sans reponse
+  serveur avant plusieurs dizaines de secondes (negociation + jusqu'a 45s
+  de nettoyage cote send_offer_webrtc) s'affichait ensuite comme
+  "TimeoutError: " brut sur le bouton Reessayer, sans explication - meme
+  qualite de message que MSE desormais ("La camera n'a envoye aucune
+  image. Hors de portee du module, endormie, ou deja occupee par une
+  autre session.").
+
+  Confusion separee dans la foulee : "pourquoi mse??? on est sur
+  webrtc!" - le prefixe de journal "[direct-mse]" (nom herite de
+  l'epoque ou seul MSE existait) apparaissait sur CHAQUE ligne de
+  direct.log, y compris les echecs WebRTC ci-dessus, laissant croire a
+  une bascule silencieuse. Aucune bascule reelle (deja retiree, plus
+  haut) : juste un nom de prefixe reste generique par accident.
+  _journal_direct_mse() renommee _journal_direct() (serve.py, 12 sites
+  d'appel) ; meme prefixe "[direct]" reproduit dans blink_engine.py (son
+  propre point de journalisation, hors de portee de la fonction ci-dessus
+  pour eviter un import circulaire). Le protocole reste lisible dans le
+  texte de chaque message, jamais dans ce prefixe desormais neutre.
+
+  Suite complete (409 tests) verte, redeploye.
+
+  Toujours la, reconfirme par l'utilisateur (2026-09-03) : "ca bloque
+  toujours lors du passage salon a jardin; il faut attendre un moment".
+  Direct.log de cette nouvelle occurrence (pas suppose) : Salon arrete a
+  14:30:17.825, jardin echoue a 14:30:59.126 (41,3s - pile
+  PREMIERE_IMAGE_MAX_SECONDES=40, le nouveau plafond deja atteint), une
+  nouvelle tentative reussit a 14:31:41 (42s plus tard) - ~84s ressenties
+  au total pour cette seule bascule. Le plafond de 40s (juste corrige,
+  voir plus haut) n'etait donc pas mal calibre : jardin peut reellement
+  prendre plus de temps que ca a repondre, tout particulierement juste
+  apres une bascule depuis une autre camera (probable temps de reattache
+  materiel du module de synchronisation a une camera differente - non
+  verifiable depuis blink2video, hors de sa portee). Le vrai manque
+  restant : un seul essai de negociation WebRTC, sans reprise - MSE a
+  deja une boucle pour exactement ce cas depuis le debut
+  (MSE_MAX_ECHECS_A_VIDE), WebRTC ne l'avait jamais eue ("pas encore de
+  boucle de reprise pour ce chemin tout neuf, un nouveau clic suffit" -
+  ecrit a la construction initiale, jamais revisite jusqu'ici).
+
+  Corrige : boucle de reprise pour la negociation initiale
+  (watchWebRTC()/tenterWebRTC(), serve_app.js), symetrique a celle de
+  MSE - memes valeurs que les constantes MSE_* (WEBRTC_MAX_ECHECS=5,
+  WEBRTC_DELAI_RECONNEXION_MS=3000, WEBRTC_BUDGET_TOTAL_MS=10 min),
+  meme distinction compteur de secondes uniquement au tout premier essai
+  vs texte fixe "Reconnexion..." ensuite. Necessite une annulation
+  propre pour un essai en cours ET pour l'attente entre deux essais :
+  nouveau WEBRTC_ABORT (parallele a MSE_ABORT), verifie par stopWatch()
+  et par watchLive() (une camera "active" au sens de la bascule inclut
+  desormais une reprise en cours, meme sans RTCPeerConnection etablie
+  pour l'instant). Repli automatique vers MSE toujours absent (inchange,
+  demande explicite de l'utilisateur) : ceci reprend seulement au sein
+  du protocole choisi, jamais vers l'autre. Porte volontairement limitee
+  a la negociation initiale, comme documente des la premiere version :
+  une coupure apres la premiere image reste, elle, non reprise
+  automatiquement (portee differente).
+
+  Valide en reel avant redeploiement :
+  - chemin normal (Salon) inchange, succes du premier coup ;
+  - boucle de reprise verifiee sur Portail (camera reellement hors
+    ligne, echec rapide et repetable, contrairement a jardin) : indice
+    "Reconnexion..." visible entre les essais, WEBRTC_ABORT peuple
+    pendant la sequence, message d'erreur clair apres epuisement des 5
+    essais, meme qualite que le message KeyError deja existant
+    ("Blink n'a fourni aucune adresse de flux...") ;
+  - annulation en cours de reprise (bouton Arreter pendant l'attente
+    entre deux essais) : case revient proprement au repos, WEBRTC_ABORT/
+    WEBRTC_PC/MSE_ABORT tous vides ensuite, aucun etat residuel.
+  Suite complete verte, redeploye.
+
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
 Les onze bugs numerotes de la revue sont tous traites (28.59 a 28.68) :

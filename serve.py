@@ -671,13 +671,18 @@ def _texte_stderr_ffmpeg(errors: list) -> str:
     return raw.decode("utf-8", "replace").strip()[:300]
 
 
-def _journal_direct_mse(name: str, message: str) -> None:
+def _journal_direct(name: str, message: str) -> None:
     """Un journal indisponible ne doit jamais interrompre un direct.
 
-    Écrit aussi dans direct.log (runtime.ajouter_ligne) : le lancement normal
-    tourne sous pythonw (autostart), donc sans console où lire un print()."""
+    Commun a MSE et WebRTC (renomme le 2026-09-03 : le prefixe "direct-mse"
+    laissait croire a une bascule vers MSE meme sur une ligne concernant
+    WebRTC - source de confusion reelle, cf. BACKLOG.md). Le protocole en
+    cause reste lisible dans le texte de chaque message ("webrtc"/"MSE"
+    explicite), jamais dans ce prefixe generique. Ecrit aussi dans
+    direct.log (runtime.ajouter_ligne) : le lancement normal tourne sous
+    pythonw (autostart), donc sans console ou lire un print()."""
     horodatage = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    ligne = f"[direct-mse] {horodatage} {name} : {message}"
+    ligne = f"[direct] {horodatage} {name} : {message}"
     try:
         print(ligne, flush=True)
     except Exception:
@@ -1544,13 +1549,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             stream = holder.get("stream")
             if stream is not None:
                 verdict = await _stop_stream(stream, holder.get("feed"))
-                _journal_direct_mse(name, verdict)
+                _journal_direct(name, verdict)
             verrou = holder.get("lock")
             if verrou is not None and holder.get("lock_entered"):
                 try:
                     verrou.__exit__(None, None, None)
                 except Exception as error:
-                    _journal_direct_mse(
+                    _journal_direct(
                         name, f"échec de libération du verrou disque, "
                               f"{type(error).__name__}: {error}"
                     )
@@ -1593,16 +1598,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return run()
 
             answer_sdp, answer_type = BLINK.call(start, timeout=45)
-            _journal_direct_mse(name, "direct WebRTC négocié")
+            _journal_direct(name, "direct WebRTC négocié")
         except Exception as error:
             message = str(error) if isinstance(error, RuntimeError) \
                 else f"{type(error).__name__}: {error}"
             _memoriser_erreur_direct(name, message, 503)
-            _journal_direct_mse(name, f"échec (webrtc), {message}")
+            _journal_direct(name, f"échec (webrtc), {message}")
             try:
                 BLINK.call(lambda _b: _fermer(), timeout=45)
             except Exception as error:
-                _journal_direct_mse(
+                _journal_direct(
                     name, f"échec de nettoyage après échec webrtc, "
                           f"{type(error).__name__}: {error}"
                 )
@@ -1676,7 +1681,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return run()
 
             url = BLINK.call(start, timeout=45)
-            _journal_direct_mse(name, f"flux Blink ouvert sur {url}")
+            _journal_direct(name, f"flux Blink ouvert sur {url}")
 
             process = runtime.demarrer(
                 # loglevel "info" temporaire (diagnostic partage relais/ffmpeg
@@ -1728,14 +1733,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     errors.append(ligne_brute)
                     texte = ligne_brute.decode("utf-8", "replace").rstrip()
                     if texte:
-                        _journal_direct_mse(name, f"ffmpeg : {texte}")
+                        _journal_direct(name, f"ffmpeg : {texte}")
 
             holder["drain"] = threading.Thread(target=_drainer_stderr, daemon=True)
             holder["drain"].start()
 
             lecteur = LecteurTube(process.stdout)
             first = read_mp4_init_segment(lecteur, LIVE_FIRST_FRAME_SECONDS)
-            _journal_direct_mse(name, f"segment initial {len(first)} octets")
+            _journal_direct(name, f"segment initial {len(first)} octets")
             if not first:
                 reason = self.live_failure_reason(holder.get("stream"))
                 # ffmpeg peut s'être arrêté avant tout octet exploitable (pas
@@ -1762,7 +1767,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.close_connection = True
             self.end_headers()
-            _journal_direct_mse(name, f"en-tetes envoyes, codec {codec_str}")
+            _journal_direct(name, f"en-tetes envoyes, codec {codec_str}")
 
             def _ecrire(data: bytes) -> bool:
                 # Même tolérance sur ce premier envoi que sur les suivants :
@@ -1883,13 +1888,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         f"diagnostic final indisponible, {type(error).__name__}: {error}"
                     )
             for journal in journaux_nettoyage:
-                _journal_direct_mse(name, journal)
+                _journal_direct(name, journal)
 
         if erreur_direct is not None:
             # Le client ne voit ce 503 qu'une fois ffmpeg arrêté, la session
             # Blink fermée et les verrous rendus. Sa prochaine tentative ne
             # peut donc plus consommer ses reprises sur nos propres 409.
-            _journal_direct_mse(name, f"echec, {erreur_direct}")
+            _journal_direct(name, f"echec, {erreur_direct}")
             if not reponse_commencee:
                 try:
                     self.send_error(503, "Live stream unavailable")

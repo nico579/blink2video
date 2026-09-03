@@ -779,6 +779,12 @@ function stopWatch(name) {
   if (box) box.innerHTML = repos(name, t("watch.live"));
   const controller = MSE_ABORT[name];
   if (controller) { controller.abort(); delete MSE_ABORT[name]; }
+  // webrtcController coupe une reprise en cours (entre deux tentatives,
+  // sans pc active pour l'instant) ; pc ferme la tentative en cours si une
+  // negociation est deja engagee. Les deux peuvent coexister brievement,
+  // aucun des deux n'est garanti present a un instant donne.
+  const webrtcController = WEBRTC_ABORT[name];
+  if (webrtcController) { webrtcController.abort(); delete WEBRTC_ABORT[name]; }
   const pc = WEBRTC_PC[name];
   if (pc) { pc.close(); delete WEBRTC_PC[name]; }
 }
@@ -1138,13 +1144,24 @@ async function connecterMse(name, video, signalGlobal, texteAttente, t0, reveilI
 // négociation échoue (retiré le 2026-09-03, sur demande explicite de
 // l'utilisateur) : le choix du protocole appartient au réglage, pas à une
 // substitution silencieuse - sinon le réglage devient trompeur, on croit
-// avoir WebRTC alors qu'on a parfois MSE sans le savoir. Un échec WebRTC
-// affiche donc une vraie erreur (failWatch), comme MSE. Une coupure APRÈS
-// la première image (connexion tombée en cours de route) n'est, elle, pas
-// reprise automatiquement ici : contrairement à connecterMse(), pas
-// encore de boucle de reprise pour ce chemin tout neuf, un nouveau clic
-// suffit.
+// avoir WebRTC alors qu'on a parfois MSE sans le savoir. Boucle de reprise
+// pour la négociation initiale (watchWebRTC()/tenterWebRTC() ci-dessous),
+// symétrique à celle de connecterMse() : un essai unique laissait "ça
+// bloque" à l'utilisateur des qu'une camera sur batterie mettait plus que
+// PREMIERE_IMAGE_MAX_SECONDS (blink_webrtc.py) à se reveiller, surtout
+// juste apres une bascule depuis une autre camera (2026-09-03,
+// BACKLOG.md). Une coupure APRÈS la première image (connexion tombée en
+// cours de route, une fois la négociation reussie) n'est, elle, toujours
+// pas reprise automatiquement : portee differente, pas le symptome
+// rencontre ici, un nouveau clic suffit pour ce cas-la.
 const WEBRTC_PC = {};
+const WEBRTC_ABORT = {};
+// Memes valeurs que les constantes MSE_* equivalentes (plus bas) : meme
+// situation (camera parfois lente a repondre), pas de raison de choisir
+// autre chose.
+const WEBRTC_MAX_ECHECS = 5;
+const WEBRTC_DELAI_RECONNEXION_MS = 3000;
+const WEBRTC_BUDGET_TOTAL_MS = 10 * 60 * 1000;
 
 // MODULE_SLOT (serve.py) est global : le module de synchronisation ne
 // relaie qu'un seul direct a la fois, quelle que soit la camera. /api/
@@ -1168,8 +1185,9 @@ async function attendreModuleLibre() {
 }
 
 async function watchLive(name) {
-  const autresActives = [...new Set([...Object.keys(WEBRTC_PC), ...Object.keys(MSE_ABORT)])]
-    .filter((autre) => autre !== name);
+  const autresActives = [...new Set([
+    ...Object.keys(WEBRTC_PC), ...Object.keys(WEBRTC_ABORT), ...Object.keys(MSE_ABORT),
+  ])].filter((autre) => autre !== name);
   if (autresActives.length > 0) {
     // watchWebRTC()/watchMse() ne touchent la case qu'apres
     // attendreModuleLibre() (jusqu'a ATTENTE_MODULE_MAX_SECONDS = 25s cote
@@ -1200,6 +1218,9 @@ async function watchWebRTC(name) {
   const video = box.querySelector("video");
   const t0 = performance.now();
 
+  const controller = new AbortController();
+  WEBRTC_ABORT[name] = controller;
+
   let hint = null;
   const afficherIndice = (texte) => {
     if (!hint) {
@@ -1212,26 +1233,72 @@ async function watchWebRTC(name) {
       hint.textContent = texte;
     }
   };
-  afficherIndice(t("watch.waking"));
-  const minuteur = setInterval(() => {
-    const s = Math.round((performance.now() - t0) / 1000);
-    afficherIndice(tf(s > 20 ? "watch.waking.slow" : "watch.waking.seconds", { s }));
-  }, 500);
+  let confirme = false;
+  const confirmerLecture = () => {
+    if (confirme) return;
+    confirme = true;
+    if (hint) { hint.remove(); hint = null; }
+  };
+  video.addEventListener("loadeddata", confirmerLecture);
+  video.addEventListener("playing", confirmerLecture);
 
+  // Boucle de reprise pour la seule negociation initiale, symetrique a
+  // celle de connecterMse()/watchMse() (cf. commentaire plus haut) :
+  // memes constantes WEBRTC_MAX_ECHECS/WEBRTC_DELAI_RECONNEXION_MS/
+  // WEBRTC_BUDGET_TOTAL_MS. Compteur de secondes uniquement sur le tout
+  // premier essai (reveilInitial), comme pour MSE - pas les reprises
+  // apres echec, qui affichent un texte fixe.
+  let echecs = 0;
+  let derniereErreur = null;
+  try {
+    while (echecs < WEBRTC_MAX_ECHECS && performance.now() - t0 < WEBRTC_BUDGET_TOTAL_MS) {
+      if (controller.signal.aborted) return;
+      const reveilInitial = echecs === 0;
+      afficherIndice(reveilInitial ? t("watch.waking") : t("watch.reconnecting"));
+      const minuteur = reveilInitial ? setInterval(() => {
+        const s = Math.round((performance.now() - t0) / 1000);
+        afficherIndice(tf(s > 20 ? "watch.waking.slow" : "watch.waking.seconds", { s }));
+      }, 500) : null;
+      try {
+        await tenterWebRTC(name, video, controller.signal);
+        if (minuteur) clearInterval(minuteur);
+        return;  // confirmerLecture() efface deja l'indice a la lecture reelle
+      } catch (error) {
+        if (minuteur) clearInterval(minuteur);
+        if (error.name === "AbortError") return;  // bouton Arreter
+        derniereErreur = error;
+        echecs++;
+      }
+      if (echecs >= WEBRTC_MAX_ECHECS) break;
+      try {
+        await attendreOuAbandon(WEBRTC_DELAI_RECONNEXION_MS, controller.signal);
+      } catch (error) {
+        return;  // arret demande pendant l'attente
+      }
+    }
+  } finally {
+    if (WEBRTC_ABORT[name] === controller) delete WEBRTC_ABORT[name];
+  }
+  if (hint) hint.remove();
+  // Pas de repli sur MSE ici (cf. commentaire plus haut) : une vraie
+  // erreur, comme pour MSE, plutot qu'une substitution silencieuse de
+  // protocole.
+  failWatch(name, String((derniereErreur && derniereErreur.message) || derniereErreur
+                          || t("watch.noimage")));
+}
+
+// Une seule tentative de negociation WebRTC : cree sa propre
+// RTCPeerConnection, l'echange offre/reponse avec le serveur, rend la main
+// des que la piste video est acceptee (le flux continue ensuite tout
+// seul, pilote par les evenements de pc). N'attend pas la premiere image
+// reelle - contrairement a connecterMse(), qui lit le flux lui-meme -
+// c'est pc.ontrack/loadeddata/playing (watchWebRTC) qui s'en chargent.
+async function tenterWebRTC(name, video, signal) {
   // Navigateur et serveur sur le même réseau local (c'est tout l'usage de
   // blink2video) : aucun NAT à traverser, un serveur STUN n'apporterait
   // qu'un aller-retour réseau inutile.
   const pc = new RTCPeerConnection({ iceServers: [] });
   WEBRTC_PC[name] = pc;
-  let confirme = false;
-  const confirmerLecture = () => {
-    if (confirme) return;
-    confirme = true;
-    clearInterval(minuteur);
-    if (hint) hint.remove();
-  };
-  video.addEventListener("loadeddata", confirmerLecture);
-  video.addEventListener("playing", confirmerLecture);
   pc.ontrack = (evenement) => {
     video.srcObject = evenement.streams[0];
     // autoplay seul ne suffit pas toujours a demarrer la lecture d'un
@@ -1248,6 +1315,9 @@ async function watchWebRTC(name) {
       if (WEBRTC_PC[name] === pc) delete WEBRTC_PC[name];
     }
   });
+  if (signal.aborted) { pc.close(); throw erreurAnnulationMse(); }
+  const surAbandon = () => pc.close();
+  signal.addEventListener("abort", surAbandon, { once: true });
 
   try {
     pc.addTransceiver("video", { direction: "recvonly" });
@@ -1259,18 +1329,18 @@ async function watchWebRTC(name) {
       body: JSON.stringify({
         sdp: pc.localDescription.sdp, type: pc.localDescription.type,
       }),
+      signal,
     });
     const info = await lireJSON(reponse);
     if (!reponse.ok) throw new Error(info.error || `HTTP ${reponse.status}`);
     await pc.setRemoteDescription(info);
   } catch (error) {
-    clearInterval(minuteur);
     pc.close();
     if (WEBRTC_PC[name] === pc) delete WEBRTC_PC[name];
-    // Pas de repli sur MSE ici (cf. commentaire plus haut) : une vraie
-    // erreur, comme pour MSE, plutot qu'une substitution silencieuse de
-    // protocole.
-    failWatch(name, String(error.message || error));
+    if (signal.aborted) throw erreurAnnulationMse();
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", surAbandon);
   }
 }
 

@@ -99,7 +99,7 @@ async def _recv_corrige(self):
                 # Marque la fin de la part hors de portée de blink2video
                 # (ticket cloud, réveil radio de la caméra, poignée de main
                 # du relais). À comparer aux horodatages de
-                # _journal_direct_mse (serve.py) : ce qui suit ce point est
+                # _journal_direct (serve.py, meme prefixe "[direct]" pour
                 # le seul délai qui nous appartient (proxy local +
                 # spawn/analyse/remux ffmpeg). Écrit aussi dans direct.log
                 # (runtime.ajouter_ligne) : sous pythonw, un print() seul ne
@@ -107,7 +107,7 @@ async def _recv_corrige(self):
                 try:
                     horodatage = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                     ligne = (
-                        f"[direct-mse] {horodatage} {self.camera.name} : "
+                        f"[direct] {horodatage} {self.camera.name} : "
                         f"premier octet vidéo du relais"
                     )
                     print(ligne, flush=True)

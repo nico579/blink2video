@@ -69,9 +69,17 @@ except ImportError:
 # serve.py), pour la même raison : sans borne, un blocage réseau ou une
 # session jamais fermée proprement retient MODULE_SLOT/le verrou disque
 # indéfiniment. NEGOCIATION_MAX_SECONDS reste large : offre/réponse SDP et
-# poignée de main DTLS n'ont normalement rien à attendre de long - mais
-# borne aussi, maintenant, l'attente du SPS/PPS (cf. sps_pps_pret).
+# poignée de main DTLS n'ont normalement rien à attendre de long.
 NEGOCIATION_MAX_SECONDS = 15
+# Distinct de NEGOCIATION_MAX_SECONDS depuis le 2026-09-03 (BACKLOG.md) :
+# les deux partageaient jusque-la le meme plafond de 15s pour l'attente du
+# SPS/PPS (sps_pps_pret), confondant deux choses sans rapport - la vitesse
+# d'une negociation SDP/DTLS purement locale, et le temps que met une
+# camera sur batterie a se reveiller. 15s suffit a la premiere, pas
+# toujours a la seconde (timeout constate en reel sur jardin) : memes
+# raison et valeur que LIVE_FIRST_FRAME_SECONDS cote MSE (serve.py), qui
+# accorde deja cette patience pour la meme raison.
+PREMIERE_IMAGE_MAX_SECONDS = 40
 SESSION_MAX_SECONDS = 300
 
 # Tampon de lecture (jitter buffer) avant d'emettre la toute premiere image,
@@ -273,12 +281,22 @@ async def negocier(
     try:
         reader, writer = await asyncio.open_connection(host, int(port_str))
         track = _PisteH264(reader)
-        # Le seul temps d'attente reel de cette fonction : le temps que
-        # SPS+PPS arrivent sur le flux. Meme plafond que le reste de la
-        # negociation, meme raison (cf. plus bas).
-        await asyncio.wait_for(
-            track.sps_pps_pret.wait(), timeout=NEGOCIATION_MAX_SECONDS
-        )
+        # Le temps que met la camera a se reveiller et a livrer son
+        # SPS/PPS - PREMIERE_IMAGE_MAX_SECONDS (40s, cf. plus haut), pas
+        # NEGOCIATION_MAX_SECONDS (15s, pour la suite, purement locale).
+        try:
+            await asyncio.wait_for(
+                track.sps_pps_pret.wait(), timeout=PREMIERE_IMAGE_MAX_SECONDS
+            )
+        except asyncio.TimeoutError:
+            # Sans ceci, l'utilisateur ne voyait qu'un "TimeoutError: " brut
+            # (constate en reel, 2026-09-03) - RuntimeError s'affiche tel
+            # quel cote page (send_offer_webrtc, serve.py), meme traitement
+            # que les messages MSE deja clairs pour ce cas.
+            raise RuntimeError(
+                "La camera n'a envoye aucune image. Hors de portee du "
+                "module, endormie, ou deja occupee par une autre session."
+            ) from None
 
         # iceServers=[] : sans ceci, aiortc retombe sur son defaut
         # (stun:stun.l.google.com:19302, RTCIceGatherer.getDefaultIceServers)
