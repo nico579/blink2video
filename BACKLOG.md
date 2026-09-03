@@ -417,6 +417,38 @@ les perdre, pas forcement les construire toutes.
     WEBRTC_PC/MSE_ABORT tous vides ensuite, aucun etat residuel.
   Suite complete verte, redeploye.
 
+- **"Interrogation du systeme Blink..." (mode Direct) plus lent que
+  necessaire (2026-09-03).** Question de l'utilisateur : une seule
+  requete, ou plusieurs qu'on pourrait paralleliser/differer ? Verifie
+  dans le code source de blinkpy avant de repondre (pas suppose) :
+  system_state() (serve.py) appelait _blink.refresh(force=True), qui
+  enchaine en serie get_homescreen() + par module get_network_info() +
+  update_local_storage_manifest() + check_new_videos() + par camera
+  get_camera_info()+update() (sync_module.py) - soit 1+1+1+1+N appels
+  reseau successifs pour ce compte (N=4 cameras ici). Or l'affichage de
+  cette page ne lit en realite que get_homescreen() (nom/batterie/
+  temperature/statut par camera) et network_info par module (armement) :
+  le reste (manifeste de stockage, nouveaux clips, detail par camera)
+  n'est jamais lu par cette route. sync.cameras lui-meme (identifiants
+  device_id/network_id, utilises pour rapprocher chaque camera de son
+  entree dans l'ecran d'accueil) est peuple une seule fois a la connexion
+  initiale (update_cameras(), appele par start(), jamais par refresh()) -
+  deja stable, pas besoin d'un nouvel appel pour ca non plus.
+
+  Pas de rendu "rapide puis enrichi" necessaire au final : juste retirer
+  ce qui ne sert a rien pour cette page precise. system_state() appelle
+  desormais get_homescreen() + get_network_info() par module seulement,
+  au lieu de refresh(force=True) complet. Meme donnees affichees,
+  verifie champ par champ en reel (armement, batterie, temperature,
+  hors-ligne, y compris Salon en null - Blink Mini, normal, deja le cas
+  avant). Mesure reelle avant/apres, meme session, dos a dos, dans un
+  script isole (scratchpad/comparer_system_state.py, pas suppose) :
+  nouvelle sequence 3,34s contre 7,42s pour l'ancienne (2,2x). Chiffre
+  exact variable d'un appel a l'autre (l'API Blink elle-meme varie,
+  constate plusieurs fois cette session) mais l'ecart structurel (2
+  appels reseau au lieu de 8) est solide. Suite complete verte,
+  redeploye.
+
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
 Les onze bugs numerotes de la revue sont tous traites (28.59 a 28.68) :

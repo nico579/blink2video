@@ -1342,7 +1342,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         def read(blink):
             async def run(_blink=blink):
-                await _blink.refresh(force=True)
+                # _blink.refresh(force=True) enchainait aussi, par caméra,
+                # get_camera_info() + update() (sync_module.py refresh()),
+                # plus update_local_storage_manifest()/check_new_videos() -
+                # rien de tout cela n'est lu plus bas : cet affichage ne
+                # vient que de get_homescreen() (nom/batterie/temperature/
+                # statut) et de network_info par module (armement). Verifie
+                # dans le code source de blinkpy avant de couper (pas
+                # suppose) : sync.cameras est peuple une seule fois, a la
+                # connexion initiale (update_cameras(), appele par start(),
+                # jamais par refresh()) - ses identifiants (device_id/
+                # network_id, utilises plus bas pour rapprocher chaque
+                # caméra de son entree dans l'ecran d'accueil) sont donc
+                # deja stables ici, pas besoin de les rafraichir a chaque
+                # appel. Mesure en reel (2026-09-03) : la sequence complete
+                # (1 + 1 par module + 1 par camera, en serie) faisait durer
+                # "Interrogation du systeme Blink..." bien plus que
+                # necessaire pour cette page precise.
+                await _blink.get_homescreen()
+                for sync in _blink.sync.values():
+                    await sync.get_network_info()
                 # Les attributs de blinkpy ne disent pas *quand* une mesure a
                 # été prise. L'écran d'accueil, lui, porte un `status` et un
                 # `updated_at` par appareil : sans eux, la température d'une
