@@ -66,7 +66,16 @@ ENTREE = "blink2video"
 REGLAGES = "blink_reglages.json"
 REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": False,
                    "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": False,
-                   "merge_mois": False, "download_auto": True}
+                   "merge_mois": False, "download_auto": True, "live_protocol": "webrtc"}
+# Remplace la variable d'environnement BLINK_DIRECT_WEBRTC (experimentale,
+# BACKLOG.md 2026-09-03) une fois WebRTC valide en usage reel : un vrai
+# reglage, pas juste une variable a poser avant de lancer le serveur. "mse"
+# reste possible en repli volontaire (reglage cote page web) ; serve.py
+# retombe de toute facon sur MSE si aiortc n'est pas installe, quel que
+# soit ce choix. MJPEG deja compare a MSE une fois (audit 28.15) et son
+# code mort retire depuis (commit 7339f85) : pas reintroduit comme
+# troisieme option sans raison nouvelle.
+PROTOCOLES_LIVE_VALIDES = ("webrtc", "mse")
 # Hebdo et mensuel réencodaient par défaut la même matière que le quotidien
 # (chaque assemblage ré-encode ses clips, jamais un simple regroupement de
 # fichiers) : sur une installation neuve, ce triplement silencieux de
@@ -141,12 +150,14 @@ def lire_reglages() -> dict:
         "merge_semaine": _booleen(valeurs, "merge_semaine", REGLAGES_DEFAUT["merge_semaine"]),
         "merge_mois": _booleen(valeurs, "merge_mois", REGLAGES_DEFAUT["merge_mois"]),
         "download_auto": _booleen(valeurs, "download_auto", REGLAGES_DEFAUT["download_auto"]),
+        "live_protocol": valeurs.get("live_protocol") if valeurs.get("live_protocol")
+        in PROTOCOLES_LIVE_VALIDES else REGLAGES_DEFAUT["live_protocol"],
     }
 
 
 def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool,
                     timezone: str, merge_jour: bool, merge_semaine: bool,
-                    merge_mois: bool, download_auto: bool) -> None:
+                    merge_mois: bool, download_auto: bool, live_protocol: str) -> None:
     # Écriture atomique (temporaire propre à ce processus, puis replace) :
     # même précaution que blink_auth.save_session (I-02) - un plantage en
     # cours d'écriture ne doit jamais laisser un JSON à moitié écrit, que
@@ -162,7 +173,8 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
                         "port": int(port), "timestamp": bool(timestamp),
                         "timezone": str(timezone), "merge_jour": bool(merge_jour),
                         "merge_semaine": bool(merge_semaine), "merge_mois": bool(merge_mois),
-                        "download_auto": bool(download_auto)}),
+                        "download_auto": bool(download_auto),
+                        "live_protocol": str(live_protocol)}),
             encoding="utf-8")
         temporaire.replace(cible)
     finally:
@@ -519,6 +531,22 @@ def app_dir() -> Path:
     if forced:
         return Path(forced).expanduser().resolve()
     return app_dir_depuis(_dossier_ancre())
+
+
+def ajouter_ligne(nom_fichier: str, ligne: str) -> None:
+    """Ajoute une ligne à un fichier de app_dir(), append-only, jamais fatal.
+
+    Pour les traces qui doivent survivre même sans console : le lancement
+    normal se fait sous pythonw (autostart), qui n'a ni stdout ni stderr
+    observables. watch.py a son propre journal() pour la même raison ;
+    ceci en est l'équivalent partagé pour les autres appelants (le
+    timestamp reste au format choisi par l'appelant, pas ajouté ici, pour
+    ne pas le dupliquer avec un éventuel print() de la même ligne)."""
+    try:
+        with (app_dir() / nom_fichier).open("a", encoding="utf-8") as fichier:
+            fichier.write(ligne + "\n")
+    except OSError:
+        pass
 
 
 def lire_dossier_stockage() -> str:

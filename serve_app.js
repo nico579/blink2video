@@ -88,6 +88,9 @@ const I18N = {
     "reglages.usb": "Stockage local (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Vidéo", "reglages.timestamp": "Incruster la date et l'heure dans l'image",
     "reglages.timezone": "Fuseau horaire",
+    "reglages.liveProtocol": "Protocole du direct",
+    "reglages.liveProtocol.webrtc": "WebRTC (rapide)",
+    "reglages.liveProtocol.mse": "MSE (compatible)",
     "reglages.archivage": "Création des vidéos temporelles par caméra",
     "reglages.downloadAuto": "Télécharger les clips automatiquement",
     "reglages.downloadAuto.hint": "Décochée, aucun clip n'est plus récupéré ni stocké : utile pour ne garder que le direct. Les cadences ci-dessous n'ont alors plus d'effet.",
@@ -139,7 +142,7 @@ const I18N = {
     "watch.live": "Voir en direct", "watch.retry": "Réessayer", "watch.stop": "Arrêter",
     "watch.waking": "Réveil de la caméra…", "watch.waking.seconds": "Réveil de la caméra… {s} s",
     "watch.waking.slow": "Réveil de la caméra… {s} s (une caméra sur batterie est plus lente)",
-    "watch.waking.mse": "Réveil de la caméra… (MSE)", "watch.reconnecting": "Reconnexion…",
+    "watch.reconnecting": "Reconnexion…",
     "live.fullscreen.title": "Agrandir en plein écran",
     "live.fullscreen.title.exit": "Quitter le plein écran",
     "watch.noimage": "Aucune image reçue. La caméra n'a pas répondu.",
@@ -213,6 +216,9 @@ const I18N = {
     "reglages.usb": "Local storage (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Video", "reglages.timestamp": "Burn the date and time into the image",
     "reglages.timezone": "Time zone",
+    "reglages.liveProtocol": "Live view protocol",
+    "reglages.liveProtocol.webrtc": "WebRTC (fast)",
+    "reglages.liveProtocol.mse": "MSE (compatible)",
     "reglages.archivage": "Per-camera time-based video creation",
     "reglages.downloadAuto": "Download clips automatically",
     "reglages.downloadAuto.hint": "Unchecked, no clip is fetched or stored anymore: useful to keep only the live view. The cadences below then have no effect.",
@@ -264,7 +270,7 @@ const I18N = {
     "watch.live": "View live", "watch.retry": "Retry", "watch.stop": "Stop",
     "watch.waking": "Waking the camera…", "watch.waking.seconds": "Waking the camera… {s} s",
     "watch.waking.slow": "Waking the camera… {s} s (a battery camera is slower)",
-    "watch.waking.mse": "Waking the camera… (MSE)", "watch.reconnecting": "Reconnecting…",
+    "watch.reconnecting": "Reconnecting…",
     "live.fullscreen.title": "Expand fullscreen",
     "live.fullscreen.title.exit": "Exit fullscreen",
     "watch.noimage": "No image received. The camera did not respond.",
@@ -773,6 +779,8 @@ function stopWatch(name) {
   if (box) box.innerHTML = repos(name, t("watch.live"));
   const controller = MSE_ABORT[name];
   if (controller) { controller.abort(); delete MSE_ABORT[name]; }
+  const pc = WEBRTC_PC[name];
+  if (pc) { pc.close(); delete WEBRTC_PC[name]; }
 }
 
 // --- MSE/fMP4 : remux sans réencodage, <video> décodé par le navigateur ---
@@ -963,7 +971,7 @@ function ajouterSegmentMse(sourceBuffer, value, signal) {
 
 // Un cycle connexion -> flux -> fin. Renvoie si au moins une image est
 // arrivée (utilisé par watchMse pour décider de réessayer ou d'abandonner).
-async function connecterMse(name, video, signalGlobal, texteAttente, t0) {
+async function connecterMse(name, video, signalGlobal, texteAttente, t0, reveilInitial) {
   const box = $("live-" + cssId(name));
   let hint = $("hint-" + cssId(name));
   if (box && !hint) {
@@ -974,6 +982,19 @@ async function connecterMse(name, video, signalGlobal, texteAttente, t0) {
     hint = $("hint-" + cssId(name));
   }
   if (hint) hint.textContent = texteAttente;
+
+  // Compteur pendant le tout premier réveil seulement (pas les reconnexions
+  // après échec) : sans lui, les 15-25 s de réveil d'une caméra sur batterie
+  // ressemblent à un blocage. Seuil et bascule de texte repris tels quels de
+  // l'ancien direct MJPEG (watch(), supprimé par 7339f85 ; cf.
+  // AUDIT-2026-08-13.md 28.15).
+  let minuteur = null;
+  if (hint && reveilInitial) {
+    minuteur = setInterval(() => {
+      const s = Math.round((performance.now() - t0) / 1000);
+      hint.textContent = tf(s > 20 ? "watch.waking.slow" : "watch.waking.seconds", { s });
+    }, 500);
+  }
 
   const tentative = creerTentativeMse(signalGlobal);
   const signal = tentative.signal;
@@ -1076,6 +1097,7 @@ async function connecterMse(name, video, signalGlobal, texteAttente, t0) {
     finalError.mseLecture = lecture;
     throw finalError;
   } finally {
+    if (minuteur) clearInterval(minuteur);
     video.removeEventListener("loadeddata", confirmerLecture);
     video.removeEventListener("playing", confirmerLecture);
     video.removeEventListener("error", signalerErreurMedia);
@@ -1109,6 +1131,149 @@ async function connecterMse(name, video, signalGlobal, texteAttente, t0) {
   }
 }
 
+// --- WebRTC : relais sans réencodage (blink_webrtc.py côté serveur) ---
+// Réglage de la page web depuis le 2026-09-03 (BACKLOG.md) : actif seulement
+// si system.webrtc est vrai (réglage "live_protocol" = "webrtc", et aiortc
+// installé côté serveur). Pas de repli automatique vers MSE si la
+// négociation échoue (retiré le 2026-09-03, sur demande explicite de
+// l'utilisateur) : le choix du protocole appartient au réglage, pas à une
+// substitution silencieuse - sinon le réglage devient trompeur, on croit
+// avoir WebRTC alors qu'on a parfois MSE sans le savoir. Un échec WebRTC
+// affiche donc une vraie erreur (failWatch), comme MSE. Une coupure APRÈS
+// la première image (connexion tombée en cours de route) n'est, elle, pas
+// reprise automatiquement ici : contrairement à connecterMse(), pas
+// encore de boucle de reprise pour ce chemin tout neuf, un nouveau clic
+// suffit.
+const WEBRTC_PC = {};
+
+// MODULE_SLOT (serve.py) est global : le module de synchronisation ne
+// relaie qu'un seul direct a la fois, quelle que soit la camera. /api/
+// attente-module attend que ce jeton soit reellement libre avant de
+// tenter quoi que ce soit - remplace le 2026-09-03 un delai fixe devine
+// (10s, puis 1s pour ce cas precis) : mesure en reel sur deux bascules
+// successives, le vrai temps de liberation (blinkpy attend la fin reelle
+// de la connexion vers le relais Blink avant d'envoyer "done") variait de
+// 1,65s a 8,8s - bien trop pour un delai fixe, pas assez pour un autre.
+// Sans ceci, passer d'une camera a l'autre sans cliquer Arreter laissait
+// la premiere camera tenir le verrou, la seconde tombant en 409 -
+// "ca ne marche pas", signale par l'utilisateur (2026-09-03).
+async function attendreModuleLibre() {
+  try {
+    const reponse = await fetch("/api/attente-module");
+    const info = await lireJSON(reponse);
+    return !!info.libre;
+  } catch (erreur) {
+    return true;  // en echouant ouvert : la tentative suivante dira si ca bloque toujours
+  }
+}
+
+async function watchLive(name) {
+  const autresActives = [...new Set([...Object.keys(WEBRTC_PC), ...Object.keys(MSE_ABORT)])]
+    .filter((autre) => autre !== name);
+  if (autresActives.length > 0) {
+    // watchWebRTC()/watchMse() ne touchent la case qu'apres
+    // attendreModuleLibre() (jusqu'a ATTENTE_MODULE_MAX_SECONDS = 25s cote
+    // serveur) : sans ceci, cette case restait sur "Voir en direct" tout
+    // ce temps, comme si le clic n'avait rien declenche - constate en
+    // reel par l'utilisateur (2026-09-03). Meme indice ("watch.waking")
+    // que celui que watchWebRTC()/watchMse() affichent juste apres : pas
+    // de changement de texte visible au moment de la relve.
+    const box = $("live-" + cssId(name));
+    if (box) box.innerHTML = repos(name, t("watch.waking"));
+    for (const autre of autresActives) stopWatch(autre);
+    await attendreModuleLibre();
+  }
+  if (system && system.webrtc) {
+    watchWebRTC(name);
+  } else {
+    watchMse(name);
+  }
+}
+
+async function watchWebRTC(name) {
+  const box = $("live-" + cssId(name));
+  box.innerHTML =
+    `<video autoplay muted playsinline></video>
+     <button class="watch stop" data-i18n="watch.stop"
+             data-action="stop-live" data-name="${h(name)}">${h(t("watch.stop"))}</button>
+     ${expandBtn(name)}`;
+  const video = box.querySelector("video");
+  const t0 = performance.now();
+
+  let hint = null;
+  const afficherIndice = (texte) => {
+    if (!hint) {
+      box.insertAdjacentHTML(
+        "beforeend",
+        `<p class="hint overlay" id="hint-${cssId(name)}">${h(texte)}</p>`
+      );
+      hint = $("hint-" + cssId(name));
+    } else if (hint.isConnected) {
+      hint.textContent = texte;
+    }
+  };
+  afficherIndice(t("watch.waking"));
+  const minuteur = setInterval(() => {
+    const s = Math.round((performance.now() - t0) / 1000);
+    afficherIndice(tf(s > 20 ? "watch.waking.slow" : "watch.waking.seconds", { s }));
+  }, 500);
+
+  // Navigateur et serveur sur le même réseau local (c'est tout l'usage de
+  // blink2video) : aucun NAT à traverser, un serveur STUN n'apporterait
+  // qu'un aller-retour réseau inutile.
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  WEBRTC_PC[name] = pc;
+  let confirme = false;
+  const confirmerLecture = () => {
+    if (confirme) return;
+    confirme = true;
+    clearInterval(minuteur);
+    if (hint) hint.remove();
+  };
+  video.addEventListener("loadeddata", confirmerLecture);
+  video.addEventListener("playing", confirmerLecture);
+  pc.ontrack = (evenement) => {
+    video.srcObject = evenement.streams[0];
+    // autoplay seul ne suffit pas toujours a demarrer la lecture d'un
+    // srcObject (constate en reel, 2026-09-03 : video restait paused avec
+    // des images deja decodees en attente). Meme geste defensif que
+    // connecterMse ci-dessus ; la preuve reste loadeddata/playing.
+    const lancement = video.play();
+    if (lancement && typeof lancement.catch === "function") {
+      lancement.catch(() => {});
+    }
+  };
+  pc.addEventListener("connectionstatechange", () => {
+    if (pc.connectionState === "closed" || pc.connectionState === "failed") {
+      if (WEBRTC_PC[name] === pc) delete WEBRTC_PC[name];
+    }
+  });
+
+  try {
+    pc.addTransceiver("video", { direction: "recvonly" });
+    const offre = await pc.createOffer();
+    await pc.setLocalDescription(offre);
+    const reponse = await fetch(`/live-webrtc/${encodeURIComponent(name)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sdp: pc.localDescription.sdp, type: pc.localDescription.type,
+      }),
+    });
+    const info = await lireJSON(reponse);
+    if (!reponse.ok) throw new Error(info.error || `HTTP ${reponse.status}`);
+    await pc.setRemoteDescription(info);
+  } catch (error) {
+    clearInterval(minuteur);
+    pc.close();
+    if (WEBRTC_PC[name] === pc) delete WEBRTC_PC[name];
+    // Pas de repli sur MSE ici (cf. commentaire plus haut) : une vraie
+    // erreur, comme pour MSE, plutot qu'une substitution silencieuse de
+    // protocole.
+    failWatch(name, String(error.message || error));
+  }
+}
+
 async function watchMse(name) {
   const box = $("live-" + cssId(name));
   box.innerHTML =
@@ -1134,10 +1299,10 @@ async function watchMse(name) {
   try {
     while (echecsAVide < MSE_MAX_ECHECS_A_VIDE
            && performance.now() - t0 < MSE_BUDGET_TOTAL_MS) {
-      const texte = echecsAVide === 0 && derniereErreur === null
-        ? t("watch.waking.mse") : t("watch.reconnecting");
+      const reveilInitial = echecsAVide === 0 && derniereErreur === null;
+      const texte = reveilInitial ? t("watch.waking") : t("watch.reconnecting");
       try {
-        const aLu = await connecterMse(name, video, controller.signal, texte, t0);
+        const aLu = await connecterMse(name, video, controller.signal, texte, t0, reveilInitial);
         lecturePendantBudget = lecturePendantBudget || aLu;
         derniereErreur = null;
         echecsAVide = aLu ? 0 : echecsAVide + 1;
@@ -1822,6 +1987,7 @@ async function ouvrirReglages(configurationInitiale = false) {
     $("storageDir").value = reglages.storage_dir;
     $("timestamp").checked = reglages.timestamp;
     $("timezone").value = reglages.timezone;
+    $("liveProtocol").value = reglages.live_protocol;
     $("mergeJour").checked = reglages.merge_jour;
     $("mergeSemaine").checked = reglages.merge_semaine;
     $("mergeMois").checked = reglages.merge_mois;
@@ -2031,6 +2197,7 @@ $("reglagesApply").onclick = async () => {
   try {
     const storageDir = $("storageDir").value.trim();
     const timestamp = $("timestamp").checked;
+    const liveProtocol = $("liveProtocol").value;
     const mergeJour = $("mergeJour").checked;
     const mergeSemaine = $("mergeSemaine").checked;
     const mergeMois = $("mergeMois").checked;
@@ -2039,6 +2206,7 @@ $("reglagesApply").onclick = async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud, port,
                              storage_dir: storageDir, timestamp, timezone,
+                             live_protocol: liveProtocol,
                              merge_jour: mergeJour, merge_semaine: mergeSemaine,
                              merge_mois: mergeMois, download_auto: downloadAuto }) });
     const resultat = await lireJSON(reponse);
@@ -2195,7 +2363,7 @@ $("list").addEventListener("click", (event) => {
       reveillerCamera(name, cible);
       break;
     case "watch-live":
-      watchMse(name);
+      watchLive(name);
       break;
     case "stop-live":
       stopWatch(name);

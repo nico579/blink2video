@@ -79,18 +79,20 @@ class TestsReglages(unittest.TestCase):
         blink_auth.save_session (I-02)."""
         runtime.ecrire_reglages(usb_minutes=5, cloud_minutes=1, port=8765, timestamp=True,
                                 timezone="Europe/Paris", merge_jour=True,
-                                merge_semaine=True, merge_mois=True, download_auto=True)
+                                merge_semaine=True, merge_mois=True, download_auto=True,
+                                live_protocol="webrtc")
         self.assertEqual(list(self.dossier.glob("*.tmp")), [])
 
     def test_ecrire_puis_lire_conserve_les_valeurs(self):
         runtime.ecrire_reglages(usb_minutes=7, cloud_minutes=2, port=8899, timestamp=False,
                                 timezone="America/New_York", merge_jour=True,
-                                merge_semaine=False, merge_mois=False, download_auto=False)
+                                merge_semaine=False, merge_mois=False, download_auto=False,
+                                live_protocol="mse")
         self.assertEqual(
             runtime.lire_reglages(),
             {"usb_minutes": 7, "cloud_minutes": 2, "port": 8899, "timestamp": False,
              "timezone": "America/New_York", "merge_jour": True, "merge_semaine": False,
-             "merge_mois": False, "download_auto": False})
+             "merge_mois": False, "download_auto": False, "live_protocol": "mse"})
 
     def test_valeurs_partielles_completees_par_les_defauts(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -105,12 +107,24 @@ class TestsReglages(unittest.TestCase):
              "merge_jour": runtime.REGLAGES_DEFAUT["merge_jour"],
              "merge_semaine": runtime.REGLAGES_DEFAUT["merge_semaine"],
              "merge_mois": runtime.REGLAGES_DEFAUT["merge_mois"],
-             "download_auto": runtime.REGLAGES_DEFAUT["download_auto"]})
+             "download_auto": runtime.REGLAGES_DEFAUT["download_auto"],
+             "live_protocol": runtime.REGLAGES_DEFAUT["live_protocol"]})
 
     def test_fuseau_vide_dans_le_fichier_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text(
             '{"timezone": ""}', encoding="utf-8")
         self.assertEqual(runtime.lire_reglages()["timezone"], runtime.REGLAGES_DEFAUT["timezone"])
+
+    def test_protocole_live_inconnu_retombe_sur_le_defaut(self):
+        (self.dossier / runtime.REGLAGES).write_text(
+            '{"live_protocol": "mjpeg"}', encoding="utf-8")
+        self.assertEqual(
+            runtime.lire_reglages()["live_protocol"], runtime.REGLAGES_DEFAUT["live_protocol"])
+
+    def test_protocole_live_mse_est_respecte(self):
+        (self.dossier / runtime.REGLAGES).write_text(
+            '{"live_protocol": "mse"}', encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages()["live_protocol"], "mse")
 
     def test_standard_reprend_les_verbes_historiques_avec_reglages_par_defaut(self):
         # Hebdo et mensuel sont désactivés par défaut (chacun ré-encode la
@@ -130,7 +144,7 @@ class TestsReglages(unittest.TestCase):
     def test_standard_reflete_les_reglages_enregistres(self):
         runtime.ecrire_reglages(usb_minutes=20, cloud_minutes=3, port=9090, timestamp=True,
                                 timezone="Asia/Tokyo", merge_jour=True, merge_semaine=True,
-                                merge_mois=True, download_auto=True)
+                                merge_mois=True, download_auto=True, live_protocol="webrtc")
         composition = runtime.standard()
         self.assertEqual(
             composition,
@@ -151,7 +165,7 @@ class TestsReglages(unittest.TestCase):
     def test_standard_ajoute_no_timestamp_quand_desactive(self):
         runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=False,
                                 timezone="Europe/Paris", merge_jour=True, merge_semaine=True,
-                                merge_mois=True, download_auto=True)
+                                merge_mois=True, download_auto=True, live_protocol="webrtc")
         composition = runtime.standard()
         self.assertEqual(composition[-6:],
                          ("merge", "--loop", "5", "--timezone", "Europe/Paris",
@@ -163,7 +177,7 @@ class TestsReglages(unittest.TestCase):
         # que de le lancer pour rien.
         runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
                                 timezone="Europe/Paris", merge_jour=False, merge_semaine=True,
-                                merge_mois=True, download_auto=True)
+                                merge_mois=True, download_auto=True, live_protocol="webrtc")
         composition = runtime.standard()
         self.assertNotIn("merge", composition)
 
@@ -173,7 +187,7 @@ class TestsReglages(unittest.TestCase):
         # continuent de tourner normalement.
         runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
                                 timezone="Europe/Paris", merge_jour=True, merge_semaine=True,
-                                merge_mois=True, download_auto=False)
+                                merge_mois=True, download_auto=False, live_protocol="webrtc")
         composition = runtime.standard()
         self.assertNotIn("download", composition)
         self.assertIn("serve", composition)
@@ -183,7 +197,7 @@ class TestsReglages(unittest.TestCase):
     def test_standard_ajoute_no_weekly_et_no_monthly_selon_les_reglages(self):
         runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
                                 timezone="Europe/Paris", merge_jour=True, merge_semaine=False,
-                                merge_mois=False, download_auto=True)
+                                merge_mois=False, download_auto=True, live_protocol="webrtc")
         composition = runtime.standard()
         self.assertEqual(composition[-7:],
                          ("merge", "--loop", "5", "--timezone", "Europe/Paris",

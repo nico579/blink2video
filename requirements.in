@@ -4,3 +4,14 @@ certifi
 tzdata
 imageio-ffmpeg
 backports.zoneinfo; python_version < "3.9"
+
+# aiortc tire par defaut cryptography>=49 (donc cffi>=2). Sans venv dedie,
+# ce depot s'installe sur le python systeme partage avec d'autres outils
+# (verifie : timezonefinder, pas un besoin de blink2video, exige cffi<2) -
+# plafonner ici evite qu'une simple mise a jour de dependances ne casse un
+# outil totalement sans rapport. A retirer si ce depot passe un jour a un
+# venv dedie pour son execution (pas seulement pour ses builds).
+aiortc
+cryptography<46
+pyopenssl<26
+cffi<2

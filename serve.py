@@ -55,6 +55,7 @@ import blink_auth
 import blink_engine
 import blink_models
 import blink_registre
+import blink_webrtc
 import maj
 import merge_daily as md
 import watch
@@ -103,6 +104,20 @@ MODULE_SLOT = threading.Semaphore(1)
 # distingue « occupé, ça va se libérer » d'« occupé depuis 20 minutes, ça sent
 # la fuite » sans avoir à redémarrer le serveur pour le savoir.
 MODULE_SLOT_INFO: dict = {}
+# /api/attente-module (plus bas) : combien de temps un client peut attendre
+# une confirmation que MODULE_SLOT est libre avant d'être informé que ça
+# prend plus longtemps que prévu. Un peu au-delà du plafond interne de
+# _stop_stream (asyncio.wait_for(feed, timeout=20)) : pas de raison de
+# couper avant que le nettoyage serveur lui-même abandonne.
+ATTENTE_MODULE_MAX_SECONDS = 25
+
+# Reglage de la page web (webrtc par defaut) depuis le 2026-09-03 - a
+# remplace la variable d'environnement BLINK_DIRECT_WEBRTC, experimentale,
+# une fois WebRTC valide en usage reel (BACKLOG.md). Lu une fois au
+# demarrage, comme tous les autres reglages (port, fuseau...) : un
+# changement redemarre deja le serveur (/api/reglages cote JS). Retombe sur
+# MSE si aiortc n'est pas installe, meme "webrtc" choisi.
+WEBRTC_ACTIF = (runtime.lire_reglages()["live_protocol"] == "webrtc") and blink_webrtc.DISPONIBLE
 
 
 def _slot_pris(quoi: str, name: str = "") -> None:
@@ -647,21 +662,27 @@ def _derniere_erreur_direct() -> dict:
 
 
 def _texte_stderr_ffmpeg(errors: list) -> str:
-    """Normalise stderr, que subprocess livre en bytes dans ce pipeline."""
-    if not errors:
-        return ""
-    raw = errors[0] or b""
-    if isinstance(raw, bytes):
-        return raw.decode("utf-8", "replace").strip()[:300]
-    return str(raw).strip()[:300]
+    """Normalise stderr, que subprocess livre en bytes dans ce pipeline.
+
+    _drainer_stderr alimente `errors` ligne par ligne (diagnostic temporaire),
+    plus un seul bloc comme avant : on rejoint tout, ça couvre les deux
+    formes."""
+    raw = b"".join(e for e in errors if isinstance(e, bytes))
+    return raw.decode("utf-8", "replace").strip()[:300]
 
 
 def _journal_direct_mse(name: str, message: str) -> None:
-    """Un journal indisponible ne doit jamais interrompre un direct."""
+    """Un journal indisponible ne doit jamais interrompre un direct.
+
+    Écrit aussi dans direct.log (runtime.ajouter_ligne) : le lancement normal
+    tourne sous pythonw (autostart), donc sans console où lire un print()."""
+    horodatage = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    ligne = f"[direct-mse] {horodatage} {name} : {message}"
     try:
-        print(f"[direct-mse] {name} : {message}", flush=True)
+        print(ligne, flush=True)
     except Exception:
         pass
+    runtime.ajouter_ligne("direct.log", ligne)
 
 
 async def _stop_stream(stream, feed) -> str:
@@ -1356,6 +1377,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         state = BLINK.call(read, timeout=60)
         remember_cameras(self.paths, state.get("systems") or [])
+        state["webrtc"] = WEBRTC_ACTIF
         return state
 
     def set_armed(self, scope: str, identity: str, armed: bool) -> None:
@@ -1467,6 +1489,128 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "endormie, ou déjà occupée par une autre session.")
         return message or "La caméra n'a envoyé aucune image."
 
+    def send_attente_module(self) -> None:
+        """Attend que MODULE_SLOT soit réellement libre, sans le retenir.
+
+        Ne déclenche rien : watchLive() (serve_app.js) a déjà demandé
+        l'arrêt de la session active (stopWatch(), pc.close()/fetch abort)
+        avant cet appel - la lui redemander ici serait redondant. Le rôle
+        de cette route est seulement de dire QUAND ce nettoyage, déjà en
+        cours, arrive à son terme, plutôt que de laisser le client deviner
+        un délai (10s à l'aveugle, remplacé par ceci le 2026-09-03 -
+        BACKLOG.md : mesuré 8,8s puis 1,65s sur deux bascules réelles,
+        bien trop variable pour un délai fixe). Ce qui prend réellement du
+        temps échappe à ce serveur : blinkpy (LiveStreamAPI.poll(),
+        livestream.py) n'envoie la commande "done" à Blink qu'une fois vu
+        la fin de la connexion TCP vers le relais Blink lui-même - déjà
+        attendu en entier par _stop_stream avant que MODULE_SLOT soit
+        rendu, donc rien à accélérer ici, seulement à rendre visible."""
+        libre = MODULE_SLOT.acquire(blocking=True, timeout=ATTENTE_MODULE_MAX_SECONDS)
+        if libre:
+            MODULE_SLOT.release()
+            self.send_json({"libre": True})
+        else:
+            self.send_json({"libre": False, "error": _slot_occupe_message()})
+
+    def send_offer_webrtc(self, name: str, payload: dict) -> None:
+        """Négocie un direct WebRTC (offre/réponse SDP) : voir blink_webrtc.py.
+
+        Contrairement à /live-mse, cette requête se termine dès que la
+        réponse SDP est envoyée : le direct continue ensuite sur BLINK.loop,
+        jusqu'à ce que connectionstatechange signale sa fin (fermeture
+        d'onglet, échec ICE...), qui rend alors MODULE_SLOT/le verrou disque
+        exactement comme le fait le bloc finally de send_live_mse. `nettoye`
+        garantit que cette libération n'a lieu qu'une fois, que la négociation
+        échoue avant même d'atteindre aiortc ou après (connectionstatechange
+        peut alors, lui aussi, finir par passer à "failed")."""
+        offer_sdp = str(payload.get("sdp") or "")
+        offer_type = str(payload.get("type") or "")
+        if not offer_sdp or not offer_type:
+            self.send_json({"error": "offre SDP incomplète"}, 400)
+            return
+
+        if not MODULE_SLOT.acquire(blocking=False):
+            message = _slot_occupe_message()
+            _memoriser_erreur_direct(name, message, 409)
+            self.send_json({"error": message}, 409)
+            return
+
+        holder: dict = {"nettoye": False}
+
+        async def _fermer() -> None:
+            if holder["nettoye"]:
+                return
+            holder["nettoye"] = True
+            stream = holder.get("stream")
+            if stream is not None:
+                verdict = await _stop_stream(stream, holder.get("feed"))
+                _journal_direct_mse(name, verdict)
+            verrou = holder.get("lock")
+            if verrou is not None and holder.get("lock_entered"):
+                try:
+                    verrou.__exit__(None, None, None)
+                except Exception as error:
+                    _journal_direct_mse(
+                        name, f"échec de libération du verrou disque, "
+                              f"{type(error).__name__}: {error}"
+                    )
+            try:
+                _slot_rendu()
+            finally:
+                MODULE_SLOT.release()
+
+        try:
+            _slot_pris("direct WebRTC", name)
+            _effacer_erreur_direct()
+            holder["lock"] = blink_engine.hub_lock("direct")
+            holder["lock"].__enter__()
+            holder["lock_entered"] = True
+
+            def start(blink):
+                async def run(_blink=blink):
+                    sync, camera = BLINK.find_camera(_blink, name)
+                    try:
+                        stream = await camera.init_livestream()
+                    except KeyError as error:
+                        raise RuntimeError(
+                            f"Blink n'a fourni aucune adresse de flux pour "
+                            f"« {name} ». La caméra est probablement hors de "
+                            f"portée du module de synchronisation, éteinte, ou "
+                            f"sa batterie est vide."
+                        ) from error
+                    except NotImplementedError as error:
+                        raise RuntimeError(
+                            f"Cette caméra diffuse dans un format non pris en "
+                            f"charge ({error})."
+                        ) from error
+                    holder["stream"] = stream
+                    await stream.start()
+                    holder["feed"] = asyncio.ensure_future(stream.feed())
+                    _, answer_sdp, answer_type = await blink_webrtc.negocier(
+                        stream.url, offer_sdp, offer_type, _fermer
+                    )
+                    return answer_sdp, answer_type
+                return run()
+
+            answer_sdp, answer_type = BLINK.call(start, timeout=45)
+            _journal_direct_mse(name, "direct WebRTC négocié")
+        except Exception as error:
+            message = str(error) if isinstance(error, RuntimeError) \
+                else f"{type(error).__name__}: {error}"
+            _memoriser_erreur_direct(name, message, 503)
+            _journal_direct_mse(name, f"échec (webrtc), {message}")
+            try:
+                BLINK.call(lambda _b: _fermer(), timeout=45)
+            except Exception as error:
+                _journal_direct_mse(
+                    name, f"échec de nettoyage après échec webrtc, "
+                          f"{type(error).__name__}: {error}"
+                )
+            self.send_json({"error": message}, 503)
+            return
+
+        self.send_json({"sdp": answer_sdp, "type": answer_type})
+
     def send_live_mse(self, name: str) -> None:
         """Diffuse le direct d'une caméra en fMP4 fragmenté, pour MediaSource.
 
@@ -1535,7 +1679,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             _journal_direct_mse(name, f"flux Blink ouvert sur {url}")
 
             process = runtime.demarrer(
-                [self.ffmpeg, "-hide_banner", "-loglevel", "error",
+                # loglevel "info" temporaire (diagnostic partage relais/ffmpeg
+                # en cours, cf. direct.log) : à repasser à "error" une fois
+                # l'écart Terrasse1/Salon expliqué.
+                [self.ffmpeg, "-hide_banner", "-loglevel", "info",
                  "-fflags", "nobuffer", "-flags", "low_delay",
                  # Plus généreux qu'en MJPEG (500000/300000) : un moov figé
                  # (empty_moov) doit connaître les dimensions *avant*
@@ -1548,7 +1695,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                  # sous LIVE_FIRST_FRAME_SECONDS (40 s) : une caméra qui
                  # répond vite n'attend pas plus longtemps pour autant, ce
                  # ne sont que des plafonds.
-                 "-analyzeduration", "5000000", "-probesize", "5000000",
+                 #
+                 # Essai en cours (direct.log, 2026-09-02) : à 5000000, ce
+                 # plafond est systématiquement consommé en quasi-totalité
+                 # (~5-6 s) sur Salon ET Terrasse1, deux caméras sans rapport
+                 # avec le cas lent d'origine (jardin) : pas juste utilisé
+                 # quand nécessaire, toujours épuisé. Redescendu à 1500000
+                 # (3x l'ancien seuil MJPEG, 1/3 de l'actuel) pour voir si
+                 # jardin tient toujours sans « dimensions not set ». À
+                 # remonter si jardin échoue avec cette valeur.
+                 "-analyzeduration", "1500000", "-probesize", "1500000",
                  "-i", url,
                  # copy : remux sans réencodage, coût CPU quasi nul.
                  "-c:v", "copy", "-an",
@@ -1559,9 +1715,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 stderr=subprocess.PIPE,
             )
             holder["process"] = process
-            holder["drain"] = threading.Thread(
-                target=lambda: errors.append(process.stderr.read()), daemon=True
-            )
+
+            def _drainer_stderr() -> None:
+                # Une ligne à la fois (pas un seul read() bloquant jusqu'à la
+                # fin) : diagnostic temporaire pour dater chaque étape interne
+                # de ffmpeg (détection du flux, image-clé...) pendant qu'on
+                # cherche pourquoi Terrasse1 (12 s) dépasse Salon (8 s) entre
+                # le premier octet du relais et le segment initial. errors
+                # reste alimentée pour _texte_stderr_ffmpeg (reason/diagnostic
+                # de fin), inchangé par ailleurs.
+                for ligne_brute in iter(process.stderr.readline, b""):
+                    errors.append(ligne_brute)
+                    texte = ligne_brute.decode("utf-8", "replace").rstrip()
+                    if texte:
+                        _journal_direct_mse(name, f"ffmpeg : {texte}")
+
+            holder["drain"] = threading.Thread(target=_drainer_stderr, daemon=True)
             holder["drain"].start()
 
             lecteur = LecteurTube(process.stdout)
@@ -1813,6 +1982,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json(self.system_state())
             except RuntimeError as error:
                 self.send_json({"error": str(error)}, 503)
+            return
+
+        if route == "/api/attente-module":
+            self.send_attente_module()
             return
 
         if route == "/api/videos":
@@ -2169,6 +2342,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"error": "corps JSON illisible"}, 400)
             return
 
+        if route.startswith("/live-webrtc/"):
+            self.send_offer_webrtc(unquote(route[len("/live-webrtc/"):]), payload)
+            return
+
         if route == "/api/login":
             username = str(payload.get("username", "")).strip()
             password = str(payload.get("password", ""))
@@ -2463,6 +2640,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             merge_semaine = bool(payload.get("merge_semaine", True))
             merge_mois = bool(payload.get("merge_mois", True))
             download_auto = bool(payload.get("download_auto", True))
+            live_protocol = str(payload.get("live_protocol", "webrtc"))
+            if live_protocol not in runtime.PROTOCOLES_LIVE_VALIDES:
+                self.send_json(
+                    {"error": f"Protocole de direct inconnu : « {live_protocol} »."}, 400)
+                return
             try:
                 # Le changement de racine prépare et copie d'abord session et
                 # réglages, puis publie atomiquement son pointeur. Les nouvelles
@@ -2471,7 +2653,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     runtime.ecrire_dossier_stockage(storage_dir)
                     runtime.ecrire_reglages(
                         usb_minutes, cloud_minutes, port, timestamp, timezone_str,
-                        merge_jour, merge_semaine, merge_mois, download_auto)
+                        merge_jour, merge_semaine, merge_mois, download_auto, live_protocol)
                     if self.initial_setup:
                         runtime.marquer_configuration_initiale()
             except runtime.BusyError as erreur:
@@ -2703,6 +2885,13 @@ __CSS__
       <option value="Australia/Sydney">
       <option value="UTC">
     </datalist>
+    <div class="champCadence">
+      <label for="liveProtocol" data-i18n="reglages.liveProtocol">Protocole du direct</label>
+      <select id="liveProtocol">
+        <option value="webrtc" data-i18n="reglages.liveProtocol.webrtc">WebRTC (rapide)</option>
+        <option value="mse" data-i18n="reglages.liveProtocol.mse">MSE (compatible)</option>
+      </select>
+    </div>
   </fieldset>
   <fieldset>
     <legend data-i18n="reglages.archivage"

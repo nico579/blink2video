@@ -6,6 +6,7 @@ connaît rien de la CLI ni de la session, qui lui sont fournies toutes faites.""
 
 import asyncio
 import copy
+import datetime as dt
 import time
 from pathlib import Path
 from typing import NamedTuple
@@ -41,6 +42,7 @@ async def _recv_corrige(self):
     version de blinkpy l'intègre."""
     try:
         _blinkpy_livestream._LOGGER.debug("Starting copy from target to clients")
+        premier_video = True
         while not self.target_reader.at_eof():
             try:
                 data = await self.target_reader.readexactly(9)
@@ -83,6 +85,35 @@ async def _recv_corrige(self):
                     "Skipping video payload missing 0x47 at start"
                 )
                 continue
+
+            if premier_video:
+                premier_video = False
+                # Diagnostic seul, jamais critique : un test unitaire de ce
+                # recv() (test_blink2video_audit.py) construit un
+                # BlinkLiveStream nu via __new__, sans `camera` - une
+                # exception ici (AttributeError sur self.camera, ou
+                # n'importe quoi d'autre) ne doit surtout pas remonter au
+                # except englobant, qui couperait alors tout le flux vidéo
+                # juste après la première image (constaté en vrai : ce bloc
+                # non protégé faisait échouer client.write() en silence).
+                # Marque la fin de la part hors de portée de blink2video
+                # (ticket cloud, réveil radio de la caméra, poignée de main
+                # du relais). À comparer aux horodatages de
+                # _journal_direct_mse (serve.py) : ce qui suit ce point est
+                # le seul délai qui nous appartient (proxy local +
+                # spawn/analyse/remux ffmpeg). Écrit aussi dans direct.log
+                # (runtime.ajouter_ligne) : sous pythonw, un print() seul ne
+                # va nulle part d'observable.
+                try:
+                    horodatage = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    ligne = (
+                        f"[direct-mse] {horodatage} {self.camera.name} : "
+                        f"premier octet vidéo du relais"
+                    )
+                    print(ligne, flush=True)
+                    runtime.ajouter_ligne("direct.log", ligne)
+                except Exception:
+                    pass
 
             _blinkpy_livestream._LOGGER.debug("Sending %d bytes to clients", len(data))
             for writer in self.clients:

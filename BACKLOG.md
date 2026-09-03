@@ -35,6 +35,303 @@ les perdre, pas forcement les construire toutes.
   blink2video.exe voisin plutot que sa propre runtime.VERSION figee au
   build.
 
+- **Latence du direct (MSE) : piste WebRTC construite, active derriere un
+  drapeau, validee en usage reel (2026-09-03).** Source : meme fil reddit/cutthin que l'entree Tester-XR.exe
+  ci-dessus (plainte initiale sur la lenteur du direct des cameras
+  eloignees), approfondi en session le 2026-09-03 apres que l'utilisateur a
+  mesure a la main Salon : 10s sur blink2video contre 3s sur l'appli
+  officielle Blink. Diagnostic instrumente (horodatage reel ajoute a
+  _journal_direct_mse/serve.py et au recv() patche de blink_engine.py,
+  direct.log) : l'essentiel du delai n'est pas cote Blink mais dans
+  blink2video meme, structurel au MSE - ffmpeg doit voir passer le SPS
+  avant de pouvoir ecrire un entete MP4 (empty_moov), pas une histoire de
+  reglage. Baisser -analyzeduration/-probesize (5000000 -> 1500000,
+  serve.py) a ete teste sans regression sur jardin (la camera batterie
+  lente a l'origine du reglage genereux), a garder.
+
+  Prototype WebRTC (aiortc + blinkpy, venv isole, aucune modification du
+  process en direct) confirme un vrai gain, mesure deux fois par camera :
+  Salon 9,3s (MSE) -> 4,10s (WebRTC decodage+reencodage) -> 3,23s (WebRTC
+  passthrough, sans reencodage) ; jardin ~15,8s (MSE, mesure sur Terrasse1,
+  meme materiel) -> 6,81s -> 5,60s. Facteur 2,3 a 2,9x selon camera et
+  mode. Le mode passthrough (equivalent WebRTC du -c:v copy deja utilise en
+  MSE, evite le cout CPU du reencodage) a demande de monkey-patcher
+  aiortc.codecs.CODECS["video"] pour declarer le vrai profil H.264 de la
+  camera (High, 640028) : aiortc n'annonce que du Baseline en dur
+  (42001f/42e01f). Verifie qu'aucune solution officielle n'existe cote
+  aiortc (issue aiortc/aiortc#944, fermee sans suite ; la reserve du
+  mainteneur porte sur l'encodage, pas sur le passthrough, ne s'applique
+  pas a notre cas).
+
+  Construit dans le depot (pas juste un prototype jetable) : blink_webrtc.py
+  (module optionnel, DISPONIBLE=False proprement si aiortc absent), route
+  POST /live-webrtc/<name> dans serve.py, watchLive()/watchWebRTC() dans
+  serve_app.js avec repli automatique sur watchMse() si la negociation
+  echoue. Active par la variable d'environnement BLINK_DIRECT_WEBRTC=1, pas
+  encore un reglage de la page web. aiortc + cryptography/pyopenssl/cffi
+  plafonnes dans requirements.in (cffi<2 : le python systeme partage de
+  l'utilisateur porte aussi timezonefinder, sans rapport avec blink2video,
+  qui exige cffi<2 - non pertinent si ce depot passe un jour a un venv
+  dedie).
+
+  Incident reel a l'activation (2026-09-03) : premiere tentative restee
+  bloquee sur "Reconnexion...", .blink_hub.lock jamais libere (MODULE_SLOT
+  pareil), plus aucun direct possible - meme MSE, verrou partage. Cause :
+  RTCPeerConnection() sans configuration explicite retombe sur le defaut
+  d'aiortc (stun:stun.l.google.com:19302, aiortc/codecs/rtcicetransport.py
+  RTCIceGatherer.getDefaultIceServers), et setLocalDescription() attend la
+  fin de la collecte de candidats avant de rendre la main - un blocage
+  reseau/pare-feu dessus bloque tout indefiniment, jamais de
+  connectionstatechange donc jamais de nettoyage. Corrige : iceServers=[]
+  (navigateur et serveur sur le meme reseau local, un STUN n'a de toute
+  facon rien a apporter) plus deux plafonds durs dans blink_webrtc.py,
+  memes principes que LIVE_FIRST_FRAME_SECONDS/LIVE_MAX_SECONDS en MSE -
+  NEGOCIATION_MAX_SECONDS (15s, echoue proprement plutot que de bloquer) et
+  SESSION_MAX_SECONDS (300s, ferme une session jamais terminee proprement
+  cote client). Revalide ensuite par l'utilisateur : fonctionne, "beaucoup
+  plus rapide".
+
+  Reste ouvert : pas de reglage dans la page web (variable d'environnement
+  seulement) ; pas de reprise automatique si la connexion tombe apres la
+  premiere image (contrairement a connecterMse) ; detection du profil
+  H.264 verifiee sur deux modeles de camera seulement (Salon, jardin) ;
+  CODECS["video"] reste un detail d'implementation non documente d'aiortc
+  qu'une mise a jour peut casser sans avertissement (issue aiortc/aiortc#944
+  toujours sans solution officielle cote projet). A trancher avec
+  l'utilisateur : rendre ca un reglage visible, ou garder en drapeau
+  experimental encore un temps.
+
+  PyAV retire (2026-09-03), remplace par un demultiplexeur MPEG-TS/PES/NAL
+  maison, blink_ts_demux.py (~200 lignes, assez de ISO/IEC 13818-1 pour
+  isoler le flux elementaire H.264 : PAT -> PMT -> PID video -> decoupage en
+  NAL units des qu'une fin est vue, sans attendre un paquet PES ou une
+  image entiere complets). Motive par le retrait de la dependance PyAV elle
+  meme, pas par un bug precis d'origine ; a permis au passage de lire le PTS
+  reel encode par la camera plutot que de sonder les flux (extradata
+  SPS/PPS incomplet a probesize bas, cf. l'essai analyzeduration/probesize
+  abandonne plus haut). Valide hors-ligne contre une capture TS reelle
+  (373 NAL units, 0 pts=None, PTS = valeur de reference PyAV a l'identique).
+
+  Saccade signalee par l'utilisateur en usage reel (2026-09-03, "le debit
+  est plus saccade") apres activation de WebRTC : deux causes distinctes
+  trouvees et corrigees ensemble, aucune des deux liee a la latence de
+  demarrage deja mesuree plus haut.
+  1. PTS invente a la reception (horloge monotone locale) au lieu du PTS
+     reel encode par la camera dans l'entete PES (ITU-T H.222.0, 2.4.3.7) :
+     un reseau qui livre par rafales plutot qu'a cadence reguliere faisait
+     perdre au recepteur l'information de rythme necessaire pour lisser
+     l'affichage. Corrige par l'extraction PTS ci-dessus dans
+     blink_ts_demux.py (deja cadencee a 90 kHz, meme horloge que WebRTC
+     utilise pour la video RTP - aucune conversion requise).
+  2. `<video autoplay>` seul ne demarre pas toujours la lecture d'un
+     srcObject WebRTC (constate : video paused, currentTime bloque a 0,
+     100% des images decodees comptees perdues par
+     getVideoPlaybackQuality() jusqu'a un appel explicite video.play()).
+     watchWebRTC() dans serve_app.js n'avait jamais reproduit le geste
+     defensif que connecterMse() applique deja pour MSE (meme raison :
+     autoplay n'est pas fiable a 100%, seuls les evenements
+     loadeddata/playing prouvent qu'une image reelle est affichee).
+     Corrige par le meme appel video.play().catch(() => {}) dans
+     pc.ontrack.
+  Valide : suite complete (407 tests) verte, harnais e2e isole
+  (scratchpad, hors-depot) sur une fenetre fraiche de 4s apres le fix ->
+  0 image perdue, currentTime avance normalement. Redeploye en production,
+  webrtc:true confirme, verifie en reel sur Salon (paused:false,
+  currentTime avance au rythme reel). Le compteur d'images perdues n'a pas
+  pu etre revalide en conditions de prod via l'automatisation navigateur :
+  l'onglet controle passait document.hidden=true (throttling Chrome des
+  onglets non visibles), ce qui a lui seul suffit a faire compter comme
+  perdue toute image decodee, independamment de la qualite reelle du flux -
+  artefact de methode de test, pas un signal sur le code.
+
+  Confirme par l'utilisateur (2026-09-03) : Salon fluide, jardin encore
+  saccade mais differemment - longues periodes fluides puis saccade,
+  hypothese bande passante avancee par l'utilisateur. Diagnostic instrumente
+  a nouveau plutot que suppose : capture TS brute de jardin (45s) avec
+  horodatage reseau reel par lecture (scratchpad/capture_ts_timing.py),
+  rejouee hors-ligne a travers blink_ts_demux.py. Resultat net : le PTS
+  camera reste parfaitement regulier (30 fps sans le moindre saut) sur toute
+  la capture - la camera encode sans probleme - mais la livraison reseau
+  montre un trou d'environ 1,0s tres regulier (6 occurrences mesurees,
+  7,95s/8,95s/9,95s/10,95s/11,94s/12,95s - quasi exactement une par
+  seconde), 0,62 a 0,86s sans le moindre octet recu a chaque fois. Confirme
+  et precise l'hypothese bande passante de l'utilisateur : tres
+  probablement le wifi de la camera a pile qui s'endort par intervalles
+  pour economiser la batterie (Blink Outdoor, contrairement au Blink Mini
+  cable de Salon), pas un signal faible en continu.
+
+  Cause reelle : _PisteH264.recv() (blink_webrtc.py) renvoyait une image des
+  qu'elle etait demultiplexee, zero tampon - le moindre trou reseau se
+  voyait donc directement comme un arret de lecture. MSE n'a jamais ce
+  probleme par construction (SourceBuffer + <video> du navigateur
+  bufferisent deja plusieurs secondes d'avance par defaut), pas verifie en
+  reel une deuxieme fois pour ca, pas necessaire. Corrige par un tampon de
+  lecture (jitter buffer, meme principe que tout flux temps reel - RTP,
+  visio) : TAMPON_LECTURE_SECONDS = 1.2, recv() cadence chaque image sur son
+  PTS depuis une ancre posee a la premiere image plutot que de la renvoyer
+  des son arrivee. Applique uniformement (pas seulement aux cameras a pile)
+  pour rester simple ; Salon a largement la marge pour l'absorber (WebRTC y
+  reste tres au-dessus de MSE malgre le tampon).
+
+  Valide avant redeploiement (pas de nouveau reveil camera) : le VRAI
+  _PisteH264.recv() rejoue contre l'enregistrement reseau reel de jardin
+  (scratchpad/valide_tampon_lecture.py, FauxReader qui respecte les memes
+  horodatages d'arrivee que la capture) - les 6 trous de regime etabli
+  tombent tous a des ecarts normaux (~0,033s) apres le fix, seul un ecart de
+  0,89s subsiste, en tout debut de session (image #2, le temps que le
+  tampon se remplisse une premiere fois - inevitable, pas une resurgence du
+  probleme). Suite complete (407 tests) verte. Redeploye en production,
+  webrtc:true confirme. Confirme par l'utilisateur (2026-09-03) : "ca
+  marche" sur jardin.
+
+  Suite donnee par l'utilisateur (2026-09-03), deux demandes separees.
+
+  1. Reglage webrtc/mse dans la page (webrtc par defaut), a la place de la
+  variable d'environnement BLINK_DIRECT_WEBRTC. MJPEG (troisieme choix
+  propose par l'utilisateur) volontairement pas ajoute : deja compare a
+  MSE une fois (audit 28.15, MSE gagnant), code mort retire depuis en
+  deux temps (28.53, commit 7339f85, doctrine explicite "ne pas laisser de
+  code mort") - le reintroduire comme option sans raison nouvelle
+  reviendrait sur cette decision. runtime.py : nouveau champ
+  "live_protocol" (webrtc/mse) dans REGLAGES_DEFAUT, valide a la lecture
+  (PROTOCOLES_LIVE_VALIDES, retombe sur le defaut sinon, meme pattern que
+  timezone/booleens), accepte en parametre de ecrire_reglages(). serve.py :
+  WEBRTC_ACTIF lit desormais runtime.lire_reglages() au demarrage au lieu
+  de os.environ - meme moment de lecture que les autres reglages (redemarre
+  deja au changement, comme port/fuseau/etc.), meme validation cote
+  POST /api/reglages. Page web : select id=liveProtocol dans le fieldset
+  Video existant, deux options, cle i18n FR/EN. Tests : 7 appels
+  ecrire_reglages() dans test_runtime_reglages.py mis a jour (nouveau
+  parametre requis, pas de defaut - coherent avec le reste de la
+  signature), 2 nouveaux tests (valeur inconnue retombe sur webrtc, "mse"
+  respecte). 407 tests -> 409.
+
+  2. Changer de camera en direct sans cliquer Arreter ne marchait pas
+  ("il faudrait forcer un arret de la camera active"). Cause confirmee :
+  MODULE_SLOT (serve.py) est un Semaphore(1) global, partage par WebRTC et
+  MSE, acquis en mode non bloquant - la deuxieme camera tombe donc en 409
+  immediat. watchWebRTC() n'a aucune reprise (un seul essai, repli MSE) ;
+  watchMse() en a deja une, specifique au 409 (MSE_DELAI_MODULE_OCCUPE_MS
+  = 10000, jusqu'a MSE_BUDGET_TOTAL_MS = 10 min) - fonctionnelle mais
+  jamais concue pour ce cas : elle n'aboutit que quand la premiere camera
+  expire d'elle-meme (LIVE_MAX_SECONDS, jusqu'a 5 min), d'ou le "ca ne
+  marche pas" en pratique. Corrige cote page web uniquement (aucun
+  changement serveur necessaire) : watchLive() (serve_app.js) arrete
+  desormais explicitement toute autre camera active (WEBRTC_PC/MSE_ABORT)
+  avant de lancer la nouvelle - stopWatch() existait deja, seulement jamais
+  appele automatiquement ici. La boucle de reprise 409 deja presente dans
+  watchMse() absorbe le residu de course cote serveur (liberation pas
+  encore terminee au moment ou la nouvelle requete part) sans code
+  supplementaire.
+
+  Verifie en reel (Salon actif -> bascule vers jardin sans Arreter) :
+  Salon correctement arrete (revient a la vignette), jardin recoit son
+  tour immediatement (flux Blink ouvert quelques secondes apres, pas
+  bloque des minutes). Suite complete verte, redeploye, webrtc:true et
+  reglage confirmes en page (select prerempli sur "webrtc").
+
+  Observation separate en verifiant, non confirmee : la lecture MSE de
+  jardin, apres la bascule, est repassee plusieurs fois en paused avec
+  currentTime bloque a 0 malgre buffered non vide et readyState=4 (play()
+  manuel la debloque un instant, puis retombe) - pattern different du bug
+  play()/autoplay deja corrige cote WebRTC (connecterMse() appelle deja
+  video.play()). Piste non creusee : meme reseau bursty que celui
+  diagnostique et corrige cote WebRTC (jitter buffer, plus haut), mais
+  MSE n'a recu aucun correctif equivalent - purement hors perimetre de
+  cette demande (bascule de camera), pas cause par elle. A surveiller si
+  signale a nouveau.
+
+  Affine par l'utilisateur (2026-09-03) : "blink demande un certain temps
+  entre le passage d'une camera a une autre... on pourrait utiliser le
+  verrou de blink, sur le systeme occupe ?". Verifie dans le code source de
+  blinkpy (site-packages, pas suppose) avant de repondre : un vrai
+  mecanisme existe (LiveStreamAPI.poll(), livestream.py) - tant que la
+  connexion TCP vers le relais Blink n'a pas vu EOF, il continue
+  d'interroger api.request_command_status() en boucle ; seulement une fois
+  EOF vu, son bloc finally appelle api.request_command_done(). _stop_stream
+  (serve.py) attend deja cette tache dans son integralite avant de rendre
+  MODULE_SLOT - le serveur n'ecourte donc rien. Le vrai temps d'attente est
+  celui, reel, que met le relais Blink a repondre a la fermeture du flux
+  cote client (mesure en reel : ~8,8 s sur la bascule Salon -> jardin de
+  tout a l'heure) : ni instantane, ni infini, borne par les propres
+  timeouts internes de blinkpy (COMMAND_POLL_TIME=1s, MAX_RETRY=120). Ce
+  qui manquait n'etait donc pas d'attendre le bon signal (deja fait) mais
+  de le voir arriver plus vite cote client : MSE_DELAI_MODULE_OCCUPE_MS
+  (10 s) est un choix delibere et documente dans le code pour le cas
+  generique "un tiers inconnu tient le module" (patience justifiee, ETA
+  inconnue) - pas adapte au cas "je viens de declencher moi-meme cette
+  liberation, elle est deja en cours".
+
+  Premier correctif (serve_app.js uniquement, depasse par la suite - voir
+  plus bas) : delai court (1000 ms) specifique au 409 rencontre juste
+  apres une bascule, au lieu du delai generique de 10 s. Mesure en reel
+  sur une bascule Salon -> jardin : 8,76 s -> 1,65 s. Retire ensuite
+  entierement (cf. ci-dessous), la nouvelle mesure ayant montre que ce
+  1,65 s n'etait qu'un echantillon chanceux, pas une valeur stable.
+
+  Repousse par l'utilisateur (2026-09-03), deux retours factuels
+  precedant la conception finale :
+  1. "mon temps d'attente n'est pas de 1,65s entre salon et jardin;
+     plutot 10s" - le vrai temps de liberation cote Blink est variable
+     (deja 8,76 s vs 1,65 s dans les deux mesures precedentes), un delai
+     fixe, meme raccourci a 1 s, ne peut que mal deviner selon les jours.
+  2. "je trouve que c'est plus propre d'attendre une confirmation du
+     serveur, plutot que d'essayer en force" - jugement architecture
+     explicite en faveur d'un signal reel plutot qu'un delai calibre.
+  Et une contrainte produit supplementaire (meme session) : "on ne doit
+  pas basculer automatiquement de webrtc a mse ! il y a un reglage manuel
+  pour ca" - watchLive() retombait jusque-la sur watchMse() a la moindre
+  erreur WebRTC (comportement herite d'avant le reglage live_protocol,
+  jamais retire depuis) ; explique aussi pourquoi une bascule atterrissait
+  perceptiblement sur MSE malgre le reglage webrtc ("pourquoi MSE ? on
+  n'utilise pas webrtc maintenant ?", meme session) - watchWebRTC() n'a
+  qu'un seul essai, sans boucle de reprise, donc le moindre 409 pendant
+  une bascule le faisait echouer puis basculer vers MSE.
+
+  Conception finale : nouvelle route GET /api/attente-module (serve.py,
+  send_attente_module) qui attend reellement MODULE_SLOT.acquire(blocking=
+  True, timeout=ATTENTE_MODULE_MAX_SECONDS=25) puis le relache aussitot
+  (ne le retient pas pour elle-meme - seulement une confirmation, la
+  vraie tentative suit juste apres). Ne declenche aucun arret : stopWatch()
+  cote page l'a deja fait avant cet appel, ce serait redondant de le
+  refaire ici. watchLive() (serve_app.js) attend cette confirmation
+  (attendreModuleLibre()) avant de tenter quoi que ce soit, seulement
+  quand une autre camera etait active. Repli automatique WebRTC -> MSE
+  retire de watchLive() : un echec WebRTC affiche desormais une vraie
+  erreur (failWatch(), meme traitement que MSE) plutot que de substituer
+  silencieusement l'autre protocole - coherent avec le reglage
+  live_protocol, qui perdrait son sens si contourne en silence des le
+  premier accroc. Supprime au passage MSE_DELAI_MODULE_OCCUPE_APRES_
+  BASCULE_MS et le parametre viensDeBasculer (premier correctif,
+  desormais inutile - watchMse() retrouve son delai unique d'origine,
+  10 s, pour le seul cas qui lui reste : un tiers reellement inconnu).
+
+  Verifie en reel (Salon WebRTC actif -> bascule vers jardin sans
+  Arreter) : jardin atterrit desormais sur WebRTC (pas de repli MSE),
+  paused:false, currentTime avance normalement des la premiere tentative.
+  Delai total mesure entre la fin de session Salon et la premiere image
+  video de jardin (direct.log) : 2,73 s - integre cette fois le reveil de
+  la camera lui-meme, pas seulement la liberation du module (mesure pas
+  directement comparable aux 8,76 s / 1,65 s precedents, qui isolaient la
+  seule ouverture du flux Blink). Suite complete (409 tests) verte,
+  redeploye.
+
+  Regression signalee par l'utilisateur dans la foulee (2026-09-03) : "a
+  un moment, les 2 boutons sont a voir le direct, alors que celui de la
+  2eme camera aurait du changer de suite". Introduite par le changement
+  ci-dessus : watchWebRTC()/watchMse() ne touchent la case qu'apres
+  attendreModuleLibre(), qui peut prendre plusieurs secondes - la case de
+  la nouvelle camera restait donc sur "Voir en direct" tout ce temps,
+  comme si le clic n'avait rien declenche. Corrige (watchLive(),
+  serve_app.js) : la case affiche l'indice d'attente (repos() avec le
+  libelle "watch.waking") immediatement, avant meme d'arreter l'autre
+  camera ou d'attendre - meme texte que celui affiche juste apres par
+  watchWebRTC()/watchMse(), pas de changement visible au moment de la
+  relve. Verifie en reel : le bouton passe de "Voir en direct" a "Reveil
+  de la camera..." de facon synchrone des le clic (avant tout await),
+  pendant que l'ancienne camera revient a l'etat repos au meme instant.
+  Suite complete verte, redeploye.
+
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
 Les onze bugs numerotes de la revue sont tous traites (28.59 a 28.68) :
