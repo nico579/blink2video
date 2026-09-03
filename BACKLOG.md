@@ -449,6 +449,60 @@ les perdre, pas forcement les construire toutes.
   appels reseau au lieu de 8) est solide. Suite complete verte,
   redeploye.
 
+  Regression introduite par ce meme allegement, trouvee par un audit
+  general demande par l'utilisateur juste apres (2026-09-03), pas par
+  l'utilisateur lui-meme : describe_camera() (serve.py) lit battery/
+  battery_signal/voltage/temperature/wifi/firmware/kind/model depuis
+  camera.attributes (objet camera de blinkpy), pas depuis raw/info
+  (ecran d'accueil). attributes n'est mis a jour que par camera.update()
+  (extract_config_info(), camera.py), appele seulement par
+  sync_module.refresh() (une fois par camera, precisement ce que
+  l'allegement retire de system_state()) ou par update_cameras() au tout
+  premier demarrage. Consequence reelle : ces champs se figeaient
+  silencieusement a la valeur du demarrage du serveur, plus jamais
+  rafraichis ensuite - invisible sur le moment (le serveur venait de
+  redemarrer, tout etait encore frais), ne se serait vu qu'apres des
+  heures ou des jours d'activite, sans jamais se corriger seul. armed/
+  battery_signal/lfr n'etaient eux pas touches (deja lus depuis raw/
+  signals, verifie plus haut).
+
+  Corrige en verifiant d'abord (pas suppose) un ecran d'accueil reel
+  (scratchpad/inspecter_homescreen.py) : battery, fw_version, type et
+  signals.{wifi,temp,battery,lfr} y sont deja tous presents, per-camera,
+  sans aucun appel supplementaire. describe_camera() lit desormais ces
+  champs depuis info/signals, comme armed/battery_signal/lfr deja avant.
+  temperature recalculee depuis signals.temp (Fahrenheit brut, comme
+  Blink le rapporte) avec exactement la meme formule que camera.
+  temperature_c (blinkpy, camera.py) : round((f-32)/9*5, 1). Seul voltage
+  reste lu depuis attributes (donc perime apres le demarrage) : aucun
+  equivalent dans l'ecran d'accueil, et verifie non affiche cote page
+  (aucune occurrence dans serve_app.js) - perime sans consequence
+  visible, pas la peine d'y consacrer un appel reseau dedie.
+
+  Valide en reel : donnees correctes et fraiches par camera (Terrasse1
+  49,4 degC, Portail 28,3 degC - distinctes, pas une valeur figee
+  dupliquee -, coherentes avec l'ecran d'accueil brut inspecte juste
+  avant). Salon (Blink Mini) toujours a null pour battery/temp/wifi,
+  normal, deja le cas avant. Suite complete verte, redeploye.
+
+  Audit general par ailleurs : deux autres pistes remontees, pas encore
+  traitees, a trancher avec l'utilisateur.
+  - collect_videos() (serve.py) reprobe la duree de chaque video
+    assemblee a chaque appel de /api/videos (probe_duration() brut, non
+    mis en cache), alors que le meme fichier a deja le mecanisme qu'il
+    faudrait juste reutiliser : probe_duration_cached() (empreinte
+    taille+mtime), deja utilise pour les clips ecartes juste a cote, et
+    merge_daily.py a le meme motif pour les clips source. Gain probable,
+    risque faible, motif deja eprouve ailleurs dans ce depot.
+  - _telecharger_cloud() (blink_engine.py) telecharge les clips du cloud
+    strictement en sequence, un await complet avant le suivant. Gain de
+    temps total plausible sur un gros retard a rattraper, mais rien
+    n'indique que ce soit reellement ressenti comme lent (contrairement
+    a /api/system, jamais signale), et rendre ca concurrent demande de
+    revoir la progression SSE et l'ecriture du registre pour rester
+    correct a plusieurs telechargements en vol - a decider deliberement,
+    pas un gain evident au meme titre que le premier point.
+
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
 Les onze bugs numerotes de la revue sont tous traites (28.59 a 28.68) :

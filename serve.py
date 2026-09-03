@@ -1308,20 +1308,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if enabled is None:
             enabled = info.get("enabled")
 
+        # Temperature brute de l'ecran d'accueil (Fahrenheit, comme Blink la
+        # rapporte) : meme conversion que camera.temperature_c (blinkpy,
+        # camera.py) pour un resultat identique, sans dependre de cette
+        # propriete elle-meme.
+        temp_brute = signals.get("temp")
+        try:
+            temperature = round((temp_brute - 32) / 9.0 * 5.0, 1)
+        except TypeError:
+            temperature = None
+
         return {
             "name": camera_name.strip(),
             "armed": bool(enabled),
-            "battery": attributes.get("battery"),
+            # battery/temperature/wifi/firmware/kind : lus depuis l'ecran
+            # d'accueil (info/signals), pas depuis l'objet camera de
+            # blinkpy (attributes) - celui-ci n'est mis a jour que par
+            # sync_module.refresh(), plus appele depuis system_state()
+            # depuis l'allegement du 2026-09-03 (cf. BACKLOG.md) : y lire
+            # ces champs les figeait silencieusement a la valeur du
+            # demarrage du serveur, jamais rafraichis ensuite. Verifie sur
+            # un ecran d'accueil reel avant ce correctif (pas suppose) :
+            # tous presents (battery, fw_version, type, signals.wifi/temp).
+            # voltage seul n'a pas d'equivalent dans l'ecran d'accueil,
+            # laisse tel quel : jamais affiche cote page (verifie),
+            # perimer apres le demarrage n'a aucun effet visible.
+            "battery": info.get("battery"),
             "battery_signal": signals.get("battery"),
             "voltage": attributes.get("battery_voltage"),
-            # Blink rapporte des degrés Fahrenheit ; blinkpy expose la
-            # conversion, autant l'utiliser plutôt que de la refaire ici.
-            "temperature": camera.temperature_c,
-            "wifi": attributes.get("wifi_strength"),
+            "temperature": temperature,
+            "wifi": signals.get("wifi"),
             "lfr": signals.get("lfr"),
-            "firmware": attributes.get("version"),
-            "kind": attributes.get("type"),
-            "model": model_name(attributes.get("type")),
+            "firmware": info.get("fw_version"),
+            "kind": info.get("type"),
+            "model": model_name(info.get("type")),
             "serial": info.get("serial") or attributes.get("serial"),
             "status": status,
             "offline": status == "offline",
