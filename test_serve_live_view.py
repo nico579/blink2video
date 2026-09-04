@@ -253,6 +253,8 @@ class TestsCycleDirectMse(unittest.TestCase):
         flux = FauxFlux()
 
         class FausseCamera:
+            name = "Jardin"
+
             async def init_livestream(self):
                 return flux
 

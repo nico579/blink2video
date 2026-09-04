@@ -32,6 +32,7 @@ Blink_Excluded/
 Blink_Daily/
 Blink_Weekly/
 Blink_Monthly/
+Blink_Direct/
 .blink_thumbs/
 
 # Fiches des instances en cours, une par processus, effacees a leur mort.

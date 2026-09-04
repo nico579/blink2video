@@ -55,7 +55,7 @@
   .time.line { font-weight:500; font-size:13.5px; line-height:1.35; }
   .sub { color:var(--dim); font-size:13px; }
   .sub.tiny { font-size:12px; opacity:.65; }
-  .act { margin-left:auto; padding:6px 12px; border-radius:6px; }
+  .act { margin-left:auto; padding:4px 9px; border-radius:6px; font-size:13px; }
   .act.out { background:#4a2320; border-color:var(--out); color:#ffb3ab; }
   .act.in  { background:#1e3d2b; border-color:var(--in); color:#a8e6c0; }
   /* Second bouton d'un groupe de droite : la marge auto ne se pose qu'une
@@ -89,8 +89,10 @@
   /* La vignette reste en fond, le bouton se pose dessus. */
   .live img.still { position:absolute; inset:0; opacity:.55; }
   .live .watch { position:relative; }
-  .watch { border-radius:7px; padding:8px 14px; }
+  .watch { border-radius:7px; padding:6px 11px; font-size:13px; }
   .watch.stop { position:absolute; right:10px; bottom:10px; opacity:.85; }
+  .watch.record { position:absolute; left:10px; bottom:10px; opacity:.85; }
+  .watch.record.active { background:#4a2320; border-color:var(--out); color:#ffb3ab; }
   .watch.expand { position:absolute; right:10px; top:10px; opacity:.85;
                   padding:5px 9px; font-size:16px; line-height:1; }
   .live { flex-direction:column; gap:12px; }

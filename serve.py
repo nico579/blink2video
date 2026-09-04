@@ -111,6 +111,15 @@ MODULE_SLOT_INFO: dict = {}
 # couper avant que le nettoyage serveur lui-même abandonne.
 ATTENTE_MODULE_MAX_SECONDS = 25
 
+# Bascule pilotée par le bouton d'enregistrement de la page (JS,
+# /api/direct-enregistrement plus bas) : un seul direct actif à la fois
+# (MODULE_SLOT), donc un seul drapeau global suffit, lu par send_live_mse et
+# blink_webrtc._PisteH264 pour savoir s'il faut écrire sur le disque
+# maintenant. Effacé au début de chaque nouveau direct (send_live_mse,
+# send_offer_webrtc) : ouvrir un direct ne doit jamais hériter en silence de
+# l'état laissé par le précédent.
+ENREGISTREMENT_DIRECT_ACTIF = threading.Event()
+
 # Reglage de la page web (webrtc par defaut) depuis le 2026-09-03 - a
 # remplace la variable d'environnement BLINK_DIRECT_WEBRTC, experimentale,
 # une fois WebRTC valide en usage reel (BACKLOG.md). Lu une fois au
@@ -151,6 +160,39 @@ LIVE_FIRST_FRAME_SECONDS = 40
 # md.safe_name directement : safe_file() était une troisième copie du même
 # nettoyage, dérivée des deux autres (revue de code du 0eab463, bug #5).
 safe_file = md.safe_name
+
+# Où sauver une copie d'un direct (WebRTC ou MSE) pendant qu'il joue, à côté
+# de Blink_Clips et consorts (runtime.py, _traces_installation_existante).
+DOSSIER_DIRECT = runtime.app_dir() / "Blink_Direct"
+
+
+def _chemin_enregistrement_direct(name: str) -> Path:
+    """Chemin du fichier où sauver le direct d'une caméra en cours.
+
+    Même convention que target_path() (blink_models.py) pour les clips de
+    détection : caméra/mois en dossiers, puis
+    horodatage_caméra_identifiant_empreinte.mp4 - demandé explicitement pour
+    qu'un enregistrement du direct ne se distingue pas visuellement d'un clip
+    de détection dans l'arborescence (2026-09-04). target_path() elle-même
+    n'est pas réutilisée : elle est bâtie autour d'un clip.id fourni par
+    l'API Blink, qu'un direct n'a pas. `identifiant` en tient lieu, sans
+    prétendre venir de l'API : les secondes depuis l'epoch UTC, un entier
+    d'une longueur proche de celle d'un identifiant Blink réel plutôt qu'un
+    horodatage qui ferait doublon avec le premier segment du nom. `suffixe`
+    reprend exactement le mécanisme de target_path() (empreinte JSON, SHA256,
+    12 caractères) : une seule caméra ne peut de toute façon avoir qu'un
+    direct ouvert à la fois (MODULE_SLOT), la collision n'est pas la
+    motivation ici, seule la cohérence visuelle avec les clips l'est."""
+    maintenant = dt.datetime.now(dt.timezone.utc)
+    horodatage = maintenant.strftime("%Y-%m-%d_%H-%M-%SZ")
+    camera = safe_file(name)
+    identifiant = str(int(maintenant.timestamp()))
+    empreinte = json.dumps(
+        [camera, horodatage, identifiant], ensure_ascii=False, separators=(",", ":")
+    )
+    suffixe = hashlib.sha256(empreinte.encode("utf-8")).hexdigest()[:12]
+    nom_fichier = f"{horodatage}_{camera}_{identifiant}_{suffixe}.mp4"
+    return DOSSIER_DIRECT / camera / maintenant.strftime("%Y-%m") / nom_fichier
 
 
 def read_entries(paths: dict) -> dict:
@@ -250,6 +292,27 @@ EXCLUDED_DURATIONS = "excluded_durations.json"
 # probe_duration (_DURATIONS plus bas) ne survit pas à un redémarrage
 # (audit general demande par l'utilisateur, 2026-09-03).
 ASSEMBLED_DURATIONS = "assembled_durations.json"
+# Écarter/réintégrer un clip de détection écrit dans le registre de
+# téléchargement (blink_registre.py) : un enregistrement du direct n'y a
+# jamais d'entrée, "écarter" ne peut donc reposer sur le même mécanisme.
+# Fichier à part, aussi simple qu'un ensemble d'identités - pas de statut par
+# clip à fusionner avec autre chose, contrairement au registre.
+DIRECT_EXCLUSION = "direct_exclusion.json"
+
+
+def _lire_exclusion_directe(paths: dict) -> set:
+    # {"excluded": [...]}, pas une liste nue : md.load_json/save_json (déjà
+    # utilisés pour CAMERA_FACTS, ASSEMBLED_DURATIONS...) exigent un objet
+    # JSON - une liste nue s'écrit sans broncher mais se relit silencieusement
+    # comme vide (isinstance(..., dict) rejette la liste, load_json rend
+    # alors son défaut), constaté en vérifiant ce mécanisme (2026-09-04).
+    valeurs = md.load_json(paths["thumbs"] / DIRECT_EXCLUSION, {}).get("excluded")
+    return {str(v) for v in valeurs} if isinstance(valeurs, list) else set()
+
+
+def _ecrire_exclusion_directe(paths: dict, identites: set) -> None:
+    md.save_json(paths["thumbs"] / DIRECT_EXCLUSION, {"excluded": sorted(identites)})
+
 
 # Fenêtre par défaut de /api/clips : au-delà, le nombre de vignettes ne fait
 # que croître de jour en jour sans jamais être consulté. L'historique complet
@@ -397,7 +460,12 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
     duration_cache = None
 
     clips = []
-    total = 0
+    # Compté par genre : le récapitulatif du filtre ("X/Y clips") doit
+    # rester propre à la vue affichée (Clip Détection ou Enregistrement
+    # Direct), pas mélanger les deux depuis qu'ils partagent cette liste
+    # (2026-09-04).
+    total_clips = 0
+    total_direct = 0
     for entry in entries.values():
         try:
             identity = entry["path"]
@@ -407,7 +475,7 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
             continue
 
         local = created.astimezone(timezone)
-        total += 1
+        total_clips += 1
         if depuis is not None and local < depuis:
             continue
         if jusqua is not None and local > jusqua:
@@ -433,6 +501,7 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
 
         clips.append({
             "identity": identity,
+            "kind": "clip",
             "camera": camera,
             "cameraKey": blink_registre.camera_setting_key_from_entry(entry),
             "day": local.date().isoformat(),
@@ -443,14 +512,65 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
                                              str(entry.get("source"))),
             "sourceDeleted": bool(entry.get("source_deleted")),
             "duration": float(seconds or 0.0),
-            # Pas de « modèle » : l'API Blink n'expose qu'un nom de code interne
-            # (« owl », « catalina ») dont seul le premier est documenté. La
-            # définition de l'image, elle, est mesurée et parlante.
-            "model": model_name((facts.get(camera) or {}).get("kind")),
         })
 
     if duration_cache is not None:
         md.save_json(paths["thumbs"] / EXCLUDED_DURATIONS, duration_cache)
+
+    # Enregistrements du direct (bouton "Enregistrer" pendant Direct,
+    # Blink_Direct) : même présentation que les clips de détection, demandé
+    # explicitement (2026-09-04) plutôt qu'une vue à part avec ses propres
+    # règles - fusionnés dans la même liste, "kind" est le seul champ qui
+    # les distingue vraiment (jour/heure/durée/écarter/supprimer marchent
+    # identiquement ensuite). "clip"/direct" à la place de source/origine
+    # (bornées à la provenance cloud/USB d'un clip, sans le sens pour un
+    # direct) - voir _chemin_enregistrement_direct pour la convention de
+    # nommage dont "day"/"time" sont extraits ici.
+    exclusion_directe = _lire_exclusion_directe(paths)
+    duration_cache_direct = None
+    racine_direct = paths.get("direct")
+    if racine_direct is not None and racine_direct.is_dir():
+        for camera_dir in sorted(
+            p for p in racine_direct.iterdir()
+            if p.is_dir() and not p.name.startswith(".")
+        ):
+            for video in sorted(camera_dir.rglob("*.mp4"), reverse=True):
+                if not md.valid_mp4(video):
+                    continue
+                identity = f"{camera_dir.name}/{video.relative_to(camera_dir).as_posix()}"
+                try:
+                    created = dt.datetime.strptime(
+                        video.stem[:20], "%Y-%m-%d_%H-%M-%SZ"
+                    ).replace(tzinfo=dt.timezone.utc)
+                except ValueError:
+                    created = dt.datetime.fromtimestamp(
+                        video.stat().st_mtime, dt.timezone.utc
+                    )
+                local = created.astimezone(timezone)
+                total_direct += 1
+                if depuis is not None and local < depuis:
+                    continue
+                if jusqua is not None and local > jusqua:
+                    continue
+                if duration_cache_direct is None:
+                    duration_cache_direct = load_assembled_durations(paths)
+                clips.append({
+                    "identity": identity,
+                    "kind": "direct",
+                    "camera": camera_dir.name,
+                    "cameraKey": safe_file(camera_dir.name),
+                    "day": local.date().isoformat(),
+                    "time": local.strftime("%H:%M:%S"),
+                    "excluded": identity in exclusion_directe,
+                    "source": "direct",
+                    "origine": "Direct",
+                    "sourceDeleted": False,
+                    "duration": probe_duration_cached(
+                        ffmpeg, video, f"direct/{identity}", duration_cache_direct
+                    ),
+                })
+    if duration_cache_direct is not None:
+        md.save_json(paths["thumbs"] / ASSEMBLED_DURATIONS, duration_cache_direct)
 
     # Du plus récent au plus ancien : c'est ce qu'on vient regarder. Un seul
     # tri global est nécessaire ; trier ensuite par caméra ferait passer une
@@ -463,14 +583,29 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
         # et retiré de chaque clip pour qu'aucun affichage ne le répète.
         "passages": runtime.passages(),
         "sources": provenances(entries),
+        # Depuis facts (CAMERA_FACTS, écrit par remember_cameras à chaque
+        # passage par Direct), pas depuis les clips : une caméra sans aucun
+        # clip téléchargé (vue seulement en direct) a quand même un modèle
+        # connu dès qu'on est passé par Direct une fois, alors qu'elle
+        # n'apparaîtrait jamais dans une boucle sur les clips (constaté en
+        # réel, 2026-09-04 - Salon/Terrasse1 sans modèle affiché, seule
+        # Jardin, qui a des clips, l'avait). Pas de « modèle » par ex. pour
+        # un nom de code interne non documenté par Blink (autre que
+        # « owl »/« catalina ») : model_name() renvoie alors un texte
+        # explicite plutôt que rien, jamais None, donc jamais filtré ici.
         "models": {nom: modele for nom, modele in (
-            (clip["camera"], clip.pop("model", None)) for clip in clips) if modele},
+            (nom, model_name((info or {}).get("kind")))
+            for nom, info in facts.items()
+        ) if modele},
         # Permet à la page de dire « X clips sur Y connus » et de proposer
         # explicitement de charger le reste : quelle plage précise est active
         # (préréglage ou personnalisée) est déjà su côté page, elle seule l'a
         # demandée, inutile de la lui redécrire ici.
         "filtered": depuis is not None or jusqua is not None,
-        "total_known": total,
+        # Par genre (clip/direct), pas un seul total : sinon le récapitulatif
+        # de Clip Détection compterait aussi les enregistrements du direct,
+        # et réciproquement, depuis qu'ils partagent "clips" (2026-09-04).
+        "total_known": {"clip": total_clips, "direct": total_direct},
         # La galerie ne propose pas la case Supprimer pour une caméra déjà en
         # suppression automatique (issue GitHub #1) : redondant, le clip sera
         # de toute façon retiré de sa source au prochain téléchargement réussi.
@@ -479,11 +614,18 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
 
 
 def collect_videos(paths: dict, ffmpeg: str) -> dict:
-    """Inventorie les vidéos assemblées, par période.
+    """Inventorie les vidéos assemblées par période (daily/weekly/monthly).
+
+    Les enregistrements du direct (Blink_Direct) n'en font plus partie
+    depuis qu'ils partagent la présentation des clips de détection
+    (2026-09-04) : voir collect(), qui les lit désormais - même parcours
+    récursif root/caméra/**/*.mp4, mais fusionnés dans "clips" plutôt
+    qu'exposés à part ici.
 
     On lit le disque plutôt qu'un registre : ces fichiers sont le produit
-    visible du pipeline, et les lister tels qu'ils existent évite d'afficher
-    une entrée pour une vidéo effacée à la main.
+    visible du pipeline (ou du bouton d'enregistrement), et les lister tels
+    qu'ils existent évite d'afficher une entrée pour une vidéo effacée à la
+    main.
 
     Durée mise en cache sur disque (probe_duration_cached, même mécanisme
     que pour les clips écartés) plutôt que le simple probe_duration en
@@ -499,18 +641,25 @@ def collect_videos(paths: dict, ffmpeg: str) -> dict:
             for camera_dir in sorted(
                 p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")
             ):
-                for video in sorted(camera_dir.glob("*.mp4"), reverse=True):
+                # rglob, pas glob : daily/weekly/monthly posent leurs fichiers
+                # à plat sous camera_dir, mais direct les range en plus par
+                # mois (camera_dir/AAAA-MM/*.mp4, même convention que
+                # target_path() pour les clips de détection - voir
+                # _chemin_enregistrement_direct). Un seul parcours récursif
+                # couvre les deux formes sans distinguer kind ici.
+                for video in sorted(camera_dir.rglob("*.mp4"), reverse=True):
                     if not md.valid_mp4(video):
                         continue
                     if duration_cache is None:
                         duration_cache = load_assembled_durations(paths)
+                    relatif = video.relative_to(camera_dir).as_posix()
                     # kind dans l'identité : daily/weekly/monthly peuvent
                     # chacun contenir un fichier du même nom pour la même
                     # caméra, sans rapport entre eux.
-                    identity = f"{kind}/{camera_dir.name}/{video.name}"
+                    identity = f"{kind}/{camera_dir.name}/{relatif}"
                     items.append({
                         "kind": kind,
-                        "path": f"{camera_dir.name}/{video.name}",
+                        "path": f"{camera_dir.name}/{relatif}",
                         "camera": camera_dir.name,
                         "label": video.stem.replace(f"_{camera_dir.name}", ""),
                         "bytes": video.stat().st_size,
@@ -754,6 +903,23 @@ async def _stop_stream(stream, feed) -> str:
         return f"session peut-etre restee ouverte : {type(error).__name__}"
 
 
+def _erreur_boucle_asyncio(loop, contexte: dict) -> None:
+    """Filet pour toute exception non rattrapée dans une tâche/callback de
+    BLINK.loop (RTCPeerConnection, connectionstatechange...).
+
+    Sans lui, le comportement par défaut d'asyncio (logging.error) part vers
+    un stderr qui n'existe pas sous pythonw (lancement normal, autostart) :
+    aucune trace nulle part. Vécu en réel (2026-09-04) : une session WebRTC
+    bloquée, MODULE_SLOT jamais rendu, sans le moindre indice dans direct.log
+    ni serve_erreurs.log (celui-ci ne couvre que les requêtes HTTP, pas les
+    callbacks aiortc sur cette boucle)."""
+    exception = contexte.get("exception")
+    detail = f"{type(exception).__name__}: {exception}" if exception else contexte.get(
+        "message", "erreur inconnue"
+    )
+    _journal_direct("asyncio", f"exception non rattrapée sur BLINK.loop, {detail}")
+
+
 class BlinkSession:
     """Session Blink partagée, vivant sur sa propre boucle asyncio.
 
@@ -771,6 +937,7 @@ class BlinkSession:
     def _ensure_loop(self):
         if self.loop is None:
             self.loop = asyncio.new_event_loop()
+            self.loop.set_exception_handler(_erreur_boucle_asyncio)
             threading.Thread(
                 target=lambda: (asyncio.set_event_loop(self.loop),
                                 self.loop.run_forever()),
@@ -1594,7 +1761,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         exactement comme le fait le bloc finally de send_live_mse. `nettoye`
         garantit que cette libération n'a lieu qu'une fois, que la négociation
         échoue avant même d'atteindre aiortc ou après (connectionstatechange
-        peut alors, lui aussi, finir par passer à "failed")."""
+        peut alors, lui aussi, finir par passer à "failed").
+
+        Déclenche aussi l'enregistrement du direct dans Blink_Direct (voir
+        _chemin_enregistrement_direct, blink_webrtc._demarrer_enregistrement) :
+        best-effort, un échec ne doit jamais empêcher le direct lui-même."""
         offer_sdp = str(payload.get("sdp") or "")
         offer_type = str(payload.get("type") or "")
         if not offer_sdp or not offer_type:
@@ -1633,6 +1804,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         try:
             _slot_pris("direct WebRTC", name)
+            ENREGISTREMENT_DIRECT_ACTIF.clear()
             _effacer_erreur_direct()
             holder["lock"] = blink_engine.hub_lock("direct")
             holder["lock"].__enter__()
@@ -1659,7 +1831,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     await stream.start()
                     holder["feed"] = asyncio.ensure_future(stream.feed())
                     _, answer_sdp, answer_type = await blink_webrtc.negocier(
-                        stream.url, offer_sdp, offer_type, _fermer
+                        stream.url, offer_sdp, offer_type, _fermer,
+                        ffmpeg=self.ffmpeg,
+                        # Fonction, pas un chemin déjà résolu : un nouveau
+                        # départ (bouton cliqué, relâché, recliqué pendant la
+                        # même session) doit recalculer un horodatage frais
+                        # à chaque fois, pas réutiliser celui de la négociation.
+                        # camera.name, pas `name` : `name` est ici l'identifiant
+                        # opaque de camera_key() (stable à travers un
+                        # renommage, voir sa docstring), pas le nom affiché -
+                        # un dossier « camera-4df6c7... » plutôt que « Jardin »
+                        # sinon (constaté en réel, 2026-09-04).
+                        chemin_enregistrement=lambda: _chemin_enregistrement_direct(camera.name),
+                        enregistrement_actif=ENREGISTREMENT_DIRECT_ACTIF.is_set,
                     )
                     return answer_sdp, answer_type
                 return run()
@@ -1696,7 +1880,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         sous-processus ffmpeg qu'utilise /live avec succès depuis le début.
         Le prix : lire le codec exige de parcourir les boîtes du segment
         d'initialisation MP4 (moov > trak > mdia > minf > stbl > stsd >
-        avc1 > avcC) plutôt que de le lire via une API."""
+        avc1 > avcC) plutôt que de le lire via une API.
+
+        Déclenche aussi l'enregistrement du direct dans Blink_Direct (voir
+        _chemin_enregistrement_direct) : les mêmes octets envoyés au
+        navigateur sont dupliqués vers un fichier, best-effort - un échec
+        n'interrompt jamais le direct affiché, voir _ecrire ci-dessous."""
         if not MODULE_SLOT.acquire(blocking=False):
             message = _slot_occupe_message()
             _memoriser_erreur_direct(name, message, 409)
@@ -1713,6 +1902,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         journaux_nettoyage: list = []
         try:
             _slot_pris("direct MSE", name)
+            ENREGISTREMENT_DIRECT_ACTIF.clear()
             # Une tentative réellement admise remplace l'ancien diagnostic.
             # En particulier, un 409 ne doit jamais faire relire au navigateur
             # le 503 d'une tentative précédente de la même caméra.
@@ -1742,6 +1932,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     # start() échoue, le finally doit tout de même retrouver ce
                     # flux et envoyer stop/done à Blink.
                     holder["stream"] = stream
+                    # camera.name, pas `name` : `name` est ici l'identifiant
+                    # opaque de camera_key() (stable à travers un renommage,
+                    # voir sa docstring), pas le nom affiché. Passé par
+                    # holder plutôt que par une fermeture directe, comme
+                    # "stream"/"feed" : run() tourne sur BLINK.loop, ce nom
+                    # doit survivre jusqu'à _ecrire (bien plus bas, hors de
+                    # cette coroutine) pour nommer le fichier d'enregistrement.
+                    holder["camera_name"] = camera.name
                     await stream.start()
                     holder["feed"] = asyncio.ensure_future(stream.feed())
                     return stream.url
@@ -1841,6 +2039,55 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # un onglet déjà fermé quand ce bloc part ne doit pas remonter
                 # comme un échec (vu en vrai : ConnectionAbortedError sur ce
                 # tout premier write, alors que c'est une fin normale).
+                #
+                # Piloté par le bouton (ENREGISTREMENT_DIRECT_ACTIF, voir
+                # /api/direct-enregistrement) : trois états, jamais mélangés -
+                # démarrage (ouvre un fichier neuf, horodaté à cet instant, et
+                # y écrit d'abord `first` : sans le segment d'initialisation
+                # MP4 en tête, le fichier ne serait pas lisible), arrêt
+                # (referme, n'écrit plus rien de ce paquet-ci), régime établi
+                # (écrit `data` normalement). Un échec ici (disque plein...)
+                # arrête l'enregistrement seul, jamais le direct à l'écran.
+                fichier_direct = holder.get("fichier_direct")
+                desire = ENREGISTREMENT_DIRECT_ACTIF.is_set()
+                if desire and fichier_direct is None:
+                    # holder["camera_name"] (le vrai nom, posé par run() plus
+                    # haut) plutôt que `name` : voir la note sur camera_key()
+                    # à l'endroit où holder["camera_name"] est posé.
+                    chemin = _chemin_enregistrement_direct(
+                        holder.get("camera_name", name)
+                    )
+                    try:
+                        chemin.parent.mkdir(parents=True, exist_ok=True)
+                        fichier_direct = chemin.open("wb")
+                        fichier_direct.write(first)
+                        if data is not first:
+                            fichier_direct.write(data)
+                        holder["fichier_direct"] = fichier_direct
+                    except OSError as error:
+                        fichier_direct = None
+                        _journal_direct(
+                            name, f"enregistrement impossible, "
+                                  f"{type(error).__name__}: {error}"
+                        )
+                elif not desire and fichier_direct is not None:
+                    try:
+                        fichier_direct.close()
+                    except OSError as error:
+                        _journal_direct(
+                            name, f"echec de fermeture de l'enregistrement, "
+                                  f"{type(error).__name__}: {error}"
+                        )
+                    holder["fichier_direct"] = None
+                elif fichier_direct is not None:
+                    try:
+                        fichier_direct.write(data)
+                    except OSError as error:
+                        holder["fichier_direct"] = None
+                        _journal_direct(
+                            name, f"enregistrement interrompu, "
+                                  f"{type(error).__name__}: {error}"
+                        )
                 try:
                     self.wfile.write(data)
                     return True
@@ -1893,6 +2140,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except Exception as error:
                     journaux_nettoyage.append(
                         f"echec d'attente ffmpeg, {type(error).__name__}: {error}"
+                    )
+            fichier_direct = holder.get("fichier_direct")
+            if fichier_direct is not None:
+                try:
+                    fichier_direct.close()
+                except OSError as error:
+                    journaux_nettoyage.append(
+                        f"echec de fermeture de l'enregistrement, "
+                        f"{type(error).__name__}: {error}"
                     )
             stream = holder.get("stream")
             if stream is not None:
@@ -1983,7 +2239,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if relative not in known_identities(self.paths):
                 return None
             roots = [self.paths[name] for name in ("normalized", "input", "excluded")]
-        elif kind in ("daily", "weekly", "monthly"):
+        elif kind in ("daily", "weekly", "monthly", "direct"):
             roots = [self.paths[kind]]
         else:
             return None
@@ -2460,6 +2716,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"error": f"{type(error).__name__}: {error}"}, 503)
             return
 
+        if route == "/api/direct-enregistrement":
+            # Ni le nom de la caméra ni la présence d'un direct actif ne sont
+            # vérifiés ici à dessein : un seul drapeau global suffit (un seul
+            # direct actif à la fois, MODULE_SLOT), et un clic arrivé après
+            # la fin du direct ne fait rien de pire que poser un drapeau que
+            # plus personne ne lira.
+            if bool(payload.get("actif")):
+                ENREGISTREMENT_DIRECT_ACTIF.set()
+            else:
+                ENREGISTREMENT_DIRECT_ACTIF.clear()
+            self.send_json({"actif": ENREGISTREMENT_DIRECT_ACTIF.is_set()})
+            return
+
         if route == "/api/update":
             neuve = maj.disponible(reseau=False)
             if not neuve:
@@ -2489,6 +2758,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                        if IDENTITY.match(str(x))]
             supprimer = [str(x) for x in (payload.get("supprimer") or [])
                          if IDENTITY.match(str(x))]
+
+            # Un enregistrement du direct (Blink_Direct) n'a pas d'entrée
+            # dans le registre de téléchargement : repéré ici par sa
+            # présence réelle sous paths["direct"], puis retiré de exclure/
+            # inclure/supprimer pour que la logique des clips ci-dessous
+            # (registre, suppression distante Blink...) ne le voie jamais -
+            # sa propre logique, bien plus simple, vit plus bas.
+            racine_direct = self.paths.get("direct")
+
+            def _est_direct(identity: str) -> bool:
+                return bool(racine_direct) and (racine_direct / identity).is_file()
+
+            exclure, exclure_direct = (
+                [i for i in exclure if not _est_direct(i)],
+                [i for i in exclure if _est_direct(i)],
+            )
+            inclure, inclure_direct = (
+                [i for i in inclure if not _est_direct(i)],
+                [i for i in inclure if _est_direct(i)],
+            )
+            supprimer, supprimer_direct = (
+                [i for i in supprimer if not _est_direct(i)],
+                [i for i in supprimer if _est_direct(i)],
+            )
 
             entrees = read_entries(self.paths)
 
@@ -2654,6 +2947,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         if id_connu and id_connu not in ids_presents:
                             entree["source_deleted"] = True
                     blink_registre.save_download_state(self.paths["input"], etat)
+
+            if exclure_direct or inclure_direct or supprimer_direct:
+                # Pas de registre à tenir à jour, pas de réassemblage, pas de
+                # suppression distante (aucun n'a de sens pour un fichier
+                # purement local) : juste un ensemble d'identités écartées, et
+                # un unlink pour supprimer - voir DIRECT_EXCLUSION plus haut.
+                exclusion_directe = _lire_exclusion_directe(self.paths)
+                exclusion_directe |= set(exclure_direct)
+                exclusion_directe -= set(inclure_direct)
+                for identity in supprimer_direct:
+                    chemin = racine_direct / identity
+                    try:
+                        chemin.unlink()
+                        resultats[identity] = "supprime"
+                        exclusion_directe.discard(identity)
+                    except FileNotFoundError:
+                        resultats[identity] = "deja_absent"
+                    except OSError as error:
+                        resultats[identity] = f"echec: {type(error).__name__}"
+                        continue
+                    # Dossiers mois puis caméra devenus vides : nettoyage
+                    # cosmétique seulement, jamais si non vide (rmdir échoue
+                    # alors, ce qui arrête la remontée ici).
+                    for dossier in (chemin.parent, chemin.parent.parent):
+                        try:
+                            dossier.rmdir()
+                        except OSError:
+                            break
+                _ecrire_exclusion_directe(self.paths, exclusion_directe)
 
             self.send_json({"ok": True, "resultats": resultats})
             return
@@ -2828,11 +3150,12 @@ __CSS__
 <header>
   <h1>blink2video<span class="v">__VERSION__</span></h1>
   <select id="view">
-    <option value="live" data-i18n="view.live">Direct</option>
-    <option value="clips" data-i18n="view.clips">Clips</option>
-    <option value="daily" data-i18n="view.daily">Journalières</option>
-    <option value="weekly" data-i18n="view.weekly">Hebdomadaires</option>
-    <option value="monthly" data-i18n="view.monthly">Mensuelles</option>
+    <option value="live" data-i18n="view.live">Directs Vues</option>
+    <option value="direct" data-i18n="view.direct">Directs Enregistrements</option>
+    <option value="clips" data-i18n="view.clips">Détections Enregistrements</option>
+    <option value="daily" data-i18n="view.daily">Détections Journalières</option>
+    <option value="weekly" data-i18n="view.weekly">Détections Hebdomadaires</option>
+    <option value="monthly" data-i18n="view.monthly">Détections Mensuelles</option>
   </select>
   <button id="filtreButton" data-i18n="filtre.button" data-i18n-title="filtre.button.title"
           title="Filtrer">🔍 Filtre</button>
@@ -3131,6 +3454,7 @@ def main() -> int:
         "daily": args.output.resolve(),
         "weekly": args.weekly_output.resolve(),
         "monthly": args.monthly_output.resolve(),
+        "direct": DOSSIER_DIRECT.resolve(),
     }
     Handler.hub = args.hub
     Handler.initial_setup = args.initial_setup

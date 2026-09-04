@@ -39,6 +39,7 @@ class CacheDureeVideosAssembleesTests(unittest.TestCase):
             "daily": self.racine / "daily",
             "weekly": self.racine / "weekly",
             "monthly": self.racine / "monthly",
+            "direct": self.racine / "direct",
             "thumbs": self.racine / "thumbs",
         }
         for chemin in self.paths.values():

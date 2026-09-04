@@ -203,6 +203,7 @@ const $ = (id) => id.startsWith("live-") ? box
   : id.startsWith("hint-") && hint && !hint.removed ? hint : null;
 const lireJSON = (reponse) => reponse.json();
 const expandBtn = () => "";
+const recordBtn = () => "";
 const repos = () => "repos";
 function failWatch(_name, message) { echecAffiche = message; }
 function stopWatch(name) {

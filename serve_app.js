@@ -51,8 +51,9 @@ const $ = (id) => document.getElementById(id);
 // ordinaire servie par serve.py, pas de webview packagée à contourner ici).
 const I18N = {
   fr: {
-    "view.live": "Direct", "view.clips": "Clips", "view.daily": "Journalières",
-    "view.weekly": "Hebdomadaires", "view.monthly": "Mensuelles",
+    "view.live": "Directs Vues", "view.direct": "Directs Enregistrements",
+    "view.clips": "Détections Enregistrements", "view.daily": "Détections Journalières",
+    "view.weekly": "Détections Hebdomadaires", "view.monthly": "Détections Mensuelles",
     "filter.allcameras": "toutes caméras",
     "btn.refresh": "↻ Actualiser", "btn.reglages": "⚙ Réglages…", "btn.reglages.title": "Réglages",
     "update.installing": "Installer {version}",
@@ -145,6 +146,8 @@ const I18N = {
     "watch.reconnecting": "Reconnexion…",
     "live.fullscreen.title": "Agrandir en plein écran",
     "live.fullscreen.title.exit": "Quitter le plein écran",
+    "live.record.start": "Enregistrer", "live.record.stop": "Arrêter l'enregistrement",
+    "live.record.title": "Enregistre ce direct sur le disque (dossier Blink_Direct)",
     "watch.noimage": "Aucune image reçue. La caméra n'a pas répondu.",
     "watch.refused": "Le flux a été refusé par le serveur.",
     "watch.refused.code": "Le flux a été refusé par le serveur ({code}).",
@@ -153,6 +156,7 @@ const I18N = {
     "command.sending": "Envoi de la commande…",
     "clips.none.filtered": "Aucun clip ne correspond à ce filtre.",
     "clips.none.ever": "Aucun clip récupéré pour l'instant.<br>Le téléchargement tourne déjà en arrière-plan (clé USB toutes les 10 min, cloud toutes les minutes) : les clips apparaîtront ici sans rien faire. Vérifiez qu'une clé USB est branchée sur le module : sans elle, les enregistrements ne vont que dans le cloud de l'abonnement Blink, que cet outil ne lit pas.",
+    "direct.none.ever": "Aucun enregistrement du direct pour l'instant.<br>Ouvrez Direct, cliquez sur Enregistrer pendant qu'une caméra joue : il apparaîtra ici.",
     "clips.window": "{m}/{total} clips",
     "range.title": "Période",
     "range.today": "Aujourd'hui (24 h)", "range.week": "Cette semaine (7 j)",
@@ -179,8 +183,9 @@ const I18N = {
     "refresh.disconnected": "\\nConnexion interrompue.\\n",
   },
   en: {
-    "view.live": "Live", "view.clips": "Clips", "view.daily": "Daily",
-    "view.weekly": "Weekly", "view.monthly": "Monthly",
+    "view.live": "Live Views", "view.direct": "Live Recordings",
+    "view.clips": "Detection Recordings", "view.daily": "Detection Daily",
+    "view.weekly": "Detection Weekly", "view.monthly": "Detection Monthly",
     "filter.allcameras": "all cameras",
     "btn.refresh": "↻ Refresh", "btn.reglages": "⚙ Settings…", "btn.reglages.title": "Settings",
     "update.installing": "Install {version}",
@@ -273,6 +278,8 @@ const I18N = {
     "watch.reconnecting": "Reconnecting…",
     "live.fullscreen.title": "Expand fullscreen",
     "live.fullscreen.title.exit": "Exit fullscreen",
+    "live.record.start": "Record", "live.record.stop": "Stop recording",
+    "live.record.title": "Records this live view to disk (Blink_Direct folder)",
     "watch.noimage": "No image received. The camera did not respond.",
     "watch.refused": "The stream was refused by the server.",
     "watch.refused.code": "The stream was refused by the server ({code}).",
@@ -281,6 +288,7 @@ const I18N = {
     "command.sending": "Sending command…",
     "clips.none.filtered": "No clip matches this filter.",
     "clips.none.ever": "No clip retrieved yet.<br>Download is already running in the background (USB every 10 min, cloud every minute): clips will appear here on their own. Check that a USB drive is plugged into the module: without it, recordings only go to the Blink subscription cloud, which this tool does not read.",
+    "direct.none.ever": "No direct recording yet.<br>Open Direct, click Record while a camera is playing: it will appear here.",
     "clips.window": "{m}/{total} clips",
     "range.title": "Period",
     "range.today": "Today (24h)", "range.week": "This week (7d)",
@@ -349,7 +357,7 @@ function setLang(code, persist) {
   // déclencherait normalement ce rendu. fill() gère un tableau vide sans
   // problème (l'option « tout » reste posée), donc pas de garde ici.
   if (typeof fill === "function") {
-    fill($("camera"), data.cameras || [], t("filter.allcameras"),
+    fill($("camera"), camerasConnues(), t("filter.allcameras"),
          (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
   }
   if (typeof render === "function" && data.clips) render();
@@ -376,6 +384,22 @@ function setLang(code, persist) {
     body: JSON.stringify({ lang: _lang }) }).catch(() => {});
 }
 
+// data.cameras (issu de /api/clips) ne connaît qu'une caméra qui a au moins
+// un clip de détection téléchargé. Une caméra seulement vue en direct
+// (bouton Enregistrement Direct, jamais de clip) en était donc absente : ses
+// vidéos s'affichaient bien groupées sous son nom, mais impossible de la
+// choisir dans le filtre pour s'y limiter (constaté en réel, 2026-09-04).
+// L'union avec les caméras réellement présentes dans chaque catégorie de
+// videos (daily/weekly/monthly/direct) couvre aussi bien ce cas que les
+// mêmes catégories pour la même raison, sans rien de spécifique à direct.
+function camerasConnues() {
+  const ensemble = new Set(data.cameras || []);
+  for (const liste of Object.values(videos)) {
+    for (const v of liste) ensemble.add(v.camera);
+  }
+  return [...ensemble].sort();
+}
+
 function fill(select, values, all, label) {
   const kept = select.value;
   select.replaceChildren();
@@ -392,8 +416,12 @@ function fill(select, values, all, label) {
   if (values.includes(kept)) select.value = kept;
 }
 
+// "clips" et "direct" partagent data.clips (voir collect(), serve.py) : le
+// champ "kind" de chaque entrée décide laquelle des deux vues la montre.
 function visible() {
+  const kindAttendu = $("view").value === "direct" ? "direct" : "clip";
   return data.clips.filter((c) =>
+    c.kind === kindAttendu &&
     (!$("camera").value || c.camera === $("camera").value) &&
     ($("showOut").checked || !c.excluded));
 }
@@ -408,21 +436,26 @@ function duration(seconds) {
 function render() {
   heuresDePassage();
   const kind = $("view").value;
-  const clips = kind === "clips";
-  $("outLabel").hidden = !clips;
-  // Même périmètre que la caméra avant la refonte : Clips, Journalières,
-  // Hebdomadaires, Mensuelles s'y filtrent toutes, seul Direct n'en a pas
-  // l'usage. La période, elle, ne vaut que pour Clips (/api/clips) : le
-  // reste ne la lit jamais.
+  // Clips et Clips Directs partagent data.clips et donc renderClips()
+  // (2026-09-04, même présentation demandée pour les deux) ; Journalières/
+  // Hebdomadaires/Mensuelles restent sur renderVideos(kind), Direct (le
+  // live) sur renderLive().
+  const carteClips = kind === "clips" || kind === "direct";
+  $("outLabel").hidden = !carteClips;
+  // Même périmètre que la caméra : Clips, Clips Directs, Journalières,
+  // Hebdomadaires, Mensuelles s'y filtrent toutes, seul Direct (le live)
+  // n'en a pas l'usage. La période, elle, vaut pour Clips et Clips Directs
+  // (/api/clips, les deux depuis data.clips) : daily/weekly/monthly ne la
+  // lisent toujours pas.
   $("filtreButton").hidden = kind === "live";
-  $("periodeSection").hidden = !clips;
-  $("filtreResume").textContent = clips ? resumeFiltre() : "";
-  // Le décompte n'a de sens que pour Clips ; renderClips() le repose à
-  // chaque rendu, mais quitter cette vue doit l'effacer, pas le laisser
+  $("periodeSection").hidden = !carteClips;
+  $("filtreResume").textContent = carteClips ? resumeFiltre() : "";
+  // Le décompte n'a de sens que pour clips/direct ; renderClips() le repose
+  // à chaque rendu, mais quitter cette vue doit l'effacer, pas le laisser
   // périmé derrière une autre vue.
-  if (!clips) $("filtreCompte").textContent = "";
+  if (!carteClips) $("filtreCompte").textContent = "";
   if (kind === "live") return renderLive();
-  return clips ? renderClips() : renderVideos(kind);
+  return carteClips ? renderClips() : renderVideos(kind);
 }
 
 // --- direct et armement ----------------------------------------------------
@@ -1214,6 +1247,7 @@ async function watchWebRTC(name) {
     `<video autoplay muted playsinline></video>
      <button class="watch stop" data-i18n="watch.stop"
              data-action="stop-live" data-name="${h(name)}">${h(t("watch.stop"))}</button>
+     ${recordBtn(name)}
      ${expandBtn(name)}`;
   const video = box.querySelector("video");
   const t0 = performance.now();
@@ -1350,6 +1384,7 @@ async function watchMse(name) {
     `<video autoplay muted playsinline></video>
      <button class="watch stop" data-i18n="watch.stop"
              data-action="stop-live" data-name="${h(name)}">${h(t("watch.stop"))}</button>
+     ${recordBtn(name)}
      ${expandBtn(name)}`;
   const video = box.querySelector("video");
   const t0 = performance.now();
@@ -1456,6 +1491,45 @@ function syncExpandButtons() {
 document.addEventListener("fullscreenchange", syncExpandButtons);
 document.addEventListener("webkitfullscreenchange", syncExpandButtons);
 
+// Comme expandBtn : posé dans repos() ET dans watchWebRTC()/watchMse(), mais
+// seul un direct effectivement lancé a un flux à enregistrer - repos() ne
+// l'inclut donc pas. Toujours "à l'arrêt" à la création : le serveur efface
+// ENREGISTREMENT_DIRECT_ACTIF au début de chaque nouveau direct (serve.py),
+// un bouton neuf ne peut donc jamais démarrer déjà actif.
+function recordBtn(name) {
+  return `<button class="watch record" data-action="toggle-record" data-name="${h(name)}"
+                   title="${h(t("live.record.title"))}">${h(t("live.record.start"))}</button>`;
+}
+
+function appliquerEtatEnregistrement(bouton, actif) {
+  bouton.classList.toggle("active", actif);
+  bouton.textContent = t(actif ? "live.record.stop" : "live.record.start");
+  bouton.title = actif ? t("live.record.stop") : t("live.record.title");
+}
+
+// Un seul drapeau global côté serveur (ENREGISTREMENT_DIRECT_ACTIF,
+// serve.py) : la case "actif" de la réponse est la source de vérité, pas
+// l'état supposé du bouton avant le clic - deux onglets sur le même direct
+// restent ainsi cohérents l'un avec l'autre.
+async function toggleRecord(name, bouton) {
+  const actif = !bouton.classList.contains("active");
+  bouton.disabled = true;
+  try {
+    const reponse = await fetch("/api/direct-enregistrement", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actif }),
+    });
+    const info = await lireJSON(reponse);
+    appliquerEtatEnregistrement(bouton, Boolean(info.actif));
+  } catch (erreur) {
+    // Rien de plus utile a afficher qu'un bouton resté sur son état
+    // précédent : l'utilisateur voit que le clic n'a pas pris et peut
+    // recliquer.
+  } finally {
+    bouton.disabled = false;
+  }
+}
+
 async function setArmed(scope, name, armed) {
   $("count").textContent = t("command.sending");
   const answer = await fetch("/api/arm", {
@@ -1494,6 +1568,10 @@ async function reveillerCamera(name, bouton) {
 }
 
 function renderClips() {
+  // Propre au genre affiché (clip ou direct) : data.clips mélange les deux
+  // depuis le 2026-09-04, ce récapitulatif ne doit pas compter l'autre vue.
+  const kindAttendu = $("view").value === "direct" ? "direct" : "clip";
+  const genre = data.clips.filter((c) => c.kind === kindAttendu);
   const clips = visible();
   // Pas de décompte ici : les clips sont sous les yeux, et trois nombres de
   // plus en haut de page ne disent rien qu'on cherchait.
@@ -1503,7 +1581,7 @@ function renderClips() {
   // ce qui est affiché reste avec le reste de ce qui décrit le filtre, pas
   // mélangé aux résultats eux-mêmes qui défilent.
   $("filtreCompte").textContent = data.filtered
-    ? tf("clips.window", { m: data.clips.length, total: data.total_known })
+    ? tf("clips.window", { m: genre.length, total: data.total_known[kindAttendu] })
     : "";
 
   if (!clips.length) {
@@ -1515,9 +1593,12 @@ function renderClips() {
     // (start), le téléchargement tourne déjà en arrière-plan, et le dire
     // dessus n'aidait qu'à confondre un premier utilisateur pile au moment
     // où la page est encore vide (vu en vrai, essai à froid).
-    $("list").innerHTML = data.clips.length
+    // "clips.none.ever" parle de téléchargement/clé USB, propre aux clips
+    // de détection - sans objet pour un enregistrement du direct, qui a son
+    // propre message ("direct.none.ever").
+    $("list").innerHTML = genre.length
       ? `<p class="empty">${t("clips.none.filtered")}</p>`
-      : `<p class="empty">${t("clips.none.ever")}</p>`;
+      : `<p class="empty">${t(kindAttendu === "direct" ? "direct.none.ever" : "clips.none.ever")}</p>`;
     return;
   }
   const days = [...new Set(clips.map((c) => c.day))];
@@ -1568,10 +1649,14 @@ function card(c) {
   const [an, mois, jour] = c.day.split("-");
   const ligne = [c.camera, duration(c.duration), `${jour}/${mois}/${an}`, c.time,
                  c.model].filter(Boolean).join(" · ");
+  // c.kind ("clip" ou "direct") choisit le préfixe d'URL : resolve_media()
+  // (serve.py) route chacun vers sa propre racine disque, mêmes routes
+  // /media|thumb/<kind>/<identity> pour les deux (2026-09-04, même
+  // présentation demandée pour les enregistrements du direct).
   return `<div class="card ${c.excluded ? "out" : ""}">
     <video preload="none" controls playsinline
-           poster="${h(avecJeton(`/thumb/clip/${encodeURI(c.identity)}`))}"
-           src="${h(avecJeton(`/media/clip/${encodeURI(c.identity)}`))}"></video>
+           poster="${h(avecJeton(`/thumb/${c.kind}/${encodeURI(c.identity)}`))}"
+           src="${h(avecJeton(`/media/${c.kind}/${encodeURI(c.identity)}`))}"></video>
     <div class="meta">
       <div class="time line">${h(ligne)}</div>
       <label class="act" title="${h(t("clip.discard.title"))}">
@@ -1579,7 +1664,9 @@ function card(c) {
                data-action="stage-exclusion" data-identity="${h(c.identity)}">
         ${h(t("clip.discard"))}
       </label>
-      ${c.sourceDeleted || (data.suppressionAuto || []).includes(c.cameraKey) ? "" : `
+      ${c.sourceDeleted
+        || (c.kind === "clip" && (data.suppressionAuto || []).includes(c.cameraKey))
+        ? "" : `
       <label class="act" title="${h(t("clip.deleteSource.title"))}">
         <input type="checkbox" ${c.supprimerStaged ? "checked" : ""}
                data-action="stage-suppression" data-identity="${h(c.identity)}">
@@ -1668,7 +1755,7 @@ async function load() {
     c.supprimerStaged = false;
   }
   // Le modèle accompagne le nom ici, une fois, plutôt que sur chaque vignette.
-  fill($("camera"), data.cameras, t("filter.allcameras"),
+  fill($("camera"), camerasConnues(), t("filter.allcameras"),
        (nom) => [nom, (data.models || {})[nom]].filter(Boolean).join(" · "));
   // La caméra restaurée ne peut être posée qu'une fois ; les fois suivantes,
   // fill() a déjà de quoi préserver seul la sélection en cours (voir sa
@@ -1756,7 +1843,7 @@ function resumeFiltre() {
   const morceaux = [];
   const option = $("camera").selectedOptions[0];
   morceaux.push(option ? option.textContent : t("filter.allcameras"));
-  if ($("view").value === "clips") {
+  if ($("view").value === "clips" || $("view").value === "direct") {
     morceaux.push(plageClips.preset ? t(`range.${plageClips.preset}`) : libellePlagePersonnalisee());
   }
   return morceaux.join(" · ");
@@ -1993,7 +2080,19 @@ $("refresh").onclick = async () => {
   };
 };
 
-for (const id of ["view", "showOut"]) $(id).onchange = render;
+$("showOut").onchange = render;
+// "view" a besoin de données fraîches, pas juste d'un nouveau rendu de ce qui
+// est déjà en mémoire : Clips, Clips Directs, Journalières, Hebdomadaires,
+// Mensuelles peuvent tous avoir changé pendant que l'onglet restait ouvert
+// (bouton d'enregistrement, téléchargement de fond...) sans qu'/api/clips ou
+// /api/videos n'aient jamais été redemandés depuis (constaté en réel,
+// 2026-09-04 : direct enregistré, invisible dans Clips Directs jusqu'à un
+// rechargement complet de la page). "live" n'en a pas besoin, il lit
+// `system` (loadSystem), jamais `data`/`videos`.
+$("view").onchange = () => {
+  if ($("view").value === "live") { render(); return; }
+  load();
+};
 // Seule cette ligne de texte se met à jour d'elle-même : elle sert précisément
 // à repérer une boucle arrêtée, ce qu'on ne verrait pas en regardant des clips
 // qui, eux, ne changent plus.
@@ -2440,6 +2539,9 @@ $("list").addEventListener("click", (event) => {
       break;
     case "fullscreen":
       toggleFullscreen(name);
+      break;
+    case "toggle-record":
+      toggleRecord(name, cible);
       break;
   }
 });

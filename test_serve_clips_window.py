@@ -70,7 +70,7 @@ class FenetreParDefautTests(BacASable):
 
         identites = {c["identity"] for c in resultat["clips"]}
         self.assertEqual(identites, {"recent.mp4"})
-        self.assertEqual(resultat["total_known"], 2)
+        self.assertEqual(resultat["total_known"], {"clip": 2, "direct": 0})
         self.assertTrue(resultat["filtered"])
 
     def test_depuis_none_renvoie_tout_l_historique(self) -> None:

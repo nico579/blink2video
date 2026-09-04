@@ -43,7 +43,10 @@ Ecueils reels rencontres en construisant ceci, tous geres ici :
 import asyncio
 import time
 from fractions import Fraction
+from pathlib import Path
 from typing import Awaitable, Callable, Optional
+
+import runtime
 
 try:
     import av
@@ -133,7 +136,11 @@ if DISPONIBLE:
 
         kind = "video"
 
-        def __init__(self, reader: asyncio.StreamReader) -> None:
+        def __init__(
+            self, reader: asyncio.StreamReader, ffmpeg: Optional[str] = None,
+            chemin_enregistrement: Optional[Callable[[], Path]] = None,
+            enregistrement_actif: Optional[Callable[[], bool]] = None,
+        ) -> None:
             super().__init__()
             self._reader = reader
             self._demux = blink_ts_demux.DemuxeurTSVideo()
@@ -145,6 +152,17 @@ if DISPONIBLE:
             self._file: asyncio.Queue = asyncio.Queue()
             self.sps_pps = b""
             self.sps_pps_pret = asyncio.Event()
+            # Enregistrement disque, optionnel et pilote par bouton : voir
+            # _synchroniser_enregistrement. chemin_enregistrement est une
+            # fonction (pas un chemin deja resolu) : chaque demarrage doit
+            # recalculer un horodatage frais, pas reprendre celui du debut
+            # de session.
+            self._ffmpeg = ffmpeg
+            self._chemin_enregistrement = chemin_enregistrement
+            self._enregistrement_actif = enregistrement_actif
+            self._recorder_process = None
+            self._recorder_stdin = None
+            self._recorder_demande = False
             self._tache = asyncio.ensure_future(self._lire())
 
         async def _lire(self) -> None:
@@ -156,9 +174,9 @@ if DISPONIBLE:
                     for pts, nal in self._demux.alimenter(morceau):
                         type_ = blink_ts_demux.type_nal(nal)
                         if type_ == 9 and self._unite_courante:
-                            await self._file.put(
-                                (self._pts_courant, b"".join(self._unite_courante))
-                            )
+                            unite = b"".join(self._unite_courante)
+                            await self._file.put((self._pts_courant, unite))
+                            self._synchroniser_enregistrement(unite)
                             self._unite_courante = []
                         if type_ == 9:
                             self._pts_courant = pts
@@ -171,10 +189,11 @@ if DISPONIBLE:
                 pass
             finally:
                 if self._unite_courante:
-                    await self._file.put(
-                        (self._pts_courant, b"".join(self._unite_courante))
-                    )
+                    unite = b"".join(self._unite_courante)
+                    await self._file.put((self._pts_courant, unite))
+                    self._synchroniser_enregistrement(unite)
                 await self._file.put(None)  # sentinelle de fin
+                self._arreter_enregistrement()
 
         async def recv(self):
             item = await self._file.get()
@@ -207,8 +226,144 @@ if DISPONIBLE:
             paquet.time_base = Fraction(1, 90000)
             return paquet
 
+        def _synchroniser_enregistrement(self, unite: bytes) -> None:
+            """Démarre/arrête le sous-processus d'enregistrement selon l'état
+            voulu par le bouton de la page (enregistrement_actif), puis lui
+            transmet cette unité d'accès si un enregistrement est en cours.
+
+            Consulté à chaque unité d'accès complète (plusieurs fois par
+            seconde) : un clic sur le bouton met donc au plus une fraction
+            de seconde à se voir ici, sans file d'attente ni événement
+            dédié - même mécanique que le drapeau ENREGISTREMENT_DIRECT_
+            ACTIF côté MSE (serve.py), lu à chaque bloc envoyé au navigateur."""
+            if self._enregistrement_actif is None or self._chemin_enregistrement is None:
+                return
+            desire = self._enregistrement_actif()
+            if desire and not self._recorder_demande and self.sps_pps_pret.is_set():
+                self._recorder_demande = True
+                # `unite` (celle qui declenche ce demarrage) est transmise a
+                # la fin de _demarrer_enregistrement, pas ici : le sous-
+                # processus n'a pas encore de stdin tant que ce await n'a
+                # pas rendu la main, donc _ecrire_enregistrement ci-dessous
+                # ne ferait rien pour elle (stdin encore None).
+                asyncio.ensure_future(self._demarrer_enregistrement(unite))
+                return
+            elif not desire and self._recorder_demande:
+                self._arreter_enregistrement()
+                return  # deja arrete : rien a transmettre pour cette unite
+            self._ecrire_enregistrement(unite)
+
+        async def _demarrer_enregistrement(self, premiere_unite: bytes) -> None:
+            """Lance un ffmpeg dedie qui remuxe (sans reencoder) le flux
+            Annexe B deja demultiplexe ici vers un MP4 fragmente - meme
+            format que /live-mse (frag_keyframe+empty_moov, serve.py), pour
+            la meme raison : lisible meme coupe net (fermeture d'onglet,
+            crash), sans dependre d'une sortie propre pour ecrire un moov
+            final valide.
+
+            Sous-processus separe de la RTCPeerConnection a dessein : si
+            l'enregistrement ralentit (disque lent...), il ne doit jamais
+            ralentir _lire() ni donc le direct affiche au navigateur.
+
+            `premiere_unite` : l'unite d'acces qui a declenche cet appel
+            (voir _synchroniser_enregistrement) - un create_subprocess_exec
+            met quelques millisecondes a rendre la main, jamais zero ; sans
+            la retransmettre explicitement une fois le sous-processus pret,
+            elle serait perdue (aucun stdin pour la recevoir au moment ou
+            elle est arrivee)."""
+            try:
+                chemin = self._chemin_enregistrement()
+                chemin.parent.mkdir(parents=True, exist_ok=True)
+                processus = await asyncio.create_subprocess_exec(
+                    self._ffmpeg, "-hide_banner", "-loglevel", "error",
+                    "-f", "h264", "-i", "pipe:0",
+                    "-c", "copy", "-f", "mp4",
+                    "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                    str(chemin),
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    creationflags=runtime.SANS_FENETRE,
+                )
+            except Exception:
+                # Permet un nouvel essai au prochain passage a "desire" :
+                # sans ceci, un seul echec (ffmpeg introuvable...) bloquerait
+                # tout enregistrement pour le reste de la session.
+                self._recorder_demande = False
+                return
+            if not self._recorder_demande:
+                # Arrete (bouton, ou piste fermee) pendant que ce sous-
+                # processus demarrait : personne n'en veut plus, ne pas
+                # l'adopter - juste le laisser sortir proprement.
+                try:
+                    processus.stdin.close()
+                except Exception:
+                    pass
+                asyncio.ensure_future(_attendre_fin_enregistrement(processus))
+                return
+            self._recorder_process = processus
+            self._recorder_stdin = processus.stdin
+            # Deja accumule au complet ici (appele juste apres
+            # sps_pps_pret.set()) : garantit que ce ffmpeg voit un SPS/PPS
+            # des son premier octet, puis l'unite qui a demande ce demarrage
+            # (cf. docstring) - rien entre les deux n'a ete perdu.
+            self._ecrire_enregistrement(self.sps_pps)
+            self._ecrire_enregistrement(premiere_unite)
+
+        def _ecrire_enregistrement(self, donnees: bytes) -> None:
+            # write() sur un StreamWriter asyncio ne bloque pas (tampon
+            # interne) : un enregistreur lent ne peut donc pas faire
+            # attendre _lire(), seul await drain() le pourrait - jamais
+            # appele ici expres. Le pire cas (enregistreur bloque tout une
+            # session) reste borne par SESSION_MAX_SECONDS.
+            stdin = self._recorder_stdin
+            if stdin is None:
+                return
+            try:
+                stdin.write(donnees)
+            except Exception:
+                self._recorder_stdin = None
+
+        def _arreter_enregistrement(self) -> None:
+            self._recorder_demande = False
+            stdin = self._recorder_stdin
+            self._recorder_stdin = None
+            if stdin is not None:
+                try:
+                    stdin.close()
+                except Exception:
+                    pass
+            processus = self._recorder_process
+            self._recorder_process = None
+            if processus is not None:
+                asyncio.ensure_future(_attendre_fin_enregistrement(processus))
+
         def fermer(self) -> None:
             self._tache.cancel()
+            try:
+                self._arreter_enregistrement()
+            except Exception:
+                # Appelée depuis _sur_changement_etat() (negocier(), plus
+                # bas), avant `await on_close()` : une exception non
+                # rattrapée ici y interromprait la coroutine avant on_close,
+                # qui libère MODULE_SLOT - direct.log en a montré un cas
+                # réel (2026-09-04, "négocié" jamais suivi de "session
+                # rendue normalement", verrou resté pris indéfiniment).
+                # sous pythonw (autostart), sans console, une telle
+                # exception ne serait de toute façon jamais vue nulle part.
+                pass
+
+    async def _attendre_fin_enregistrement(processus) -> None:
+        """Laisse ffmpeg vider son tampon et sortir de lui-meme une fois
+        stdin ferme (fermer(), ci-dessus) ; au-dela, meme plafond (5s) que
+        le nettoyage ffmpeg de send_live_mse (serve.py)."""
+        try:
+            await asyncio.wait_for(processus.wait(), timeout=5)
+        except Exception:
+            try:
+                processus.kill()
+            except Exception:
+                pass
 
     def _profile_level_id(sps_pps_annexb: bytes) -> Optional[str]:
         """profile_idc/level_idc (ex. "640028") a partir d'un SPS Annexe B.
@@ -260,6 +415,9 @@ if DISPONIBLE:
 async def negocier(
     stream_url: str, offer_sdp: str, offer_type: str,
     on_close: Callable[[], Awaitable[None]],
+    ffmpeg: Optional[str] = None,
+    chemin_enregistrement: Optional[Callable[[], Path]] = None,
+    enregistrement_actif: Optional[Callable[[], bool]] = None,
 ):
     """Ouvre le flux Blink (sans decodage), negocie WebRTC, renvoie
     (pc, sdp_reponse, type_reponse).
@@ -268,7 +426,12 @@ async def negocier(
     "closed" ou "failed") : c'est le seul signal de fin disponible ici, il
     n'y a pas de requete HTTP a garder ouverte comme en MSE - fermer
     l'onglet ferme la RTCPeerConnection cote navigateur, ce qui remonte
-    jusqu'ici via connectionstatechange. Appele au plus une fois."""
+    jusqu'ici via connectionstatechange. Appele au plus une fois.
+
+    `chemin_enregistrement`/`enregistrement_actif`, avec `ffmpeg` : si
+    fournis, une copie du direct est écrite à ce chemin tant que ce dernier
+    répond vrai - piloté par le bouton de la page (voir
+    _PisteH264._synchroniser_enregistrement)."""
     if not DISPONIBLE:
         raise RuntimeError(
             "aiortc n'est pas installe (pip install -r requirements.txt)"
@@ -280,7 +443,10 @@ async def negocier(
     pc = None
     try:
         reader, writer = await asyncio.open_connection(host, int(port_str))
-        track = _PisteH264(reader)
+        track = _PisteH264(
+            reader, ffmpeg=ffmpeg, chemin_enregistrement=chemin_enregistrement,
+            enregistrement_actif=enregistrement_actif,
+        )
         # Le temps que met la camera a se reveiller et a livrer son
         # SPS/PPS - PREMIERE_IMAGE_MAX_SECONDS (40s, cf. plus haut), pas
         # NEGOCIATION_MAX_SECONDS (15s, pour la suite, purement locale).
