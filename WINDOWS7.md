@@ -10,6 +10,11 @@ roue sont rétroportées vers Python 3.8, avec les dernières dépendances encor
 installables sur cette version. Le code reçu de PyPI est vérifié par son
 SHA-256 avant modification.
 
+Le direct utilise toujours MSE sur cette édition : `aiortc` (WebRTC) n'est pas
+empaqueté pour Python 3.8, `blink_webrtc` reste donc indisponible et
+l'application bascule automatiquement sur MSE, même si « webrtc » est choisi
+dans les paramètres.
+
 Le magasin de certificats Mozilla de `certifi` complète celui de Windows 7 :
 les connexions Blink restent strictement vérifiées même si les autorités
 racines récentes ne sont plus distribuées à cette ancienne installation.
