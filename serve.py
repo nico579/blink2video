@@ -111,6 +111,17 @@ MODULE_SLOT_INFO: dict = {}
 # couper avant que le nettoyage serveur lui-même abandonne.
 ATTENTE_MODULE_MAX_SECONDS = 25
 
+# hub_lock("direct") (send_live_mse/send_offer_webrtc, plus bas) échouait
+# jusqu'ici instantanément (attente=0 implicite) s'il tombait sur le
+# téléchargement de fond (clips USB/cloud) déjà en train de parler au Sync
+# Module - alors que celui-ci ne le retient souvent que quelques secondes.
+# Un échec instantané coûtait alors tout un cycle de reprise côté page
+# (échec, 3s d'attente, negociation WebRTC entière refaite), plutôt qu'une
+# simple attente ici, sur la même requête - exactement le cas que
+# runtime.verrou() documente pour son paramètre attente (constaté en réel,
+# 2026-09-04 : bascules de caméra ressenties comme "instables").
+ATTENTE_HUB_MAX_SECONDS = 20
+
 # Bascule pilotée par le bouton d'enregistrement de la page (JS,
 # /api/direct-enregistrement plus bas) : un seul direct actif à la fois
 # (MODULE_SLOT), donc un seul drapeau global suffit, lu par send_live_mse et
@@ -1783,6 +1794,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         best-effort, un échec ne doit jamais empêcher le direct lui-même."""
         offer_sdp = str(payload.get("sdp") or "")
         offer_type = str(payload.get("type") or "")
+        # Numéro de tentative côté page (watchWebRTC, serve_app.js) : 1 au
+        # premier essai, incrémenté à chaque reprise après échec. Absent =>
+        # None, affiché tel quel plutôt que supposé 1 - ne jamais laisser
+        # croire à un premier essai qui n'en est pas un. Ajouté pour pouvoir
+        # reconstituer depuis direct.log seul ce qu'un « Reconnexion... »
+        # affiché côté page représente, sans avoir à demander (constaté en
+        # réel, 2026-09-04 : impossible de dire, depuis le journal seul, si
+        # une bascule lente correspondait à une 1ère tentative ou à une Nème
+        # reprise après échecs successifs).
+        essai = payload.get("essai")
         if not offer_sdp or not offer_type:
             self.send_json({"error": "offre SDP incomplète"}, 400)
             return
@@ -1824,15 +1845,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         try:
             _slot_pris("direct WebRTC", name)
+            _journal_direct(name, f"direct WebRTC tentative {essai} : commence")
             ENREGISTREMENT_DIRECT_ACTIF.clear()
             _effacer_erreur_direct()
-            holder["lock"] = blink_engine.hub_lock("direct")
+            holder["lock"] = blink_engine.hub_lock("direct", attente=ATTENTE_HUB_MAX_SECONDS)
             holder["lock"].__enter__()
             holder["lock_entered"] = True
 
             def start(blink):
                 async def run(_blink=blink):
                     sync, camera = BLINK.find_camera(_blink, name)
+                    # init_livestream()/stream.start() sont de vrais appels
+                    # au cloud Blink (demande de flux, réveil éventuel du
+                    # module) - la part du délai la plus opaque de tout ce
+                    # chemin, et jusqu'ici sans la moindre ligne à elle : une
+                    # bascule "lente" ne se distinguait pas d'une négociation
+                    # SDP lente sans redemander à l'utilisateur ce qu'il
+                    # voyait (constaté en réel, 2026-09-04).
+                    t_flux = time.monotonic()
                     try:
                         stream = await camera.init_livestream()
                     except KeyError as error:
@@ -1847,8 +1877,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             f"Cette caméra diffuse dans un format non pris en "
                             f"charge ({error})."
                         ) from error
+                    _journal_direct(
+                        name, f"tentative {essai} : init_livestream en "
+                              f"{time.monotonic() - t_flux:.1f}s"
+                    )
                     holder["stream"] = stream
+                    t_start = time.monotonic()
                     await stream.start()
+                    _journal_direct(
+                        name, f"tentative {essai} : stream.start() en "
+                              f"{time.monotonic() - t_start:.1f}s"
+                    )
                     holder["feed"] = asyncio.ensure_future(stream.feed())
                     pc, answer_sdp, answer_type = await blink_webrtc.negocier(
                         stream.url, offer_sdp, offer_type, _fermer,
@@ -1871,12 +1910,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return run()
 
             answer_sdp, answer_type = BLINK.call(start, timeout=45)
-            _journal_direct(name, "direct WebRTC négocié")
+            _journal_direct(name, f"tentative {essai} : direct WebRTC négocié")
         except Exception as error:
             message = str(error) if isinstance(error, RuntimeError) \
                 else f"{type(error).__name__}: {error}"
             _memoriser_erreur_direct(name, message, 503)
-            _journal_direct(name, f"échec (webrtc), {message}")
+            _journal_direct(name, f"tentative {essai} : échec (webrtc), {message}")
             try:
                 BLINK.call(lambda _b: _fermer(), timeout=45)
             except Exception as error:
@@ -1929,13 +1968,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # En particulier, un 409 ne doit jamais faire relire au navigateur
             # le 503 d'une tentative précédente de la même caméra.
             _effacer_erreur_direct()
-            holder["lock"] = blink_engine.hub_lock("direct")
+            holder["lock"] = blink_engine.hub_lock("direct", attente=ATTENTE_HUB_MAX_SECONDS)
             holder["lock"].__enter__()
             holder["lock_entered"] = True
 
             def start(blink):
                 async def run(_blink=blink):
                     sync, camera = BLINK.find_camera(_blink, name)
+                    # Chronométré comme send_offer_webrtc (même opacité :
+                    # init_livestream()/stream.start() sont de vrais appels
+                    # au cloud Blink, la part la plus lente et jusqu'ici la
+                    # moins visible de tout ce chemin - voir sa note,
+                    # 2026-09-04).
+                    t_flux = time.monotonic()
                     try:
                         stream = await camera.init_livestream()
                     except KeyError as error:
@@ -1950,6 +1995,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             f"Cette caméra diffuse dans un format non pris en "
                             f"charge ({error})."
                         ) from error
+                    _journal_direct(
+                        name, f"init_livestream en "
+                              f"{time.monotonic() - t_flux:.1f}s"
+                    )
                     # init_livestream() a déjà créé une commande distante. Si
                     # start() échoue, le finally doit tout de même retrouver ce
                     # flux et envoyer stop/done à Blink.
@@ -1962,7 +2011,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     # doit survivre jusqu'à _ecrire (bien plus bas, hors de
                     # cette coroutine) pour nommer le fichier d'enregistrement.
                     holder["camera_name"] = camera.name
+                    t_start = time.monotonic()
                     await stream.start()
+                    _journal_direct(
+                        name, f"stream.start() en "
+                              f"{time.monotonic() - t_start:.1f}s"
+                    )
                     holder["feed"] = asyncio.ensure_future(stream.feed())
                     return stream.url
                 return run()

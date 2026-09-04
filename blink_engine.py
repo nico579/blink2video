@@ -169,9 +169,13 @@ class CloudResult(NamedTuple):
         return self.downloaded
 
 
-def hub_lock(owner: str, stale_after: int = 600):
-    """Réserve le Sync Module. Conservé ici pour les appelants existants."""
-    return runtime.verrou("hub", owner, stale_after)
+def hub_lock(owner: str, stale_after: int = 600, attente: int = 0):
+    """Réserve le Sync Module. Conservé ici pour les appelants existants.
+
+    `attente` (0 par défaut, comme avant) : transmis tel quel à
+    runtime.verrou(), voir sa docstring pour la raison d'être de ce
+    paramètre."""
+    return runtime.verrou("hub", owner, stale_after, attente)
 
 
 BusyError = runtime.BusyError

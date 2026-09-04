@@ -1307,7 +1307,7 @@ async function watchWebRTC(name) {
         afficherIndice(tf(s > 20 ? "watch.waking.slow" : "watch.waking.seconds", { s }));
       }, 500) : null;
       try {
-        await tenterWebRTC(name, video, controller.signal);
+        await tenterWebRTC(name, video, controller.signal, echecs + 1);
         if (minuteur) clearInterval(minuteur);
         return;  // confirmerLecture() efface deja l'indice a la lecture reelle
       } catch (error) {
@@ -1340,7 +1340,7 @@ async function watchWebRTC(name) {
 // seul, pilote par les evenements de pc). N'attend pas la premiere image
 // reelle - contrairement a connecterMse(), qui lit le flux lui-meme -
 // c'est pc.ontrack/loadeddata/playing (watchWebRTC) qui s'en chargent.
-async function tenterWebRTC(name, video, signal) {
+async function tenterWebRTC(name, video, signal, essai) {
   // Navigateur et serveur sur le même réseau local (c'est tout l'usage de
   // blink2video) : aucun NAT à traverser, un serveur STUN n'apporterait
   // qu'un aller-retour réseau inutile.
@@ -1374,7 +1374,7 @@ async function tenterWebRTC(name, video, signal) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sdp: pc.localDescription.sdp, type: pc.localDescription.type,
+        sdp: pc.localDescription.sdp, type: pc.localDescription.type, essai,
       }),
       signal,
     });

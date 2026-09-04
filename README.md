@@ -47,8 +47,13 @@ the Blink account session, so anyone with access to this machine can open it.
 Live view: one tile per camera, its latest thumbnail, arming for the system and
 for each camera, battery, temperature, signal and the time of the reading. An
 offline camera keeps reporting its last known values, and the interface says how
-old they are. A Record button on each tile saves what's currently playing to
-its own archive (`Blink_Direct`), browsable afterwards like detection clips.
+old they are.
+
+![Recording the live view](Screenshots/direct_record_en.PNG)
+
+The Record button, mid-recording ("Stop recording", in red): one click to start
+saving the current stream to `Blink_Direct`, one to stop. Recordings appear
+under Live Recordings, browsable and filterable exactly like detection clips.
 
 ![The Clips tab](Screenshots/serve0.PNG)
 

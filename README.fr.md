@@ -54,9 +54,15 @@ cette machine peut donc l'ouvrir.
 Le Direct : une tuile par caméra, sa dernière vignette, l'armement du système et
 de chaque caméra, la batterie, la température, le signal et la date du relevé.
 Une caméra hors ligne continue d'annoncer ses dernières valeurs connues, et
-l'interface dit de quand elles datent. Un bouton Enregistrer sur chaque tuile
-sauvegarde ce qui joue dans sa propre archive (`Blink_Direct`), consultable
-ensuite comme les clips de détection.
+l'interface dit de quand elles datent.
+
+![Enregistrer le direct](Screenshots/direct_record_fr.PNG)
+
+Le bouton Enregistrer, en cours d'enregistrement (« Arrêter l'enregistrement »,
+en rouge) : un clic pour commencer à sauvegarder le direct dans `Blink_Direct`,
+un clic pour arrêter. Les enregistrements apparaissent dans Directs
+Enregistrements, consultables et filtrables exactement comme les clips de
+détection.
 
 ![L'onglet Clips](Screenshots/serve0.fr.PNG)
 
