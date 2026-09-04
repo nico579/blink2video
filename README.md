@@ -23,6 +23,9 @@ the Blink account session, so anyone with access to this machine can open it.
 ## Features
 
 - Live view of any camera in the browser, arming the system or a single camera.
+- Live view recording on demand, one click while watching: saved to its own
+  archive, browsable and filterable exactly like detection clips (discard,
+  delete, camera and period filter).
 - Incremental download of motion-detection clips from the module's local storage
   (Sync Module 2 USB stick or Sync Module XR microSD card)
   and from the subscription cloud, never fetching the same recording twice.
@@ -44,7 +47,8 @@ the Blink account session, so anyone with access to this machine can open it.
 Live view: one tile per camera, its latest thumbnail, arming for the system and
 for each camera, battery, temperature, signal and the time of the reading. An
 offline camera keeps reporting its last known values, and the interface says how
-old they are.
+old they are. A Record button on each tile saves what's currently playing to
+its own archive (`Blink_Direct`), browsable afterwards like detection clips.
 
 ![The Clips tab](Screenshots/serve0.PNG)
 
@@ -193,6 +197,7 @@ Blink_Excluded/    discarded clips, kept rather than deleted
 Blink_Daily/       one video per camera per day
 Blink_Weekly/      one per ISO week
 Blink_Monthly/     one per month
+Blink_Direct/      live view recordings, saved on demand
 ```
 
 Next to the executable, or in the folder named by `BLINK_HOME`.

@@ -120,6 +120,21 @@ ATTENTE_MODULE_MAX_SECONDS = 25
 # l'état laissé par le précédent.
 ENREGISTREMENT_DIRECT_ACTIF = threading.Event()
 
+# Référence vers la RTCPeerConnection du direct WebRTC actuellement tenu par
+# MODULE_SLOT (un seul à la fois), pour un arrêt explicite (bouton Arrêter,
+# changement de caméra - voir /api/arreter-direct) plutôt que de compter
+# uniquement sur aiortc pour remarquer qu'un pc.close() côté navigateur a eu
+# lieu. aiortc n'a pas d'état "disconnected" (rtcpeerconnection.py,
+# __updateConnectionState : "we do not have a disconnected state") : sans
+# échec ICE/DTLS explicite ou fermeture propre du DTLS, connectionState peut
+# rester "connected" indéfiniment de son point de vue, alors même que le
+# navigateur est bel et bien passé à autre chose - MODULE_SLOT resterait
+# alors tenu jusqu'au filet dur de SESSION_MAX_SECONDS (300s, blink_webrtc.py)
+# grandement au-delà des ATTENTE_MODULE_MAX_SECONDS (25s) qu'attend le
+# changement de caméra avant d'abandonner (constaté en réel, 2026-09-04 :
+# bascule Salon -> Jardin restée bloquée en boucle sur « Réessayer »).
+DIRECT_WEBRTC_PC: dict = {}
+
 # Reglage de la page web (webrtc par defaut) depuis le 2026-09-03 - a
 # remplace la variable d'environnement BLINK_DIRECT_WEBRTC, experimentale,
 # une fois WebRTC valide en usage reel (BACKLOG.md). Lu une fois au
@@ -1784,6 +1799,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if holder["nettoye"]:
                 return
             holder["nettoye"] = True
+            # Ne référence plus ce pc une fois son nettoyage entamé : sinon
+            # /api/arreter-direct pourrait le refermer une seconde fois pour
+            # rien pendant qu'une autre session s'installe déjà à sa place.
+            if DIRECT_WEBRTC_PC.get("pc") is holder.get("pc"):
+                DIRECT_WEBRTC_PC.pop("pc", None)
             stream = holder.get("stream")
             if stream is not None:
                 verdict = await _stop_stream(stream, holder.get("feed"))
@@ -1830,7 +1850,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     holder["stream"] = stream
                     await stream.start()
                     holder["feed"] = asyncio.ensure_future(stream.feed())
-                    _, answer_sdp, answer_type = await blink_webrtc.negocier(
+                    pc, answer_sdp, answer_type = await blink_webrtc.negocier(
                         stream.url, offer_sdp, offer_type, _fermer,
                         ffmpeg=self.ffmpeg,
                         # Fonction, pas un chemin déjà résolu : un nouveau
@@ -1845,6 +1865,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         chemin_enregistrement=lambda: _chemin_enregistrement_direct(camera.name),
                         enregistrement_actif=ENREGISTREMENT_DIRECT_ACTIF.is_set,
                     )
+                    holder["pc"] = pc
+                    DIRECT_WEBRTC_PC["pc"] = pc
                     return answer_sdp, answer_type
                 return run()
 
@@ -2727,6 +2749,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 ENREGISTREMENT_DIRECT_ACTIF.clear()
             self.send_json({"actif": ENREGISTREMENT_DIRECT_ACTIF.is_set()})
+            return
+
+        if route == "/api/arreter-direct":
+            # Filet explicite pour la bascule d'une caméra à l'autre (voir
+            # DIRECT_WEBRTC_PC ci-dessus) : ferme la RTCPeerConnection du
+            # direct WebRTC en cours sans attendre qu'aiortc le remarque de
+            # lui-même, ce qu'il ne fait pas toujours. Best-effort à dessein :
+            # aucune caméra active, ou déjà en train de se refermer (pc.close()
+            # est idempotent), n'est pas une erreur.
+            pc = DIRECT_WEBRTC_PC.get("pc")
+            if pc is not None:
+                try:
+                    BLINK.call(lambda _b, _pc=pc: _pc.close(), timeout=10)
+                except Exception as error:
+                    _journal_direct(
+                        "arreter-direct", f"echec de fermeture explicite, "
+                                          f"{type(error).__name__}: {error}"
+                    )
+            self.send_json({"ok": True})
             return
 
         if route == "/api/update":

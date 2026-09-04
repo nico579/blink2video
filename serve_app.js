@@ -819,7 +819,20 @@ function stopWatch(name) {
   const webrtcController = WEBRTC_ABORT[name];
   if (webrtcController) { webrtcController.abort(); delete WEBRTC_ABORT[name]; }
   const pc = WEBRTC_PC[name];
-  if (pc) { pc.close(); delete WEBRTC_PC[name]; }
+  if (pc) {
+    pc.close();
+    delete WEBRTC_PC[name];
+    // pc.close() ne dit rien au serveur : aiortc n'a pas d'état
+    // "disconnected" et peut ne jamais remarquer, de lui-même, qu'on est
+    // parti - MODULE_SLOT restait alors tenu jusqu'au filet dur de 300s,
+    // bien au-delà des 25s qu'attend une bascule de caméra avant
+    // d'abandonner (constaté en réel, 2026-09-04 : Salon -> Jardin bloqué
+    // en boucle sur « Réessayer »). Best-effort, jamais bloquant : le
+    // navigateur a de toute façon déjà fermé sa propre moitié.
+    fetch("/api/arreter-direct", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: "{}" })
+      .catch(() => {});
+  }
 }
 
 // --- MSE/fMP4 : remux sans réencodage, <video> décodé par le navigateur ---

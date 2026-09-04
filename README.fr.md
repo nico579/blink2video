@@ -27,6 +27,9 @@ cette machine peut donc l'ouvrir.
 
 - Visionnage du direct de n'importe quelle caméra dans le navigateur, armement
   du système ou d'une seule caméra.
+- Enregistrement du direct à la demande, un clic pendant le visionnage :
+  conservé dans sa propre archive, consultable et filtrable exactement comme
+  les clips de détection (écarter, supprimer, filtre caméra et période).
 - Téléchargement incrémental des clips de détection de mouvement depuis le
   stockage local du module (clé USB du Sync Module 2 ou carte microSD du XR) et
   depuis le cloud de l'abonnement, sans jamais rapatrier deux
@@ -51,7 +54,9 @@ cette machine peut donc l'ouvrir.
 Le Direct : une tuile par caméra, sa dernière vignette, l'armement du système et
 de chaque caméra, la batterie, la température, le signal et la date du relevé.
 Une caméra hors ligne continue d'annoncer ses dernières valeurs connues, et
-l'interface dit de quand elles datent.
+l'interface dit de quand elles datent. Un bouton Enregistrer sur chaque tuile
+sauvegarde ce qui joue dans sa propre archive (`Blink_Direct`), consultable
+ensuite comme les clips de détection.
 
 ![L'onglet Clips](Screenshots/serve0.fr.PNG)
 
@@ -210,6 +215,7 @@ Blink_Excluded/    les clips écartés, conservés plutôt que supprimés
 Blink_Daily/       une vidéo par caméra et par jour
 Blink_Weekly/      une par semaine ISO
 Blink_Monthly/     une par mois
+Blink_Direct/      enregistrements du direct, sauvés à la demande
 ```
 
 À côté de l'exécutable, ou dans le dossier désigné par `BLINK_HOME`.
