@@ -19,18 +19,26 @@ no longer receives newer root authorities.
 
 ## Build the artifact
 
-Open **Actions → Build Windows 7 (experimental) → Run workflow** on GitHub.
-Download the resulting `blink2video-windows7-x86_64-experimental` artifact. The
-workflow also runs on every change to `main`, alongside the regular edition
-checks.
+The `build-win7.yml` workflow runs automatically on every push to `main`,
+alongside the regular edition checks. It can also be triggered by hand on
+GitHub via **Actions → Build Windows 7 (experimental) → Run workflow**; the
+downloadable artifact is then named
+`blink2video-windows7-x86_64-experimental`.
 
-The [experimental.1 prerelease](https://github.com/nico579/blink2video/releases/tag/v0.10.0-win7-experimental.1)
-matches the v0.10.0 code, built and automatically verified (startup, ffmpeg,
-Blink TLS, the full test suite). Its SHA-256 is
-`4B9331AE25B429BBC83865AA6E18E0613514FA28B9F25DBC52C17154F358E6AB`.
-Manual validation on a real Windows 7 SP1 VM (startup, Blink login, 2FA, clip
-loading) is still pending before treating it as thoroughly proven as the
-previous experimental.3.
+The same recipe is reused (`workflow_call`) by `release.yml`: on every stable
+release tag `vX.Y.Z`, the `blink2video-windows7-x86_64-experimental.zip`
+archive is published as an extra asset on the
+[latest release](https://github.com/nico579/blink2video/releases/latest),
+under the same tag as the three regular editions, rather than on a separate
+tag or `experimental.N` numbering. Each build is automatically verified
+before publishing (startup, ffmpeg, Blink TLS, the full test suite), but
+unlike the other three archives, no `.sha256` is published alongside it. A
+failure in this job never blocks publishing the three stable editions: this
+is a best-effort edition, outside Microsoft support.
+
+Manual validation on a real Windows 7 SP1 VM (next section) is still
+recommended before trusting a build for real use: the automated checks above
+do not replace it.
 
 A local build requires 64-bit Windows and the official python.org **CPython
 3.8.10** interpreter:

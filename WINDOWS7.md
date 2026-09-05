@@ -21,18 +21,27 @@ racines récentes ne sont plus distribuées à cette ancienne installation.
 
 ## Construire l'artefact
 
-Dans GitHub, ouvrir **Actions → Build Windows 7 (experimental) → Run workflow**.
-Le résultat téléchargeable s'appelle
-`blink2video-windows7-x86_64-experimental`. Ce workflow est aussi exécuté à
-chaque évolution de `main`, parallèlement aux contrôles des éditions normales.
+Le workflow `build-win7.yml` tourne automatiquement à chaque poussée sur
+`main`, aux côtés des contrôles des éditions normales. Il peut aussi être
+lancé à la main dans GitHub via **Actions → Build Windows 7 (experimental)
+→ Run workflow** ; l'artefact téléchargeable s'appelle alors
+`blink2video-windows7-x86_64-experimental`.
 
-La [préversion experimental.1](https://github.com/nico579/blink2video/releases/tag/v0.10.0-win7-experimental.1)
-correspond au code de la v0.10.0, construite et vérifiée automatiquement
-(démarrage, ffmpeg, TLS Blink, suite de tests complète). Son SHA-256 est
-`4B9331AE25B429BBC83865AA6E18E0613514FA28B9F25DBC52C17154F358E6AB`.
-La validation manuelle sur une vraie VM Windows 7 SP1 (démarrage, connexion
-Blink, 2FA, lecture des clips) reste à faire avant de la considérer aussi
-éprouvée que l'experimental.3 précédente.
+La même recette est réutilisée (`workflow_call`) par `release.yml` : à chaque
+étiquette de release stable `vX.Y.Z`, le zip
+`blink2video-windows7-x86_64-experimental.zip` est publié comme asset
+supplémentaire de la [dernière release](https://github.com/nico579/blink2video/releases/latest),
+au même tag que les trois éditions normales, plutôt que sur un tag ou une
+numérotation `experimental.N` séparés. Chaque build est vérifié
+automatiquement avant publication (démarrage, ffmpeg, TLS Blink, suite de
+tests complète), mais contrairement aux trois autres archives, aucun
+`.sha256` n'est publié à côté. Un échec de ce job n'empêche jamais la
+publication des trois éditions stables : c'est une édition best-effort, hors
+support Microsoft.
+
+La validation manuelle sur une vraie VM Windows 7 SP1 (section suivante)
+reste recommandée avant de faire confiance à un build pour un usage réel :
+les vérifications automatiques ci-dessus ne la remplacent pas.
 
 En local, la construction exige Windows x64 et l'interpréteur **CPython 3.8.10
 officiel de python.org** :
