@@ -459,7 +459,7 @@ class ProgressionCliTests(unittest.TestCase):
 
 
 class ProgressionInterfaceTests(unittest.TestCase):
-    def _commandes_actualisation(self, hub):
+    def _commandes_actualisation(self, hub, reglages=None):
         with tempfile.TemporaryDirectory(prefix="blink_refresh_hub_") as dossier:
             racine = Path(dossier)
             (racine / "blink_auth.json").write_text("{}", encoding="utf-8")
@@ -472,20 +472,40 @@ class ProgressionInterfaceTests(unittest.TestCase):
             with mock.patch.object(serve, "BASE_DIR", racine), \
                  mock.patch.object(
                      runtime, "self_command", side_effect=lambda *args: list(args),
+                 ), mock.patch.object(
+                     runtime, "lire_reglages",
+                     return_value=reglages or dict(runtime.REGLAGES_DEFAUT),
                  ):
                 serve.Handler.run_refresh(faux)
         return commandes
 
     def test_actualiser_sans_hub_laisse_download_choisir_tous_les_modules(self):
+        # Réglages usine (REGLAGES_DEFAUT) : Incrustation, Hebdomadaire et
+        # Mensuelle sont décochées par défaut, donc présentes dès le premier
+        # lancement, pas seulement si l'utilisateur les décoche à la main.
         self.assertEqual(
             self._commandes_actualisation(None),
-            [["download"], ["merge"]],
+            [["download"], ["merge", "--no-timestamp", "--no-weekly", "--no-monthly"]],
         )
 
     def test_actualiser_conserve_un_hub_explicitement_demande(self):
         self.assertEqual(
             self._commandes_actualisation("Jardin"),
-            [["download", "--hub", "Jardin"], ["merge"]],
+            [["download", "--hub", "Jardin"],
+             ["merge", "--no-timestamp", "--no-weekly", "--no-monthly"]],
+        )
+
+    def test_actualiser_respecte_incrustation_et_agregats_actives(self):
+        """Non-régression du bug du 2026-09-05 : Actualiser reconstruisait
+        toujours avec horodatage et agrégats hebdo/mensuels, quels que
+        soient les réglages de la page."""
+        reglages_tout_actif = {
+            **runtime.REGLAGES_DEFAUT,
+            "timestamp": True, "merge_semaine": True, "merge_mois": True,
+        }
+        self.assertEqual(
+            self._commandes_actualisation(None, reglages_tout_actif),
+            [["download"], ["merge"]],
         )
 
     def test_api_travail_ne_relit_pas_le_registre_de_clips(self):

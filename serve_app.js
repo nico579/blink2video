@@ -11,6 +11,27 @@ window.fetch = (entree, options) => {
   return _fetchNatif(entree, options);
 };
 
+// Filet pour un onglet rechargé (F5) ou fermé pendant un direct WebRTC en
+// cours : stopWatch()/arreter-direct ne sont appelés que sur le bouton
+// Arrêter ou un changement de caméra (voir stopWatch plus bas), jamais sur
+// ce cas-là. aiortc n'a pas d'état "disconnected" (RTCPeerConnection.py) :
+// sans un signal explicite, connectionState reste "connected" côté serveur
+// indéfiniment, MODULE_SLOT restant tenu jusqu'au seul filet dur restant
+// (300s, blink_webrtc.py) - constaté en réel sur Salon (direct.log,
+// 2026-09-04 : "image affichee" jamais suivi d'aucun "connectionstatechange
+// -> closed"). pagehide + sendBeacon plutôt que "beforeunload" : ce dernier
+// désactive le retour en arrière/avant du navigateur (bfcache) pour rien
+// ici, et un fetch() normal peut être annulé en plein vol par le
+// déchargement de la page - sendBeacon garantit l'envoi. Toujours
+// best-effort, jamais bloquant : /api/arreter-direct est déjà un no-op
+// silencieux si rien n'est actif.
+window.addEventListener("pagehide", () => {
+  navigator.sendBeacon(
+    `/api/arreter-direct?token=${encodeURIComponent(BLINK_TOKEN)}`,
+    new Blob(["{}"], { type: "application/json" }),
+  );
+});
+
 // Toute valeur reçue de Blink ou lue dans un nom de fichier est une donnée,
 // jamais du balisage. Les quelques vues rendues par gabarits HTML passent
 // toutes par cette fonction ; les actions utilisent des data-* et une
@@ -400,6 +421,20 @@ function camerasConnues() {
   return [...ensemble].sort();
 }
 
+// c.battery (cameraCard, plus bas) n'est renseigné que si Blink en publie
+// un pour cette caméra : une Blink Mini, câblée en permanence, n'en a pas
+// - vu en vrai (2026-09-04) : le texte de réveil prolongé ("une caméra sur
+// batterie est plus lente") s'affichait quand même dessus, une affirmation
+// fausse pour ce modèle. Inconnue (systeme pas encore charge) => true : on
+// garde alors l'ancien texte plutot que d'affirmer a tort le contraire.
+function cameraSurBatterie(name) {
+  for (const s of (system && system.systems) || []) {
+    const c = s.cameras.find((cam) => cam.key === name);
+    if (c) return Boolean(c.battery);
+  }
+  return true;
+}
+
 function fill(select, values, all, label) {
   const kept = select.value;
   select.replaceChildren();
@@ -781,11 +816,24 @@ function cameraCard(c, systemArmed) {
 
 const cssId = (name) => name.replace(/[^\w-]/g, "_");
 
+// Seul maillon de toute la chaîne que le serveur ne peut pas observer
+// lui-même : négociation SDP réussie ou connectionState "connected" ne
+// prouvent pas qu'une image est réellement arrivée à l'écran (décodage,
+// rendu <video>, tout ça se passe ici). Best-effort à dessein : un signal
+// perdu ne doit jamais gêner le direct affiché, seul direct.log en pâtit.
+function signalerDirect(name, evenement, detail) {
+  fetch(`/api/direct-signal/${encodeURIComponent(name)}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ evenement, detail: detail || "" }),
+  }).catch(() => {});
+}
+
 // Un direct qui échoue doit rendre son bouton d'origine : laisser « Arrêter »
 // laisserait croire qu'un flux tourne, et il n'y aurait plus aucun moyen de
 // relancer. Retirer la balise <img> ferme au passage la connexion restée
 // ouverte côté serveur.
 function failWatch(name, message) {
+  signalerDirect(name, "abandon", message);
   const box = $("live-" + cssId(name));
   box.innerHTML = repos(name, t("watch.retry")) + `<p class="hint overlay">${h(message)}</p>`;
 }
@@ -1044,7 +1092,8 @@ async function connecterMse(name, video, signalGlobal, texteAttente, t0, reveilI
   if (hint && reveilInitial) {
     minuteur = setInterval(() => {
       const s = Math.round((performance.now() - t0) / 1000);
-      hint.textContent = tf(s > 20 ? "watch.waking.slow" : "watch.waking.seconds", { s });
+      const lent = s > 20 && cameraSurBatterie(name);
+      hint.textContent = tf(lent ? "watch.waking.slow" : "watch.waking.seconds", { s });
     }, 500);
   }
 
@@ -1061,6 +1110,7 @@ async function connecterMse(name, video, signalGlobal, texteAttente, t0, reveilI
   const confirmerLecture = () => {
     if (lecture) return;
     lecture = true;
+    signalerDirect(name, "image affichee (mse)");
     tentative.confirmerLecture();
     if (hint) hint.remove();
     if (window.__mseMetric == null) window.__mseMetric = performance.now() - t0;
@@ -1234,19 +1284,31 @@ async function watchLive(name) {
   const autresActives = [...new Set([
     ...Object.keys(WEBRTC_PC), ...Object.keys(WEBRTC_ABORT), ...Object.keys(MSE_ABORT),
   ])].filter((autre) => autre !== name);
-  if (autresActives.length > 0) {
-    // watchWebRTC()/watchMse() ne touchent la case qu'apres
-    // attendreModuleLibre() (jusqu'a ATTENTE_MODULE_MAX_SECONDS = 25s cote
-    // serveur) : sans ceci, cette case restait sur "Voir en direct" tout
-    // ce temps, comme si le clic n'avait rien declenche - constate en
-    // reel par l'utilisateur (2026-09-03). Meme indice ("watch.waking")
-    // que celui que watchWebRTC()/watchMse() affichent juste apres : pas
-    // de changement de texte visible au moment de la relve.
-    const box = $("live-" + cssId(name));
-    if (box) box.innerHTML = repos(name, t("watch.waking"));
-    for (const autre of autresActives) stopWatch(autre);
-    await attendreModuleLibre();
-  }
+  // watchWebRTC()/watchMse() ne touchent la case qu'apres
+  // attendreModuleLibre() (jusqu'a ATTENTE_MODULE_MAX_SECONDS = 25s cote
+  // serveur) : sans ceci, cette case restait sur "Voir en direct" tout
+  // ce temps, comme si le clic n'avait rien declenche - constate en
+  // reel par l'utilisateur (2026-09-03). Meme indice ("watch.waking") que
+  // celui que watchWebRTC()/watchMse() affichent juste apres : pas de
+  // changement de texte visible au moment de la relve.
+  //
+  // Attente inconditionnelle desormais, pas seulement en cas de bascule
+  // vers une autre camera : notre propre derniere session sur CETTE camera
+  // peut, elle aussi, etre encore en train de se refermer cote serveur
+  // (stream.stop() + drain du flux Blink, jusqu'a 20s) si on l'arrete puis
+  // la relance tout de suite. stopWatch() a deja retire `name` de
+  // WEBRTC_PC/WEBRTC_ABORT/MSE_ABORT a cet instant-la, donc `autresActives`
+  // ne le voit plus et cette attente etait jusqu'ici sautee dans ce cas
+  // precis, laissant watchWebRTC()/watchMse() tomber sur un 409 immediat
+  // puis se debrouiller seuls avec leur reprise a delai fixe (3s), plus
+  // lente et moins claire que cette attente dediee (constate en reel,
+  // 2026-09-04 : Salon "occupe" deux fois de suite juste apres son propre
+  // arret). Resout quasi instantanement si le module est deja libre - rien
+  // a perdre a l'appeler a chaque fois.
+  const box = $("live-" + cssId(name));
+  if (box) box.innerHTML = repos(name, t("watch.waking"));
+  for (const autre of autresActives) stopWatch(autre);
+  await attendreModuleLibre();
   if (system && system.webrtc) {
     watchWebRTC(name);
   } else {
@@ -1284,6 +1346,7 @@ async function watchWebRTC(name) {
   const confirmerLecture = () => {
     if (confirme) return;
     confirme = true;
+    signalerDirect(name, "image affichee (webrtc)");
     if (hint) { hint.remove(); hint = null; }
   };
   video.addEventListener("loadeddata", confirmerLecture);
@@ -1304,7 +1367,8 @@ async function watchWebRTC(name) {
       afficherIndice(reveilInitial ? t("watch.waking") : t("watch.reconnecting"));
       const minuteur = reveilInitial ? setInterval(() => {
         const s = Math.round((performance.now() - t0) / 1000);
-        afficherIndice(tf(s > 20 ? "watch.waking.slow" : "watch.waking.seconds", { s }));
+        const lent = s > 20 && cameraSurBatterie(name);
+        afficherIndice(tf(lent ? "watch.waking.slow" : "watch.waking.seconds", { s }));
       }, 500) : null;
       try {
         await tenterWebRTC(name, video, controller.signal, echecs + 1);

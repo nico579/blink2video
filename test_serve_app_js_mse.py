@@ -9,8 +9,10 @@ les machines qui n'ont pas Node, comme les autres tests de ``serve_app.js``.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -55,7 +57,9 @@ class TestsLecteurMse(unittest.TestCase):
 
     def _executer(self, scenario: str) -> dict:
         script = r"""
-const scenario = process.argv[1];
+// argv[1] est le chemin du script temporaire (plus -e : voir _executer),
+// le scénario passé en argument de node se retrouve donc décalé en argv[2].
+const scenario = process.argv[2];
 
 class CibleEvenements {
   constructor() { this.listeners = Object.create(null); }
@@ -205,6 +209,9 @@ const lireJSON = (reponse) => reponse.json();
 const expandBtn = () => "";
 const recordBtn = () => "";
 const repos = () => "repos";
+// Best-effort côté vrai code (direct.log seulement, cf. serve_app.js) : un
+// no-op suffit ici, aucun test n'a besoin d'observer cet appel.
+const signalerDirect = () => {};
 function failWatch(_name, message) { echecAffiche = message; }
 function stopWatch(name) {
   arretAffiche = name;
@@ -270,13 +277,24 @@ function stopWatch(name) {
   process.exitCode = 1;
 });
 """
-        resultat = subprocess.run(
-            [self.node, "-e", script, scenario],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
-        )
+        # Écrit sur disque plutôt que « node -e script » : bloc_mse suit la
+        # taille de serve_app.js, et l'ajout du bouton d'enregistrement du
+        # direct a fait dépasser à ce script inline la limite de ligne de
+        # commande de Windows (WinError 206, constaté le 2026-09-05).
+        fichier = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", delete=False, encoding="utf-8")
+        try:
+            fichier.write(script)
+            fichier.close()
+            resultat = subprocess.run(
+                [self.node, fichier.name, scenario],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5,
+            )
+        finally:
+            os.unlink(fichier.name)
         return json.loads(resultat.stdout)
 
     def test_sourceopen_absent_est_interrompu_par_le_budget_global(self):

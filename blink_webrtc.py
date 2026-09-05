@@ -83,6 +83,21 @@ NEGOCIATION_MAX_SECONDS = 15
 # raison et valeur que LIVE_FIRST_FRAME_SECONDS cote MSE (serve.py), qui
 # accorde deja cette patience pour la meme raison.
 PREMIERE_IMAGE_MAX_SECONDS = 40
+# Silence en cours de session (apres le premier SPS/PPS, donc une fois
+# connectionState deja passe a "connected") : distinct de SESSION_MAX_SECONDS
+# (300s), qui borne la duree totale d'un direct sain, pas le temps qu'on
+# tolere sans le moindre octet. Sans ce plafond-la, _lire() (ci-dessous)
+# reste bloque sur son `await reader.read()` tant que le relais Blink ne
+# ferme pas proprement la connexion TCP - jamais garanti (WinError 10054
+# "connexion fermee par l'hote distant" vu dans les logs asyncio APRES
+# coup, pas au moment du blocage). Sans signal explicite, aiortc ne
+# remarque rien de son cote (pas d'etat "disconnected", cf. plus haut) :
+# connectionState restait a "connected" jusqu'au seul filet qui restait,
+# SESSION_MAX_SECONDS - 5 minutes bloque sur "Reconnexion..." pour
+# l'utilisateur (constate en reel, Salon, 2026-09-04). Meme ordre de
+# grandeur qu'ATTENTE_HUB_MAX_SECONDS/le timeout de _stop_stream (serve.py,
+# 20s chacun) plutot qu'une valeur inventee ici.
+SILENCE_FLUX_MAX_SECONDS = 20
 SESSION_MAX_SECONDS = 300
 
 # Tampon de lecture (jitter buffer) avant d'emettre la toute premiere image,
@@ -140,6 +155,7 @@ if DISPONIBLE:
             self, reader: asyncio.StreamReader, ffmpeg: Optional[str] = None,
             chemin_enregistrement: Optional[Callable[[], Path]] = None,
             enregistrement_actif: Optional[Callable[[], bool]] = None,
+            journal: Optional[Callable[[str], None]] = None,
         ) -> None:
             super().__init__()
             self._reader = reader
@@ -152,6 +168,13 @@ if DISPONIBLE:
             self._file: asyncio.Queue = asyncio.Queue()
             self.sps_pps = b""
             self.sps_pps_pret = asyncio.Event()
+            # Pose par negocier() une fois cree (n'existe pas encore ici :
+            # l'ordre est piste d'abord, pc une fois le SPS/PPS confirme).
+            # Necessaire pour qu'un silence prolonge (_lire, plus bas) puisse
+            # fermer la RTCPeerConnection elle-meme, pas seulement la piste :
+            # track.stop() seul ne fait pas transiter connectionState, aiortc
+            # continuerait de la croire "connected" indefiniment.
+            self.pc = None
             # Enregistrement disque, optionnel et pilote par bouton : voir
             # _synchroniser_enregistrement. chemin_enregistrement est une
             # fonction (pas un chemin deja resolu) : chaque demarrage doit
@@ -160,6 +183,9 @@ if DISPONIBLE:
             self._ffmpeg = ffmpeg
             self._chemin_enregistrement = chemin_enregistrement
             self._enregistrement_actif = enregistrement_actif
+            # No-op par defaut : negocier() sans camera identifiee (tests,
+            # appelants futurs) ne doit jamais planter faute de journal.
+            self._journal = journal or (lambda _message: None)
             self._recorder_process = None
             self._recorder_stdin = None
             self._recorder_demande = False
@@ -168,7 +194,28 @@ if DISPONIBLE:
         async def _lire(self) -> None:
             try:
                 while True:
-                    morceau = await self._reader.read(65536)
+                    # None (pas de plafond) tant que le SPS/PPS initial n'est
+                    # pas arrive : PREMIERE_IMAGE_MAX_SECONDS (40s, negocier())
+                    # accorde deja cette patience-la, plus longue qu'ici a
+                    # dessein (reveil d'une camera sur batterie) - un plafond
+                    # plus court ici y couperait court en silence, avant meme
+                    # que ce delai plus genereux n'ait sa chance.
+                    delai = (
+                        SILENCE_FLUX_MAX_SECONDS
+                        if self.sps_pps_pret.is_set() else None
+                    )
+                    try:
+                        morceau = await asyncio.wait_for(
+                            self._reader.read(65536), timeout=delai
+                        )
+                    except asyncio.TimeoutError:
+                        self._journal(
+                            f"flux Blink silencieux depuis "
+                            f"{SILENCE_FLUX_MAX_SECONDS}s, fermeture"
+                        )
+                        if self.pc is not None:
+                            asyncio.ensure_future(self.pc.close())
+                        break
                     if not morceau:
                         break
                     for pts, nal in self._demux.alimenter(morceau):
@@ -185,8 +232,11 @@ if DISPONIBLE:
                             self.sps_pps += nal
                             if type_ == 8:  # PPS suit toujours SPS : les
                                 self.sps_pps_pret.set()  # deux sont la
-            except Exception:
-                pass
+            except Exception as error:
+                self._journal(
+                    f"lecture du flux interrompue, "
+                    f"{type(error).__name__}: {error}"
+                )
             finally:
                 if self._unite_courante:
                     unite = b"".join(self._unite_courante)
@@ -285,10 +335,14 @@ if DISPONIBLE:
                     stderr=asyncio.subprocess.DEVNULL,
                     creationflags=runtime.SANS_FENETRE,
                 )
-            except Exception:
+            except Exception as error:
                 # Permet un nouvel essai au prochain passage a "desire" :
                 # sans ceci, un seul echec (ffmpeg introuvable...) bloquerait
                 # tout enregistrement pour le reste de la session.
+                self._journal(
+                    f"echec de demarrage de l'enregistrement disque, "
+                    f"{type(error).__name__}: {error}"
+                )
                 self._recorder_demande = False
                 return
             if not self._recorder_demande:
@@ -321,7 +375,14 @@ if DISPONIBLE:
                 return
             try:
                 stdin.write(donnees)
-            except Exception:
+            except Exception as error:
+                # Une seule ligne meme si _lire() rappelle _ecrire_enregistrement
+                # plusieurs fois par seconde : stdin passe a None des la
+                # premiere erreur, donc ce bloc ne s'execute plus ensuite.
+                self._journal(
+                    f"enregistrement disque interrompu (ecriture), "
+                    f"{type(error).__name__}: {error}"
+                )
                 self._recorder_stdin = None
 
         def _arreter_enregistrement(self) -> None:
@@ -342,7 +403,7 @@ if DISPONIBLE:
             self._tache.cancel()
             try:
                 self._arreter_enregistrement()
-            except Exception:
+            except Exception as error:
                 # Appelée depuis _sur_changement_etat() (negocier(), plus
                 # bas), avant `await on_close()` : une exception non
                 # rattrapée ici y interromprait la coroutine avant on_close,
@@ -350,8 +411,13 @@ if DISPONIBLE:
                 # réel (2026-09-04, "négocié" jamais suivi de "session
                 # rendue normalement", verrou resté pris indéfiniment).
                 # sous pythonw (autostart), sans console, une telle
-                # exception ne serait de toute façon jamais vue nulle part.
-                pass
+                # exception ne serait de toute façon jamais vue nulle part
+                # sans cette ligne : c'est exactement le cas que ce
+                # journal doit désormais rendre visible.
+                self._journal(
+                    f"echec d'arret de l'enregistrement pendant la "
+                    f"fermeture, {type(error).__name__}: {error}"
+                )
 
     async def _attendre_fin_enregistrement(processus) -> None:
         """Laisse ffmpeg vider son tampon et sortir de lui-meme une fois
@@ -418,6 +484,7 @@ async def negocier(
     ffmpeg: Optional[str] = None,
     chemin_enregistrement: Optional[Callable[[], Path]] = None,
     enregistrement_actif: Optional[Callable[[], bool]] = None,
+    journal: Optional[Callable[[str], None]] = None,
 ):
     """Ouvre le flux Blink (sans decodage), negocie WebRTC, renvoie
     (pc, sdp_reponse, type_reponse).
@@ -436,6 +503,7 @@ async def negocier(
         raise RuntimeError(
             "aiortc n'est pas installe (pip install -r requirements.txt)"
         )
+    journal = journal or (lambda _message: None)
 
     host, port_str = stream_url.replace("tcp://", "").split(":")
     writer = None
@@ -445,7 +513,7 @@ async def negocier(
         reader, writer = await asyncio.open_connection(host, int(port_str))
         track = _PisteH264(
             reader, ffmpeg=ffmpeg, chemin_enregistrement=chemin_enregistrement,
-            enregistrement_actif=enregistrement_actif,
+            enregistrement_actif=enregistrement_actif, journal=journal,
         )
         # Le temps que met la camera a se reveiller et a livrer son
         # SPS/PPS - PREMIERE_IMAGE_MAX_SECONDS (40s, cf. plus haut), pas
@@ -472,11 +540,13 @@ async def negocier(
         # serveur sur le meme reseau local : aucun NAT a traverser, un STUN
         # n'a de toute facon rien a apporter ici.
         pc = RTCPeerConnection(configuration=RTCConfiguration(iceServers=[]))
+        track.pc = pc  # cf. _PisteH264.__init__ : permet a _lire() de fermer
         ferme = False
 
         @pc.on("connectionstatechange")
         async def _sur_changement_etat() -> None:
             nonlocal ferme
+            journal(f"connectionstatechange -> {pc.connectionState}")
             if pc.connectionState in ("closed", "failed") and not ferme:
                 ferme = True
                 track.fermer()
@@ -544,6 +614,10 @@ async def negocier(
     async def _plafond_duree() -> None:
         await asyncio.sleep(SESSION_MAX_SECONDS)
         if pc.connectionState not in ("closed", "failed"):
+            journal(
+                f"filet de {SESSION_MAX_SECONDS}s declenche, connectionState "
+                f"restait a {pc.connectionState!r}"
+            )
             await pc.close()  # declenche connectionstatechange -> on_close
 
     asyncio.ensure_future(_plafond_duree())

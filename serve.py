@@ -1805,12 +1805,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # reprise après échecs successifs).
         essai = payload.get("essai")
         if not offer_sdp or not offer_type:
+            _journal_direct(name, f"tentative {essai} : refusee, offre SDP incomplete")
             self.send_json({"error": "offre SDP incomplète"}, 400)
             return
 
         if not MODULE_SLOT.acquire(blocking=False):
             message = _slot_occupe_message()
             _memoriser_erreur_direct(name, message, 409)
+            _journal_direct(name, f"tentative {essai} : refusee (webrtc), {message}")
             self.send_json({"error": message}, 409)
             return
 
@@ -1903,6 +1905,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         # sinon (constaté en réel, 2026-09-04).
                         chemin_enregistrement=lambda: _chemin_enregistrement_direct(camera.name),
                         enregistrement_actif=ENREGISTREMENT_DIRECT_ACTIF.is_set,
+                        journal=lambda message: _journal_direct(name, message),
                     )
                     holder["pc"] = pc
                     DIRECT_WEBRTC_PC["pc"] = pc
@@ -1950,6 +1953,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not MODULE_SLOT.acquire(blocking=False):
             message = _slot_occupe_message()
             _memoriser_erreur_direct(name, message, 409)
+            _journal_direct(name, f"refusee (MSE), {message}")
             # Le détail peut contenir un nom de caméra non latin-1 ou un saut
             # de ligne. Il reste disponible via /api/live-error ; la ligne de
             # statut HTTP, elle, doit toujours rester ASCII et bien formée.
@@ -2662,9 +2666,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         appeler l'un après l'autre dit exactement ce qui se passe."""
         auth = BASE_DIR / "blink_auth.json"
         hub_args = ["--hub", self.hub] if self.hub else []
+        reglages = runtime.lire_reglages()
+        # Mêmes drapeaux que runtime.standard() pour la boucle merge : un clic
+        # sur Actualiser doit produire ce que produirait la boucle automatique
+        # à son prochain tour, pas une horodatée/hebdomadaire/mensuelle par
+        # défaut qui ignore la page Réglages. Quotidienne reste hors sujet
+        # ici : contrairement à la boucle, ce bouton demande explicitement
+        # une reconstruction tout de suite.
+        options_merge = []
+        if not reglages["timestamp"]:
+            options_merge.append("--no-timestamp")
+        if not reglages["merge_semaine"]:
+            options_merge.append("--no-weekly")
+        if not reglages["merge_mois"]:
+            options_merge.append("--no-monthly")
         etapes = [("Téléchargement", "phase.step_download",
                   runtime.self_command("download", *hub_args)),
-                  ("Fusion", "phase.step_merge", runtime.self_command("merge"))]
+                  ("Fusion", "phase.step_merge",
+                   runtime.self_command("merge", *options_merge))]
         if not auth.is_file():
             # Le téléchargement demanderait l'e-mail, le mot de passe et le code
             # de vérification sur l'entrée standard, qui n'existe pas ici : le
@@ -2750,6 +2769,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_offer_webrtc(unquote(route[len("/live-webrtc/"):]), payload)
             return
 
+        if route.startswith("/api/direct-signal/"):
+            # Seul maillon de toute la chaine que le serveur ne peut pas
+            # observer lui-meme : le decodage/affichage reel dans le
+            # <video> du navigateur. connectionstatechange (blink_webrtc.py)
+            # dit que la negociation a abouti, jamais qu'une image est
+            # effectivement arrivee a l'ecran - watchWebRTC()/watchMse()
+            # (serve_app.js) le savent, eux, via loadeddata/playing ou
+            # l'abandon apres reprises. Best-effort, jamais bloquant : un
+            # signal perdu ne doit jamais faire echouer le direct lui-meme,
+            # seul direct.log en patit.
+            nom = unquote(route[len("/api/direct-signal/"):])
+            evenement = str(payload.get("evenement") or "signal").strip()
+            detail = str(payload.get("detail") or "").strip()
+            suffixe = f" : {detail}" if detail else ""
+            _journal_direct(nom, f"navigateur : {evenement}{suffixe}")
+            self.send_json({"ok": True})
+            return
+
         if route == "/api/login":
             username = str(payload.get("username", "")).strip()
             password = str(payload.get("password", ""))
@@ -2814,6 +2851,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # est idempotent), n'est pas une erreur.
             pc = DIRECT_WEBRTC_PC.get("pc")
             if pc is not None:
+                _journal_direct("arreter-direct", "fermeture explicite demandee")
                 try:
                     BLINK.call(lambda _b, _pc=pc: _pc.close(), timeout=10)
                 except Exception as error:
@@ -2821,6 +2859,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "arreter-direct", f"echec de fermeture explicite, "
                                           f"{type(error).__name__}: {error}"
                     )
+            else:
+                _journal_direct("arreter-direct", "aucun direct WebRTC actif a fermer")
             self.send_json({"ok": True})
             return
 
@@ -2901,6 +2941,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                     [str(self.paths["input"] / i) for i in liste], cible)
                             except RuntimeError as error:
                                 print(f"Écarter (lot) : {error}")
+                    reglages = runtime.lire_reglages()
+                    if not reglages["merge_jour"]:
+                        # Création des vidéos temporelles désactivée (page
+                        # Réglages) : ne pas en reconstruire une ici en sous-main,
+                        # sinon écarter un clip suffit à fabriquer une quotidienne
+                        # que l'utilisateur a explicitement dit ne pas vouloir.
+                        # Recocher "Quotidienne" relance la boucle merge, qui
+                        # rattrape alors ce jour comme tous les autres.
+                        return
                     # Une seule reconstruction par (caméra, jour) touché, même si
                     # plusieurs clips de ce jour ont changé de statut ensemble.
                     jours = set()
@@ -2915,13 +2964,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             jour = None
                         if camera and jour:
                             jours.add((camera, jour))
+                    # Même règle que runtime.standard() : ce réassemblage manuel
+                    # ne doit pas incruster l'horodatage si la page a dit de ne
+                    # pas le faire.
+                    options = [] if reglages["timestamp"] else ["--no-timestamp"]
                     # Un seul réassemblage à la fois : deux assemblages
                     # simultanés de la même journée écriraient le même fichier.
                     with REASSEMBLAGE:
                         for camera, jour in jours:
                             runtime.lancer(
                                 runtime.self_command("merge", "--camera", camera,
-                                                      "--date", jour),
+                                                      "--date", jour, *options),
                                 cwd=str(runtime.app_dir()), stdin=subprocess.DEVNULL,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 check=False,
