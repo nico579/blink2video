@@ -109,7 +109,15 @@ class TestAppliquerSelectionRespecteLesReglages(unittest.TestCase):
             # Rien de plus à attendre ici : REASSEMBLAGE n'est jamais pris,
             # laisser une marge courte suffit à détecter un appel tardif.
             time.sleep(0.2)
-        self.appels_lancer.assert_not_called()
+        # assert_not_called() est trop strict : runtime.lancer sert aussi,
+        # sous Unix, a identite_processus() pour le verrou du registre
+        # (ps -o lstart=, hors sujet ici mais bel et bien un vrai appel
+        # declenche par l'exclusion elle-meme). Seule une commande "merge"
+        # doit etre absente.
+        commandes_merge = [appel.args[0] for appel in self.appels_lancer.call_args_list
+                           if appel.args and "merge" in appel.args[0]]
+        self.assertEqual(commandes_merge, [],
+                         "reconstruction lancee alors que Quotidienne est decochee")
 
     def test_incrustation_decochee_passe_no_timestamp(self):
         with mock.patch.object(
