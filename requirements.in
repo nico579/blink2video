@@ -15,3 +15,10 @@ aiortc
 cryptography<46
 pyopenssl<26
 cffi<2
+
+# pyee (tire par aiortc) est passe a 14.0.0 sans avertissement et exige
+# desormais Python >=3.12, incompatible avec le Python 3.11 vise par le
+# README et teste par la CI (casse silencieusement l'installation des
+# dependances minimales sous 3.11). Plafonner ici tant que 3.11 reste une
+# cible du projet.
+pyee<14

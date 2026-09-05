@@ -27,7 +27,10 @@ os.environ["BLINK_BOOTSTRAP"] = "none"
 _TEST_HOME = tempfile.TemporaryDirectory(prefix="blink-tray-race-")
 os.environ["BLINK_HOME"] = _TEST_HOME.name
 
-import pystray  # noqa: E402
+try:
+    import pystray  # noqa: E402
+except ImportError:
+    pystray = None
 import tray  # noqa: E402
 
 
@@ -55,6 +58,7 @@ class FauxIcon:
         cible(self)
 
 
+@unittest.skipUnless(tray.disponible(), "pystray indisponible dans cet environnement")
 class TrayRedemarrerRaceTests(unittest.TestCase):
     def _executer_et_cliquer(self, libelle: str, nettoyer):
         arret = __import__("threading").Event()
