@@ -11,25 +11,12 @@ window.fetch = (entree, options) => {
   return _fetchNatif(entree, options);
 };
 
-// Filet pour un onglet rechargé (F5) ou fermé pendant un direct WebRTC en
-// cours : stopWatch()/arreter-direct ne sont appelés que sur le bouton
-// Arrêter ou un changement de caméra (voir stopWatch plus bas), jamais sur
-// ce cas-là. aiortc n'a pas d'état "disconnected" (RTCPeerConnection.py) :
-// sans un signal explicite, connectionState reste "connected" côté serveur
-// indéfiniment, MODULE_SLOT restant tenu jusqu'au seul filet dur restant
-// (300s, blink_webrtc.py) - constaté en réel sur Salon (direct.log,
-// 2026-09-04 : "image affichee" jamais suivi d'aucun "connectionstatechange
-// -> closed"). pagehide + sendBeacon plutôt que "beforeunload" : ce dernier
-// désactive le retour en arrière/avant du navigateur (bfcache) pour rien
-// ici, et un fetch() normal peut être annulé en plein vol par le
-// déchargement de la page - sendBeacon garantit l'envoi. Toujours
-// best-effort, jamais bloquant : /api/arreter-direct est déjà un no-op
-// silencieux si rien n'est actif.
+// Le navigateur peut fermer sa connexion sans qu'aiortc le remarque tout de
+// suite. Signaler explicitement les sessions de CET onglet, y compris une
+// offre encore en cours : une page sans direct ne doit jamais couper celui
+// d'un autre onglet. pagehide couvre aussi les rechargements et le bfcache.
 window.addEventListener("pagehide", () => {
-  navigator.sendBeacon(
-    `/api/arreter-direct?token=${encodeURIComponent(BLINK_TOKEN)}`,
-    new Blob(["{}"], { type: "application/json" }),
-  );
+  for (const name of nomsDirectsActifs()) stopWatch(name, true);
 });
 
 // Toute valeur reçue de Blink ou lue dans un nom de fichier est une donnée,
@@ -170,6 +157,7 @@ const I18N = {
     "live.record.start": "Enregistrer", "live.record.stop": "Arrêter l'enregistrement",
     "live.record.title": "Enregistre ce direct sur le disque (dossier Blink_Direct)",
     "watch.noimage": "Aucune image reçue. La caméra n'a pas répondu.",
+    "watch.interrupted": "Le direct s'est interrompu. Vous pouvez le relancer.",
     "watch.refused": "Le flux a été refusé par le serveur.",
     "watch.refused.code": "Le flux a été refusé par le serveur ({code}).",
     "watch.refused.retry": "Flux refusé. Un direct précédent finit peut-être de se fermer : réessayez dans quelques secondes.",
@@ -302,6 +290,7 @@ const I18N = {
     "live.record.start": "Record", "live.record.stop": "Stop recording",
     "live.record.title": "Records this live view to disk (Blink_Direct folder)",
     "watch.noimage": "No image received. The camera did not respond.",
+    "watch.interrupted": "The live view was interrupted. You can restart it.",
     "watch.refused": "The stream was refused by the server.",
     "watch.refused.code": "The stream was refused by the server ({code}).",
     "watch.refused.retry": "Stream refused. A previous live view may still be closing: try again in a few seconds.",
@@ -504,7 +493,7 @@ async function loadSystem(force) {
   // DOM que si Direct est encore affiché, sinon la réponse tardive
   // écraserait une liste de clips déjà à l'écran sans que le menu déroulant
   // ne le laisse deviner.
-  if ($("view").value === "live") {
+  if ($("view").value === "live" && !nomsDirectsActifs().length) {
     $("list").innerHTML = `<p class="empty">${t("live.querying")}</p>`;
     $("count").textContent = "";
   }
@@ -736,6 +725,14 @@ async function etatDuTravail() {
   } catch (erreur) { /* le prochain passage réessaiera */ }
 }
 
+function nomsDirectsActifs() {
+  return [...new Set([
+    ...Object.keys(LIVE_PENDING), ...Object.keys(MSE_ABORT),
+    ...Object.keys(WEBRTC_ABORT), ...Object.keys(WEBRTC_PC),
+    ...Object.keys(WEBRTC_SESSION),
+  ])];
+}
+
 function renderLive() {
   // Reconstruire la grille remplace tout son HTML, direct en cours compris :
   // la balise <video> et son AbortController survivraient, orphelins, sous
@@ -743,7 +740,7 @@ function renderLive() {
   // arrive en tâche de fond suffit à déclencher ce rafraîchissement pendant
   // qu'un direct tourne, qui semble alors s'arrêter sans jamais reprendre).
   // Un direct actif gèle donc la grille jusqu'à ce qu'il s'arrête.
-  if (Object.keys(MSE_ABORT).length) return;
+  if (nomsDirectsActifs().length) return;
   if (!system) return loadSystem(false);
   if (system.error) {
     $("list").innerHTML = `<p class="empty">${h(system.error)}</p>`;
@@ -821,10 +818,10 @@ const cssId = (name) => name.replace(/[^\w-]/g, "_");
 // prouvent pas qu'une image est réellement arrivée à l'écran (décodage,
 // rendu <video>, tout ça se passe ici). Best-effort à dessein : un signal
 // perdu ne doit jamais gêner le direct affiché, seul direct.log en pâtit.
-function signalerDirect(name, evenement, detail) {
+function signalerDirect(name, evenement, detail, sessionId = WEBRTC_SESSION[name]) {
   fetch(`/api/direct-signal/${encodeURIComponent(name)}`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ evenement, detail: detail || "" }),
+    body: JSON.stringify({ evenement, detail: detail || "", session_id: sessionId }),
   }).catch(() => {});
 }
 
@@ -832,10 +829,10 @@ function signalerDirect(name, evenement, detail) {
 // laisserait croire qu'un flux tourne, et il n'y aurait plus aucun moyen de
 // relancer. Retirer la balise <img> ferme au passage la connexion restée
 // ouverte côté serveur.
-function failWatch(name, message) {
-  signalerDirect(name, "abandon", message);
+function failWatch(name, message, sessionId) {
+  signalerDirect(name, "abandon", message, sessionId);
   const box = $("live-" + cssId(name));
-  box.innerHTML = repos(name, t("watch.retry")) + `<p class="hint overlay">${h(message)}</p>`;
+  if (box) box.innerHTML = repos(name, t("watch.retry")) + `<p class="hint overlay">${h(message)}</p>`;
 }
 
 // Ni <img> (MJPEG) ni la balise <video> du direct MSE ne portent l'attribut
@@ -852,12 +849,29 @@ function toggleFullscreen(name) {
   (box.requestFullscreen || box.webkitRequestFullscreen).call(box);
 }
 
-function stopWatch(name) {
+function arreterSessionWebRTC(sessionId, beacon = false) {
+  if (!sessionId) return;
+  const body = JSON.stringify({ session_id: sessionId });
+  if (beacon) {
+    try {
+      if (navigator.sendBeacon(
+        `/api/arreter-direct?token=${encodeURIComponent(BLINK_TOKEN)}`,
+        new Blob([body], { type: "application/json" }),
+      )) return;
+    } catch (erreur) { /* fetch keepalive sert de filet si Beacon est indisponible */ }
+  }
+  fetch("/api/arreter-direct", { method: "POST", keepalive: true,
+    headers: { "Content-Type": "application/json" }, body }).catch(() => {});
+}
+
+function stopWatch(name, beacon = false) {
   // La case peut avoir disparu sous nos pieds (actualisation de la vue
   // pendant le direct) : la remise au repos est cosmétique, mais couper les
   // flux ci-dessous ne doit jamais en dépendre.
   const box = $("live-" + cssId(name));
   if (box) box.innerHTML = repos(name, t("watch.live"));
+  const pending = LIVE_PENDING[name];
+  if (pending) { pending.abort(); delete LIVE_PENDING[name]; }
   const controller = MSE_ABORT[name];
   if (controller) { controller.abort(); delete MSE_ABORT[name]; }
   // webrtcController coupe une reprise en cours (entre deux tentatives,
@@ -865,21 +879,18 @@ function stopWatch(name) {
   // negociation est deja engagee. Les deux peuvent coexister brievement,
   // aucun des deux n'est garanti present a un instant donne.
   const webrtcController = WEBRTC_ABORT[name];
+  // Capturer l'identifiant avant d'annuler : le finally de la tentative peut
+  // retirer son état, et une nouvelle tentative peut déjà avoir commencé.
+  const sessionId = WEBRTC_SESSION[name];
+  if (sessionId) {
+    delete WEBRTC_SESSION[name];
+    arreterSessionWebRTC(sessionId, beacon);
+  }
   if (webrtcController) { webrtcController.abort(); delete WEBRTC_ABORT[name]; }
   const pc = WEBRTC_PC[name];
   if (pc) {
     pc.close();
     delete WEBRTC_PC[name];
-    // pc.close() ne dit rien au serveur : aiortc n'a pas d'état
-    // "disconnected" et peut ne jamais remarquer, de lui-même, qu'on est
-    // parti - MODULE_SLOT restait alors tenu jusqu'au filet dur de 300s,
-    // bien au-delà des 25s qu'attend une bascule de caméra avant
-    // d'abandonner (constaté en réel, 2026-09-04 : Salon -> Jardin bloqué
-    // en boucle sur « Réessayer »). Best-effort, jamais bloquant : le
-    // navigateur a de toute façon déjà fermé sa propre moitié.
-    fetch("/api/arreter-direct", { method: "POST",
-      headers: { "Content-Type": "application/json" }, body: "{}" })
-      .catch(() => {});
   }
 }
 
@@ -1252,12 +1263,24 @@ async function connecterMse(name, video, signalGlobal, texteAttente, t0, reveilI
 // rencontre ici, un nouveau clic suffit pour ce cas-la.
 const WEBRTC_PC = {};
 const WEBRTC_ABORT = {};
-// Memes valeurs que les constantes MSE_* equivalentes (plus bas) : meme
-// situation (camera parfois lente a repondre), pas de raison de choisir
-// autre chose.
+const WEBRTC_SESSION = {};
+const LIVE_PENDING = {};
 const WEBRTC_MAX_ECHECS = 5;
 const WEBRTC_DELAI_RECONNEXION_MS = 3000;
+const WEBRTC_DELAI_MODULE_OCCUPE_MS = 10000;
 const WEBRTC_BUDGET_TOTAL_MS = 10 * 60 * 1000;
+// Budget absolu : acquisition du module, réveil Blink, paramètres H.264 et
+// SDP. Après la réponse, la première image possède aussi sa propre borne.
+const WEBRTC_DELAI_DEMARRAGE_MS = 130 * 1000;
+const WEBRTC_DELAI_PREMIERE_IMAGE_MS = 30 * 1000;
+const WEBRTC_DELAI_DECONNEXION_MS = 10 * 1000;
+const WEBRTC_DUREE_APRES_LECTURE_MS = 330 * 1000;
+
+function nouvelIdentifiantDirect() {
+  const octets = new Uint8Array(16);
+  crypto.getRandomValues(octets);
+  return Array.from(octets, (octet) => octet.toString(16).padStart(2, "0")).join("");
+}
 
 // MODULE_SLOT (serve.py) est global : le module de synchronisation ne
 // relaie qu'un seul direct a la fois, quelle que soit la camera. /api/
@@ -1270,54 +1293,57 @@ const WEBRTC_BUDGET_TOTAL_MS = 10 * 60 * 1000;
 // Sans ceci, passer d'une camera a l'autre sans cliquer Arreter laissait
 // la premiere camera tenir le verrou, la seconde tombant en 409 -
 // "ca ne marche pas", signale par l'utilisateur (2026-09-03).
-async function attendreModuleLibre() {
+async function attendreModuleLibre(signal) {
   try {
-    const reponse = await fetch("/api/attente-module");
-    const info = await lireJSON(reponse);
+    const reponse = await operationOuAbandon(
+      () => fetch("/api/attente-module", { signal }), signal);
+    const info = await operationOuAbandon(() => lireJSON(reponse), signal);
     return !!info.libre;
   } catch (erreur) {
+    if (signal.aborted) throw erreurAnnulationMse();
     return true;  // en echouant ouvert : la tentative suivante dira si ca bloque toujours
   }
 }
 
 async function watchLive(name) {
-  const autresActives = [...new Set([
-    ...Object.keys(WEBRTC_PC), ...Object.keys(WEBRTC_ABORT), ...Object.keys(MSE_ABORT),
-  ])].filter((autre) => autre !== name);
-  // watchWebRTC()/watchMse() ne touchent la case qu'apres
-  // attendreModuleLibre() (jusqu'a ATTENTE_MODULE_MAX_SECONDS = 25s cote
-  // serveur) : sans ceci, cette case restait sur "Voir en direct" tout
-  // ce temps, comme si le clic n'avait rien declenche - constate en
-  // reel par l'utilisateur (2026-09-03). Meme indice ("watch.waking") que
-  // celui que watchWebRTC()/watchMse() affichent juste apres : pas de
-  // changement de texte visible au moment de la relve.
-  //
-  // Attente inconditionnelle desormais, pas seulement en cas de bascule
-  // vers une autre camera : notre propre derniere session sur CETTE camera
-  // peut, elle aussi, etre encore en train de se refermer cote serveur
-  // (stream.stop() + drain du flux Blink, jusqu'a 20s) si on l'arrete puis
-  // la relance tout de suite. stopWatch() a deja retire `name` de
-  // WEBRTC_PC/WEBRTC_ABORT/MSE_ABORT a cet instant-la, donc `autresActives`
-  // ne le voit plus et cette attente etait jusqu'ici sautee dans ce cas
-  // precis, laissant watchWebRTC()/watchMse() tomber sur un 409 immediat
-  // puis se debrouiller seuls avec leur reprise a delai fixe (3s), plus
-  // lente et moins claire que cette attente dediee (constate en reel,
-  // 2026-09-04 : Salon "occupe" deux fois de suite juste apres son propre
-  // arret). Resout quasi instantanement si le module est deja libre - rien
-  // a perdre a l'appeler a chaque fois.
+  // Enregistrer le choix avant toute attente. Un clic plus récent invalide
+  // aussi les demandes dont /attente-module n'a pas encore répondu.
+  for (const autre of nomsDirectsActifs()) stopWatch(autre);
+  const controller = new AbortController();
+  LIVE_PENDING[name] = controller;
+  const t0 = performance.now();
+  let budgetEcoule = false;
+  const idBudget = setTimeout(() => {
+    budgetEcoule = true;
+    controller.abort();
+  }, WEBRTC_BUDGET_TOTAL_MS);
   const box = $("live-" + cssId(name));
-  if (box) box.innerHTML = repos(name, t("watch.waking"));
-  for (const autre of autresActives) stopWatch(autre);
-  await attendreModuleLibre();
-  if (system && system.webrtc) {
-    watchWebRTC(name);
-  } else {
-    watchMse(name);
+  if (box) {
+    box.innerHTML = `<p class="hint overlay">${h(t("watch.waking"))}</p>
+      <button class="watch stop" data-action="stop-live"
+              data-name="${h(name)}">${h(t("watch.stop"))}</button>`;
+  }
+  try {
+    await attendreModuleLibre(controller.signal);
+    if (controller.signal.aborted || LIVE_PENDING[name] !== controller) return;
+    // Ces fonctions installent leur contrôleur avant leur première attente :
+    // la grille reste protégée quand LIVE_PENDING est retiré dans le finally.
+    return system && system.webrtc
+      ? watchWebRTC(name, controller, t0) : watchMse(name);
+  } catch (error) {
+    if (budgetEcoule && LIVE_PENDING[name] === controller) failWatch(name, t("watch.noimage"));
+    else if (error.name !== "AbortError") failWatch(name, String(error.message || error));
+  } finally {
+    clearTimeout(idBudget);
+    if (LIVE_PENDING[name] === controller) delete LIVE_PENDING[name];
   }
 }
 
-async function watchWebRTC(name) {
+async function watchWebRTC(name, controller = new AbortController(), t0 = performance.now()) {
+  if (controller.signal.aborted) return;
   const box = $("live-" + cssId(name));
+  if (!box) return;
+  WEBRTC_ABORT[name] = controller;
   box.innerHTML =
     `<video autoplay muted playsinline></video>
      <button class="watch stop" data-i18n="watch.stop"
@@ -1325,12 +1351,15 @@ async function watchWebRTC(name) {
      ${recordBtn(name)}
      ${expandBtn(name)}`;
   const video = box.querySelector("video");
-  const t0 = performance.now();
-
-  const controller = new AbortController();
-  WEBRTC_ABORT[name] = controller;
+  let budgetEcoule = false;
+  let lecture = false;
+  const idBudget = setTimeout(() => {
+    budgetEcoule = true;
+    controller.abort();
+  }, Math.max(0, WEBRTC_BUDGET_TOTAL_MS - (performance.now() - t0)));
 
   let hint = null;
+  let minuteur = null;
   const afficherIndice = (texte) => {
     if (!hint) {
       box.insertAdjacentHTML(
@@ -1342,116 +1371,204 @@ async function watchWebRTC(name) {
       hint.textContent = texte;
     }
   };
-  let confirme = false;
   const confirmerLecture = () => {
-    if (confirme) return;
-    confirme = true;
-    signalerDirect(name, "image affichee (webrtc)");
+    lecture = true;
+    derniereErreur = null;
+    if (minuteur !== null) { clearInterval(minuteur); minuteur = null; }
     if (hint) { hint.remove(); hint = null; }
   };
-  video.addEventListener("loadeddata", confirmerLecture);
-  video.addEventListener("playing", confirmerLecture);
 
-  // Boucle de reprise pour la seule negociation initiale, symetrique a
-  // celle de connecterMse()/watchMse() (cf. commentaire plus haut) :
-  // memes constantes WEBRTC_MAX_ECHECS/WEBRTC_DELAI_RECONNEXION_MS/
-  // WEBRTC_BUDGET_TOTAL_MS. Compteur de secondes uniquement sur le tout
-  // premier essai (reveilInitial), comme pour MSE - pas les reprises
-  // apres echec, qui affichent un texte fixe.
+  // Une réponse SDP ne prouve pas la lecture : reprendre les échecs jusqu'à
+  // la première image. Après celle-ci, une fin rend la main à l'utilisateur.
   let echecs = 0;
+  let essais = 0;
   let derniereErreur = null;
   try {
     while (echecs < WEBRTC_MAX_ECHECS && performance.now() - t0 < WEBRTC_BUDGET_TOTAL_MS) {
       if (controller.signal.aborted) return;
-      const reveilInitial = echecs === 0;
+      const reveilInitial = essais === 0;
       afficherIndice(reveilInitial ? t("watch.waking") : t("watch.reconnecting"));
-      const minuteur = reveilInitial ? setInterval(() => {
+      minuteur = reveilInitial ? setInterval(() => {
         const s = Math.round((performance.now() - t0) / 1000);
         const lent = s > 20 && cameraSurBatterie(name);
         afficherIndice(tf(lent ? "watch.waking.slow" : "watch.waking.seconds", { s }));
       }, 500) : null;
       try {
-        await tenterWebRTC(name, video, controller.signal, echecs + 1);
-        if (minuteur) clearInterval(minuteur);
-        return;  // confirmerLecture() efface deja l'indice a la lecture reelle
+        await tenterWebRTC(name, video, controller.signal, ++essais, confirmerLecture);
+        break;
       } catch (error) {
-        if (minuteur) clearInterval(minuteur);
-        if (error.name === "AbortError") return;  // bouton Arreter
+        if (error.name === "AbortError" && controller.signal.aborted) {
+          if (!budgetEcoule) return;
+          break;
+        }
         derniereErreur = error;
-        echecs++;
+        if (error.webrtcLecture) break;
+        // Un autre onglet ou un téléchargement peut occuper le module.
+        // Seul le budget global borne ce cas, sans épuiser les essais caméra.
+        if (error.status !== 409) echecs++;
+      } finally {
+        if (minuteur !== null) { clearInterval(minuteur); minuteur = null; }
       }
-      if (echecs >= WEBRTC_MAX_ECHECS) break;
+      if (controller.signal.aborted || echecs >= WEBRTC_MAX_ECHECS) break;
       try {
-        await attendreOuAbandon(WEBRTC_DELAI_RECONNEXION_MS, controller.signal);
+        await attendreOuAbandon(derniereErreur && derniereErreur.status === 409
+          ? WEBRTC_DELAI_MODULE_OCCUPE_MS : WEBRTC_DELAI_RECONNEXION_MS, controller.signal);
       } catch (error) {
-        return;  // arret demande pendant l'attente
+        if (!budgetEcoule) return;
+        break;
       }
     }
   } finally {
+    clearTimeout(idBudget);
     if (WEBRTC_ABORT[name] === controller) delete WEBRTC_ABORT[name];
   }
+  if (controller.signal.aborted && !budgetEcoule) return;
   if (hint) hint.remove();
-  // Pas de repli sur MSE ici (cf. commentaire plus haut) : une vraie
-  // erreur, comme pour MSE, plutot qu'une substitution silencieuse de
-  // protocole.
-  failWatch(name, String((derniereErreur && derniereErreur.message) || derniereErreur
-                          || t("watch.noimage")));
+  if (lecture && (!derniereErreur || budgetEcoule)) {
+    if (box.isConnected) box.innerHTML = repos(name, t("watch.live"));
+  } else {
+    failWatch(name, String((derniereErreur && derniereErreur.message) || derniereErreur
+      || t("watch.noimage")), derniereErreur && derniereErreur.sessionId);
+  }
 }
 
-// Une seule tentative de negociation WebRTC : cree sa propre
-// RTCPeerConnection, l'echange offre/reponse avec le serveur, rend la main
-// des que la piste video est acceptee (le flux continue ensuite tout
-// seul, pilote par les evenements de pc). N'attend pas la premiere image
-// reelle - contrairement a connecterMse(), qui lit le flux lui-meme -
-// c'est pc.ontrack/loadeddata/playing (watchWebRTC) qui s'en chargent.
-async function tenterWebRTC(name, video, signal, essai) {
+// Garder la tentative jusqu'à la fin du flux permet un nettoyage identique
+// après erreur ICE, absence d'image, annulation pendant l'offre ou lecture.
+async function tenterWebRTC(name, video, signal, essai, surLecture = () => {}) {
+  if (signal.aborted) throw erreurAnnulationMse();
+  const sessionId = nouvelIdentifiantDirect();
+  const controller = new AbortController();
   // Navigateur et serveur sur le même réseau local (c'est tout l'usage de
   // blink2video) : aucun NAT à traverser, un serveur STUN n'apporterait
   // qu'un aller-retour réseau inutile.
   const pc = new RTCPeerConnection({ iceServers: [] });
   WEBRTC_PC[name] = pc;
-  pc.ontrack = (evenement) => {
-    video.srcObject = evenement.streams[0];
-    // autoplay seul ne suffit pas toujours a demarrer la lecture d'un
-    // srcObject (constate en reel, 2026-09-03 : video restait paused avec
-    // des images deja decodees en attente). Meme geste defensif que
-    // connecterMse ci-dessus ; la preuve reste loadeddata/playing.
-    const lancement = video.play();
-    if (lancement && typeof lancement.catch === "function") {
-      lancement.catch(() => {});
+  WEBRTC_SESSION[name] = sessionId;
+  let lecture = false;
+  let finNormale = false;
+  let erreurEvenement = null;
+  let stream = null;
+  let track = null;
+  let idImage = null;
+  let idPremiereImage = null;
+  let idDuree = null;
+  let idDeconnexion = null;
+  const abandonner = () => controller.abort();
+  const finir = (error = null) => {
+    if (controller.signal.aborted) return;
+    erreurEvenement = error || (!lecture ? new Error(t("watch.noimage")) : null);
+    finNormale = !erreurEvenement;
+    controller.abort();
+  };
+  const idDemarrage = setTimeout(() => finir(new Error(t("watch.noimage"))),
+    WEBRTC_DELAI_DEMARRAGE_MS);
+  const confirmerImage = () => {
+    if (lecture || controller.signal.aborted || !stream || video.srcObject !== stream) return;
+    lecture = true;
+    clearTimeout(idDemarrage);
+    clearTimeout(idPremiereImage);
+    idDuree = setTimeout(() => finir(), WEBRTC_DUREE_APRES_LECTURE_MS);
+    signalerDirect(name, "image affichee (webrtc)", "", sessionId);
+    surLecture();
+  };
+  const verifierImage = () => {
+    // playing seul peut précéder tout décodage. Les moteurs récents offrent
+    // une preuve de présentation via requestVideoFrameCallback ; sur les
+    // autres, vérifier aussi la présence d'une image décodée et ses dimensions.
+    if (!video.requestVideoFrameCallback && video.readyState >= 2 && video.videoWidth > 0) {
+      confirmerImage();
     }
   };
-  pc.addEventListener("connectionstatechange", () => {
-    if (pc.connectionState === "closed" || pc.connectionState === "failed") {
-      if (WEBRTC_PC[name] === pc) delete WEBRTC_PC[name];
+  const interrompu = () => finir(new Error(t(lecture ? "watch.interrupted" : "watch.noimage")));
+  const finPiste = () => finir();
+  const etatConnexion = () => {
+    const etats = [pc.connectionState, pc.iceConnectionState];
+    if (etats.includes("failed")) interrompu();
+    else if (etats.includes("closed")) finir();
+    else if (etats.includes("disconnected")) {
+      if (idDeconnexion === null) idDeconnexion = setTimeout(interrompu, WEBRTC_DELAI_DECONNEXION_MS);
+    } else if (idDeconnexion !== null) {
+      clearTimeout(idDeconnexion);
+      idDeconnexion = null;
     }
-  });
-  if (signal.aborted) { pc.close(); throw erreurAnnulationMse(); }
-  const surAbandon = () => pc.close();
-  signal.addEventListener("abort", surAbandon, { once: true });
+  };
+  pc.ontrack = (evenement) => {
+    if (controller.signal.aborted) return;
+    track = evenement.track;
+    stream = evenement.streams[0] || new MediaStream([track]);
+    track.addEventListener("ended", finPiste);
+    video.srcObject = stream;
+    if (video.requestVideoFrameCallback) {
+      idImage = video.requestVideoFrameCallback(() => {
+        idImage = null;
+        confirmerImage();
+      });
+    }
+    try {
+      const lancement = video.play();
+      if (lancement && typeof lancement.catch === "function") lancement.catch(interrompu);
+    } catch (error) { interrompu(); }
+  };
+  pc.addEventListener("connectionstatechange", etatConnexion);
+  pc.addEventListener("iceconnectionstatechange", etatConnexion);
+  video.addEventListener("loadeddata", verifierImage);
+  video.addEventListener("playing", verifierImage);
+  video.addEventListener("error", interrompu);
+  video.addEventListener("ended", finPiste);
+  signal.addEventListener("abort", abandonner, { once: true });
 
   try {
     pc.addTransceiver("video", { direction: "recvonly" });
-    const offre = await pc.createOffer();
-    await pc.setLocalDescription(offre);
-    const reponse = await fetch(`/live-webrtc/${encodeURIComponent(name)}`, {
+    const offre = await operationOuAbandon(() => pc.createOffer(), controller.signal);
+    await operationOuAbandon(() => pc.setLocalDescription(offre), controller.signal);
+    const reponse = await operationOuAbandon(() => fetch(`/live-webrtc/${encodeURIComponent(name)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sdp: pc.localDescription.sdp, type: pc.localDescription.type, essai,
+        sdp: pc.localDescription.sdp, type: pc.localDescription.type, essai, session_id: sessionId,
       }),
-      signal,
-    });
-    const info = await lireJSON(reponse);
-    if (!reponse.ok) throw new Error(info.error || `HTTP ${reponse.status}`);
-    await pc.setRemoteDescription(info);
+      signal: controller.signal,
+    }), controller.signal);
+    const info = await operationOuAbandon(() => lireJSON(reponse), controller.signal);
+    if (!reponse.ok) {
+      const error = new Error(info.error || `HTTP ${reponse.status}`);
+      error.status = reponse.status;
+      throw error;
+    }
+    if (info.session_id !== sessionId) throw new Error(t("watch.refused"));
+    await operationOuAbandon(() => pc.setRemoteDescription({ sdp: info.sdp, type: info.type }),
+      controller.signal);
+    if (!lecture) idPremiereImage = setTimeout(() => finir(new Error(t("watch.noimage"))),
+      WEBRTC_DELAI_PREMIERE_IMAGE_MS);
+    await operationOuAbandon(() => new Promise(() => {}), controller.signal);
   } catch (error) {
-    pc.close();
-    if (WEBRTC_PC[name] === pc) delete WEBRTC_PC[name];
     if (signal.aborted) throw erreurAnnulationMse();
-    throw error;
+    if (finNormale) return true;
+    const cause = erreurEvenement || error;
+    cause.webrtcLecture = lecture;
+    cause.sessionId = sessionId;
+    throw cause;
   } finally {
-    signal.removeEventListener("abort", surAbandon);
+    controller.abort();
+    clearTimeout(idDemarrage);
+    clearTimeout(idPremiereImage);
+    clearTimeout(idDuree);
+    clearTimeout(idDeconnexion);
+    if (idImage !== null) video.cancelVideoFrameCallback(idImage);
+    signal.removeEventListener("abort", abandonner);
+    video.removeEventListener("loadeddata", verifierImage);
+    video.removeEventListener("playing", verifierImage);
+    video.removeEventListener("error", interrompu);
+    video.removeEventListener("ended", finPiste);
+    if (track) track.removeEventListener("ended", finPiste);
+    pc.removeEventListener("connectionstatechange", etatConnexion);
+    pc.removeEventListener("iceconnectionstatechange", etatConnexion);
+    pc.ontrack = null;
+    pc.close();
+    if (stream && video.srcObject === stream) video.srcObject = null;
+    if (WEBRTC_PC[name] === pc) delete WEBRTC_PC[name];
+    if (WEBRTC_SESSION[name] === sessionId) delete WEBRTC_SESSION[name];
+    arreterSessionWebRTC(sessionId);
   }
 }
 
@@ -1589,14 +1706,17 @@ function appliquerEtatEnregistrement(bouton, actif) {
 // l'état supposé du bouton avant le clic - deux onglets sur le même direct
 // restent ainsi cohérents l'un avec l'autre.
 async function toggleRecord(name, bouton) {
+  const sessionId = WEBRTC_SESSION[name];
+  if (!sessionId && !MSE_ABORT[name]) return;
   const actif = !bouton.classList.contains("active");
   bouton.disabled = true;
   try {
     const reponse = await fetch("/api/direct-enregistrement", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ actif }),
+      body: JSON.stringify({ actif, session_id: sessionId }),
     });
     const info = await lireJSON(reponse);
+    if (!reponse.ok || info.error || WEBRTC_SESSION[name] !== sessionId) return;
     appliquerEtatEnregistrement(bouton, Boolean(info.actif));
   } catch (erreur) {
     // Rien de plus utile a afficher qu'un bouton resté sur son état
@@ -2168,6 +2288,9 @@ $("showOut").onchange = render;
 // `system` (loadSystem), jamais `data`/`videos`.
 $("view").onchange = () => {
   if ($("view").value === "live") { render(); return; }
+  // Quitter Direct retire ses vidéos du DOM : fermer aussi les sessions
+  // et les réveils en attente avant de reconstruire une autre vue.
+  for (const name of nomsDirectsActifs()) stopWatch(name);
   load();
 };
 // Seule cette ligne de texte se met à jour d'elle-même : elle sert précisément

@@ -131,20 +131,51 @@ ATTENTE_HUB_MAX_SECONDS = 20
 # l'état laissé par le précédent.
 ENREGISTREMENT_DIRECT_ACTIF = threading.Event()
 
-# Référence vers la RTCPeerConnection du direct WebRTC actuellement tenu par
-# MODULE_SLOT (un seul à la fois), pour un arrêt explicite (bouton Arrêter,
-# changement de caméra - voir /api/arreter-direct) plutôt que de compter
-# uniquement sur aiortc pour remarquer qu'un pc.close() côté navigateur a eu
-# lieu. aiortc n'a pas d'état "disconnected" (rtcpeerconnection.py,
-# __updateConnectionState : "we do not have a disconnected state") : sans
-# échec ICE/DTLS explicite ou fermeture propre du DTLS, connectionState peut
-# rester "connected" indéfiniment de son point de vue, alors même que le
-# navigateur est bel et bien passé à autre chose - MODULE_SLOT resterait
-# alors tenu jusqu'au filet dur de SESSION_MAX_SECONDS (300s, blink_webrtc.py)
-# grandement au-delà des ATTENTE_MODULE_MAX_SECONDS (25s) qu'attend le
-# changement de caméra avant d'abandonner (constaté en réel, 2026-09-04 :
-# bascule Salon -> Jardin restée bloquée en boucle sur « Réessayer »).
-DIRECT_WEBRTC_PC: dict = {}
+# La session existe dès l'admission HTTP, avant le réveil et la création du
+# pc. L'identifiant aléatoire vient de l'onglet et change à chaque tentative.
+# Le verrou protège les transitions entre les threads HTTP et BLINK.loop.
+DIRECT_WEBRTC_SESSION: dict = {}
+DIRECT_WEBRTC_SESSION_LOCK = threading.Lock()
+DIRECT_ARRETS_RECENTS: dict = {}
+DIRECT_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{16,64}\Z")
+DIRECT_ARRET_TTL_SECONDS = 180
+BLINK_OPEN_MAX_SECONDS = 45
+WEBRTC_START_MAX_SECONDS = (
+    BLINK_OPEN_MAX_SECONDS + blink_webrtc.PREMIERE_IMAGE_MAX_SECONDS
+    + blink_webrtc.NEGOCIATION_MAX_SECONDS + 5
+)
+
+
+def _purger_arrets_direct() -> None:
+    """Appelé sous DIRECT_WEBRTC_SESSION_LOCK ; mémoire bornée."""
+    maintenant = time.monotonic()
+    for identifiant, expiration in list(DIRECT_ARRETS_RECENTS.items()):
+        if expiration <= maintenant:
+            DIRECT_ARRETS_RECENTS.pop(identifiant, None)
+    while len(DIRECT_ARRETS_RECENTS) > 256:
+        DIRECT_ARRETS_RECENTS.pop(next(iter(DIRECT_ARRETS_RECENTS)))
+
+
+def _demander_arret_direct(session_id: str) -> bool:
+    """Annule uniquement la tentative désignée, sans attendre BLINK.lock.
+
+    Une annulation peut arriver avant son offre sur une autre connexion HTTP.
+    La conserver brièvement empêche cette offre tardive de réveiller la caméra.
+    """
+    if not DIRECT_SESSION_ID.fullmatch(session_id):
+        return False
+    with DIRECT_WEBRTC_SESSION_LOCK:
+        DIRECT_ARRETS_RECENTS[session_id] = time.monotonic() + DIRECT_ARRET_TTL_SECONDS
+        _purger_arrets_direct()
+        holder = DIRECT_WEBRTC_SESSION.get("session")
+        if holder is None or holder["session_id"] != session_id:
+            return False
+        deja_demande = holder["arret"].is_set()
+        holder["arret"].set()
+        loop = holder.get("loop")
+    if loop is not None and not deja_demande:
+        loop.call_soon_threadsafe(holder["interrompre"])
+    return True
 
 # Reglage de la page web (webrtc par defaut) depuis le 2026-09-03 - a
 # remplace la variable d'environnement BLINK_DIRECT_WEBRTC, experimentale,
@@ -894,39 +925,66 @@ def _journal_direct(name: str, message: str) -> None:
 
 
 async def _stop_stream(stream, feed) -> str:
-    """Referme proprement un direct, et surtout prévient Blink qu'il est fini.
+    """Ferme les sockets, attend le polling, et assure son secours « done ».
 
-    L'ordre compte. `stream.stop()` ferme la liaison vers Amazon, ce qui fait
-    sortir la boucle de scrutation de blinkpy, dont le bloc `finally` envoie la
-    commande « done » qui libère la caméra. Il faut donc *attendre* cette tâche,
-    pas l'annuler : une tâche annulée ne peut plus rien attendre, la commande ne
-    partait jamais, et Blink laissait la session ouverte. La caméra suivante
-    trouvait alors le module occupé et ne renvoyait aucune image.
-
-    L'annulation reste en dernier recours, suivie d'un envoi manuel de « done »
-    pour ne pas laisser une session pendante côté Amazon."""
-    stream.stop()
-    if feed is None:
-        return "aucune tache a attendre"
+    init_livestream a déjà créé une commande, même si start échoue ou si
+    l'authentification du relais échoue avant le polling de blinkpy. Ces cas
+    doivent eux aussi envoyer done. Cette coroutine est protégée par la tâche
+    de nettoyage de la session contre les annulations du demandeur HTTP.
+    """
+    erreurs = []
     try:
-        await asyncio.wait_for(feed, timeout=20)
-        return "session rendue normalement"
-    except asyncio.TimeoutError:
-        pass
+        stream.stop()
     except Exception as error:
-        detail = str(error).strip()
-        suffixe = f" : {detail}" if detail else ""
-        return f"fin de flux : {type(error).__name__}{suffixe}"
+        erreurs.append(f"stop : {type(error).__name__}: {error}")
+    if feed is not None:
+        try:
+            # wait() ne peut pas rester bloqué dans le finally d'une tâche
+            # annulée, contrairement à wait_for(feed, ...).
+            terminees, _ = await asyncio.wait({feed}, timeout=20)
+            if feed in terminees:
+                await feed
+                if not erreurs:
+                    return "session rendue normalement"
+            else:
+                feed.cancel()
+                # Laisse au finally du polling une chance d'envoyer done.
+                await asyncio.wait({feed}, timeout=5)
+                if feed.done():
+                    try:
+                        feed.result()
+                    except (Exception, asyncio.CancelledError):
+                        pass
+                else:
+                    feed.add_done_callback(_observer_fin_flux)
+        except asyncio.CancelledError:
+            # Une feed déjà annulée ne doit pas annuler le nettoyage qui
+            # l'attend. Une annulation du nettoyeur lui-même se propage.
+            if not feed.cancelled():
+                raise
+            erreurs.append("flux annulé avant confirmation de fin")
+        except Exception as error:
+            erreurs.append(f"flux : {type(error).__name__}: {error}")
 
     try:
         from blinkpy import api
 
-        await api.request_command_done(
-            stream.camera.sync.blink, stream.camera.network_id, stream.command_id
+        await asyncio.wait_for(
+            api.request_command_done(
+                stream.camera.sync.blink, stream.camera.network_id, stream.command_id
+            ), timeout=10,
         )
-        return "session rendue de force"
+        return "session rendue de force" + (" | " + " ; ".join(erreurs) if erreurs else "")
     except Exception as error:
         return f"session peut-etre restee ouverte : {type(error).__name__}"
+
+
+def _observer_fin_flux(tache) -> None:
+    """Récupère les exceptions d'une fermeture qui finit après son budget."""
+    try:
+        tache.result()
+    except (Exception, asyncio.CancelledError):
+        pass
 
 
 def _erreur_boucle_asyncio(loop, contexte: dict) -> None:
@@ -974,7 +1032,10 @@ class BlinkSession:
     def call(self, coroutine_factory, timeout: float = 60.0):
         """Exécute `coroutine_factory(blink)` sur la boucle, en se connectant
         si besoin. Lève RuntimeError si aucune session valable n'existe."""
-        with self.lock:
+        echeance = time.monotonic() + timeout
+        if not self.lock.acquire(timeout=max(0.0, timeout)):
+            raise concurrent.futures.TimeoutError("La session Blink est occupée.")
+        try:
             loop = self._ensure_loop()
             finished = threading.Event()
 
@@ -994,7 +1055,7 @@ class BlinkSession:
 
             future = asyncio.run_coroutine_threadsafe(run(), loop)
             try:
-                return future.result(timeout)
+                return future.result(max(0.0, echeance - time.monotonic()))
             except concurrent.futures.TimeoutError:
                 # result(timeout) ne borne que l'attente du thread appelant :
                 # sans annulation, la coroutine continue sur la boucle Blink et
@@ -1013,6 +1074,8 @@ class BlinkSession:
                 # barrière distincte évite de libérer self.lock trop tôt.
                 finished.wait(timeout=5)
                 raise
+        finally:
+            self.lock.release()
 
     def forget(self):
         """Oublie la session courante : la prochaine demande se reconnectera."""
@@ -1673,11 +1736,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
         recherche qui a mene ici."""
         def demander(blink):
             async def run(_blink=blink):
+                from blinkpy import api
+
                 _, camera = BLINK.find_camera(_blink, identity)
-                await camera.snap_picture()
+                reponse = await camera.snap_picture()
+                if not isinstance(reponse, dict) or not reponse.get("id"):
+                    raise RuntimeError("Blink a refuse la commande de reveil.")
+                # blinkpy attend deja la commande, mais ignore le resultat
+                # de wait_for_command() et renvoie la reponse initiale meme
+                # lors d'un refus ou d'un delai depasse. Un seul GET confirme
+                # son issue sans declencher une seconde photo.
+                statut = await api.request_command_status(
+                    _blink, reponse.get("network_id") or camera.network_id,
+                    reponse["id"],
+                )
+                if (not isinstance(statut, dict)
+                        or statut.get("status_code") != 908
+                        or statut.get("complete") is not True):
+                    raise RuntimeError("Blink n'a pas confirme le reveil de la camera.")
             return run()
 
-        BLINK.call(demander, timeout=130)
+        if not MODULE_SLOT.acquire(blocking=False):
+            raise blink_engine.BusyError(_slot_occupe_message())
+        try:
+            _slot_pris("reveil", identity)
+            # Le verrou memoire protege les directs de ce serveur ; celui
+            # sur disque protege aussi les telechargements dans un autre
+            # processus. Les deux restent tenus jusqu'a la confirmation.
+            with blink_engine.hub_lock("reveil", attente=ATTENTE_HUB_MAX_SECONDS):
+                BLINK.call(demander, timeout=130)
+        finally:
+            try:
+                _slot_rendu()
+            finally:
+                MODULE_SLOT.release()
 
     def send_camera_thumb(self, identity: str) -> None:
         """Sert la dernière vignette connue d'une caméra.
@@ -1778,158 +1870,196 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"libre": False, "error": _slot_occupe_message()})
 
     def send_offer_webrtc(self, name: str, payload: dict) -> None:
-        """Négocie un direct WebRTC (offre/réponse SDP) : voir blink_webrtc.py.
-
-        Contrairement à /live-mse, cette requête se termine dès que la
-        réponse SDP est envoyée : le direct continue ensuite sur BLINK.loop,
-        jusqu'à ce que connectionstatechange signale sa fin (fermeture
-        d'onglet, échec ICE...), qui rend alors MODULE_SLOT/le verrou disque
-        exactement comme le fait le bloc finally de send_live_mse. `nettoye`
-        garantit que cette libération n'a lieu qu'une fois, que la négociation
-        échoue avant même d'atteindre aiortc ou après (connectionstatechange
-        peut alors, lui aussi, finir par passer à "failed").
-
-        Déclenche aussi l'enregistrement du direct dans Blink_Direct (voir
-        _chemin_enregistrement_direct, blink_webrtc._demarrer_enregistrement) :
-        best-effort, un échec ne doit jamais empêcher le direct lui-même."""
+        """Une tentative possède son réveil, son pc et un nettoyage unique."""
         offer_sdp = str(payload.get("sdp") or "")
         offer_type = str(payload.get("type") or "")
-        # Numéro de tentative côté page (watchWebRTC, serve_app.js) : 1 au
-        # premier essai, incrémenté à chaque reprise après échec. Absent =>
-        # None, affiché tel quel plutôt que supposé 1 - ne jamais laisser
-        # croire à un premier essai qui n'en est pas un. Ajouté pour pouvoir
-        # reconstituer depuis direct.log seul ce qu'un « Reconnexion... »
-        # affiché côté page représente, sans avoir à demander (constaté en
-        # réel, 2026-09-04 : impossible de dire, depuis le journal seul, si
-        # une bascule lente correspondait à une 1ère tentative ou à une Nème
-        # reprise après échecs successifs).
+        session_id = str(payload.get("session_id") or "")
         essai = payload.get("essai")
-        if not offer_sdp or not offer_type:
-            _journal_direct(name, f"tentative {essai} : refusee, offre SDP incomplete")
-            self.send_json({"error": "offre SDP incomplète"}, 400)
+        if not offer_sdp or offer_type != "offer" or not DIRECT_SESSION_ID.fullmatch(session_id):
+            self.send_json({"error": "Offre SDP ou identifiant de session invalide."}, 400)
             return
 
         if not MODULE_SLOT.acquire(blocking=False):
             message = _slot_occupe_message()
             _memoriser_erreur_direct(name, message, 409)
-            _journal_direct(name, f"tentative {essai} : refusee (webrtc), {message}")
             self.send_json({"error": message}, 409)
             return
 
-        holder: dict = {"nettoye": False}
+        holder: dict = {"session_id": session_id, "arret": threading.Event(),
+                        "rendu": False, "nettoyage": None}
+
+        def journal(message):
+            _journal_direct(name, f"session {session_id[:8]}, tentative {essai} : {message}")
+
+        def _rendre_verrous() -> None:
+            # Ne rend jamais deux fois le sémaphore, même si HTTP et un
+            # callback de pc réclament tous les deux le nettoyage.
+            with DIRECT_WEBRTC_SESSION_LOCK:
+                if holder["rendu"]:
+                    return
+                holder["rendu"] = True
+            verrou = holder.get("lock")
+            try:
+                if verrou is not None and holder.get("lock_entered"):
+                    verrou.__exit__(None, None, None)
+            except Exception as error:
+                journal(f"échec de libération du verrou disque, {type(error).__name__}: {error}")
+            finally:
+                with DIRECT_WEBRTC_SESSION_LOCK:
+                    if DIRECT_WEBRTC_SESSION.get("session") is holder:
+                        DIRECT_WEBRTC_SESSION.clear()
+                    ENREGISTREMENT_DIRECT_ACTIF.clear()
+                    try:
+                        _slot_rendu()
+                    finally:
+                        MODULE_SLOT.release()
+
+        async def _nettoyer() -> None:
+            try:
+                stream = holder.get("stream")
+                if stream is not None:
+                    journal(await _stop_stream(stream, holder.get("feed")))
+            except Exception as error:
+                journal(f"échec de fermeture Blink, {type(error).__name__}: {error}")
+            finally:
+                _rendre_verrous()
 
         async def _fermer() -> None:
-            if holder["nettoye"]:
+            # Tous les appelants attendent la même tâche. Leur annulation
+            # ne coupe ni done ni la libération des verrous.
+            if holder["nettoyage"] is None:
+                holder["nettoyage"] = asyncio.ensure_future(_nettoyer())
+            await asyncio.shield(holder["nettoyage"])
+
+        def _interrompre() -> None:
+            # Exécuté sur BLINK.loop, sans passer par BLINK.call : celui-ci
+            # peut justement attendre le réveil que l'utilisateur annule.
+            if holder["nettoyage"] is not None or holder["rendu"]:
                 return
-            holder["nettoye"] = True
-            # Ne référence plus ce pc une fois son nettoyage entamé : sinon
-            # /api/arreter-direct pourrait le refermer une seconde fois pour
-            # rien pendant qu'une autre session s'installe déjà à sa place.
-            if DIRECT_WEBRTC_PC.get("pc") is holder.get("pc"):
-                DIRECT_WEBRTC_PC.pop("pc", None)
-            stream = holder.get("stream")
-            if stream is not None:
-                verdict = await _stop_stream(stream, holder.get("feed"))
-                _journal_direct(name, verdict)
-            verrou = holder.get("lock")
-            if verrou is not None and holder.get("lock_entered"):
-                try:
-                    verrou.__exit__(None, None, None)
-                except Exception as error:
-                    _journal_direct(
-                        name, f"échec de libération du verrou disque, "
-                              f"{type(error).__name__}: {error}"
-                    )
-            try:
-                _slot_rendu()
-            finally:
-                MODULE_SLOT.release()
+            pc = holder.get("pc")
+            if pc is not None:
+                asyncio.ensure_future(blink_webrtc.fermer_connexion(pc))
+            else:
+                task = holder.get("demarrage")
+                if task is not None:
+                    task.cancel()
+
+        holder["interrompre"] = _interrompre
+        with DIRECT_WEBRTC_SESSION_LOCK:
+            _purger_arrets_direct()
+            annulee = session_id in DIRECT_ARRETS_RECENTS
+            if not annulee:
+                DIRECT_WEBRTC_SESSION["session"] = holder
+        if annulee:
+            MODULE_SLOT.release()
+            self.send_json({"error": "Tentative annulée."}, 409)
+            return
+
+        def _attendre_nettoyage_http():
+            loop = holder.get("loop")
+            if loop is None:
+                _rendre_verrous()
+            else:
+                # Pas de reconnexion/authentification requise pour fermer.
+                future = asyncio.run_coroutine_threadsafe(_fermer(), loop)
+                future.result(timeout=45)
 
         try:
             _slot_pris("direct WebRTC", name)
-            _journal_direct(name, f"direct WebRTC tentative {essai} : commence")
+            journal("direct WebRTC commence")
             ENREGISTREMENT_DIRECT_ACTIF.clear()
             _effacer_erreur_direct()
             holder["lock"] = blink_engine.hub_lock("direct", attente=ATTENTE_HUB_MAX_SECONDS)
             holder["lock"].__enter__()
             holder["lock_entered"] = True
+            if holder["arret"].is_set():
+                raise concurrent.futures.CancelledError()
 
             def start(blink):
                 async def run(_blink=blink):
-                    sync, camera = BLINK.find_camera(_blink, name)
-                    # init_livestream()/stream.start() sont de vrais appels
-                    # au cloud Blink (demande de flux, réveil éventuel du
-                    # module) - la part du délai la plus opaque de tout ce
-                    # chemin, et jusqu'ici sans la moindre ligne à elle : une
-                    # bascule "lente" ne se distinguait pas d'une négociation
-                    # SDP lente sans redemander à l'utilisateur ce qu'il
-                    # voyait (constaté en réel, 2026-09-04).
-                    t_flux = time.monotonic()
+                    holder["loop"] = asyncio.get_running_loop()
+                    holder["demarrage"] = asyncio.current_task()
                     try:
-                        stream = await camera.init_livestream()
-                    except KeyError as error:
-                        raise RuntimeError(
-                            f"Blink n'a fourni aucune adresse de flux pour "
-                            f"« {name} ». La caméra est probablement hors de "
-                            f"portée du module de synchronisation, éteinte, ou "
-                            f"sa batterie est vide."
-                        ) from error
-                    except NotImplementedError as error:
-                        raise RuntimeError(
-                            f"Cette caméra diffuse dans un format non pris en "
-                            f"charge ({error})."
-                        ) from error
-                    _journal_direct(
-                        name, f"tentative {essai} : init_livestream en "
-                              f"{time.monotonic() - t_flux:.1f}s"
-                    )
-                    holder["stream"] = stream
-                    t_start = time.monotonic()
-                    await stream.start()
-                    _journal_direct(
-                        name, f"tentative {essai} : stream.start() en "
-                              f"{time.monotonic() - t_start:.1f}s"
-                    )
-                    holder["feed"] = asyncio.ensure_future(stream.feed())
-                    pc, answer_sdp, answer_type = await blink_webrtc.negocier(
-                        stream.url, offer_sdp, offer_type, _fermer,
-                        ffmpeg=self.ffmpeg,
-                        # Fonction, pas un chemin déjà résolu : un nouveau
-                        # départ (bouton cliqué, relâché, recliqué pendant la
-                        # même session) doit recalculer un horodatage frais
-                        # à chaque fois, pas réutiliser celui de la négociation.
-                        # camera.name, pas `name` : `name` est ici l'identifiant
-                        # opaque de camera_key() (stable à travers un
-                        # renommage, voir sa docstring), pas le nom affiché -
-                        # un dossier « camera-4df6c7... » plutôt que « Jardin »
-                        # sinon (constaté en réel, 2026-09-04).
-                        chemin_enregistrement=lambda: _chemin_enregistrement_direct(camera.name),
-                        enregistrement_actif=ENREGISTREMENT_DIRECT_ACTIF.is_set,
-                        journal=lambda message: _journal_direct(name, message),
-                    )
-                    holder["pc"] = pc
-                    DIRECT_WEBRTC_PC["pc"] = pc
-                    return answer_sdp, answer_type
+                        if holder["arret"].is_set():
+                            raise asyncio.CancelledError()
+                        _, camera = BLINK.find_camera(_blink, name)
+
+                        async def ouvrir():
+                            t_flux = time.monotonic()
+                            try:
+                                stream = await camera.init_livestream()
+                            except KeyError as error:
+                                raise RuntimeError(
+                                    "Blink n'a fourni aucune adresse de flux. "
+                                    "La caméra est indisponible ou le module est occupé."
+                                ) from error
+                            except NotImplementedError as error:
+                                raise RuntimeError(f"Format de direct non pris en charge ({error}).") from error
+                            holder["stream"] = stream
+                            journal(f"init_livestream en {time.monotonic() - t_flux:.1f}s")
+                            t_start = time.monotonic()
+                            await stream.start()
+                            journal(f"stream.start() en {time.monotonic() - t_start:.1f}s")
+                            return stream
+
+                        stream = await asyncio.wait_for(ouvrir(), timeout=BLINK_OPEN_MAX_SECONDS)
+                        holder["feed"] = asyncio.ensure_future(stream.feed())
+                        negociation = asyncio.ensure_future(blink_webrtc.negocier(
+                            stream.url, offer_sdp, offer_type, _fermer,
+                            ffmpeg=self.ffmpeg,
+                            chemin_enregistrement=lambda: _chemin_enregistrement_direct(camera.name),
+                            enregistrement_actif=ENREGISTREMENT_DIRECT_ACTIF.is_set,
+                            journal=journal,
+                        ))
+                        try:
+                            terminees, _ = await asyncio.wait(
+                                {negociation, holder["feed"]},
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+                            if negociation not in terminees:
+                                # feed.auth peut échouer avant son finally
+                                # amont, en laissant le TCP local ouvert. Ne
+                                # pas attendre 40 s un SPS qui n'arrivera pas.
+                                raise RuntimeError("Le relais Blink s'est arrêté avant la première image.")
+                            pc, answer_sdp, answer_type = await negociation
+                        finally:
+                            if not negociation.done():
+                                negociation.cancel()
+                                await asyncio.gather(negociation, return_exceptions=True)
+                        holder["pc"] = pc
+                        if holder["arret"].is_set() or holder["rendu"]:
+                            await blink_webrtc.fermer_connexion(pc)
+                            raise asyncio.CancelledError()
+                        return answer_sdp, answer_type
+                    except BaseException:
+                        await _fermer()
+                        raise
+                    finally:
+                        holder["demarrage"] = None
                 return run()
 
-            answer_sdp, answer_type = BLINK.call(start, timeout=45)
-            _journal_direct(name, f"tentative {essai} : direct WebRTC négocié")
+            answer_sdp, answer_type = BLINK.call(start, timeout=WEBRTC_START_MAX_SECONDS)
+            journal("direct WebRTC négocié")
         except Exception as error:
-            message = str(error) if isinstance(error, RuntimeError) \
-                else f"{type(error).__name__}: {error}"
+            message = "Tentative annulée." if isinstance(error, concurrent.futures.CancelledError) else (
+                str(error) if isinstance(error, RuntimeError) else f"{type(error).__name__}: {error}"
+            )
             _memoriser_erreur_direct(name, message, 503)
-            _journal_direct(name, f"tentative {essai} : échec (webrtc), {message}")
+            journal(f"échec (webrtc), {message}")
             try:
-                BLINK.call(lambda _b: _fermer(), timeout=45)
+                _attendre_nettoyage_http()
             except Exception as error:
-                _journal_direct(
-                    name, f"échec de nettoyage après échec webrtc, "
-                          f"{type(error).__name__}: {error}"
-                )
-            self.send_json({"error": message}, 503)
+                journal(f"nettoyage encore en cours, {type(error).__name__}: {error}")
+            try:
+                self.send_json({"error": message}, 503)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
             return
 
-        self.send_json({"sdp": answer_sdp, "type": answer_type})
+        try:
+            self.send_json({"sdp": answer_sdp, "type": answer_type, "session_id": session_id})
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            _demander_arret_direct(session_id)
 
     def send_live_mse(self, name: str) -> None:
         """Diffuse le direct d'une caméra en fMP4 fragmenté, pour MediaSource.
@@ -2783,7 +2913,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             evenement = str(payload.get("evenement") or "signal").strip()
             detail = str(payload.get("detail") or "").strip()
             suffixe = f" : {detail}" if detail else ""
-            _journal_direct(nom, f"navigateur : {evenement}{suffixe}")
+            session_id = str(payload.get("session_id") or "")
+            session = f"session {session_id[:8]}, " if DIRECT_SESSION_ID.fullmatch(session_id) else ""
+            _journal_direct(nom, f"{session}navigateur : {evenement}{suffixe}")
             self.send_json({"ok": True})
             return
 
@@ -2821,6 +2953,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 self.reveiller_camera(name)
                 self.send_json(self.system_state())
+            except blink_engine.BusyError as error:
+                self.send_json({"error": str(error)}, 409)
             except Exception as error:
                 # Delai large (jusqu'a 130 s, voir reveiller_camera) : outre
                 # RuntimeError (camera inconnue), un timeout cote blinkpy ou
@@ -2830,38 +2964,38 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/direct-enregistrement":
-            # Ni le nom de la caméra ni la présence d'un direct actif ne sont
-            # vérifiés ici à dessein : un seul drapeau global suffit (un seul
-            # direct actif à la fois, MODULE_SLOT), et un clic arrivé après
-            # la fin du direct ne fait rien de pire que poser un drapeau que
-            # plus personne ne lira.
-            if bool(payload.get("actif")):
-                ENREGISTREMENT_DIRECT_ACTIF.set()
-            else:
-                ENREGISTREMENT_DIRECT_ACTIF.clear()
+            session_id = str(payload.get("session_id") or "")
+            with DIRECT_WEBRTC_SESSION_LOCK:
+                holder = DIRECT_WEBRTC_SESSION.get("session")
+                autorise = (
+                    holder is not None and holder["session_id"] == session_id
+                    and not holder["arret"].is_set() and not holder["rendu"]
+                ) or (
+                    holder is None and not session_id
+                    and MODULE_SLOT_INFO.get("quoi") == "direct MSE"
+                )
+                if autorise:
+                    if bool(payload.get("actif")):
+                        ENREGISTREMENT_DIRECT_ACTIF.set()
+                    else:
+                        ENREGISTREMENT_DIRECT_ACTIF.clear()
+            if not autorise:
+                self.send_json({"error": "Cette session de direct n'est plus active."}, 409)
+                return
             self.send_json({"actif": ENREGISTREMENT_DIRECT_ACTIF.is_set()})
             return
 
         if route == "/api/arreter-direct":
-            # Filet explicite pour la bascule d'une caméra à l'autre (voir
-            # DIRECT_WEBRTC_PC ci-dessus) : ferme la RTCPeerConnection du
-            # direct WebRTC en cours sans attendre qu'aiortc le remarque de
-            # lui-même, ce qu'il ne fait pas toujours. Best-effort à dessein :
-            # aucune caméra active, ou déjà en train de se refermer (pc.close()
-            # est idempotent), n'est pas une erreur.
-            pc = DIRECT_WEBRTC_PC.get("pc")
-            if pc is not None:
-                _journal_direct("arreter-direct", "fermeture explicite demandee")
-                try:
-                    BLINK.call(lambda _b, _pc=pc: _pc.close(), timeout=10)
-                except Exception as error:
-                    _journal_direct(
-                        "arreter-direct", f"echec de fermeture explicite, "
-                                          f"{type(error).__name__}: {error}"
-                    )
-            else:
-                _journal_direct("arreter-direct", "aucun direct WebRTC actif a fermer")
-            self.send_json({"ok": True})
+            session_id = str(payload.get("session_id") or "")
+            if not DIRECT_SESSION_ID.fullmatch(session_id):
+                self.send_json({"error": "Identifiant de session requis."}, 400)
+                return
+            arrete = _demander_arret_direct(session_id)
+            if arrete:
+                _journal_direct("arreter-direct", f"session {session_id[:8]}, fermeture demandée")
+            # L'attente éventuelle du polling Blink se poursuit sur sa boucle.
+            # /api/attente-module reste la confirmation de libération réelle.
+            self.send_json({"ok": True, "stopped": arrete, "session_id": session_id})
             return
 
         if route == "/api/update":

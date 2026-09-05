@@ -41,6 +41,7 @@ Ecueils reels rencontres en construisant ceci, tous geres ici :
   memes principes que LIVE_FIRST_FRAME_SECONDS/LIVE_MAX_SECONDS en MSE."""
 
 import asyncio
+from contextlib import suppress
 import time
 from fractions import Fraction
 from pathlib import Path
@@ -99,6 +100,7 @@ PREMIERE_IMAGE_MAX_SECONDS = 40
 # 20s chacun) plutot qu'une valeur inventee ici.
 SILENCE_FLUX_MAX_SECONDS = 20
 SESSION_MAX_SECONDS = 300
+FERMETURE_MAX_SECONDS = 10
 
 # Tampon de lecture (jitter buffer) avant d'emettre la toute premiere image,
 # puis chaque image suivante cadencee sur son PTS a partir de cette meme
@@ -115,6 +117,11 @@ SESSION_MAX_SECONDS = 300
 # aux cameras a pile) : plus simple, et Salon a largement la marge pour
 # l'absorber sans redevenir plus lent que MSE.
 TAMPON_LECTURE_SECONDS = 1.2
+# Garde-fou mémoire si le navigateur cesse de consommer les images. Ne pas
+# jeter arbitrairement des images H.264 : les suivantes peuvent en dépendre.
+FILE_IMAGES_MAX = 900
+FILE_IMAGES_MAX_OCTETS = 32 * 1024 * 1024
+TAMPON_ENREGISTREMENT_MAX_OCTETS = 8 * 1024 * 1024
 
 
 if DISPONIBLE:
@@ -165,16 +172,15 @@ if DISPONIBLE:
             self._pts_ancrage: Optional[int] = None
             self._unite_courante: list = []
             self._pts_courant = None
-            self._file: asyncio.Queue = asyncio.Queue()
+            self._file: asyncio.Queue = asyncio.Queue(maxsize=FILE_IMAGES_MAX)
+            self._file_octets = 0
             self.sps_pps = b""
             self.sps_pps_pret = asyncio.Event()
-            # Pose par negocier() une fois cree (n'existe pas encore ici :
-            # l'ordre est piste d'abord, pc une fois le SPS/PPS confirme).
-            # Necessaire pour qu'un silence prolonge (_lire, plus bas) puisse
-            # fermer la RTCPeerConnection elle-meme, pas seulement la piste :
-            # track.stop() seul ne fait pas transiter connectionState, aiortc
-            # continuerait de la croire "connected" indefiniment.
+            # Posés par negocier() après le SPS/PPS : toute fin du flux doit
+            # fermer aussi la connexion, car track.stop() ne suffit pas à
+            # faire transiter connectionState.
             self.pc = None
+            self._demander_fermeture = None
             # Enregistrement disque, optionnel et pilote par bouton : voir
             # _synchroniser_enregistrement. chemin_enregistrement est une
             # fonction (pas un chemin deja resolu) : chaque demarrage doit
@@ -189,6 +195,9 @@ if DISPONIBLE:
             self._recorder_process = None
             self._recorder_stdin = None
             self._recorder_demande = False
+            self._recorder_demarrage = None
+            self._recorder_attente = []
+            self._recorder_attente_octets = 0
             self._tache = asyncio.ensure_future(self._lire())
 
         async def _lire(self) -> None:
@@ -213,8 +222,6 @@ if DISPONIBLE:
                             f"flux Blink silencieux depuis "
                             f"{SILENCE_FLUX_MAX_SECONDS}s, fermeture"
                         )
-                        if self.pc is not None:
-                            asyncio.ensure_future(self.pc.close())
                         break
                     if not morceau:
                         break
@@ -222,7 +229,7 @@ if DISPONIBLE:
                         type_ = blink_ts_demux.type_nal(nal)
                         if type_ == 9 and self._unite_courante:
                             unite = b"".join(self._unite_courante)
-                            await self._file.put((self._pts_courant, unite))
+                            self._mettre_unite(self._pts_courant, unite)
                             self._synchroniser_enregistrement(unite)
                             self._unite_courante = []
                         if type_ == 9:
@@ -238,12 +245,30 @@ if DISPONIBLE:
                     f"{type(error).__name__}: {error}"
                 )
             finally:
-                if self._unite_courante:
-                    unite = b"".join(self._unite_courante)
-                    await self._file.put((self._pts_courant, unite))
-                    self._synchroniser_enregistrement(unite)
-                await self._file.put(None)  # sentinelle de fin
-                self._arreter_enregistrement()
+                # Toutes les fins du flux (EOF, reset, silence, annulation)
+                # doivent fermer aussi WebRTC ; arrêter la piste seule ne
+                # change pas connectionState et ne rend pas le module Blink.
+                try:
+                    self._arreter_enregistrement()
+                finally:
+                    self._terminer_file()
+                    if self._demander_fermeture is not None:
+                        self._demander_fermeture()
+
+        def _mettre_unite(self, pts, unite: bytes) -> None:
+            if (self._file.full()
+                    or self._file_octets + len(unite) > FILE_IMAGES_MAX_OCTETS):
+                raise RuntimeError("Le navigateur ne consomme plus le flux vidéo")
+            self._file.put_nowait((pts, unite))
+            self._file_octets += len(unite)
+
+        def _terminer_file(self) -> None:
+            # Libère les octets et réveille recv(), même si la lecture a été
+            # annulée avant son tout premier tour de boucle.
+            while not self._file.empty():
+                self._file.get_nowait()
+            self._file_octets = 0
+            self._file.put_nowait(None)
 
         async def recv(self):
             item = await self._file.get()
@@ -251,6 +276,7 @@ if DISPONIBLE:
                 self.stop()
                 raise MediaStreamError
             pts, donnees = item
+            self._file_octets -= len(donnees)
             if pts is None:
                 pts = int((time.monotonic() - self._t0) * 90000)
 
@@ -289,21 +315,44 @@ if DISPONIBLE:
             if self._enregistrement_actif is None or self._chemin_enregistrement is None:
                 return
             desire = self._enregistrement_actif()
-            if desire and not self._recorder_demande and self.sps_pps_pret.is_set():
+            if (desire and not self._recorder_demande
+                    and self.sps_pps_pret.is_set()
+                    and (self._recorder_demarrage is None
+                         or self._recorder_demarrage.done())):
+                # Un MP4 commencé par une image dépendante n'est pas
+                # décodable. Attendre le prochain IDR, sans réencoder.
+                depart = 0
+                while True:
+                    depart = unite.find(b"\x00\x00\x01", depart)
+                    if depart < 0:
+                        return
+                    depart += 3
+                    if depart < len(unite) and unite[depart] & 0x1F == 5:
+                        break
                 self._recorder_demande = True
-                # `unite` (celle qui declenche ce demarrage) est transmise a
-                # la fin de _demarrer_enregistrement, pas ici : le sous-
-                # processus n'a pas encore de stdin tant que ce await n'a
-                # pas rendu la main, donc _ecrire_enregistrement ci-dessous
-                # ne ferait rien pour elle (stdin encore None).
-                asyncio.ensure_future(self._demarrer_enregistrement(unite))
+                self._recorder_attente = [unite]
+                self._recorder_attente_octets = len(unite)
+                self._recorder_demarrage = asyncio.create_task(
+                    self._demarrer_enregistrement()
+                )
                 return
             elif not desire and self._recorder_demande:
                 self._arreter_enregistrement()
                 return  # deja arrete : rien a transmettre pour cette unite
+            if self._recorder_demande and self._recorder_stdin is None:
+                # create_subprocess_exec rend la main à la boucle : toutes
+                # les unités reçues dans cet intervalle doivent suivre l'IDR.
+                if (self._recorder_attente_octets + len(unite)
+                        > TAMPON_ENREGISTREMENT_MAX_OCTETS):
+                    self._journal("enregistrement arrêté : lancement trop lent")
+                    self._arreter_enregistrement()
+                    return
+                self._recorder_attente.append(unite)
+                self._recorder_attente_octets += len(unite)
+                return
             self._ecrire_enregistrement(unite)
 
-        async def _demarrer_enregistrement(self, premiere_unite: bytes) -> None:
+        async def _demarrer_enregistrement(self) -> None:
             """Lance un ffmpeg dedie qui remuxe (sans reencoder) le flux
             Annexe B deja demultiplexe ici vers un MP4 fragmente - meme
             format que /live-mse (frag_keyframe+empty_moov, serve.py), pour
@@ -315,12 +364,9 @@ if DISPONIBLE:
             l'enregistrement ralentit (disque lent...), il ne doit jamais
             ralentir _lire() ni donc le direct affiche au navigateur.
 
-            `premiere_unite` : l'unite d'acces qui a declenche cet appel
-            (voir _synchroniser_enregistrement) - un create_subprocess_exec
-            met quelques millisecondes a rendre la main, jamais zero ; sans
-            la retransmettre explicitement une fois le sous-processus pret,
-            elle serait perdue (aucun stdin pour la recevoir au moment ou
-            elle est arrivee)."""
+            Les unités arrivées pendant le lancement sont conservées dans
+            _recorder_attente, depuis un IDR et jusqu'à l'adoption du stdin.
+            """
             try:
                 chemin = self._chemin_enregistrement()
                 chemin.parent.mkdir(parents=True, exist_ok=True)
@@ -344,8 +390,10 @@ if DISPONIBLE:
                     f"{type(error).__name__}: {error}"
                 )
                 self._recorder_demande = False
+                self._recorder_attente.clear()
+                self._recorder_attente_octets = 0
                 return
-            if not self._recorder_demande:
+            if not self._recorder_demande or self.readyState == "ended":
                 # Arrete (bouton, ou piste fermee) pendant que ce sous-
                 # processus demarrait : personne n'en veut plus, ne pas
                 # l'adopter - juste le laisser sortir proprement.
@@ -357,23 +405,23 @@ if DISPONIBLE:
                 return
             self._recorder_process = processus
             self._recorder_stdin = processus.stdin
-            # Deja accumule au complet ici (appele juste apres
-            # sps_pps_pret.set()) : garantit que ce ffmpeg voit un SPS/PPS
-            # des son premier octet, puis l'unite qui a demande ce demarrage
-            # (cf. docstring) - rien entre les deux n'a ete perdu.
             self._ecrire_enregistrement(self.sps_pps)
-            self._ecrire_enregistrement(premiere_unite)
+            attente = self._recorder_attente
+            self._recorder_attente = []
+            self._recorder_attente_octets = 0
+            for unite in attente:
+                self._ecrire_enregistrement(unite)
 
         def _ecrire_enregistrement(self, donnees: bytes) -> None:
-            # write() sur un StreamWriter asyncio ne bloque pas (tampon
-            # interne) : un enregistreur lent ne peut donc pas faire
-            # attendre _lire(), seul await drain() le pourrait - jamais
-            # appele ici expres. Le pire cas (enregistreur bloque tout une
-            # session) reste borne par SESSION_MAX_SECONDS.
+            # write() ne bloque pas. Borner son tampon protège la mémoire
+            # si ffmpeg/disque cesse de consommer, sans ralentir le direct.
             stdin = self._recorder_stdin
             if stdin is None:
                 return
             try:
+                if (stdin.transport.get_write_buffer_size() + len(donnees)
+                        > TAMPON_ENREGISTREMENT_MAX_OCTETS):
+                    raise BufferError("tampon disque plein")
                 stdin.write(donnees)
             except Exception as error:
                 # Une seule ligne meme si _lire() rappelle _ecrire_enregistrement
@@ -383,10 +431,12 @@ if DISPONIBLE:
                     f"enregistrement disque interrompu (ecriture), "
                     f"{type(error).__name__}: {error}"
                 )
-                self._recorder_stdin = None
+                self._arreter_enregistrement()
 
         def _arreter_enregistrement(self) -> None:
             self._recorder_demande = False
+            self._recorder_attente.clear()
+            self._recorder_attente_octets = 0
             stdin = self._recorder_stdin
             self._recorder_stdin = None
             if stdin is not None:
@@ -400,12 +450,14 @@ if DISPONIBLE:
                 asyncio.ensure_future(_attendre_fin_enregistrement(processus))
 
         def fermer(self) -> None:
+            self.stop()
             self._tache.cancel()
+            self._terminer_file()
             try:
                 self._arreter_enregistrement()
             except Exception as error:
-                # Appelée depuis _sur_changement_etat() (negocier(), plus
-                # bas), avant `await on_close()` : une exception non
+                # Appelée depuis le nettoyage (negocier(), plus bas), avant
+                # `await on_close()` : une exception non
                 # rattrapée ici y interromprait la coroutine avant on_close,
                 # qui libère MODULE_SLOT - direct.log en a montré un cas
                 # réel (2026-09-04, "négocié" jamais suivi de "session
@@ -428,6 +480,7 @@ if DISPONIBLE:
         except Exception:
             try:
                 processus.kill()
+                await asyncio.wait_for(processus.wait(), timeout=5)
             except Exception:
                 pass
 
@@ -478,6 +531,19 @@ if DISPONIBLE:
         ]
 
 
+async def fermer_connexion(pc) -> None:
+    """Ferme WebRTC et attend la libération du flux Blink associé.
+
+    aiortc émet ses événements de fermeture sans attendre leurs coroutines.
+    pc.close() seul ne garantit donc pas que on_close() a terminé.
+    """
+    demander = getattr(pc, "_blink_demander_fermeture", None)
+    if demander is None:
+        await pc.close()
+    else:
+        await asyncio.shield(demander())
+
+
 async def negocier(
     stream_url: str, offer_sdp: str, offer_type: str,
     on_close: Callable[[], Awaitable[None]],
@@ -509,6 +575,49 @@ async def negocier(
     writer = None
     track = None
     pc = None
+    tache_plafond = None
+    tache_fermeture = None
+
+    async def _fermer_ressources() -> None:
+        # Cette tâche unique est protégée de l'annulation de negocier() et
+        # des demandes HTTP. Elle possède le nettoyage jusqu'à sa fin.
+        if tache_plafond is not None:
+            tache_plafond.cancel()
+        try:
+            if track is not None:
+                try:
+                    track.fermer()
+                except Exception as error:
+                    journal(f"fermeture piste : {type(error).__name__}: {error}")
+                with suppress(asyncio.CancelledError, Exception):
+                    await track._tache
+            if writer is not None:
+                try:
+                    writer.close()
+                    await asyncio.wait_for(writer.wait_closed(), timeout=5)
+                except Exception as error:
+                    journal(f"fermeture TCP : {type(error).__name__}: {error}")
+            if pc is not None:
+                try:
+                    await asyncio.wait_for(pc.close(), timeout=FERMETURE_MAX_SECONDS)
+                except Exception as error:
+                    journal(f"fermeture WebRTC : {type(error).__name__}: {error}")
+        finally:
+            await on_close()
+
+    def _demander_fermeture():
+        nonlocal tache_fermeture
+        if tache_fermeture is None:
+            tache_fermeture = asyncio.create_task(_fermer_ressources())
+            # Les fins spontanées (EOF/état failed) n'ont pas d'appelant
+            # attendant cette tâche : consommer et journaliser leur erreur.
+            def _fin(tache):
+                if not tache.cancelled() and tache.exception() is not None:
+                    error = tache.exception()
+                    journal(f"nettoyage WebRTC : {type(error).__name__}: {error}")
+            tache_fermeture.add_done_callback(_fin)
+        return tache_fermeture
+
     try:
         reader, writer = await asyncio.open_connection(host, int(port_str))
         track = _PisteH264(
@@ -519,9 +628,21 @@ async def negocier(
         # SPS/PPS - PREMIERE_IMAGE_MAX_SECONDS (40s, cf. plus haut), pas
         # NEGOCIATION_MAX_SECONDS (15s, pour la suite, purement locale).
         try:
-            await asyncio.wait_for(
-                track.sps_pps_pret.wait(), timeout=PREMIERE_IMAGE_MAX_SECONDS
-            )
+            attente_sps = asyncio.create_task(track.sps_pps_pret.wait())
+            try:
+                terminees, _ = await asyncio.wait(
+                    (attente_sps, track._tache),
+                    timeout=PREMIERE_IMAGE_MAX_SECONDS,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if not terminees:
+                    raise asyncio.TimeoutError
+                if track._tache.done():
+                    raise RuntimeError("Le flux Blink s'est arrêté avant la première image.")
+            finally:
+                attente_sps.cancel()
+                with suppress(asyncio.CancelledError):
+                    await attente_sps
         except asyncio.TimeoutError:
             # Sans ceci, l'utilisateur ne voyait qu'un "TimeoutError: " brut
             # (constate en reel, 2026-09-03) - RuntimeError s'affiche tel
@@ -540,21 +661,17 @@ async def negocier(
         # serveur sur le meme reseau local : aucun NAT a traverser, un STUN
         # n'a de toute facon rien a apporter ici.
         pc = RTCPeerConnection(configuration=RTCConfiguration(iceServers=[]))
-        track.pc = pc  # cf. _PisteH264.__init__ : permet a _lire() de fermer
-        ferme = False
+        track.pc = pc
+        track._demander_fermeture = _demander_fermeture
+        pc._blink_demander_fermeture = _demander_fermeture
 
         @pc.on("connectionstatechange")
-        async def _sur_changement_etat() -> None:
-            nonlocal ferme
+        def _sur_changement_etat() -> None:
             journal(f"connectionstatechange -> {pc.connectionState}")
-            if pc.connectionState in ("closed", "failed") and not ferme:
-                ferme = True
-                track.fermer()
-                try:
-                    writer.close()
-                except Exception:
-                    pass
-                await on_close()
+            if pc.connectionState in ("closed", "failed"):
+                # Ne pas attendre pc.close() depuis son propre événement :
+                # aiortc peut encore être en train de fermer les transports.
+                _demander_fermeture()
 
         sender = pc.addTrack(track)
         profil = _profile_level_id(track.sps_pps)
@@ -580,31 +697,23 @@ async def negocier(
         # laisse MODULE_SLOT/le verrou disque tenus indefiniment - deja
         # observe en reel (cf. BACKLOG.md) : aucun connectionstatechange
         # n'arrive jamais si la negociation elle-meme ne se termine jamais.
-        await asyncio.wait_for(
-            pc.setRemoteDescription(
+        async def _echanger_sdp():
+            await pc.setRemoteDescription(
                 RTCSessionDescription(sdp=offer_sdp, type=offer_type)
-            ),
-            timeout=NEGOCIATION_MAX_SECONDS,
-        )
-        answer = await asyncio.wait_for(
-            pc.createAnswer(), timeout=NEGOCIATION_MAX_SECONDS
-        )
+            )
+            answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+
         await asyncio.wait_for(
-            pc.setLocalDescription(answer), timeout=NEGOCIATION_MAX_SECONDS
+            _echanger_sdp(), timeout=NEGOCIATION_MAX_SECONDS
         )
-    except Exception:
-        if track is not None:
-            track.fermer()
-        if writer is not None:
-            try:
-                writer.close()
-            except Exception:
-                pass
-        if pc is not None:
-            try:
-                await pc.close()
-            except Exception:
-                pass
+        if tache_fermeture is not None:
+            raise RuntimeError("Le flux Blink s'est arrêté pendant la négociation.")
+    except (Exception, asyncio.CancelledError):
+        # CancelledError n'hérite pas d'Exception. L'expiration du budget
+        # extérieur doit aussi fermer le TCP et rendre le module.
+        with suppress(Exception):
+            await asyncio.shield(_demander_fermeture())
         raise
 
     # Deuxieme filet, une fois la negociation reussie : une session qui ne
@@ -618,8 +727,8 @@ async def negocier(
                 f"filet de {SESSION_MAX_SECONDS}s declenche, connectionState "
                 f"restait a {pc.connectionState!r}"
             )
-            await pc.close()  # declenche connectionstatechange -> on_close
+            await fermer_connexion(pc)
 
-    asyncio.ensure_future(_plafond_duree())
+    tache_plafond = asyncio.create_task(_plafond_duree())
 
     return pc, pc.localDescription.sdp, pc.localDescription.type
