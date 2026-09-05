@@ -351,7 +351,7 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
             and md.valid_mp4_complet(target)
             and not args.overwrite
         ):
-            blink_registre.remember_download(state, sync, args.hub or "cloud", clip, output,
+            blink_registre.remember_download(state, sync, args.hub or "", clip, output,
                               target, source="cloud")
             blink_registre.save_download_state(output, state)
             adopted += 1
@@ -416,7 +416,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                 and not args.overwrite
             ):
                 blink_registre.remember_download(
-                    state, sync, args.hub or "cloud", clip, output, target,
+                    state, sync, args.hub or "", clip, output, target,
                     source="cloud",
                 )
                 blink_registre.save_download_state(output, state)
@@ -428,7 +428,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                 if telecharge and md.valid_mp4_complet(partiel):
                     partiel.replace(target)
                     blink_registre.remember_download(
-                        state, sync, args.hub or "cloud", clip, output, target,
+                        state, sync, args.hub or "", clip, output, target,
                         source="cloud",
                     )
                     blink_registre.save_download_state(output, state)

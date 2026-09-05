@@ -287,32 +287,21 @@ def provenances(entrees: dict) -> dict:
 
 
 def suppression_auto_choices(entrees: dict) -> list:
-    """Caméras réglables, indexées par leur identité persistée et non leur nom."""
+    """Caméras réglables, indexées par leur identité persistée et non leur nom.
+
+    Usage interne uniquement (résolution nom -> clé(s) pour la route
+    /api/suppression-auto) : la page n'affiche jamais ces clés, seulement le
+    nom des caméras actuelles (état de watch.py)."""
     choices = {}
     for entry in entrees.values():
         if not isinstance(entry, dict) or not entry.get("camera"):
             continue
         key = blink_registre.camera_setting_key_from_entry(entry)
-        choice = choices.setdefault(key, {
+        choices.setdefault(key, {
             "key": key,
             "name": str(entry.get("camera") or "camera").strip() or "camera",
-            "sources": set(),
-            "hubs": set(),
         })
-        choice["sources"].add(str(entry.get("source") or "usb"))
-        if entry.get("hub"):
-            choice["hubs"].add(str(entry["hub"]))
-    result = []
-    for choice in choices.values():
-        result.append({
-            "key": choice["key"],
-            "name": choice["name"],
-            "detail": " · ".join([
-                " + ".join(ETIQUETTES_SOURCE.get(s, s)
-                           for s in sorted(choice["sources"])),
-                ", ".join(sorted(choice["hubs"])),
-            ]).strip(" ·"),
-        })
+    result = list(choices.values())
     return sorted(result, key=lambda item: (item["name"].casefold(), item["key"]))
 
 
@@ -2588,38 +2577,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/suppression-auto":
-            # Toutes les caméras connues, qu'elles viennent de la clé ou du
-            # cloud de l'abonnement : selon la source du clip téléchargé,
-            # blink_engine.py supprime du Sync Module ou du cloud (issue
-            # GitHub #1, voir runtime.lire_suppression_auto()).
-            entrees = read_entries(self.paths)
-            choices = suppression_auto_choices(entrees)
-            actives = suppression_auto_keys()
-
-            # Migration sûre de l'ancien fichier qui ne contenait que des
-            # noms : un nom unique peut être relié sans ambiguïté à sa clé.
-            # Les homonymes restent volontairement désactivés ; mieux vaut
-            # demander un nouveau choix que supprimer sur la mauvaise caméra.
-            anciennes = {
-                value for value in runtime.lire_suppression_auto()
-                if not value.startswith("camera-v2-")
-            }
-            by_name = {}
-            for choice in choices:
-                by_name.setdefault(choice["name"], []).append(choice["key"])
-            migrated = set(actives)
-            ignored = []
-            for name in anciennes:
-                keys = by_name.get(name, [])
-                if len(keys) == 1:
-                    migrated.add(keys[0])
-                else:
-                    ignored.append(name)
-            if anciennes:
-                runtime.ecrire_suppression_auto(migrated)
-                actives = migrated
-            self.send_json({"cameras": choices, "actives": sorted(actives),
-                            "legacy_ignored": sorted(ignored)})
+            # Les caméras proposées sont celles de l'activité en cours
+            # (dernier état de watch.py), pas l'historique cumulé du
+            # registre de téléchargement : une caméra dont la clé interne a
+            # changé au fil du temps (Sync Module remplacé, network_id
+            # absent des vieux clips USB - blinkpy 0.25 n'expose pas de
+            # device_id sur l'USB) y apparaissait sinon en double, sous des
+            # libellés internes illisibles pour l'utilisateur. La
+            # résolution nom -> clé(s) (camera-v2-*, suppression_auto_choices
+            # ci-dessus) reste un détail interne, jamais exposé ici.
+            etat = md.load_json(watch.WATCH_STATE, {})
+            noms = sorted((etat.get("cameras") or {}).keys(), key=str.casefold)
+            choix_internes = suppression_auto_choices(read_entries(self.paths))
+            actives_keys = suppression_auto_keys()
+            cameras = []
+            actives = []
+            for nom in noms:
+                cible = nom.strip().casefold()
+                cles = [c["key"] for c in choix_internes
+                       if c["name"].strip().casefold() == cible]
+                cameras.append({"name": nom})
+                if any(cle in actives_keys for cle in cles):
+                    actives.append(nom)
+            self.send_json({"cameras": cameras, "actives": actives})
             return
 
         if route == "/api/clips":
@@ -3385,20 +3365,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == "/api/suppression-auto":
             camera = str(payload.get("camera", "")).strip()
             actif = bool(payload.get("actif"))
-            autorisees = {
-                choice["key"]
-                for choice in suppression_auto_choices(read_entries(self.paths))
-            }
-            if not camera or camera not in autorisees:
-                self.send_json({"error": "Identifiant de caméra inconnu."}, 400)
+            etat = md.load_json(watch.WATCH_STATE, {})
+            noms_actuels = {nom.strip().casefold() for nom in (etat.get("cameras") or {})}
+            if not camera or camera.casefold() not in noms_actuels:
+                self.send_json({"error": "Caméra inconnue."}, 400)
                 return
+            # Le nom identifie la caméra côté page ; sa ou ses clés internes
+            # (camera-v2-*, suppression_auto_choices ci-dessus) sont
+            # résolues ici, jamais exposées au navigateur.
+            cles = {
+                choice["key"] for choice in suppression_auto_choices(read_entries(self.paths))
+                if choice["name"].strip().casefold() == camera.casefold()
+            }
             # Pas de redémarrage : un_passage() (blink_engine.py) relit ce
             # fichier à chaque tour, même principe que runtime.lire_langue().
             cameras = suppression_auto_keys()
             if actif:
-                cameras.add(camera)
+                cameras |= cles
             else:
-                cameras.discard(camera)
+                cameras -= cles
             runtime.ecrire_suppression_auto(cameras)
             self.send_json({"ok": True})
             return

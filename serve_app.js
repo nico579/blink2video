@@ -2489,9 +2489,11 @@ async function chargerSourdine() {
 }
 
 // Même motif que chargerSourdine() : chaque case s'applique tout de suite,
-// pas de redémarrage. Liste distincte (issue GitHub #1) : seules les
-// caméras vues sur la clé USB ont un sens ici, le cloud de l'abonnement
-// n'est jamais concerné par cette suppression.
+// pas de redémarrage. Une caméra peut porter plusieurs clés internes au fil
+// du temps (Sync Module remplacé, vieux clips USB sans identifiant stable -
+// issue GitHub #1) : la page n'affiche que son nom, la résolution
+// nom -> clé(s) est réglée côté serveur (suppression_auto_choices() dans
+// serve.py), jamais ici.
 async function chargerSuppressionAuto() {
   const conteneur = $("suppressionAutoListe");
   conteneur.textContent = t("suppressionAuto.loading");
@@ -2511,13 +2513,13 @@ async function chargerSuppressionAuto() {
     const label = document.createElement("label");
     const case_ = document.createElement("input");
     case_.type = "checkbox";
-    case_.checked = etat.actives.includes(camera.key);
+    case_.checked = etat.actives.includes(camera.name);
     case_.onchange = async () => {
       case_.disabled = true;
       try {
         const reponse = await fetch("/api/suppression-auto", { method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ camera: camera.key, actif: case_.checked }) });
+          body: JSON.stringify({ camera: camera.name, actif: case_.checked }) });
         const resultat = await lireJSON(reponse);
         if (resultat.error) {
           alert(resultat.error);
@@ -2531,7 +2533,7 @@ async function chargerSuppressionAuto() {
       }
     };
     label.appendChild(case_);
-    label.append(` ${camera.name}${camera.detail ? ` · ${camera.detail}` : ""}`);
+    label.append(` ${camera.name}`);
     conteneur.appendChild(label);
   }
 }
