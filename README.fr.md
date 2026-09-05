@@ -84,9 +84,11 @@ Les réglages, derrière l'icône engrenage : démarrage automatique à
 l'ouverture de session, actualisation automatique de la page, port du
 serveur, dossier des données avec un sélecteur natif, et cadence de lecture
 du stockage local et du cloud. Aussi l'horodatage incrusté dans l'image, le
-fuseau horaire, l'archivage quotidien/hebdomadaire/mensuel activable
-indépendamment, la mise en sourdine des alertes par caméra, et un bouton
-pour arrêter toute la surveillance sans passer par le mode CLI.
+fuseau horaire, le protocole du direct (WebRTC ou MSE), l'archivage
+quotidien/hebdomadaire/mensuel activable indépendamment, la mise en
+sourdine des alertes par caméra, la suppression automatique après
+téléchargement par caméra, et un bouton pour arrêter toute la surveillance
+sans passer par le mode CLI.
 
 ## Démarrer
 

@@ -74,9 +74,10 @@ remembered between visits.
 Settings, behind the gear icon: automatic startup with the session, automatic
 page refresh, server port, data folder with a native folder picker, and local
 storage and cloud polling cadence. Also timestamp burned into the picture,
-time zone, daily/weekly/monthly archiving toggled independently per period,
-per-camera alert muting, and a button to stop the whole thing without
-touching the command line.
+time zone, the live view protocol (WebRTC or MSE), daily/weekly/monthly
+archiving toggled independently per period, per-camera alert muting,
+automatic deletion after download per camera, and a button to stop the
+whole thing without touching the command line.
 
 ## Getting started
 
