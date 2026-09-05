@@ -28,6 +28,17 @@ import runtime  # noqa: E402 - environnement de test posé avant import
 import serve  # noqa: E402 - bootstrap neutralisé avant import
 
 
+def _est_commande_merge(commande: list) -> bool:
+    """Vrai pour un appel de runtime.lancer() qui lance la fusion.
+
+    self_command() (runtime.py) n'ajoute le verbe "merge" comme argument isolé
+    qu'en bundle figé (PyInstaller) ; hors bundle, seul le chemin du module
+    dédié apparaît (".../merge_daily.py") - chercher "merge" comme élément
+    exact de la liste, plutôt que comme sous-chaîne d'un des arguments, ne
+    matchait donc jamais en environnement de test."""
+    return any("merge" in str(arg) for arg in commande)
+
+
 class TestAppliquerSelectionRespecteLesReglages(unittest.TestCase):
     def setUp(self) -> None:
         self.temporaire = tempfile.TemporaryDirectory(prefix="blink_selection_reglages_test_")
@@ -98,6 +109,20 @@ class TestAppliquerSelectionRespecteLesReglages(unittest.TestCase):
             time.sleep(0.1)
         self.fail("l'exclusion n'a jamais été appliquée en arrière-plan")
 
+    def attendre_commande_merge(self) -> list:
+        """Dernier appel dont la commande contient "merge" : runtime.lancer
+        sert aussi, sous Unix, à identite_processus() pour le verrou du
+        registre (ps -o lstart=), qui peut survenir avant OU après l'appel
+        merge lui-même (constaté en réel : macos-latest, 2026-09-05) -
+        jamais lui qu'il faut retenir ici."""
+        for _ in range(30):
+            commandes_merge = [appel.args[0] for appel in self.appels_lancer.call_args_list
+                               if appel.args and _est_commande_merge(appel.args[0])]
+            if commandes_merge:
+                return commandes_merge[-1]
+            time.sleep(0.1)
+        self.fail("merge --camera/--date n'a jamais été lancé")
+
     def test_quotidienne_decochee_ne_reconstruit_rien(self):
         with mock.patch.object(
             runtime, "lire_reglages",
@@ -115,7 +140,7 @@ class TestAppliquerSelectionRespecteLesReglages(unittest.TestCase):
         # declenche par l'exclusion elle-meme). Seule une commande "merge"
         # doit etre absente.
         commandes_merge = [appel.args[0] for appel in self.appels_lancer.call_args_list
-                           if appel.args and "merge" in appel.args[0]]
+                           if appel.args and _est_commande_merge(appel.args[0])]
         self.assertEqual(commandes_merge, [],
                          "reconstruction lancee alors que Quotidienne est decochee")
 
@@ -127,13 +152,7 @@ class TestAppliquerSelectionRespecteLesReglages(unittest.TestCase):
             handler = self.construire_handler()
             self.ecarter(handler)
             self.attendre_exclusion_appliquee()
-            for _ in range(30):
-                if self.appels_lancer.called:
-                    break
-                time.sleep(0.1)
-            else:
-                self.fail("merge --camera/--date n'a jamais été lancé")
-        commande = self.appels_lancer.call_args.args[0]
+            commande = self.attendre_commande_merge()
         self.assertIn("--no-timestamp", commande)
 
     def test_incrustation_cochee_omet_no_timestamp(self):
@@ -144,13 +163,7 @@ class TestAppliquerSelectionRespecteLesReglages(unittest.TestCase):
             handler = self.construire_handler()
             self.ecarter(handler)
             self.attendre_exclusion_appliquee()
-            for _ in range(30):
-                if self.appels_lancer.called:
-                    break
-                time.sleep(0.1)
-            else:
-                self.fail("merge --camera/--date n'a jamais été lancé")
-        commande = self.appels_lancer.call_args.args[0]
+            commande = self.attendre_commande_merge()
         self.assertNotIn("--no-timestamp", commande)
 
 
