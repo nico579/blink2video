@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vérifie les garde-fous statiques du bundle expérimental Windows 7."""
+"""Vérifie les garde-fous statiques du bundle legacy Windows 7."""
 
 from __future__ import annotations
 

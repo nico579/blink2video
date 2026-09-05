@@ -1,8 +1,8 @@
-# Édition expérimentale Windows 7
+# Édition legacy Windows 7
 
 Le bundle Windows normal embarque Python 3.12, qui ne fonctionne pas sous
 Windows 7 et provoque notamment l'erreur
-`api-ms-win-core-path-l1-1-0.dll manquant`. L'édition expérimentale utilise le
+`api-ms-win-core-path-l1-1-0.dll manquant`. L'édition legacy utilise le
 dernier runtime officiel adapté à Windows 7 : **CPython 3.8.10 x64**.
 
 Elle embarque le code actuel de `blinkpy 0.25.9`. Seules les métadonnées de sa
@@ -23,13 +23,13 @@ racines récentes ne sont plus distribuées à cette ancienne installation.
 
 Le workflow `build-win7.yml` tourne automatiquement à chaque poussée sur
 `main`, aux côtés des contrôles des éditions normales. Il peut aussi être
-lancé à la main dans GitHub via **Actions → Build Windows 7 (experimental)
+lancé à la main dans GitHub via **Actions → Build Windows 7 (legacy)
 → Run workflow** ; l'artefact téléchargeable s'appelle alors
-`blink2video-windows7-x86_64-experimental`.
+`blink2video-windows7-x86_64-legacy`.
 
 La même recette est réutilisée (`workflow_call`) par `release.yml` : à chaque
 étiquette de release stable `vX.Y.Z`, le zip
-`blink2video-windows7-x86_64-experimental.zip` est publié comme asset
+`blink2video-windows7-x86_64-legacy.zip` est publié comme asset
 supplémentaire de la [dernière release](https://github.com/nico579/blink2video/releases/latest),
 au même tag que les trois éditions normales, plutôt que sur un tag ou une
 numérotation `experimental.N` séparés. Chaque build est vérifié
@@ -83,7 +83,7 @@ blink2video.exe merge
 blink2video.exe serve
 ```
 
-`--version` doit contenir `Windows 7 experimental`. Vérifier ensuite le 2FA, le
+`--version` doit contenir `Windows 7 legacy`. Vérifier ensuite le 2FA, le
 téléchargement USB Gen2 et cloud, le direct, puis `start`, `stop` et
 `autostart`. Pour l'interface, utiliser Firefox ESR 115 ou Chromium 109 ; IE11
 n'est pas une cible.

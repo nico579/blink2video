@@ -134,7 +134,7 @@ class Windows7BuildTests(unittest.TestCase):
 
     def test_normal_windows_never_selects_legacy_asset(self):
         assets = [
-            {"name": "blink2video-windows7-x86_64-experimental.zip",
+            {"name": "blink2video-windows7-x86_64-legacy.zip",
              "browser_download_url": "legacy", "size": 1},
             {"name": "blink2video-windows-x86_64.zip",
              "browser_download_url": "normal", "size": 2},

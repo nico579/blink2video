@@ -14,7 +14,7 @@ name: Release (build 3 OS)
 #   blink2video-windows-x86_64.zip
 #   blink2video-linux-x86_64.tar.gz
 #   blink2video-macos-arm64.zip
-#   blink2video-windows7-x86_64-experimental.zip
+#   blink2video-windows7-x86_64-legacy.zip
 
 on:
   push:
@@ -155,11 +155,11 @@ jobs:
 
   # Meme recette que le CI continu sur main (voir build-win7.yml), construite
   # ici pour l'etiquette de la release plutot que pour la HEAD de main. Best
-  # effort par nature (edition experimentale, hors support Microsoft) : un
+  # effort par nature (edition legacy, hors support Microsoft) : un
   # echec ici ne doit pas retenir les trois bundles stables, d'ou le job
   # separe et le "if" de publish plus bas, meme raisonnement que pour docker.
   build-win7:
-    name: build Windows 7 (experimental)
+    name: build Windows 7 (legacy)
     needs: version
     uses: ./.github/workflows/build-win7.yml
     with:
@@ -227,7 +227,7 @@ jobs:
     needs: [build, build-win7]
     # Sans always(), GitHub saute implicitement tout job dont une dependance a
     # echoue, avant meme d'evaluer needs.build.result. Win7 reste donc attendu
-    # pour recuperer son artefact s'il existe, mais son echec experimental ne
+    # pour recuperer son artefact s'il existe, mais son echec legacy ne
     # retient plus les trois editions stables.
     if: ${{ always() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest

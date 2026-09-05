@@ -91,9 +91,8 @@ unpack it. ffmpeg travels inside the bundle; nothing is installed system-wide.
 | Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, then `./blink2video` |
 | macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, then `./blink2video` |
 
-Windows 7 SP1 x64 has a [separate experimental build](WINDOWS7.en.md). Its
-[experimental.3 prerelease](https://github.com/nico579/blink2video/releases/tag/v0.9.16-win7-experimental.3)
-has been validated on a real installation.
+Windows 7 SP1 x64 has a [separate legacy build](WINDOWS7.en.md), published
+alongside every [release](https://github.com/nico579/blink2video/releases/latest).
 
 **2. Run it.** Double-click the executable (or `./blink2video` from a terminal).
 No arguments needed: with no valid session yet, a browser tab opens by itself on

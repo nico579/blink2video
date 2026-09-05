@@ -640,7 +640,7 @@ def build_windows7() -> bool:
 
 def version_affichee() -> str:
     """Version numérique stable, complétée par la saveur du bundle legacy."""
-    suffixe = " (Windows 7 experimental)" if build_windows7() else ""
+    suffixe = " (Windows 7 legacy)" if build_windows7() else ""
     return VERSION + suffixe
 
 

@@ -103,9 +103,8 @@ système.
 | Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, puis `./blink2video` |
 | macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, puis `./blink2video` |
 
-Windows 7 SP1 x64 dispose d'une [édition expérimentale séparée](WINDOWS7.md),
-dont la [préversion experimental.3](https://github.com/nico579/blink2video/releases/tag/v0.9.16-win7-experimental.3)
-a été validée sur une installation réelle.
+Windows 7 SP1 x64 dispose d'une [édition legacy séparée](WINDOWS7.md), publiée
+aux côtés de chaque [release](https://github.com/nico579/blink2video/releases/latest).
 
 **2. Le lancer.** Double-clic sur l'exécutable (ou `./blink2video` depuis un
 terminal). Aucun argument nécessaire : sans session valide, un onglet s'ouvre

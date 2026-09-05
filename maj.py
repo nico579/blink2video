@@ -62,7 +62,7 @@ VERSION_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 UPDATE_HOST_SUFFIXES = ("github.com", "githubusercontent.com")
 MESSAGE_WINDOWS7 = (
     "Mise à jour automatique désactivée pour l'édition Windows 7 "
-    "expérimentale : une archive Windows standard réinstallerait Python 3.12 "
+    "legacy : une archive Windows standard réinstallerait Python 3.12 "
     "et ne démarrerait plus sur ce système."
 )
 

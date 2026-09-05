@@ -1,4 +1,4 @@
-name: Build Windows 7 (experimental)
+name: Build Windows 7 (legacy)
 
 # Le code applicatif est commun avec l'édition stable ; seuls le runtime, les
 # dépendances et les répertoires de construction de ce profil legacy diffèrent.
@@ -108,10 +108,10 @@ jobs:
 
       - name: Empaqueter
         shell: pwsh
-        run: Compress-Archive -Path dist-win7\blink2video -DestinationPath dist-win7\blink2video-windows7-x86_64-experimental.zip
+        run: Compress-Archive -Path dist-win7\blink2video -DestinationPath dist-win7\blink2video-windows7-x86_64-legacy.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: blink2video-windows7-x86_64-experimental
-          path: dist-win7/blink2video-windows7-x86_64-experimental.zip
+          name: blink2video-windows7-x86_64-legacy
+          path: dist-win7/blink2video-windows7-x86_64-legacy.zip
           retention-days: 30
