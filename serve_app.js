@@ -676,6 +676,14 @@ let dernierRechargementAuto = 0;
 function rechargerEnArrierePlan() {
   const maintenant = Date.now();
   if (maintenant - dernierRechargementAuto < 60000) return;
+  // load() remet à zéro toute sélection Écarter/Supprimer non encore
+  // appliquée (voir son commentaire) : correct pour un rechargement voulu
+  // par l'utilisateur, mais ici l'appelant est un événement de fond (fin de
+  // travail suivi, nouveaux clips détectés) sans rapport avec ce qu'il est
+  // en train de faire. Reporter au lieu d'écraser en silence ; le prochain
+  // passage de heuresDePassage()/montrerTravail() retentera.
+  const { exclure, inclure, supprimer } = calculerSelection();
+  if (exclure.length + inclure.length + supprimer.length > 0) return;
   dernierRechargementAuto = maintenant;
   load();
 }
