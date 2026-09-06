@@ -452,6 +452,19 @@ def _trouver_entree(state: dict, sync, clip,
     return meilleur[1], meilleur[2]
 
 
+def _hub_compatible(entry: dict, sync) -> bool:
+    """Faux seulement si les deux hubs sont connus et clairement différents.
+
+    _meme_camera() compare des network_id, absents des vieilles entrées USB
+    (blinkpy 0.25 ne les exposait pas) : sans second signal, le rapprochement
+    retombe alors sur le seul nom de caméra et confondrait deux hubs
+    homonymes. Le nom de hub, lui, est renseigné dès le premier
+    remember_download() et reste disponible sur ces mêmes vieilles entrées."""
+    hub_connu = str(entry.get("hub") or "").strip().casefold()
+    hub_courant = str(getattr(sync, "name", "") or "").strip().casefold()
+    return not hub_connu or not hub_courant or hub_connu == hub_courant
+
+
 def _apparier_registre(state: dict, sync, clips: list,
                        index: _IndexRegistre | None = None) -> dict:
     """Associe en lot chaque clip USB à au plus une entrée du registre."""
@@ -465,7 +478,7 @@ def _apparier_registre(state: dict, sync, clips: list,
     tombstones = [
         (cle, entry, connu)
         for cle, entry, connu, _ in index.valides
-        if entry.get("excluded")
+        if entry.get("excluded") and _hub_compatible(entry, sync)
     ]
     if tombstones:
         paires_exclues = _apparier_evenements(
@@ -504,6 +517,7 @@ def _apparier_registre(state: dict, sync, clips: list,
         (cle, entry, connu)
         for cle, entry, connu, _ in index.valides
         if cle not in cles_prises and not entry.get("excluded")
+        and _hub_compatible(entry, sync)
     ]
     if not entrees or not restants:
         return correspondances
