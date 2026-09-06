@@ -1597,6 +1597,7 @@ def _executer(args) -> int:
         print(f"Normalisation : {total} clip(s) à encoder")
     for (camera, day), (target, entries) in sorted(plan.items(), key=lambda i: i[0]):
         keys, segments = [], []
+        journee_incomplete = False
         for identity, info, key in entries:
             report = None
             if identity in pending:
@@ -1613,6 +1614,12 @@ def _executer(args) -> int:
             if not ok:
                 print(f"    Échec : {error}")
                 failed += 1
+                # Une journée dont un seul clip échoue à normaliser ne doit
+                # pas voir sa liste de segments amputée servir quand même à
+                # l'assemblage (étape 3) : ça remplacerait une journalière
+                # complète par une version partielle, silencieusement plus
+                # courte. journee_incomplete bloque cet assemblage.
+                journee_incomplete = True
                 continue
             encoded += did_encode
             reused += not did_encode
@@ -1632,7 +1639,7 @@ def _executer(args) -> int:
                 # chaque fois.
                 save_json(registry_path, registry)
 
-        normalized[(camera, day)] = (keys, segments)
+        normalized[(camera, day)] = (keys, segments, journee_incomplete)
         save_json(registry_path, registry)
 
     print(f"Normalisation : {encoded} clip(s) encodé(s), {reused} réutilisé(s).")
@@ -1640,7 +1647,7 @@ def _executer(args) -> int:
     # Étape 3 : assemblage des journalières, par simple copie de flux.
     built = skipped = 0
     todo = sorted(normalized.items(), key=lambda item: item[0])
-    for index, ((camera, day), (keys, segments)) in enumerate(todo, start=1):
+    for index, ((camera, day), (keys, segments, journee_incomplete)) in enumerate(todo, start=1):
         camera_path = safe_name(camera)
         destination = output_dir / camera_path / f"{day}_{camera_path}.mp4"
         state_key = f"{camera}|{day}"
@@ -1662,6 +1669,15 @@ def _executer(args) -> int:
                 merge_state["groups"].pop(state_key, None)
                 save_json(merge_state_path, merge_state)
                 print(f"Supprimée (plus aucun clip) : {destination.name}")
+            continue
+        if journee_incomplete:
+            # Au moins un clip de cette journée a échoué à normaliser :
+            # segments est amputé par rapport aux clips réellement présents,
+            # l'assembler remplacerait une journalière complète par une
+            # version partielle plus courte, silencieusement. failed est déjà
+            # compté (étape 2) ; la journée reste à jour et sera retentée au
+            # prochain passage, comme un échec total (voir plus haut).
+            print(f"  Reportée (encodage partiel) : {destination.name}")
             continue
         fingerprint = group_fingerprint(keys)
         previous = merge_state["groups"].get(state_key, {})
