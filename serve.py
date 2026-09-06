@@ -1176,6 +1176,7 @@ class LoginFlow:
         self.loop = None
         self.future = None
         self.queue = None
+        self._ferme = None
         self.asked = threading.Event()
         # Singleton sur Handler (ThreadingHTTPServer, un thread par requête) :
         # deux /api/login qui se chevauchent (page rafraîchie par impatience
@@ -1190,8 +1191,9 @@ class LoginFlow:
             self.loop = asyncio.new_event_loop()
             threading.Thread(target=self._serve, daemon=True).start()
             self.asked.clear()
+            self._ferme = threading.Event()
             self.future = asyncio.run_coroutine_threadsafe(
-                self._login(username, password), self.loop
+                self._login(username, password, self._ferme), self.loop
             )
             future = self.future
         return self.wait(future)
@@ -1200,7 +1202,7 @@ class LoginFlow:
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
 
-    async def _login(self, username: str, password: str) -> dict:
+    async def _login(self, username: str, password: str, ferme: threading.Event) -> dict:
         self.queue = asyncio.Queue()
 
         async def ask_code(attempt: int) -> str:
@@ -1208,13 +1210,26 @@ class LoginFlow:
             return await self.queue.get()
 
         try:
-            async with blink_auth.session_http_temporaire() as session:
-                blink = await blink_auth.login(session, username, password, ask_code)
-        except Exception as error:  # remonter la cause plutôt que planter le serveur
-            return {"status": "error", "message": f"{type(error).__name__}: {error}"}
-        if blink is None:
-            return {"status": "error", "message": "Identifiants ou code refusés."}
-        return {"status": "ok"}
+            try:
+                async with blink_auth.session_http_temporaire() as session:
+                    blink = await blink_auth.login(session, username, password, ask_code)
+            except Exception as error:  # remonter la cause plutôt que planter le serveur
+                return {"status": "error", "message": f"{type(error).__name__}: {error}"}
+            if blink is None:
+                return {"status": "error", "message": "Identifiants ou code refusés."}
+            return {"status": "ok"}
+        finally:
+            # Signale la fin RÉELLE du nettoyage (fermeture de la session HTTP
+            # comprise), indépendamment de l'état du concurrent.futures.Future
+            # renvoyé par run_coroutine_threadsafe : ce dernier passe à
+            # "cancelled" de façon synchrone dès l'appel .cancel(), avant même
+            # que la boucle ait rendu la main à la tâche annulée pour dérouler
+            # ce bloc (constaté empiriquement : cancelled() devient True en
+            # 0 ms, ce finally s'exécute une fraction de seconde plus tard).
+            # _arreter_session_courante() attend cet événement plutôt que
+            # future.result() pour savoir quand couper la boucle sans
+            # trancher ce nettoyage à mi-chemin.
+            ferme.set()
 
     def submit_code(self, code: str) -> dict:
         with self._verrou:
@@ -1256,9 +1271,31 @@ class LoginFlow:
                 self._arreter_session_courante()
 
     def _arreter_session_courante(self) -> None:
+        if self.future is not None and not self.future.done():
+            ferme = self._ferme
+            self.future.cancel()
+            # future.done()/.cancelled() passe à True de façon SYNCHRONE dès
+            # cet appel, bien avant que la tâche asyncio sous-jacente n'ait pu
+            # dérouler son annulation (elle ne reprend qu'au prochain tour de
+            # la boucle, dans l'autre thread) : attendre future.result() ici
+            # ne garantit donc rien sur l'état réel de la coroutine (constaté
+            # empiriquement : cancelled() vaut True en 0 ms, alors que le
+            # ``finally`` de _login, qui ferme la session HTTP, ne s'exécute
+            # qu'une fraction de seconde plus tard). ``ferme`` est le seul
+            # signal fiable de cette fin réelle ; sans l'attendre, loop.stop()
+            # coupait ce nettoyage à mi-chemin, laissant la session HTTP
+            # ouverte et la tâche jamais vraiment terminée (constaté en réel :
+            # recommencer une connexion pendant qu'une précédente attend son
+            # code de vérification).
+            if ferme is not None:
+                ferme.wait(timeout=5)
+            try:
+                self.future.result(timeout=0)
+            except (Exception, asyncio.CancelledError):
+                pass
         if self.loop is not None:
             self.loop.call_soon_threadsafe(self.loop.stop)
-        self.loop, self.future, self.queue = None, None, None
+        self.loop, self.future, self.queue, self._ferme = None, None, None, None
 
 
 BLINK = BlinkSession()
