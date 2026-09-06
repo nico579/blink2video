@@ -88,6 +88,21 @@ HEADING = re.compile(r"^=== (.+?) ===$")
 # le nombre de cœurs est un plafond raisonnable, pas un risque comparable.
 THUMB_SLOTS = threading.Semaphore(min(8, os.cpu_count() or 4))
 
+# Un verrou par miniature, pas un seul global qui sérialiserait toutes les
+# vignettes de toutes les caméras entre elles : sans lui, deux requêtes
+# concurrentes pour LA MÊME miniature (deux onglets sur la même page)
+# partagent le même fichier temporaire clip.tmp.jpg, et l'une peut le
+# renommer vers la destination finale avant que l'autre n'ait fini de s'en
+# servir (FileNotFoundError, constaté en réel).
+_VERROUS_MINIATURE: dict = {}
+_VERROU_CREATION_MINIATURE = threading.Lock()
+
+
+def _verrou_miniature(cle: str) -> threading.Lock:
+    with _VERROU_CREATION_MINIATURE:
+        return _VERROUS_MINIATURE.setdefault(cle, threading.Lock())
+
+
 # Le Sync Module ne traite qu'une commande à la fois et refuse les suivantes
 # avec « System is busy ». Inutile de le lui demander : mesuré, son état publié
 # est identique au repos et pendant un direct (busy reste vide, status reste
@@ -1476,42 +1491,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
         l'extrait de la version normalisée quand elle existe, pour que
         l'horodatage incrusté apparaisse dans la vignette."""
         thumb = (self.paths["thumbs"] / route).with_suffix(".jpg")
-        fresh = (
-            thumb.is_file()
-            and thumb.stat().st_size > 0
-            and thumb.stat().st_mtime >= source.stat().st_mtime
-        )
-        if not fresh:
-            thumb.parent.mkdir(parents=True, exist_ok=True)
-            pending = thumb.with_suffix(".tmp.jpg")
-            # Deux extractions à la fois au plus : le navigateur réclame toutes
-            # les vignettes de la page d'un coup, et autant de ffmpeg simultanés
-            # saturerait la machine pour rien.
-            with THUMB_SLOTS:
-                runtime.lancer(
-                    [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-                     # -ss avant -i : ffmpeg saute directement à la position
-                     # demandée au lieu de décoder tout ce qui précède.
-                     "-ss", "1.5", "-i", str(source), "-frames:v", "1",
-                     "-vf", "scale=480:-2", "-q:v", "5", str(pending)],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL, check=False,
-                )
-                if not pending.is_file() or pending.stat().st_size == 0:
-                    # Clip plus court que la position demandée : on se rabat
-                    # sur la toute première image.
-                    runtime.lancer(
-                        [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-                         "-i", str(source), "-frames:v", "1",
-                         "-vf", "scale=480:-2", "-q:v", "5", str(pending)],
-                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL, check=False,
-                    )
-            if not pending.is_file() or pending.stat().st_size == 0:
-                pending.unlink(missing_ok=True)
-                self.send_error(404)
-                return
-            pending.replace(thumb)
+
+        def fraiche() -> bool:
+            return (
+                thumb.is_file()
+                and thumb.stat().st_size > 0
+                and thumb.stat().st_mtime >= source.stat().st_mtime
+            )
+
+        if not fraiche():
+            # Verrou par miniature : voir _verrou_miniature(). Re-vérifie
+            # fraiche() une fois le verrou obtenu - le thread qui l'a
+            # attendu a pu la trouver déjà construite par celui qui vient
+            # de le relâcher, sans quoi une deuxième extraction inutile
+            # écraserait le fichier temporaire du premier en plein envoi.
+            with _verrou_miniature(str(thumb)):
+                if not fraiche():
+                    thumb.parent.mkdir(parents=True, exist_ok=True)
+                    pending = thumb.with_suffix(".tmp.jpg")
+                    # Deux extractions à la fois au plus : le navigateur réclame
+                    # toutes les vignettes de la page d'un coup, et autant de
+                    # ffmpeg simultanés saturerait la machine pour rien.
+                    with THUMB_SLOTS:
+                        runtime.lancer(
+                            [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                             # -ss avant -i : ffmpeg saute directement à la position
+                             # demandée au lieu de décoder tout ce qui précède.
+                             "-ss", "1.5", "-i", str(source), "-frames:v", "1",
+                             "-vf", "scale=480:-2", "-q:v", "5", str(pending)],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, check=False,
+                        )
+                        if not pending.is_file() or pending.stat().st_size == 0:
+                            # Clip plus court que la position demandée : on se
+                            # rabat sur la toute première image.
+                            runtime.lancer(
+                                [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                                 "-i", str(source), "-frames:v", "1",
+                                 "-vf", "scale=480:-2", "-q:v", "5", str(pending)],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, check=False,
+                            )
+                    if not pending.is_file() or pending.stat().st_size == 0:
+                        pending.unlink(missing_ok=True)
+                        self.send_error(404)
+                        return
+                    pending.replace(thumb)
 
         # Chaque changement de filtre reconstruit toute la grille (voir
         # renderClips côté page), donc chaque <video poster=...> déjà connue
