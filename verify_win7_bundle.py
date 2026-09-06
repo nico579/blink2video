@@ -11,15 +11,49 @@ import pefile
 
 
 DLL_INTERDITE = "api-ms-win-core-path-l1-1-0.dll"
+# Liste volontairement étroite : ce contrôle ne certifie pas toutes les API
+# Windows. Les tables d'import PE (y compris delay-load) sont inspectées, pas
+# les chaînes du binaire : une recherche optionnelle par GetProcAddress avec
+# repli Win7 ne doit pas être confondue avec une dépendance obligatoire.
+# ProcessPrng : https://github.com/pyca/cryptography/issues/10944
+# Les autres API nécessitent Windows 8, sauf les descriptions de threads
+# (Windows 10 1607). Références Microsoft, rubriques "Requirements" :
+# https://learn.microsoft.com/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsystemtimepreciseasfiletime
+# https://learn.microsoft.com/windows/win32/api/ioapiset/nf-ioapiset-getoverlappedresultex
+# https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-createfile2
+# https://learn.microsoft.com/windows/win32/api/synchapi/nf-synchapi-waitonaddress
+# https://learn.microsoft.com/windows/win32/api/synchapi/nf-synchapi-wakebyaddresssingle
+# https://learn.microsoft.com/windows/win32/api/synchapi/nf-synchapi-wakebyaddressall
+# https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-setthreaddescription
+# https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-getthreaddescription
+# https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-getcurrentthreadstacklimits
+API_POST_WIN7 = frozenset({
+    "ProcessPrng",
+    "GetSystemTimePreciseAsFileTime",
+    "GetOverlappedResultEx",
+    "CreateFile2",
+    "WaitOnAddress",
+    "WakeByAddressSingle",
+    "WakeByAddressAll",
+    "SetThreadDescription",
+    "GetThreadDescription",
+    "GetCurrentThreadStackLimits",
+})
 AMD64 = 0x8664
 RUNTIME_PYTHON = re.compile(r"python3\d+\.dll$", re.I)
 
 
 def _lire_pe(chemin: Path) -> tuple:
+    """Conserve l'interface historique (architecture, noms des DLL)."""
+    machine, dlls, _ = _lire_pe_details(chemin)
+    return machine, dlls
+
+
+def _lire_pe_details(chemin: Path) -> tuple:
     try:
         pe = pefile.PE(str(chemin), fast_load=True)
     except pefile.PEFormatError:
-        return None, set()
+        return None, set(), set()
     try:
         pe.parse_data_directories(
             directories=[
@@ -28,12 +62,28 @@ def _lire_pe(chemin: Path) -> tuple:
             ]
         )
         resultat = set()
+        symboles = set()
         for attribut in ("DIRECTORY_ENTRY_IMPORT", "DIRECTORY_ENTRY_DELAY_IMPORT"):
             for entree in getattr(pe, attribut, ()):
-                resultat.add(entree.dll.decode("ascii", "replace").lower())
-        return int(pe.FILE_HEADER.Machine), resultat
+                dll = entree.dll.decode("ascii", "replace").lower()
+                resultat.add(dll)
+                for symbole in entree.imports:
+                    # Les imports par ordinal n'ont pas de nom. Ils ne sont
+                    # pas résolus ici, faute de DLL de référence Windows 7.
+                    if symbole.name is not None:
+                        symboles.add((
+                            dll, symbole.name.decode("ascii", "replace")
+                        ))
+        return int(pe.FILE_HEADER.Machine), resultat, symboles
     finally:
         pe.close()
+
+
+def _api_post_win7(dll: str, symbole: str) -> bool:
+    # Ne pas accuser une fonction homonyme fournie par une DLL de l'application.
+    systeme = dll in {"kernel32.dll", "kernelbase.dll", "bcryptprimitives.dll"}
+    systeme = systeme or dll.startswith(("api-ms-win-", "ext-ms-win-"))
+    return systeme and symbole in API_POST_WIN7
 
 
 def verifier(bundle: Path) -> list:
@@ -61,13 +111,19 @@ def verifier(bundle: Path) -> list:
     fautifs = []
     mauvaises_architectures = []
     for binaire in binaires:
-        machine, imports = _lire_pe(binaire)
+        machine, imports, symboles = _lire_pe_details(binaire)
         if machine is None:
             continue
         if machine != AMD64:
             mauvaises_architectures.append(str(binaire.relative_to(bundle)))
         if DLL_INTERDITE in imports:
             fautifs.append(str(binaire.relative_to(bundle)))
+        for dll, symbole in sorted(symboles):
+            if _api_post_win7(dll, symbole):
+                erreurs.append(
+                    f"API post-Windows 7 importée : "
+                    f"{binaire.relative_to(bundle)} : {dll}!{symbole}"
+                )
     if mauvaises_architectures:
         erreurs.append(
             "binaire PE non x86-64 : " + ", ".join(mauvaises_architectures)
@@ -85,7 +141,7 @@ def verifier(bundle: Path) -> list:
     if not erreurs:
         print(
             f"OK : Python 3.8, marqueur Win7, racines TLS et {len(binaires)} "
-            f"binaires PE sans {DLL_INTERDITE}."
+            f"binaires PE sans {DLL_INTERDITE} ni API post-Win7 de la liste."
         )
     return erreurs
 

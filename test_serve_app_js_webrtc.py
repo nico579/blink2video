@@ -104,7 +104,7 @@ function fetch(url, options = {}) {
 class RTCPeerConnection extends EventTarget {
   constructor() { super(); this.connectionState = 'new'; this.iceConnectionState = 'new'; this.closed = 0; peers.push(this); }
   addTransceiver() {}
-  async createOffer() { return {sdp: 'v=0', type: 'offer'}; }
+  async createOffer() { return {sdp: scenario === 'no_h264' ? 'v=0\r\na=rtpmap:120 VP8/90000\r\n' : 'v=0\r\na=rtpmap:102 H264/90000\r\n', type: 'offer'}; }
   async setLocalDescription(offer) { this.localDescription = offer; }
   async setRemoteDescription() {
     this.connectionState = 'connected';
@@ -181,6 +181,15 @@ class RTCPeerConnection extends EventTarget {
     assert.equal(Object.keys(WEBRTC_ABORT).length, 0);
     assert.equal(failures.length, 0);
     assert.equal(box.innerHTML, 'repos');
+  } else if (scenario === 'no_h264') {
+    await watchWebRTC('Cam');
+    assert.equal(offers.length, 0);
+    assert.equal(peers.length, 1);
+    assert.equal(peers[0].closed, 1);
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].message, 'watch.noh264');
+    assert.equal(Object.keys(WEBRTC_ABORT).length, 0);
+    assert.equal(Object.keys(WEBRTC_PC).length, 0);
   } else if (scenario === 'busy_retry') {
     await watchWebRTC('Cam');
     assert.ok(offers.length > WEBRTC_MAX_ECHECS);
@@ -256,6 +265,9 @@ class RTCPeerConnection extends EventTarget {
 
     def test_fin_piste_ferme_session_sans_attendre_plafond(self):
         self.scenario("ended")
+
+    def test_absence_h264_ne_reveille_pas_la_camera_et_ne_reessaie_pas(self):
+        self.scenario("no_h264")
 
     def test_statut_busy_est_conserve(self):
         self.scenario("busy")

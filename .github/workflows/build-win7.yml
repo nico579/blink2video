@@ -98,6 +98,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "ffmpeg -filters a échoué ($LASTEXITCODE)" }
           if (($filtres -join "`n") -notmatch 'drawtext') { throw 'drawtext absent du ffmpeg embarqué' }
 
+      - name: Vérifier WebRTC H.264 dans le bundle autonome
+        shell: pwsh
+        run: |
+          $rapport = Join-Path $PWD 'build-win7/webrtc-bundle.json'
+          $processus = Start-Process -FilePath '.\dist-win7\blink2video\blink2video.exe' -ArgumentList @('smoketest', '--webrtc', '--report', $rapport) -PassThru -WindowStyle Hidden
+          if (-not $processus.WaitForExit(45000)) {
+            $processus.Kill()
+            throw 'Le diagnostic WebRTC du bundle a dépassé 45 secondes.'
+          }
+          $diagnostic = Get-Content -LiteralPath $rapport -Raw | ConvertFrom-Json
+          if (-not $diagnostic.ok -or $diagnostic.frames_decoded -lt 3 -or -not $diagnostic.closed) {
+            throw "WebRTC Win7 a échoué : $($diagnostic | ConvertTo-Json -Compress)"
+          }
+          $diagnostic | ConvertTo-Json
+
       # Les tests passent par le binaire à distribuer et utilisent le même venv
       # verrouillé ; aucune seconde résolution pip ne peut rétrograder blinkpy.
       - name: Éprouver la chaîne vidéo depuis le bundle

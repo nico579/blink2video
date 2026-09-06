@@ -195,6 +195,32 @@ class TestsSessionsDirect(unittest.TestCase):
         api.request_command_done.assert_awaited_once()
         self.attendre_fin()
 
+    def test_echec_sdp_conserve_sa_cause_quand_son_nettoyage_arrete_feed(self):
+        fin_flux = {}
+
+        async def feed():
+            fin_flux["fin"] = asyncio.Event()
+            await fin_flux["fin"].wait()
+            raise ConnectionResetError("socket fermée pendant le nettoyage")
+
+        async def echec(_url, _sdp, _type, on_close, **_kwargs):
+            await on_close()
+            raise RuntimeError("Codec H264 incompatible")
+
+        async def done(*_args, **_kwargs):
+            # feed est déjà terminé, mais le nettoyage ne l'est pas.
+            await asyncio.sleep(0.02)
+            return {}
+
+        self.flux.feed.side_effect = feed
+        self.flux.stop.side_effect = lambda: fin_flux["fin"].set()
+        serve.blink_webrtc.negocier.side_effect = echec
+        api.request_command_done.side_effect = done
+        handler = self.ouvrir()
+        self.assertIn("Codec H264 incompatible", handler.send_json.call_args.args[0]["error"])
+        api.request_command_done.assert_awaited_once()
+        self.attendre_fin()
+
     def test_annulation_pendant_le_reveil_ne_depend_pas_du_verrou_blink(self):
         commence = threading.Event()
 

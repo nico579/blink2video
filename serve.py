@@ -2005,11 +2005,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                 {negociation, holder["feed"]},
                                 return_when=asyncio.FIRST_COMPLETED,
                             )
-                            if negociation not in terminees:
+                            if negociation not in terminees and holder["nettoyage"] is None:
                                 # feed.auth peut échouer avant son finally
                                 # amont, en laissant le TCP local ouvert. Ne
                                 # pas attendre 40 s un SPS qui n'arrivera pas.
                                 raise RuntimeError("Le relais Blink s'est arrêté avant la première image.")
+                            # Une négociation en échec ferme elle-même feed
+                            # via on_close avant de remonter son exception.
+                            # Attendre ce nettoyage conserve la vraie cause.
                             pc, answer_sdp, answer_type = await negociation
                         finally:
                             if not negociation.done():

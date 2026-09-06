@@ -235,6 +235,31 @@ print("blinkpy %%s : API moderne compilée sous Python 3.8" %% obtenue)
              "validation du rétroportage blinkpy")
 
 
+def verifier_webrtc_win7(python: Path) -> None:
+    """Ne laisse pas un import natif manquant masquer WebRTC derrière MSE."""
+    programme = """
+from importlib.metadata import version
+import blink_webrtc
+from aiortc import RTCCertificate
+from av import CodecContext
+import pylibsrtp
+
+attendues = {
+    "aiortc": "1.9.0", "av": "12.3.0", "cryptography": "42.0.8",
+    "pyOpenSSL": "24.1.0", "pylibsrtp": "0.10.0",
+}
+for paquet, attendue in attendues.items():
+    obtenue = version(paquet)
+    assert obtenue == attendue, (paquet, obtenue, attendue)
+assert blink_webrtc.DISPONIBLE, "WebRTC absent du profil Win7"
+assert RTCCertificate.generateCertificate().getFingerprints()
+assert CodecContext.create("h264", "r") is not None
+print("WebRTC Win7 : imports natifs, certificat DTLS et decodeur H.264 OK")
+"""
+    executer([str(python), "-c", inspect.cleandoc(programme)],
+             "validation des dépendances WebRTC Windows 7")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -269,6 +294,7 @@ def main() -> int:
         verifier_python_win7(python)
         installer_win7(python, travail)
         verifier_blinkpy_win7(python)
+        verifier_webrtc_win7(python)
     else:
         executer([str(python), "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
                  "mise à jour de pip")

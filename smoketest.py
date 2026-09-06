@@ -13,12 +13,15 @@ l'endroit indiqué pour que vous puissiez la regarder.
 
     blink2video smoketest
     blink2video smoketest --keep    conserve le dossier de travail
+    blink2video smoketest --webrtc --report rapport.json
+        teste H.264/ICE/DTLS/SRTP localement, sans compte ni caméra
 """
 
 import argparse
+import asyncio
+import json
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -56,7 +59,15 @@ def main() -> int:
     parser.add_argument("--keep", action="store_true",
                         help="conserver le dossier de travail au lieu de l'effacer")
     parser.add_argument("--timezone", default="Europe/Paris")
+    parser.add_argument("--webrtc", action="store_true",
+                        help="diagnostic WebRTC local seul, sans caméra ni notification")
+    parser.add_argument("--report", type=Path,
+                        help="écrire le résultat WebRTC dans ce fichier JSON")
     args = parser.parse_args()
+    if args.report and not args.webrtc:
+        parser.error("--report exige --webrtc")
+    if args.webrtc:
+        return diagnostic_webrtc(args.report)
 
     print("Contrôle de l'installation\n")
 
@@ -155,6 +166,23 @@ def main() -> int:
         print(f"  indéterminé : {erreur}")
 
     return bilan()
+
+
+def diagnostic_webrtc(rapport=None) -> int:
+    """Utilisable dans un bundle sans console et sans Python installé."""
+    from webrtc_probe import verifier_webrtc
+
+    try:
+        resultat = asyncio.run(verifier_webrtc(md.find_ffmpeg()))
+        resultat.update(ok=True, version=runtime.version_affichee())
+    except Exception as erreur:
+        resultat = {"ok": False, "version": runtime.version_affichee(),
+                    "error": f"{type(erreur).__name__}: {erreur}"}
+    texte = json.dumps(resultat, ensure_ascii=False, indent=2)
+    if rapport is not None:
+        rapport.write_text(texte + "\n", encoding="utf-8")
+    print(texte)
+    return 0 if resultat["ok"] else 1
 
 
 def bilan() -> int:

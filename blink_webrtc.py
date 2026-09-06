@@ -58,7 +58,9 @@ try:
         RTCSessionDescription,
     )
     from aiortc.codecs import CODECS
+    from aiortc import rtp as _rtp
     from aiortc.mediastreams import MediaStreamError
+    from aiortc.sdp import H264Profile, SessionDescription, parse_h264_profile_level_id
     from aiortc.rtcrtpparameters import (
         RTCRtcpFeedback,
         RTCRtpCodecCapability,
@@ -125,6 +127,13 @@ TAMPON_ENREGISTREMENT_MAX_OCTETS = 8 * 1024 * 1024
 
 
 if DISPONIBLE:
+
+    # Chromium récent utilise aussi 35..63 quand 96..127 est rempli.
+    # aiortc 1.9 (et certaines versions récentes) ne les considère pas
+    # dynamiques : sa réponse conserve alors le PT local au lieu de celui
+    # de l'offre, et le navigateur jette les RTP reçus (zéro image).
+    # RFC 5761 §4 autorise cette plage, mais interdit 64..95 (RTCP).
+    _rtp.DYNAMIC_PAYLOAD_TYPES = frozenset(_rtp.DYNAMIC_PAYLOAD_TYPES) | frozenset(range(35, 64))
 
     class _PisteH264(MediaStreamTrack):
         """Piste video sans decodage ni reencodage : lit le flux TCP local
@@ -499,6 +508,37 @@ if DISPONIBLE:
 
     _PROFILS_ENREGISTRES: set = set()
 
+    def _profil_reception_h264(offer_sdp: str, profil_source: str) -> str:
+        """Préfère le profil source ; accepte le décodeur High 4:4:4
+        logiciel de Chromium pour un flux High, sans convertir les images.
+
+        Il s'agit des capacités du récepteur, jamais d'annoncer Baseline
+        pour une source High. Le SPS et les octets vidéo restent inchangés.
+        ITU-T H.264.1 §6.5.7 impose ce décodage du sous-ensemble High.
+        """
+        source, _ = parse_h264_profile_level_id(profil_source)
+        profils = set()
+        for media in SessionDescription.parse(offer_sdp).media:
+            if media.kind != "video" or media.port == 0 or media.direction in ("sendonly", "inactive"):
+                continue
+            for codec in media.rtp.codecs:
+                if (codec.mimeType.lower() != "video/h264"
+                        or str(codec.parameters.get("packetization-mode", "0")) != "1"):
+                    continue
+                try:
+                    profil, _ = parse_h264_profile_level_id(
+                        codec.parameters.get("profile-level-id", "42e01f")
+                    )
+                    profils.add(profil)
+                except ValueError:
+                    continue
+        if source in profils:
+            return profil_source
+        if (source in (H264Profile.PROFILE_HIGH, H264Profile.PROFILE_CONSTRAINED_HIGH)
+                and H264Profile.PROFILE_PREDICTIVE_HIGH_444 in profils):
+            return "f400" + profil_source[4:]
+        return profil_source  # aiortc produira l'erreur de codecs incompatibles.
+
     def _enregistrer_profil_h264(profil: str) -> None:
         """Ajoute ce profile-level-id a aiortc.codecs.CODECS["video"].
 
@@ -676,6 +716,10 @@ async def negocier(
         sender = pc.addTrack(track)
         profil = _profile_level_id(track.sps_pps)
         if profil:
+            profil_reception = _profil_reception_h264(offer_sdp, profil)
+            if profil_reception != profil:
+                journal(f"H.264 source {profil}, décodeur négocié {profil_reception}, sans réencodage")
+            profil = profil_reception
             _enregistrer_profil_h264(profil)
             transceiver = next(
                 t for t in pc.getTransceivers() if t.sender is sender

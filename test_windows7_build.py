@@ -17,6 +17,20 @@ import runtime
 
 
 class Windows7BuildTests(unittest.TestCase):
+    def test_webrtc_win7_utilise_ses_versions_natives_figees(self):
+        verrou = build.WIN7_REQUIREMENTS.read_text(encoding="utf-8")
+        for ligne in (
+            "aiortc==1.9.0", "av==12.3.0", "cryptography==42.0.8",
+            "pyOpenSSL==24.1.0", "pylibsrtp==0.10.0",
+        ):
+            self.assertIn(ligne, verrou.splitlines())
+        with mock.patch.object(build, "executer") as executer:
+            build.verifier_webrtc_win7(Path("python38.exe"))
+        programme = executer.call_args[0][0][-1]
+        self.assertIn("blink_webrtc.DISPONIBLE", programme)
+        self.assertIn("generateCertificate", programme)
+        self.assertIn('CodecContext.create("h264", "r")', programme)
+
     def test_build_profiles_are_fully_isolated(self):
         normal = set(build._chemins(False))
         legacy = set(build._chemins(True))

@@ -149,6 +149,7 @@ const I18N = {
     "camera.noclips": "aucun clip récupéré", "camera.clipssource": "clips : {v}",
     "camera.none": "—",
     "watch.live": "Voir en direct", "watch.retry": "Réessayer", "watch.stop": "Arrêter",
+    "watch.noh264": "Ce navigateur ne propose pas H.264 pour WebRTC. Vérifiez OpenH264 dans Firefox, ou choisissez MSE dans les réglages.",
     "watch.waking": "Réveil de la caméra…", "watch.waking.seconds": "Réveil de la caméra… {s} s",
     "watch.waking.slow": "Réveil de la caméra… {s} s (une caméra sur batterie est plus lente)",
     "watch.reconnecting": "Reconnexion…",
@@ -282,6 +283,7 @@ const I18N = {
     "camera.noclips": "no clip retrieved", "camera.clipssource": "clips: {v}",
     "camera.none": "—",
     "watch.live": "View live", "watch.retry": "Retry", "watch.stop": "Stop",
+    "watch.noh264": "This browser does not offer H.264 for WebRTC. Check OpenH264 in Firefox, or select MSE in settings.",
     "watch.waking": "Waking the camera…", "watch.waking.seconds": "Waking the camera… {s} s",
     "watch.waking.slow": "Waking the camera… {s} s (a battery camera is slower)",
     "watch.reconnecting": "Reconnecting…",
@@ -1402,7 +1404,7 @@ async function watchWebRTC(name, controller = new AbortController(), t0 = perfor
           break;
         }
         derniereErreur = error;
-        if (error.webrtcLecture) break;
+        if (error.webrtcLecture || error.webrtcIncompatible) break;
         // Un autre onglet ou un téléchargement peut occuper le module.
         // Seul le budget global borne ce cas, sans épuiser les essais caméra.
         if (error.status !== 409) echecs++;
@@ -1520,6 +1522,13 @@ async function tenterWebRTC(name, video, signal, essai, surLecture = () => {}) {
   try {
     pc.addTransceiver("video", { direction: "recvonly" });
     const offre = await operationOuAbandon(() => pc.createOffer(), controller.signal);
+    // Vérifier l'offre réelle avant de réveiller la caméra. La présence
+    // de RTCPeerConnection seule ne garantit pas le décodeur H.264.
+    if (!/^a=rtpmap:\d+ H264\/90000\s*$/im.test(offre.sdp || "")) {
+      const error = new Error(t("watch.noh264"));
+      error.webrtcIncompatible = true;
+      throw error;
+    }
     await operationOuAbandon(() => pc.setLocalDescription(offre), controller.signal);
     const reponse = await operationOuAbandon(() => fetch(`/live-webrtc/${encodeURIComponent(name)}`, {
       method: "POST",
