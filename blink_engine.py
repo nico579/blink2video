@@ -185,7 +185,7 @@ class _HubCloud:
     """Module de substitution, quand seul le cloud répond."""
 
     def __init__(self, network_id):
-        self.sync_id = network_id or "cloud"
+        self.sync_id = network_id or ""
         self.network_id = network_id or ""
 
 
