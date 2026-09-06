@@ -151,6 +151,14 @@ ENREGISTREMENT_DIRECT_ACTIF = threading.Event()
 # Le verrou protège les transitions entre les threads HTTP et BLINK.loop.
 DIRECT_WEBRTC_SESSION: dict = {}
 DIRECT_WEBRTC_SESSION_LOCK = threading.Lock()
+# Même rôle pour MSE, en plus simple : send_live_mse() tourne en code
+# synchrone dans son propre thread HTTP, pas sur une boucle asyncio - pas de
+# "loop"/"interrompre" à retenir, juste l'Event que sa boucle d'envoi
+# vérifie elle-même à chaque tour (voir _demander_arret_direct). Sans ça, un
+# navigateur fermé pendant un silence de la caméra n'était détecté qu'à la
+# prochaine écriture - jamais si la caméra restait muette, le module pouvait
+# donc rester occupé jusqu'à LIVE_MAX_SECONDS (300 s, bug réel).
+DIRECT_MSE_SESSION: dict = {}
 DIRECT_ARRETS_RECENTS: dict = {}
 DIRECT_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{16,64}\Z")
 DIRECT_ARRET_TTL_SECONDS = 180
@@ -172,24 +180,36 @@ def _purger_arrets_direct() -> None:
 
 
 def _demander_arret_direct(session_id: str) -> bool:
-    """Annule uniquement la tentative désignée, sans attendre BLINK.lock.
+    """Annule la tentative WebRTC ou MSE désignée, sans attendre BLINK.lock.
 
-    Une annulation peut arriver avant son offre sur une autre connexion HTTP.
-    La conserver brièvement empêche cette offre tardive de réveiller la caméra.
-    """
+    Une annulation WebRTC peut arriver avant son offre sur une autre
+    connexion HTTP ; la conserver brièvement (DIRECT_ARRETS_RECENTS)
+    empêche cette offre tardive de réveiller la caméra. MSE n'a pas cette
+    fenêtre : sa requête GET est la tentative elle-même, il suffit de
+    positionner son Event - la boucle d'envoi (send_live_mse) le vérifie
+    elle-même à chaque tour, pas de "loop"/"interrompre" à réveiller
+    puisqu'elle ne tourne pas sur asyncio."""
     if not DIRECT_SESSION_ID.fullmatch(session_id):
         return False
     with DIRECT_WEBRTC_SESSION_LOCK:
         DIRECT_ARRETS_RECENTS[session_id] = time.monotonic() + DIRECT_ARRET_TTL_SECONDS
         _purger_arrets_direct()
-        holder = DIRECT_WEBRTC_SESSION.get("session")
-        if holder is None or holder["session_id"] != session_id:
+        webrtc_holder = DIRECT_WEBRTC_SESSION.get("session")
+        if webrtc_holder is not None and webrtc_holder["session_id"] != session_id:
+            webrtc_holder = None
+        mse_holder = DIRECT_MSE_SESSION.get("session")
+        if mse_holder is not None and mse_holder["session_id"] != session_id:
+            mse_holder = None
+        if webrtc_holder is None and mse_holder is None:
             return False
-        deja_demande = holder["arret"].is_set()
-        holder["arret"].set()
-        loop = holder.get("loop")
+        deja_demande = webrtc_holder is not None and webrtc_holder["arret"].is_set()
+        if webrtc_holder is not None:
+            webrtc_holder["arret"].set()
+        if mse_holder is not None:
+            mse_holder["arret"].set()
+        loop = webrtc_holder.get("loop") if webrtc_holder is not None else None
     if loop is not None and not deja_demande:
-        loop.call_soon_threadsafe(holder["interrompre"])
+        loop.call_soon_threadsafe(webrtc_holder["interrompre"])
     return True
 
 # Reglage de la page web (webrtc par defaut) depuis le 2026-09-03 - a
@@ -223,6 +243,12 @@ LIVE_MAX_SECONDS = 300
 # Délai accordé à la première image. Une caméra sur batterie doit se réveiller,
 # donc on est patient ; au-delà on considère qu'elle ne répondra pas.
 LIVE_FIRST_FRAME_SECONDS = 40
+# Plafond de chaque attente dans la boucle d'envoi MSE, pour que l'arrêt
+# explicite demandé via DIRECT_MSE_SESSION (voir _demander_arret_direct)
+# soit revérifié à cette cadence plutôt que seulement une fois LIVE_MAX_SECONDS
+# écoulé - sans changer le comportement d'un flux actif (les blocs arrivent
+# bien avant cette seconde de toute façon).
+LIVE_MSE_ARRET_POLL_SECONDS = 1.0
 
 # Aucune vignette n'est redemandée d'elle-même : elle est récupérée une fois,
 # puis conservée jusqu'à ce qu'on clique sur Actualiser. Une image qui change
@@ -2209,7 +2235,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             _demander_arret_direct(session_id)
 
-    def send_live_mse(self, name: str) -> None:
+    def send_live_mse(self, name: str, session_id: str = "") -> None:
         """Diffuse le direct d'une caméra en fMP4 fragmenté, pour MediaSource.
 
         Face à /live (MJPEG) : au lieu de faire réencoder chaque image en
@@ -2227,7 +2253,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         Déclenche aussi l'enregistrement du direct dans Blink_Direct (voir
         _chemin_enregistrement_direct) : les mêmes octets envoyés au
         navigateur sont dupliqués vers un fichier, best-effort - un échec
-        n'interrompt jamais le direct affiché, voir _ecrire ci-dessous."""
+        n'interrompt jamais le direct affiché, voir _ecrire ci-dessous.
+
+        `session_id` (optionnel, ancien client ou test dépourvu) : enregistré
+        dans DIRECT_MSE_SESSION pour que /api/arreter-direct puisse
+        interrompre l'attente ci-dessous sans dépendre de la détection
+        passive d'une connexion fermée, qui ne survient qu'à la prochaine
+        écriture - jamais si la caméra reste muette (bug réel : le module
+        restait occupé jusqu'à LIVE_MAX_SECONDS après une fermeture d'onglet
+        pendant un silence)."""
+        if not DIRECT_SESSION_ID.fullmatch(session_id):
+            # Dégradation gracieuse plutôt qu'un refus : un ancien client ou
+            # un identifiant mal formé perd juste le bénéfice de l'arrêt
+            # explicite, le direct lui-même n'a pas besoin de session_id.
+            session_id = ""
         if not MODULE_SLOT.acquire(blocking=False):
             message = _slot_occupe_message()
             _memoriser_erreur_direct(name, message, 409)
@@ -2238,7 +2277,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(409, "Live stream busy")
             return
 
-        holder: dict = {}
+        holder: dict = {"session_id": session_id, "arret": threading.Event()}
+        if session_id:
+            with DIRECT_WEBRTC_SESSION_LOCK:
+                DIRECT_MSE_SESSION["session"] = holder
         errors: list = []
         erreur_direct = None
         reponse_commencee = False
@@ -2489,7 +2531,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # porte maintenant elle-même un délai réel sur chaque lecture.
             deadline = time.monotonic() + LIVE_MAX_SECONDS
             while time.monotonic() < deadline:
-                chunk = lecteur.lire(deadline - time.monotonic())
+                if holder["arret"].is_set():
+                    break  # /api/arreter-direct : ne pas attendre un bloc qui peut ne jamais venir
+                chunk = lecteur.lire(
+                    min(LIVE_MSE_ARRET_POLL_SECONDS, deadline - time.monotonic())
+                )
                 if chunk is None:
                     continue  # juste lent : le délai global n'est pas encore écoulé
                 if not chunk:
@@ -2502,6 +2548,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             erreur_direct = str(error) if isinstance(error, RuntimeError) \
                 else f"{type(error).__name__}: {error}"
         finally:
+            if session_id:
+                with DIRECT_WEBRTC_SESSION_LOCK:
+                    if DIRECT_MSE_SESSION.get("session") is holder:
+                        DIRECT_MSE_SESSION.clear()
             process = holder.get("process")
             if process is not None:
                 try:
@@ -2680,7 +2730,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route.startswith("/live-mse/"):
-            self.send_live_mse(unquote(route[len("/live-mse/"):]))
+            session_id = parse_qs(urlparse(self.path).query).get("session_id", [""])[0]
+            self.send_live_mse(unquote(route[len("/live-mse/"):]), session_id)
             return
 
         if route == "/api/live-error":

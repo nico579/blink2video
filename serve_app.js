@@ -857,7 +857,11 @@ function toggleFullscreen(name) {
   (box.requestFullscreen || box.webkitRequestFullscreen).call(box);
 }
 
-function arreterSessionWebRTC(sessionId, beacon = false) {
+// Commun aux deux protocoles depuis l'ajout de l'arrêt explicite MSE
+// (2026-09-06) : /api/arreter-direct cherche déjà la session correspondante
+// dans DIRECT_WEBRTC_SESSION ou DIRECT_MSE_SESSION indifféremment, le corps
+// de la requête n'a jamais rien eu de spécifique à WebRTC.
+function arreterSessionDirect(sessionId, beacon = false) {
   if (!sessionId) return;
   const body = JSON.stringify({ session_id: sessionId });
   if (beacon) {
@@ -882,17 +886,26 @@ function stopWatch(name, beacon = false) {
   if (pending) { pending.abort(); delete LIVE_PENDING[name]; }
   const controller = MSE_ABORT[name];
   if (controller) { controller.abort(); delete MSE_ABORT[name]; }
+  // Capturer l'identifiant avant d'annuler : le finally de la tentative peut
+  // retirer son état, et une nouvelle tentative peut déjà avoir commencé.
+  // Sans ce signal explicite, une caméra restée silencieuse après l'abort()
+  // ci-dessus ne libérait le module qu'au bout de LIVE_MAX_SECONDS (300 s) :
+  // send_live_mse() ne détecte une connexion fermée qu'en essayant d'écrire
+  // le bloc suivant, qui pouvait ne jamais arriver (bug réel).
+  const mseSessionId = MSE_SESSION[name];
+  if (mseSessionId) {
+    delete MSE_SESSION[name];
+    arreterSessionDirect(mseSessionId, beacon);
+  }
   // webrtcController coupe une reprise en cours (entre deux tentatives,
   // sans pc active pour l'instant) ; pc ferme la tentative en cours si une
   // negociation est deja engagee. Les deux peuvent coexister brievement,
   // aucun des deux n'est garanti present a un instant donne.
   const webrtcController = WEBRTC_ABORT[name];
-  // Capturer l'identifiant avant d'annuler : le finally de la tentative peut
-  // retirer son état, et une nouvelle tentative peut déjà avoir commencé.
   const sessionId = WEBRTC_SESSION[name];
   if (sessionId) {
     delete WEBRTC_SESSION[name];
-    arreterSessionWebRTC(sessionId, beacon);
+    arreterSessionDirect(sessionId, beacon);
   }
   if (webrtcController) { webrtcController.abort(); delete WEBRTC_ABORT[name]; }
   const pc = WEBRTC_PC[name];
@@ -907,6 +920,13 @@ function stopWatch(name, beacon = false) {
 // la balise : il faut son propre AbortController, gardé ici par caméra pour
 // que stopWatch() puisse le couper.
 const MSE_ABORT = {};
+// Un seul identifiant par watchMse() (pas par tentative de reconnexion,
+// comme WEBRTC_SESSION) : envoyé au serveur (send_live_mse) pour qu'il
+// puisse interrompre sa boucle d'envoi sur demande explicite plutôt que
+// d'attendre jusqu'à 300 s qu'un bloc arrive enfin de la caméra pour
+// détecter que le fetch a été annulé (bug réel : onglet fermé pendant un
+// silence de la caméra, module resté occupé plusieurs minutes).
+const MSE_SESSION = {};
 // Blink referme parfois la session en cours de route, sans rapport avec ce
 // projet (vu en vrai : entre quelques images et ~1 Mo transmis, puis la
 // connexion vers son relais s'interrompt en plein paquet - cause identifiée
@@ -1090,7 +1110,7 @@ function ajouterSegmentMse(sourceBuffer, value, signal) {
 
 // Un cycle connexion -> flux -> fin. Renvoie si au moins une image est
 // arrivée (utilisé par watchMse pour décider de réessayer ou d'abandonner).
-async function connecterMse(name, video, signalGlobal, texteAttente, t0, reveilInitial) {
+async function connecterMse(name, video, signalGlobal, texteAttente, t0, reveilInitial, sessionId) {
   const box = $("live-" + cssId(name));
   let hint = $("hint-" + cssId(name));
   if (box && !hint) {
@@ -1152,7 +1172,10 @@ async function connecterMse(name, video, signalGlobal, texteAttente, t0, reveilI
     mediaSource.addEventListener("error", signalerErreurMedia);
 
     response = await operationOuAbandon(
-      () => fetch(`/live-mse/${encodeURIComponent(name)}`, { signal }), signal
+      () => fetch(
+        `/live-mse/${encodeURIComponent(name)}?session_id=${encodeURIComponent(sessionId)}`,
+        { signal },
+      ), signal
     );
     if (!response.ok) {
       let message = response.status === 409
@@ -1583,7 +1606,7 @@ async function tenterWebRTC(name, video, signal, essai, surLecture = () => {}) {
     if (stream && video.srcObject === stream) video.srcObject = null;
     if (WEBRTC_PC[name] === pc) delete WEBRTC_PC[name];
     if (WEBRTC_SESSION[name] === sessionId) delete WEBRTC_SESSION[name];
-    arreterSessionWebRTC(sessionId);
+    arreterSessionDirect(sessionId);
   }
 }
 
@@ -1601,6 +1624,12 @@ async function watchMse(name) {
 
   const controller = new AbortController();
   MSE_ABORT[name] = controller;
+  // Un seul identifiant pour toute la durée de watchMse(), pas par tentative
+  // de reconnexion : send_live_mse() l'enregistre à chaque nouvel essai, et
+  // /api/arreter-direct doit pouvoir couper QUELLE que soit la tentative en
+  // cours au moment où l'utilisateur clique sur Arrêter.
+  const sessionId = nouvelIdentifiantDirect();
+  MSE_SESSION[name] = sessionId;
   let budgetEcoule = false;
   const idBudget = setTimeout(() => {
     budgetEcoule = true;
@@ -1616,7 +1645,9 @@ async function watchMse(name) {
       const reveilInitial = echecsAVide === 0 && derniereErreur === null;
       const texte = reveilInitial ? t("watch.waking") : t("watch.reconnecting");
       try {
-        const aLu = await connecterMse(name, video, controller.signal, texte, t0, reveilInitial);
+        const aLu = await connecterMse(
+          name, video, controller.signal, texte, t0, reveilInitial, sessionId
+        );
         lecturePendantBudget = lecturePendantBudget || aLu;
         derniereErreur = null;
         echecsAVide = aLu ? 0 : echecsAVide + 1;
@@ -1649,6 +1680,7 @@ async function watchMse(name) {
   } finally {
     clearTimeout(idBudget);
     if (MSE_ABORT[name] === controller) delete MSE_ABORT[name];
+    if (MSE_SESSION[name] === sessionId) delete MSE_SESSION[name];
   }
   if (controller.signal.aborted && !budgetEcoule) return;
   const finParBudget = budgetEcoule

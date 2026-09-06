@@ -18,7 +18,7 @@ class TestsNavigateurWebRTC(unittest.TestCase):
             source[source.index('window.addEventListener("pagehide"'):source.index("// Toute valeur")]
             + source[source.index("async function loadSystem("):source.index("// Un calcul lancé")]
             + source[source.index("function nomsDirectsActifs()"):source.index("function cameraCard(")]
-            + source[source.index("function arreterSessionWebRTC("):source.index("// --- MSE/fMP4")]
+            + source[source.index("function arreterSessionDirect("):source.index("// --- MSE/fMP4")]
             + source[source.index("const MSE_ABORT = {};"):source.index("async function watchMse(")]
             + source[source.index('$("view").onchange ='):source.index('// Seule cette ligne de texte')]
         )
