@@ -491,6 +491,53 @@ def load_groups(input_dir: Path, timezone: ZoneInfo) -> dict:
     return dict(groups)
 
 
+def journees_a_source_indisponible(input_dir: Path, timezone: ZoneInfo) -> tuple[set, set]:
+    """(jours, identités) pour les clips NON écartés dont le fichier brut est
+    absent ou invalide.
+
+    load_groups() traite un clip manquant/invalide exactement comme un clip
+    explicitement écarté : les deux disparaissent de sa liste, sans laisser
+    de trace de la raison. Nécessaire pour ne PAS confondre en aval « tous
+    les clips de cette journée ont été écartés par choix » (la journalière
+    déjà assemblée, et les segments normalisés associés, doivent disparaître)
+    et « au moins un clip existe encore dans le registre mais son fichier a
+    disparu » (l'un et les autres doivent au contraire être préservés, bug
+    constaté en réel : source USB débranchée pendant un passage, dossier
+    déplacé).
+
+    jours : (caméra, jour local) ayant au moins un tel clip, à exempter de la
+    suppression de journalière dans _executer(). identités : clip_identity()
+    de chacun (calculable sans que le fichier existe, c'est un chemin relatif
+    - voir clip_identity()), à ajouter à used_segments avant prune_normalized()
+    pour ne pas effacer un segment déjà encodé et toujours valide du seul
+    fait que son brut source a disparu."""
+    entries = read_registry(input_dir / DOWNLOAD_STATE)
+    root = input_dir.resolve()
+    jours, identites = set(), set()
+    for entry in entries.values():
+        try:
+            created = parse_created_at(entry["created_at"])
+            camera = str(entry.get("camera") or "camera").strip() or "camera"
+        except (KeyError, TypeError, ValueError):
+            continue
+        if entry.get("excluded"):
+            continue
+        local_day = created.astimezone(timezone).date().isoformat()
+        try:
+            source = (root / entry["path"]).resolve()
+            if runtime.est_relatif_a(source, root) and valid_mp4(source):
+                continue  # chargé normalement par load_groups, rien à signaler
+        except (KeyError, TypeError, OSError):
+            jours.add((camera, local_day))
+            continue
+        jours.add((camera, local_day))
+        try:
+            identites.add(clip_identity(input_dir, source))
+        except ValueError:
+            pass
+    return jours, identites
+
+
 def group_fingerprint(keys: list) -> str:
     """Empreinte d'une journée : la liste ordonnée des clés de rendu de ses
     segments normalisés. La journalière n'étant qu'une concaténation de ces
@@ -1463,6 +1510,9 @@ def _executer(args) -> int:
             font_path = find_font(args.font)
             check_timestamp_rendering(ffmpeg, font_path)
         groups = load_groups(input_dir, timezone)
+        indisponibles, identites_indisponibles = journees_a_source_indisponible(
+            input_dir, timezone
+        )
     except (RuntimeError, ZoneInfoNotFoundError) as error:
         print(f"Erreur : {error}")
         return 1
@@ -1602,7 +1652,12 @@ def _executer(args) -> int:
             # sur un échec passager (réseau, ffmpeg) : elle reste à jour et
             # sera retentée au prochain passage.
             _, entries = plan.get((camera, day), (None, ()))
-            if not entries and destination.exists():
+            # (camera, day) dans indisponibles : un clip de cette journée
+            # existe encore dans le registre mais son fichier a disparu -
+            # à distinguer d'un choix d'exclusion (voir
+            # journees_a_source_indisponible()). Préserver la journalière
+            # déjà assemblée plutôt que la supprimer sur cette seule absence.
+            if not entries and (camera, day) not in indisponibles and destination.exists():
                 destination.unlink()
                 merge_state["groups"].pop(state_key, None)
                 save_json(merge_state_path, merge_state)
@@ -1641,7 +1696,14 @@ def _executer(args) -> int:
         built += 1
 
     if not args.date and not args.camera and not failed:
-        removed = prune_normalized(normalized_dir, registry, used_segments)
+        # Un segment déjà encodé pour un clip dont le brut a depuis disparu
+        # (source USB débranchée, dossier déplacé) reste valide : le
+        # préserver malgré son absence de used_segments, sans quoi
+        # prune_normalized() l'effacerait comme un simple clip écarté par
+        # choix (voir journees_a_source_indisponible()).
+        keep = used_segments | {normalized_dir / identity
+                                for identity in identites_indisponibles}
+        removed = prune_normalized(normalized_dir, registry, keep)
         if removed:
             print(f"Stock normalisé : {removed} segment(s) obsolète(s) supprimé(s)")
         save_json(registry_path, registry)
