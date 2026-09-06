@@ -2852,40 +2852,75 @@ class Handler(http.server.BaseHTTPRequestHandler):
             stderr=subprocess.STDOUT, text=True,
             encoding="utf-8", errors="replace", bufsize=1, env=env,
         )
-        for raw in process.stdout:
-            line = raw.rstrip("\n")
-            event = {"line": line}
-            # Les deux programmes annoncent leur avancement sous la forme
-            # « [3/24] ». Une seule règle de lecture suffit, et chaque phase
-            # repart naturellement de 1.
-            counter = PROGRESS.search(line)
-            if counter:
-                index, total = int(counter.group(1)), int(counter.group(2))
-                inner = INNER.match(line)
-                fraction = int(inner.group(1)) / 100 if inner else 0.0
-                if inner:
-                    event.pop("line")
-                event["progress"] = {
-                    "done": round(index - 1 + fraction, 3), "total": total
-                }
-            heading = HEADING.match(line)
-            if heading:
-                titre = heading.group(1).strip()
-                event["phase"] = titre.capitalize() if titre.isupper() else titre
-                # Ces deux titres sont les seuls que blink_engine.py émette
-                # sous cette forme (voir traiter_cloud/un_passage) : une clé
-                # stable permet à la page de les traduire, le nom du hub
-                # (donnée de l'utilisateur, jamais traduisible) passant à part.
-                if titre == "CLOUD DE L'ABONNEMENT":
-                    event["phase_key"] = "phase.cloud_section"
-                elif titre.startswith("STOCKAGE LOCAL : "):
-                    event["phase_key"] = "phase.usb_section"
-                    event["phase_hub"] = titre[len("STOCKAGE LOCAL : "):].strip()
-            if not self.send_event(event):
-                process.terminate()
-                process.wait()
-                return False
+        # Chien de garde par silence, même seuil et même raison que
+        # run_ffmpeg_batch/concat_copy (merge_daily.py, AUDIT-2026-08-13
+        # 28.82) : download comme merge peuvent rester silencieux longtemps
+        # (réseau Blink qui ne répond plus, ffmpeg bloqué en sous-main) sans
+        # qu'aucune ligne n'arrive sur stdout, ce qui figerait
+        # indéfiniment la boucle ci-dessous et garderait self.lock pris pour
+        # toute future Actualisation.
+        dernier_signe = time.monotonic()
+        signe_verrou = threading.Lock()
+        termine = threading.Event()
+        tue_par_silence = False
+
+        def surveiller() -> None:
+            nonlocal tue_par_silence
+            while not termine.wait(10):
+                with signe_verrou:
+                    silence = time.monotonic() - dernier_signe
+                if silence > md.SILENCE_MAX:
+                    tue_par_silence = True
+                    process.kill()
+                    return
+
+        chien_de_garde = threading.Thread(target=surveiller, daemon=True)
+        chien_de_garde.start()
+        try:
+            for raw in process.stdout:
+                with signe_verrou:
+                    dernier_signe = time.monotonic()
+                line = raw.rstrip("\n")
+                event = {"line": line}
+                # Les deux programmes annoncent leur avancement sous la forme
+                # « [3/24] ». Une seule règle de lecture suffit, et chaque phase
+                # repart naturellement de 1.
+                counter = PROGRESS.search(line)
+                if counter:
+                    index, total = int(counter.group(1)), int(counter.group(2))
+                    inner = INNER.match(line)
+                    fraction = int(inner.group(1)) / 100 if inner else 0.0
+                    if inner:
+                        event.pop("line")
+                    event["progress"] = {
+                        "done": round(index - 1 + fraction, 3), "total": total
+                    }
+                heading = HEADING.match(line)
+                if heading:
+                    titre = heading.group(1).strip()
+                    event["phase"] = titre.capitalize() if titre.isupper() else titre
+                    # Ces deux titres sont les seuls que blink_engine.py émette
+                    # sous cette forme (voir traiter_cloud/un_passage) : une clé
+                    # stable permet à la page de les traduire, le nom du hub
+                    # (donnée de l'utilisateur, jamais traduisible) passant à part.
+                    if titre == "CLOUD DE L'ABONNEMENT":
+                        event["phase_key"] = "phase.cloud_section"
+                    elif titre.startswith("STOCKAGE LOCAL : "):
+                        event["phase_key"] = "phase.usb_section"
+                        event["phase_hub"] = titre[len("STOCKAGE LOCAL : "):].strip()
+                if not self.send_event(event):
+                    process.terminate()
+                    process.wait()
+                    return False
+        finally:
+            termine.set()
+            chien_de_garde.join(timeout=5)
         process.wait()
+        if tue_par_silence:
+            self.send_event({"line": f"{phase} : arrêtée, silencieuse depuis "
+                                      f"plus de {int(md.SILENCE_MAX)} s"})
+            self.send_event({"done": True, "ok": False})
+            return False
         if process.returncode != 0:
             self.send_event({"line": f"{phase} : échec (code {process.returncode})"})
             self.send_event({"done": True, "ok": False})

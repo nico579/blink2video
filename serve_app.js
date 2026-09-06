@@ -125,7 +125,6 @@ const I18N = {
     "suppressionAuto.loading": "Chargement…",
     "suppressionAuto.unavailable": "Liste des caméras indisponible.",
     "suppressionAuto.none": "Aucune caméra connue pour l'instant.",
-    "suppressionAuto.legacy": "Des anciens réglages ambigus ont été désactivés. Réactivez les caméras voulues.",
     "suppressionAuto.hint": "Une fois un clip téléchargé avec succès, il est supprimé de sa source (stockage local USB/microSD ou cloud de l'abonnement selon la caméra).",
     "phase.inventory_clips": "Inventaire des clips à télécharger",
     "phase.download_clips": "Téléchargement des clips",
@@ -259,7 +258,6 @@ const I18N = {
     "suppressionAuto.loading": "Loading…",
     "suppressionAuto.unavailable": "Camera list unavailable.",
     "suppressionAuto.none": "No known camera yet.",
-    "suppressionAuto.legacy": "Ambiguous legacy settings were disabled. Re-enable the intended cameras.",
     "suppressionAuto.hint": "Once a clip is successfully downloaded, it is deleted from its source (local USB/microSD storage or subscription cloud, depending on the camera).",
     "phase.inventory_clips": "Finding clips to download",
     "phase.download_clips": "Downloading clips",
@@ -2471,11 +2469,6 @@ async function chargerSourdine() {
     return;
   }
   conteneur.replaceChildren();
-  if ((etat.legacy_ignored || []).length) {
-    const avertissement = document.createElement("p");
-    avertissement.textContent = t("suppressionAuto.legacy");
-    conteneur.appendChild(avertissement);
-  }
   for (const camera of etat.cameras) {
     const label = document.createElement("label");
     const case_ = document.createElement("input");
