@@ -197,6 +197,25 @@ class DemuxeurTSVideo:
         self._marques_pts = gardees
         return resultats
 
+    def finaliser(self) -> list:
+        """Force l'extraction de la toute dernière NAL unit encore en
+        tampon, jamais émise par _extraire_nal_completes() faute d'un
+        prochain start code pour en confirmer la fin - qui ne viendra
+        jamais puisque le flux TS s'arrête là. À appeler une seule fois, à
+        la fin normale du flux (sans quoi la dernière image reçue reste
+        perdue dans ce tampon, jamais transmise ni à l'affichage ni à
+        l'enregistrement)."""
+        buf = self._flux_elementaire
+        premier = buf.find(b"\x00\x00\x01")
+        debut_nal = premier + 3
+        if premier == -1 or debut_nal >= len(buf):
+            return []
+        pts = self._pts_a(debut_nal - 3)
+        resultat = [(pts, bytes(b"\x00\x00\x00\x01" + buf[debut_nal:]))]
+        self._flux_elementaire = bytearray()
+        self._marques_pts = []
+        return resultat
+
 
 def type_nal(nal_avec_start_code: bytes) -> int:
     """nal_unit_type (5 bits bas) du premier octet apres le start code."""

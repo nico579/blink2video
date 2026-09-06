@@ -210,6 +210,7 @@ if DISPONIBLE:
             self._tache = asyncio.ensure_future(self._lire())
 
         async def _lire(self) -> None:
+            fin_normale = False
             try:
                 while True:
                     # None (pas de plafond) tant que le SPS/PPS initial n'est
@@ -231,23 +232,13 @@ if DISPONIBLE:
                             f"flux Blink silencieux depuis "
                             f"{SILENCE_FLUX_MAX_SECONDS}s, fermeture"
                         )
+                        fin_normale = True
                         break
                     if not morceau:
+                        fin_normale = True
                         break
                     for pts, nal in self._demux.alimenter(morceau):
-                        type_ = blink_ts_demux.type_nal(nal)
-                        if type_ == 9 and self._unite_courante:
-                            unite = b"".join(self._unite_courante)
-                            self._mettre_unite(self._pts_courant, unite)
-                            self._synchroniser_enregistrement(unite)
-                            self._unite_courante = []
-                        if type_ == 9:
-                            self._pts_courant = pts
-                        self._unite_courante.append(nal)
-                        if type_ in (7, 8) and not self.sps_pps_pret.is_set():
-                            self.sps_pps += nal
-                            if type_ == 8:  # PPS suit toujours SPS : les
-                                self.sps_pps_pret.set()  # deux sont la
+                        self._traiter_nal(pts, nal)
             except Exception as error:
                 self._journal(
                     f"lecture du flux interrompue, "
@@ -258,11 +249,49 @@ if DISPONIBLE:
                 # doivent fermer aussi WebRTC ; arrêter la piste seule ne
                 # change pas connectionState et ne rend pas le module Blink.
                 try:
+                    if fin_normale:
+                        # Le démultiplexeur garde toujours sa toute dernière
+                        # NAL en tampon, faute d'un prochain start code pour
+                        # en confirmer la fin (qui ne viendra plus) ; sans ce
+                        # flush, elle - et l'unité d'accès en cours qui
+                        # l'attendait, jamais close par un nouvel AUD - étaient
+                        # perdues (bug réel : dernière image d'un direct
+                        # jamais transmise, ni à l'écran ni à l'enregistrement).
+                        for pts, nal in self._demux.finaliser():
+                            self._traiter_nal(pts, nal)
+                        self._flush_unite_courante()
                     self._arreter_enregistrement()
                 finally:
-                    self._terminer_file()
+                    # vider=False (fin normale) laisse recv() consommer les
+                    # images déjà en file avant de tomber sur le sentinel de
+                    # fin - sans ça, la fin de flux effaçait tout ce qui
+                    # restait en attente, jamais transmis (bug réel : sur une
+                    # source de 60 images, seules celles déjà lues par le
+                    # navigateur au moment de l'EOF survivaient). Un arrêt
+                    # forcé (fermer(), plus bas) garde le vidage immédiat :
+                    # l'appelant ne va de toute façon plus lire recv().
+                    self._terminer_file(vider=not fin_normale)
                     if self._demander_fermeture is not None:
                         self._demander_fermeture()
+
+        def _traiter_nal(self, pts, nal: bytes) -> None:
+            type_ = blink_ts_demux.type_nal(nal)
+            if type_ == 9:
+                self._flush_unite_courante()
+                self._pts_courant = pts
+            self._unite_courante.append(nal)
+            if type_ in (7, 8) and not self.sps_pps_pret.is_set():
+                self.sps_pps += nal
+                if type_ == 8:  # PPS suit toujours SPS : les
+                    self.sps_pps_pret.set()  # deux sont la
+
+        def _flush_unite_courante(self) -> None:
+            if not self._unite_courante:
+                return
+            unite = b"".join(self._unite_courante)
+            self._mettre_unite(self._pts_courant, unite)
+            self._synchroniser_enregistrement(unite)
+            self._unite_courante = []
 
         def _mettre_unite(self, pts, unite: bytes) -> None:
             if (self._file.full()
@@ -271,13 +300,23 @@ if DISPONIBLE:
             self._file.put_nowait((pts, unite))
             self._file_octets += len(unite)
 
-        def _terminer_file(self) -> None:
+        def _terminer_file(self, *, vider: bool = True) -> None:
             # Libère les octets et réveille recv(), même si la lecture a été
             # annulée avant son tout premier tour de boucle.
-            while not self._file.empty():
-                self._file.get_nowait()
-            self._file_octets = 0
-            self._file.put_nowait(None)
+            if vider:
+                while not self._file.empty():
+                    self._file.get_nowait()
+                self._file_octets = 0
+            try:
+                self._file.put_nowait(None)
+            except asyncio.QueueFull:
+                # Ne peut arriver que si FILE_IMAGES_MAX (900) images
+                # attendent déjà sans qu'aucune n'ait jamais été consommée -
+                # _mettre_unite() refuse déjà d'en ajouter une 901e avant
+                # d'en arriver là. best-effort : recv() finira par relire le
+                # flux vide sans sentinelle plutôt que de planter le
+                # nettoyage (fermeture du pc, libération du module Blink).
+                pass
 
         async def recv(self):
             item = await self._file.get()
