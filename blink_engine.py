@@ -295,11 +295,24 @@ async def download_clip(blink: Blink, clip, target: Path, overwrite: bool) -> st
 
 
 async def _inventorier_cloud(blink: Blink, args, output: Path,
-                             state: dict) -> _PlanCloud:
+                             state: dict, modules: list) -> _PlanCloud:
     """Construit le plan cloud sans commencer le moindre transfert."""
     clips = await blink_models.read_cloud_manifest(blink, args.since)
     if args.camera:
         clips = [c for c in clips if c.name.casefold() == args.camera.casefold()]
+    if args.hub:
+        # --hub filtre déjà les modules USB (blink_cli.py, select_sync_modules) ;
+        # sans ce filtre, le cloud d'un AUTRE réseau restait dans le plan
+        # (téléchargé, puis enregistré avec le nom du hub demandé dans son
+        # champ "hub" alors qu'il n'en vient pas). modules est déjà réduit au
+        # hub sélectionné à ce stade : ne garder que les clips dont le
+        # network_id correspond à l'un de ces modules revient à filtrer par
+        # hub, sans qu'un clip cloud connaisse lui-même de nom de hub.
+        reseaux_autorises = {
+            str(getattr(sync, "network_id", "") or "") for _, sync in modules
+        }
+        clips = [c for c in clips
+                if str(getattr(c, "network_id", "") or "") in reseaux_autorises]
     if not clips:
         return _PlanCloud()
 
@@ -495,7 +508,7 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
         runtime.travail(
             "Inventaire des clips", 0, 0, cle="phase.inventory_clips",
         )
-    plan = await _inventorier_cloud(blink, args, output, state)
+    plan = await _inventorier_cloud(blink, args, output, state, modules)
     if args.command != "download":
         return CloudResult(skipped=plan.skipped)
     jobs = [_DownloadJob(cloud=clip) for clip in plan.pending]
@@ -737,7 +750,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
         runtime.travail("Inventaire des clips", 0, 0,
                         cle="phase.inventory_clips")
         try:
-            plan_cloud = await _inventorier_cloud(blink, args, output, state)
+            plan_cloud = await _inventorier_cloud(blink, args, output, state, modules)
         except Exception as error:
             # Un cloud momentanément indisponible ne doit pas jeter le plan USB
             # déjà inventorié : il sera retenté au prochain passage.
