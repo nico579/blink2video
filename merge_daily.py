@@ -453,6 +453,55 @@ def read_registry(state_path: Path) -> dict:
     return entries
 
 
+def _cles_camera_par_collision(entries: dict) -> dict:
+    """(nom, network_id) -> clé de regroupement, seulement pour les noms où
+    une vraie collision existe.
+
+    Le registre distingue les appareils par network_id/device_id, mais le
+    regroupement journalier n'utilisait que le nom : deux caméras portant le
+    même nom sur deux hubs finissaient dans le même assemblage (reproduit
+    avec deux "jardin" sur des réseaux distincts, mélangées dans une seule
+    journalière).
+
+    Le fix littéral (regrouper par identité stable partout) fragmenterait à
+    tort les données réelles : une même caméra physique peut avoir plusieurs
+    network_id/device_id incohérents dans le registre pour des raisons
+    historiques (vieilles entrées USB sans network_id, bug de rapprochement
+    déjà corrigé par ailleurs mais pas rétroactif sur l'existant) - vérifié
+    sur le registre réel, "jardin" et "Terrasse1" y ont chacun plusieurs
+    couples (network_id, device_id) mais un seul network_id CONNU (toujours
+    le même quand renseigné, jamais deux valeurs différentes). Ce n'est donc
+    pas un vrai homonyme, juste une incohérence, et ne doit rien changer.
+
+    Ne sépare donc que les noms où au moins deux network_id NON VIDES et
+    DIFFÉRENTS coexistent (signal positif de deux hubs réels, même principe
+    que _hub_compatible() dans blink_registre.py) : ce cas ne s'est jamais
+    produit dans le registre réel, seulement dans la reproduction du bug.
+    Le network_id trié en premier garde le nom nu (n'invalide pas
+    l'historique déjà assemblé sous ce nom, quel qu'il soit) ; les autres
+    reçoivent un suffixe lisible, conservant le nom pour l'affichage comme
+    demandé plutôt qu'un identifiant opaque."""
+    reseaux_par_nom = defaultdict(set)
+    for entry in entries.values():
+        camera = str(entry.get("camera") or "camera").strip() or "camera"
+        network_id = str(entry.get("network_id") or "")
+        if network_id:
+            reseaux_par_nom[camera].add(network_id)
+
+    cles = {}
+    for camera, reseaux in reseaux_par_nom.items():
+        if len(reseaux) <= 1:
+            continue
+        _principal, *autres = sorted(reseaux)
+        for rang, reseau in enumerate(autres, start=2):
+            cles[(camera, reseau)] = f"{camera} ({rang})"
+    return cles
+
+
+def _camera_key(cles_collision: dict, entry: dict, camera: str) -> str:
+    return cles_collision.get((camera, str(entry.get("network_id") or "")), camera)
+
+
 def load_groups(input_dir: Path, timezone: ZoneInfo) -> dict:
     """Regroupe les fichiers enregistrés par le téléchargeur incrémental.
 
@@ -464,6 +513,7 @@ def load_groups(input_dir: Path, timezone: ZoneInfo) -> dict:
     continuait d'être agrégée dans l'hebdomadaire et la mensuelle (bug #2,
     revue de code du 0eab463, voir AUDIT-2026-08-13.md 28.61)."""
     entries = read_registry(input_dir / DOWNLOAD_STATE)
+    cles_collision = _cles_camera_par_collision(entries)
 
     root = input_dir.resolve()
     groups = defaultdict(list)
@@ -473,6 +523,7 @@ def load_groups(input_dir: Path, timezone: ZoneInfo) -> dict:
             camera = str(entry.get("camera") or "camera").strip() or "camera"
         except (KeyError, TypeError, ValueError):
             continue
+        camera = _camera_key(cles_collision, entry, camera)
 
         local_day = created.astimezone(timezone).date().isoformat()
         clips = groups[(camera, local_day)]
@@ -512,6 +563,7 @@ def journees_a_source_indisponible(input_dir: Path, timezone: ZoneInfo) -> tuple
     pour ne pas effacer un segment déjà encodé et toujours valide du seul
     fait que son brut source a disparu."""
     entries = read_registry(input_dir / DOWNLOAD_STATE)
+    cles_collision = _cles_camera_par_collision(entries)
     root = input_dir.resolve()
     jours, identites = set(), set()
     for entry in entries.values():
@@ -520,6 +572,7 @@ def journees_a_source_indisponible(input_dir: Path, timezone: ZoneInfo) -> tuple
             camera = str(entry.get("camera") or "camera").strip() or "camera"
         except (KeyError, TypeError, ValueError):
             continue
+        camera = _camera_key(cles_collision, entry, camera)
         if entry.get("excluded"):
             continue
         local_day = created.astimezone(timezone).date().isoformat()
