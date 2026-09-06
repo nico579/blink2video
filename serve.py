@@ -1452,10 +1452,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if match:
             first, last = match.group(1), match.group(2)
             if first:
-                start = min(int(first), size - 1)
+                # Ne PAS clamper start ici : un start hors fichier (bytes=20-
+                # sur 10 octets) doit être rejeté (416), pas silencieusement
+                # ramené au dernier octet valide - la RFC 7233 ne l'autorise
+                # que pour la borne de FIN, jamais pour la borne de début.
+                start = int(first)
                 end = min(int(last), size - 1) if last else size - 1
             elif last:  # suffixe : les N derniers octets
-                start = max(size - int(last), 0)
+                n = int(last)
+                start = max(size - n, 0) if n > 0 else size
+                end = size - 1
+            else:  # "bytes=-", ni début ni fin : rien à servir
+                start = size
+                end = size - 1
+            if start >= size or start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
             partial = True
 
         length = end - start + 1
