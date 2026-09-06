@@ -1336,14 +1336,22 @@ def build_periods(
 ) -> tuple[int, int, int]:
     """Assemble les vidéos journalières en agrégats hebdomadaires ou mensuels."""
     dailies = collect_dailies(output_dir)
-    if not dailies:
-        return 0, 0, 0
+    # Pas de retour anticipé si dailies est vide : une caméra qui n'a plus
+    # aucune journalière (tout exclu) doit quand même atteindre le nettoyage
+    # des périodes obsolètes en bas de fonction, sans quoi ses anciennes
+    # hebdomadaires/mensuelles ne seraient jamais revisitées ni supprimées.
 
     state_path = period_dir / MERGE_STATE
     state = load_json(state_path, {"version": 1, "groups": {}})
     state.setdefault("groups", {})
 
     built = skipped = failed = 0
+    # Clés (camera|label) encore couvertes par au moins une journalière : le
+    # reste de state["groups"] correspond à des périodes devenues vides
+    # (tous leurs jours exclus ou disparus), jamais revisitées par la boucle
+    # ci-dessous puisqu'elle ne parcourt que collect_dailies() - sans ce
+    # suivi, leur agrégat déjà assemblé restait sur disque indéfiniment.
+    labels_attendus = set()
     for camera, entries in sorted(dailies.items()):
         buckets = defaultdict(list)
         for day, video in entries:
@@ -1352,6 +1360,7 @@ def build_periods(
         for label, parts in sorted(buckets.items()):
             destination = period_dir / camera / f"{label}_{camera}.mp4"
             key = f"{camera}|{label}"
+            labels_attendus.add(key)
             fingerprint = period_fingerprint(parts)
 
             if (
@@ -1381,6 +1390,16 @@ def build_periods(
             save_json(state_path, state)
             print(f"  Créé : {destination}")
             built += 1
+
+    obsoletes = [key for key in state["groups"] if key not in labels_attendus]
+    if obsoletes:
+        for key in obsoletes:
+            entree = state["groups"].pop(key)
+            chemin = entree.get("path")
+            if chemin:
+                (period_dir / chemin).unlink(missing_ok=True)
+            print(f"Supprimé (période vide) : {key}")
+        save_json(state_path, state)
 
     return built, skipped, failed
 
