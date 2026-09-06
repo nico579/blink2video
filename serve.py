@@ -1162,16 +1162,24 @@ class LoginFlow:
         self.future = None
         self.queue = None
         self.asked = threading.Event()
+        # Singleton sur Handler (ThreadingHTTPServer, un thread par requête) :
+        # deux /api/login qui se chevauchent (page rafraîchie par impatience
+        # pendant qu'un login précédent attend encore son code, jusqu'à 120 s)
+        # mutaient loop/future/queue sans synchronisation, avec un close()
+        # pouvant arrêter la boucle qu'un autre thread vient de créer.
+        self._verrou = threading.Lock()
 
     def start(self, username: str, password: str) -> dict:
-        self.close()
-        self.loop = asyncio.new_event_loop()
-        threading.Thread(target=self._serve, daemon=True).start()
-        self.asked.clear()
-        self.future = asyncio.run_coroutine_threadsafe(
-            self._login(username, password), self.loop
-        )
-        return self.wait()
+        with self._verrou:
+            self._arreter_session_courante()
+            self.loop = asyncio.new_event_loop()
+            threading.Thread(target=self._serve, daemon=True).start()
+            self.asked.clear()
+            self.future = asyncio.run_coroutine_threadsafe(
+                self._login(username, password), self.loop
+            )
+            future = self.future
+        return self.wait(future)
 
     def _serve(self) -> None:
         asyncio.set_event_loop(self.loop)
@@ -1194,27 +1202,45 @@ class LoginFlow:
         return {"status": "ok"}
 
     def submit_code(self, code: str) -> dict:
-        if self.loop is None or self.queue is None:
-            return {"status": "error", "message": "Aucune connexion en cours."}
-        self.asked.clear()
-        self.loop.call_soon_threadsafe(self.queue.put_nowait, code)
-        return self.wait()
+        with self._verrou:
+            if self.loop is None or self.queue is None:
+                return {"status": "error", "message": "Aucune connexion en cours."}
+            self.asked.clear()
+            loop, queue, future = self.loop, self.queue, self.future
+        loop.call_soon_threadsafe(queue.put_nowait, code)
+        return self.wait(future)
 
-    def wait(self, timeout: float = 120.0) -> dict:
-        """Rend la main dès qu'un code est réclamé ou que la connexion aboutit."""
+    def wait(self, future, timeout: float = 120.0) -> dict:
+        """Rend la main dès qu'un code est réclamé ou que la connexion aboutit.
+
+        ``future`` est celui capturé par l'appelant sous verrou, jamais relu
+        depuis ``self`` : si une autre session de login a entre-temps remplacé
+        celle-ci, on continue d'attendre la nôtre sans se faire piéger par un
+        attribut partagé qui a changé sous nos pieds."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if self.future.done():
-                result = self.future.result()
-                self.close()
+            if future.done():
+                result = future.result()
+                self._fermer_si_courante(future)
                 return result
             if self.asked.is_set():
                 return {"status": "2fa"}
             time.sleep(0.1)
-        self.close()
+        self._fermer_si_courante(future)
         return {"status": "error", "message": "Délai dépassé."}
 
     def close(self) -> None:
+        with self._verrou:
+            self._arreter_session_courante()
+
+    def _fermer_si_courante(self, future) -> None:
+        """N'arrête la boucle que si ``future`` est toujours la session active,
+        pas celle qu'un login concurrent plus récent a déjà remplacée."""
+        with self._verrou:
+            if self.future is future:
+                self._arreter_session_courante()
+
+    def _arreter_session_courante(self) -> None:
         if self.loop is not None:
             self.loop.call_soon_threadsafe(self.loop.stop)
         self.loop, self.future, self.queue = None, None, None
