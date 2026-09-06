@@ -801,6 +801,60 @@ class LecteurTube:
         return morceau
 
 
+class DetecteurDebutFragment:
+    """Vrai si le bloc reçu commence pile sur un fragment fMP4 ("moof"),
+    jamais au milieu d'un moof/mdat déjà entamé.
+
+    Les blocs que LecteurTube.lire() fait remonter (16 Ko) ne s'alignent
+    JAMAIS sur les frontières entre fragments moof+mdat de ffmpeg (vérifié
+    empiriquement : un mdat de plusieurs Ko peut être scindé en plein
+    milieu par un bloc). send_live_mse() s'en sert pour ne démarrer un
+    enregistrement que sur un bloc qui ouvre un vrai fragment - donc une
+    image-clé, garantie par -movflags frag_keyframe : démarrer sur un bloc
+    quelconque pouvait couper un mdat en deux, produisant un fragment sans
+    son moof, illisible à la relecture ("Invalid NAL unit size", bug réel).
+
+    Ne cherche qu'au tout DÉBUT de chaque bloc plutôt que d'y localiser un
+    offset précis : la seule conséquence d'un fragment manqué (en-tête de
+    boîte à cheval sur deux blocs, cas rare) est d'attendre le suivant,
+    quelques centaines de ms au pire - sans commune mesure avec un fichier
+    corrompu. Doit être alimentée avec CHAQUE bloc du flux, dans l'ordre, y
+    compris le segment d'initialisation ("first" dans send_live_mse : ftyp
+    et moov y sont des boîtes comme les autres pour ce suivi, il peut aussi
+    déjà contenir les premiers fragments), sous peine de désynchroniser son
+    suivi des tailles de boîte."""
+
+    def __init__(self):
+        self._restant_boite = 0
+        self._entete = b""
+
+    def bloc_ouvre_un_fragment(self, chunk: bytes) -> bool:
+        sur_frontiere_avant = self._restant_boite == 0 and not self._entete
+        resultat = (
+            sur_frontiere_avant and len(chunk) >= 8 and chunk[4:8] == b"moof"
+        )
+        position, n = 0, len(chunk)
+        while position < n:
+            if self._restant_boite:
+                pris = min(self._restant_boite, n - position)
+                position += pris
+                self._restant_boite -= pris
+                continue
+            manque = 8 - len(self._entete)
+            pris = min(manque, n - position)
+            self._entete += chunk[position:position + pris]
+            position += pris
+            if len(self._entete) < 8:
+                break
+            taille = int.from_bytes(self._entete[:4], "big")
+            self._entete = b""
+            if taille < 8:
+                self._restant_boite = 0  # boîte dégénérée : abandonne le suivi
+                break
+            self._restant_boite = taille - 8
+        return resultat
+
+
 _MOOV_CONTAINERS = {b"moov", b"trak", b"mdia", b"minf", b"stbl"}
 
 
@@ -2325,6 +2379,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     reason = f"{reason} | ffmpeg : {trace}"
                 raise RuntimeError(reason)
             codec_str = h264_mime_codec_from_moov(first)
+            # Pré-alimenté avec `first` (verdict ignoré : voir _ecrire, ce
+            # premier bloc est de toute façon toujours écrit intégralement)
+            # pour que son suivi des tailles de boîte reste synchronisé sur
+            # tout le flux depuis son origine, `first` pouvant déjà contenir
+            # plus que le seul segment d'initialisation (voir sa docstring).
+            detecteur_fragments = DetecteurDebutFragment()
+            detecteur_fragments.bloc_ouvre_un_fragment(first)
 
             # À partir de ce point, une seconde ligne de statut HTTP ne peut
             # plus être envoyée proprement, même si end_headers() échoue.
@@ -2354,7 +2415,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # arrête l'enregistrement seul, jamais le direct à l'écran.
                 fichier_direct = holder.get("fichier_direct")
                 desire = ENREGISTREMENT_DIRECT_ACTIF.is_set()
-                if desire and fichier_direct is None:
+                # `data` doit alimenter le détecteur même quand desire est
+                # encore faux ou qu'un fichier est déjà ouvert : c'est le
+                # prix pour que son suivi des tailles de boîte reste
+                # synchronisé sur tout le flux (voir sa docstring). Pas pour
+                # `first`, déjà pré-alimenté avant la boucle.
+                fragment_complet = (
+                    data is first or detecteur_fragments.bloc_ouvre_un_fragment(data)
+                )
+                if desire and fichier_direct is None and fragment_complet:
+                    # Un démarrage demandé en cours de direct (pas dès le
+                    # premier bloc) attend ce fragment plutôt que d'écrire
+                    # `data` tel quel : les blocs lus depuis ffmpeg (16 Ko,
+                    # LecteurTube) ne s'alignent jamais sur les frontières
+                    # moof/mdat, démarrer sur un bloc quelconque pouvait
+                    # couper un mdat en deux - le fichier obtenu, amputé du
+                    # moof de tête, n'était plus décodable (constaté avec de
+                    # vraies données : ffmpeg y lisait des NAL units invalides).
+                    #
                     # holder["camera_name"] (le vrai nom, posé par run() plus
                     # haut) plutôt que `name` : voir la note sur camera_key()
                     # à l'endroit où holder["camera_name"] est posé.
