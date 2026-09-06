@@ -3253,12 +3253,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                 manifestes[cle] = await blink_models.read_local_manifest(sync)
                                 ids_presents_par_module[str(getattr(sync, "sync_id", ""))] = {
                                     str(c.id) for c in manifestes[cle]}
-                            cible_clip = next(
-                                (c for c in manifestes[cle] if str(c.id) == id_distant),
-                                None)
-                            if cible_clip is None:
+                            # id_distant (numéro USB tiré du nom de fichier
+                            # local) est réattribué à chaque réindexation du
+                            # module : après un redémarrage, le n°7 qui
+                            # désignait "jardin" hier peut désigner "garage"
+                            # aujourd'hui. Le retrouver par caméra + date
+                            # dans le manifeste ACTUEL, plutôt que de faire
+                            # confiance à ce numéro périmé, évite de
+                            # supprimer le mauvais clip distant. Une
+                            # correspondance ambiguë (plusieurs clips de la
+                            # même caméra à quelques secondes d'écart)
+                            # refuse plutôt que de choisir au hasard.
+                            try:
+                                attendu = md.parse_created_at(
+                                    str(entree.get("created_at") or ""))
+                            except (ValueError, TypeError):
+                                attendu = None
+                            candidats = [] if attendu is None else [
+                                c for c in manifestes[cle]
+                                if str(c.name).casefold() == camera.casefold()
+                                and abs((blink_models.clip_datetime_utc(c)
+                                        - attendu).total_seconds()) <= 2
+                            ]
+                            if not candidats:
                                 resultats[identity] = "deja_absent"
+                            elif len(candidats) > 1:
+                                resultats[identity] = "ambigu"
                             else:
+                                cible_clip = candidats[0]
                                 resultats[identity] = (
                                     "supprime" if await cible_clip.delete_video(blink)
                                     else "echec")
