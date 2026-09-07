@@ -271,7 +271,9 @@ if DISPONIBLE:
                     # forcé (fermer(), plus bas) garde le vidage immédiat :
                     # l'appelant ne va de toute façon plus lire recv().
                     self._terminer_file(vider=not fin_normale)
-                    if self._demander_fermeture is not None:
+                    # Une fin normale laisse recv() transmettre les images
+                    # déjà reçues avant de fermer la connexion.
+                    if not fin_normale and self._demander_fermeture is not None:
                         self._demander_fermeture()
 
         def _traiter_nal(self, pts, nal: bytes) -> None:
@@ -322,6 +324,8 @@ if DISPONIBLE:
             item = await self._file.get()
             if item is None:
                 self.stop()
+                if self._demander_fermeture is not None:
+                    self._demander_fermeture()
                 raise MediaStreamError
             pts, donnees = item
             self._file_octets -= len(donnees)
@@ -541,7 +545,7 @@ if DISPONIBLE:
         if i == -1:
             return None
         i += 3
-        if (sps_pps_annexb[i] & 0x1F) != 7:  # nal_unit_type 7 = SPS
+        if len(sps_pps_annexb) < i + 4 or (sps_pps_annexb[i] & 0x1F) != 7:
             return None
         return sps_pps_annexb[i + 1 : i + 4].hex()
 

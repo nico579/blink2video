@@ -105,6 +105,9 @@ système.
 
 Windows 7 SP1 x64 dispose d'une [édition legacy séparée](WINDOWS7.md), publiée
 aux côtés de chaque [release](https://github.com/nico579/blink2video/releases/latest).
+Pour le WebRTC natif, utiliser Supermium 144 R5 ou Thorium Legacy 122, validés
+sur les caméras réelles ; conserver MSE avec Firefox ESR 115. Voir le
+[tableau des navigateurs testés](WINDOWS7.md#quel-navigateur-utiliser-pour-webrtc-).
 
 **2. Le lancer.** Double-clic sur l'exécutable (ou `./blink2video` depuis un
 terminal). Aucun argument nécessaire : sans session valide, un onglet s'ouvre

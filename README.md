@@ -93,6 +93,9 @@ unpack it. ffmpeg travels inside the bundle; nothing is installed system-wide.
 
 Windows 7 SP1 x64 has a [separate legacy build](WINDOWS7.en.md), published
 alongside every [release](https://github.com/nico579/blink2video/releases/latest).
+For native WebRTC, use Supermium 144 R5 or Thorium Legacy 122, both tested
+on real cameras; keep MSE with Firefox ESR 115. See the
+[tested browser matrix](WINDOWS7.en.md#which-browser-should-i-use-for-webrtc).
 
 **2. Run it.** Double-click the executable (or `./blink2video` from a terminal).
 No arguments needed: with no valid session yet, a browser tab opens by itself on

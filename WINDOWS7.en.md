@@ -73,6 +73,36 @@ only this legacy build envelope is separate.
    ZIP or from a VirtualBox shared folder.
 5. Never download individual DLL files from third-party sites.
 
+## Which browser should I use for WebRTC?
+
+Recommended: **Supermium 144 R5 x64**. **Thorium Legacy 122 SSE3 x64** is
+another tested option. Download from the official releases linked below,
+open the local address displayed by blink2video, and select **WebRTC in live
+view settings**. Neither browser requires an additional codec pack.
+
+| Tested browser | Native H.264 High WebRTC on Win7 | MSE | Recommendation |
+| --- | --- | --- | --- |
+| [Supermium 144.0.7559.256 R5 x64](https://github.com/win32ss/supermium/releases/tag/v144-r5) | Passed on Salon, Terrasse1 and jardin; synthetic check repeated September 7 | Passed on Salon and synthetic source | First choice for WebRTC |
+| [Thorium Legacy 122.0.6261.171 SSE3 x64](https://github.com/Alex313031/thorium-legacy/releases/tag/M122.0.6261.171) | Passed September 7 on all three cameras, 720p and 1080p | Passed on Salon and synthetic source | Working alternative, old engine |
+| Firefox ESR 115.39.0 x64 + OpenH264 2.6 | Failed: only H.264 Baseline advertised | Keep this previously working mode on this VM | Use MSE |
+| [r3dfox 153.0.3 portable x64](https://github.com/Eclipse-Community/r3dfox/releases/tag/v153.0.3) | No `RTCPeerConnection` API, even with `media.peerconnection.enabled=true` in a test profile | Automated playback blocked by browser policy; not validated | Not recommended for WebRTC on this configuration |
+
+Tests used VirtualBox, Windows 7 SP1 x64, one CPU, 2 GB RAM, visible browsers
+and isolated profiles. Chromium tests disabled GPU acceleration: this proves
+software decoding, not compatibility with every graphics driver. In Thorium,
+playback advanced for six seconds on each camera, presenting 86, 77 and 167
+frames respectively. The module was free after every stop. These are functional
+checks, not comparative benchmarks; Terrasse1's wake-up notably delayed startup.
+
+**There is no re-encoded WebRTC mode or automatic Baseline conversion.**
+Select **MSE** explicitly in settings when WebRTC is incompatible. Working
+MSE playback does not guarantee the same WebRTC profiles: the browser uses
+different decoding paths. Stop a failed live view before changing modes or browsers.
+
+Do not disable the firewall or TLS security to resolve codec problems. These
+checks are not a security endorsement for general Internet browsing: Windows 7
+is unsupported, and the tested Thorium uses an old Chromium engine.
+
 ## Test progressively
 
 Run these commands from `C:\blink7\blink2video` in `cmd.exe`:

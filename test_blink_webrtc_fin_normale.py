@@ -50,6 +50,27 @@ class TestsFinNormaleFluxWebRTC(unittest.IsolatedAsyncioTestCase):
                 images.append(item)
         return images
 
+    async def test_fin_normale_attend_la_derniere_lecture_avant_fermeture_pc(self):
+        fermeture = mock.Mock()
+        self.track._demander_fermeture = fermeture
+        with mock.patch.object(self.track._demux, "alimenter", return_value=[(0, AUD), (0, image(0))]), \
+             mock.patch.object(self.track._demux, "finaliser", return_value=[]), \
+             mock.patch.object(blink_webrtc, "TAMPON_LECTURE_SECONDS", 0):
+            self.reader.feed_data(b"TS")
+            self.reader.feed_eof()
+            await asyncio.wait_for(self.track._tache, 1)
+            fermeture.assert_not_called()
+            self.assertEqual(bytes(await self.track.recv()), AUD + image(0))
+            with self.assertRaises(blink_webrtc.MediaStreamError):
+                await self.track.recv()
+            fermeture.assert_called_once()
+
+    async def test_sps_tronque_ne_provoque_pas_index_error(self):
+        for fragment in (b"", b"\x00\x00\x01", b"\x00\x00\x01\x67", b"\x00\x00\x01\x67\x64\x00"):
+            with self.subTest(fragment=fragment):
+                self.assertIsNone(blink_webrtc._profile_level_id(fragment))
+        self.assertEqual(blink_webrtc._profile_level_id(b"\x00\x00\x01\x67\x64\x00\x28"), "640028")
+
     async def test_fin_normale_transmet_toutes_les_images_y_compris_la_derniere(self):
         # 60 images : les 59 premières bien closes par l'AUD suivante, la
         # 60e jamais close - exactement la forme d'un vrai flux qui s'arrête

@@ -76,6 +76,40 @@ legacy est distincte.
    ZIP ni depuis un dossier partagé VirtualBox).
 5. Ne jamais télécharger une DLL isolée depuis un site tiers.
 
+## Quel navigateur utiliser pour WebRTC ?
+
+Choix conseillé : **Supermium 144 R5 x64**. **Thorium Legacy 122 SSE3 x64**
+est une autre option validée. Installer depuis les publications officielles
+ci-dessous, ouvrir l'adresse locale affichée par blink2video, puis sélectionner
+**WebRTC dans les réglages du direct**. Aucun pack de codecs supplémentaire
+n'est nécessaire pour ces deux navigateurs.
+
+| Navigateur testé | WebRTC natif H.264 High sous Win7 | MSE | Conseil |
+| --- | --- | --- | --- |
+| [Supermium 144.0.7559.256 R5 x64](https://github.com/win32ss/supermium/releases/tag/v144-r5) | Validé sur Salon, Terrasse1 et jardin ; contrôle sur mire le 7 septembre | Validé sur Salon et sur mire | Premier choix pour WebRTC |
+| [Thorium Legacy 122.0.6261.171 SSE3 x64](https://github.com/Alex313031/thorium-legacy/releases/tag/M122.0.6261.171) | Validé le 7 septembre sur les trois caméras, 720p et 1080p | Validé sur Salon et sur mire | Alternative fonctionnelle, moteur ancien |
+| Firefox ESR 115.39.0 x64 + OpenH264 2.6 | Échec : l'offre ne contient que H.264 Baseline | Conserver ce mode déjà fonctionnel sur cette VM | Utiliser MSE |
+| [r3dfox 153.0.3 portable x64](https://github.com/Eclipse-Community/r3dfox/releases/tag/v153.0.3) | API `RTCPeerConnection` absente, même avec `media.peerconnection.enabled=true` dans un profil de test | Essai automatique bloqué par la politique de lecture ; non validé | Non recommandé pour WebRTC sur cette configuration |
+
+Essais dans VirtualBox, Windows 7 SP1 x64, 1 CPU et 2 Go de RAM, navigateurs
+visibles et profils isolés. Les essais Chromium désactivent l'accélération GPU :
+ils prouvent le décodage sans GPU, pas la compatibilité de tous les pilotes.
+Sur Thorium, la lecture a avancé pendant six secondes sur chaque caméra,
+avec 86, 77 et 167 images présentées respectivement. Le module était libre
+après chaque arrêt. Ces validations fonctionnelles ne constituent pas un
+benchmark comparatif ; le réveil de Terrasse1 a notamment allongé son démarrage.
+
+**Pas de mode WebRTC réencodé ni de conversion automatique vers Baseline.**
+En cas d'incompatibilité, sélectionner explicitement **MSE** dans les réglages.
+Une vidéo qui fonctionne en MSE ne garantit pas les mêmes profils en WebRTC :
+les deux chemins de décodage du navigateur sont distincts. Si aucune image
+n'apparaît, arrêter le direct avant de changer de mode ou de navigateur.
+
+Ne pas désactiver le pare-feu ni la sécurité TLS pour résoudre un problème de
+codec. Ne pas considérer ces essais comme une garantie de sécurité pour la
+navigation Internet : Windows 7 reste hors support, et Thorium testé repose
+sur un ancien moteur Chromium.
+
 ## Essai progressif
 
 Depuis `cmd.exe`, dans `C:\blink7\blink2video` :
