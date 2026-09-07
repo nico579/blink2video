@@ -3017,13 +3017,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # défaut qui ignore la page Réglages. Comme dans standard(),
         # merge_jour est l'interrupteur général de l'assemblage : Actualiser
         # ne doit pas le réactiver implicitement.
-        options_merge = []
-        if not reglages["timestamp"]:
-            options_merge.append("--no-timestamp")
-        if not reglages["merge_semaine"]:
-            options_merge.append("--no-weekly")
-        if not reglages["merge_mois"]:
-            options_merge.append("--no-monthly")
+        options_merge = runtime.options_fusion(reglages)
         etapes = [("Téléchargement", "phase.step_download",
                   runtime.self_command("download", *hub_args))]
         if reglages["merge_jour"]:
@@ -3339,21 +3333,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     # Une seule reconstruction par (caméra, jour) touché, même si
                     # plusieurs clips de ce jour ont changé de statut ensemble.
                     jours = set()
+                    cles_collision = md._cles_camera_par_collision(entrees)
+                    fuseau_fusion = ZoneInfo(reglages["timezone"])
                     for identity in exclure + inclure:
                         entree = trouver_entree(identity)
                         camera = str((entree or {}).get("camera") or "").strip()
                         try:
                             jour = md.parse_created_at(
                                 str((entree or {}).get("created_at"))
-                            ).astimezone(self.timezone).date().isoformat()
+                            ).astimezone(fuseau_fusion).date().isoformat()
                         except (TypeError, ValueError):
                             jour = None
                         if camera and jour:
-                            jours.add((camera, jour))
-                    # Même règle que runtime.standard() : ce réassemblage manuel
-                    # ne doit pas incruster l'horodatage si la page a dit de ne
-                    # pas le faire.
-                    options = [] if reglages["timestamp"] else ["--no-timestamp"]
+                            jours.add((md._camera_key(cles_collision, entree, camera), jour))
+                    # Même fuseau que le calcul du jour ci-dessus, mêmes
+                    # sorties que la boucle et le bouton Actualiser.
+                    options = runtime.options_fusion(reglages)
                     # Un seul réassemblage à la fois : deux assemblages
                     # simultanés de la même journée écriraient le même fichier.
                     with REASSEMBLAGE:
@@ -3659,26 +3654,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == "/api/suppression-auto":
             camera = str(payload.get("camera", "")).strip()
             actif = bool(payload.get("actif"))
-            etat = md.load_json(watch.WATCH_STATE, {})
-            noms_actuels = {nom.strip().casefold() for nom in (etat.get("cameras") or {})}
-            if not camera or camera.casefold() not in noms_actuels:
-                self.send_json({"error": "Caméra inconnue."}, 400)
+            try:
+                # Sérialiser lecture ET modification, y compris avec une
+                # bascule de stockage : replace seul perd les clics concurrents.
+                with runtime.verrou_configuration("suppression-auto", attente=5):
+                    etat = md.load_json(watch.WATCH_STATE, {})
+                    noms_actuels = {nom.strip().casefold() for nom in (etat.get("cameras") or {})}
+                    if not camera or camera.casefold() not in noms_actuels:
+                        self.send_json({"error": "Caméra inconnue."}, 400)
+                        return
+                    # Le nom affiché résout les identités internes persistées.
+                    cles = {
+                        choice["key"] for choice in suppression_auto_choices(read_entries(self.paths))
+                        if choice["name"].strip().casefold() == camera.casefold()
+                    }
+                    cameras = suppression_auto_keys()
+                    if actif:
+                        cameras |= cles
+                    else:
+                        cameras -= cles
+                    runtime.ecrire_suppression_auto(cameras)
+            except runtime.BusyError as erreur:
+                self.send_json({"error": f"Une modification des réglages est déjà en cours : {erreur}"}, 409)
                 return
-            # Le nom identifie la caméra côté page ; sa ou ses clés internes
-            # (camera-v2-*, suppression_auto_choices ci-dessus) sont
-            # résolues ici, jamais exposées au navigateur.
-            cles = {
-                choice["key"] for choice in suppression_auto_choices(read_entries(self.paths))
-                if choice["name"].strip().casefold() == camera.casefold()
-            }
-            # Pas de redémarrage : un_passage() (blink_engine.py) relit ce
-            # fichier à chaque tour, même principe que runtime.lire_langue().
-            cameras = suppression_auto_keys()
-            if actif:
-                cameras |= cles
-            else:
-                cameras -= cles
-            runtime.ecrire_suppression_auto(cameras)
+            except OSError as erreur:
+                self.send_json({"error": f"Impossible d'enregistrer la suppression automatique : {erreur}"}, 500)
+                return
             self.send_json({"ok": True})
             return
 

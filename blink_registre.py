@@ -164,8 +164,9 @@ def _exclusion_a_retenir(precedente: dict, entree: dict) -> tuple:
     depuis_disque = precedente.get("excluded_at")
     depuis_entrant = entree.get("excluded_at")
 
-    if disque_exclu == entrant_exclu:
-        return entrant_exclu, depuis_entrant or depuis_disque
+    # Même lorsque les booléens coïncident, la date la plus récente doit
+    # survivre : la faire reculer autoriserait ensuite une décision opposée
+    # périmée à gagner lors d'une autre sauvegarde de téléchargement.
     if depuis_disque and depuis_entrant:
         if depuis_disque > depuis_entrant:
             return disque_exclu, depuis_disque

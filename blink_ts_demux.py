@@ -130,15 +130,24 @@ class DemuxeurTSVideo:
         if trouve is None:
             return
         section, section_length = trouve
+        # Une PMT comprend au minimum l'en-tête fixe et son CRC. Ignorer
+        # une table incomplète avant tout accès ou choix de PID vidéo.
+        if section[0] != 0x02 or section_length < 13 or len(section) < 3 + section_length:
+            return
         program_info_length = ((section[10] & 0x0F) << 8) | section[11]
         i, fin = 12 + program_info_length, 3 + section_length - 4
+        video_pid = None
         while i + 5 <= fin and i + 5 <= len(section):
             stream_type = section[i]
             elementary_pid = ((section[i + 1] & 0x1F) << 8) | section[i + 2]
             es_info_length = ((section[i + 3] & 0x0F) << 8) | section[i + 4]
-            if stream_type == 0x1B and self.video_pid is None:
-                self.video_pid = elementary_pid
+            if i + 5 + es_info_length > fin:
+                return
+            if stream_type == 0x1B and video_pid is None:
+                video_pid = elementary_pid
             i += 5 + es_info_length
+        if i == fin:
+            self.video_pid = video_pid
 
     def _pts_a(self, position: int) -> Optional[int]:
         """Dernier PTS marque a une position <= `position` (sans le

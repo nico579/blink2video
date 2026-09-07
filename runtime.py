@@ -36,7 +36,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.12.8"
+VERSION = "0.12.9"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -255,6 +255,22 @@ def ecrire_suppression_auto(cameras: set) -> None:
         temporaire.unlink(missing_ok=True)
 
 
+def options_fusion(reglages: dict) -> list:
+    """Options communes aux fusions automatiques et demandées par la page.
+
+    L'appelant décide de lancer la fusion selon merge_jour. Une fois lancée,
+    elle conserve partout le même fuseau et les mêmes sorties activées.
+    """
+    options = ["--timezone", reglages["timezone"]]
+    if not reglages["timestamp"]:
+        options.append("--no-timestamp")
+    if not reglages["merge_semaine"]:
+        options.append("--no-weekly")
+    if not reglages["merge_mois"]:
+        options.append("--no-monthly")
+    return options
+
+
 def standard() -> tuple:
     """Composition recommandée : mêmes verbes que l'ancienne constante
     STANDARD, mais les cadences USB/cloud, le port, l'horodatage et le
@@ -270,13 +286,7 @@ def standard() -> tuple:
     c = lire_reglages()
     merge = []
     if c["merge_jour"]:
-        merge = ["merge", "--loop", "5", "--timezone", c["timezone"]]
-        if not c["timestamp"]:
-            merge.append("--no-timestamp")
-        if not c["merge_semaine"]:
-            merge.append("--no-weekly")
-        if not c["merge_mois"]:
-            merge.append("--no-monthly")
+        merge = ["merge", "--loop", "5", *options_fusion(c)]
     download = []
     if c["download_auto"]:
         # Un seul worker inventorie d'abord les deux sources : la barre connaît
@@ -595,15 +605,23 @@ def ecrire_dossier_stockage(chemin: str) -> None:
     # un dossier incomplet. Ici, tout échec conserve l'ancienne racine active.
     if nouveau != ancien:
         nouveau.mkdir(parents=True, exist_ok=True)
-        for nom in (REGLAGES, "blink_auth.json"):
+        # Les préférences absentes expriment aussi un choix : notamment
+        # aucune suppression autorisée. Ne pas hériter d'un ancien fichier
+        # présent dans la destination lorsque la source n'en possède pas.
+        preferences_defaut = {LANGUE: "fr", SUPPRESSION_AUTO: "[]"}
+        for nom in (REGLAGES, "blink_auth.json", LANGUE, SUPPRESSION_AUTO):
             source = ancien / nom
-            if not source.is_file():
+            presente = source.is_file()
+            if not presente and nom not in preferences_defaut:
                 continue
             cible = nouveau / nom
             temporaire_copie = cible.with_name(
                 f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
             try:
-                shutil.copy2(source, temporaire_copie)
+                if presente:
+                    shutil.copy2(source, temporaire_copie)
+                else:
+                    temporaire_copie.write_text(preferences_defaut[nom], encoding="utf-8")
                 temporaire_copie.replace(cible)
             finally:
                 temporaire_copie.unlink(missing_ok=True)
@@ -676,7 +694,9 @@ def _dossier_controle() -> Path:
     change pas pendant ce basculement. ``BLINK_HOME`` reste respecté pour les
     installations dont l'emplacement du programme n'est pas inscriptible.
     """
-    force = os.environ.get("BLINK_HOME")
+    # Le finaliseur de mise à jour tourne hors de l'installation. Sa racine
+    # de données ne doit pas déplacer les fiches des processus à arrêter.
+    force = os.environ.get("BLINK_CONTROL_HOME") or os.environ.get("BLINK_HOME")
     if force:
         return Path(force).expanduser().resolve()
     return _dossier_ancre()
@@ -1732,6 +1752,53 @@ def _fichier_travail(pid: int | None = None) -> Path:
     return app_dir() / f"{TRAVAIL.stem}.{pid}{TRAVAIL.suffix}"
 
 
+@contextlib.contextmanager
+def _verrou_travail(cible: Path, attente: float = 0.25):
+    """Courte exclusion entre publication et purge, sans sondage de processus.
+
+    Le fichier reste en place : le supprimer après déverrouillage permettrait
+    à deux processus de verrouiller deux fichiers différents au même chemin.
+    Le verrou OS est libéré même si son détenteur s'arrête brutalement.
+    """
+    import errno
+
+    with (cible.parent / TRAVAIL.with_suffix(".lock")).open("a+b") as flux:
+        if os.name == "nt":
+            import msvcrt
+
+            def acquerir():
+                flux.seek(0)
+                msvcrt.locking(flux.fileno(), msvcrt.LK_NBLCK, 1)
+
+            def liberer():
+                flux.seek(0)
+                msvcrt.locking(flux.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            def acquerir():
+                fcntl.flock(flux.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            def liberer():
+                fcntl.flock(flux.fileno(), fcntl.LOCK_UN)
+
+        limite = time.monotonic() + max(0, attente)
+        while True:
+            try:
+                acquerir()
+                break
+            except OSError as exc:
+                if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                    raise
+                if time.monotonic() >= limite:
+                    raise BusyError("publication de progression en cours") from exc
+                time.sleep(0.005)
+        try:
+            yield
+        finally:
+            liberer()
+
+
 def _ecrire_fiche_travail(cible: Path, etat: dict) -> bool:
     """Remplace une fiche atomiquement, y compris sous antivirus Windows."""
     import uuid
@@ -1741,9 +1808,10 @@ def _ecrire_fiche_travail(cible: Path, etat: dict) -> bool:
     reussi = False
     try:
         temporaire.write_text(json.dumps(etat, ensure_ascii=False), encoding="utf-8")
-        temporaire.replace(cible)
+        with _verrou_travail(cible):
+            temporaire.replace(cible)
         reussi = True
-    except OSError:
+    except (OSError, BusyError):
         pass
     finally:
         try:
@@ -1759,6 +1827,18 @@ def _lire_fiche_travail(cible: Path) -> dict:
     except (OSError, json.JSONDecodeError):
         return {}
     return etat if isinstance(etat, dict) else {}
+
+
+def _supprimer_fiche_travail(cible: Path, attendu: dict, attente: float = 0) -> None:
+    """Ne retire que la publication lue, sans pouvoir effacer le tick suivant."""
+    try:
+        with _verrou_travail(cible, attente=attente):
+            if _lire_fiche_travail(cible) == attendu:
+                cible.unlink(missing_ok=True)
+    except (OSError, BusyError):
+        # La purge peut attendre le prochain polling. Une fiche active ne
+        # doit jamais être sacrifiée pour faire disparaître une ancienne fin.
+        pass
 
 
 def travail(quoi: str, fait: float = 0, total: int = 0, cle: str | None = None) -> None:
@@ -1804,18 +1884,15 @@ def fin_travail(conserver: float = 0) -> None:
     total = etat.get("total") or 0
     fait = etat.get("fait") or 0
     if conserver and total > 0 and fait >= total:
-        etat["termine"] = dt.datetime.now().astimezone().isoformat(timespec="seconds")
-        etat["visible_secondes"] = max(0, float(conserver))
-        if _ecrire_fiche_travail(cible, etat):
+        final = dict(etat, termine=dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+                     visible_secondes=max(0, float(conserver)))
+        if _ecrire_fiche_travail(cible, final):
             return
         # Sous Windows, un antivirus peut exceptionnellement refuser le
         # replace. Ne surtout pas laisser alors l'ancienne fiche « active »
         # pendant que le worker dort : mieux vaut perdre le N/N terminal que
         # bloquer Actualiser jusqu'à la péremption de quinze minutes.
-    try:
-        cible.unlink(missing_ok=True)
-    except OSError:
-        pass
+    _supprimer_fiche_travail(cible, etat, attente=0.25)
 
 
 def _etats_travail() -> tuple:
@@ -1857,10 +1934,7 @@ def _etats_travail() -> tuple:
             if not perime:
                 actifs.append(etat)
         if perime:
-            try:
-                fichier.unlink(missing_ok=True)
-            except OSError:
-                pass
+            _supprimer_fiche_travail(fichier, etat)
     return actifs, termines
 
 

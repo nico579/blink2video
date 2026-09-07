@@ -741,13 +741,64 @@ def _relancer(installe: Path, verbes: list) -> None:
     if not verbes:
         commande.append("start")
     print(f"Relance : {' '.join(commande)}", flush=True)
+    env = dict(os.environ)
+    if env.pop("BLINK_UPDATE_AUTO_HOME", "") == "1":
+        # Le finaliseur seul avait besoin d'une racine de données forcée.
+        # Le programme installé doit de nouveau suivre blink_home.txt pour
+        # permettre les changements de stockage depuis les réglages.
+        env.pop("BLINK_HOME", None)
     runtime.demarrer(commande, cwd=str(installe),
+                     env=env,
                      stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      start_new_session=(os.name != "nt"))
 
 
 def finaliser(cible: Path) -> int:
+    """Conserve les racines de contrôle des versions antérieures au protocole.
+
+    Un ancien lanceur ne passe que BLINK_HOME (données), même quand les
+    fiches sont à l'installation. Ne pas confondre une recherche vide avec
+    un arrêt réussi. Si plusieurs racines portent des fiches, refuser de
+    deviner quel ensemble arrêter.
+    """
+    if os.environ.get("BLINK_CONTROL_HOME"):
+        return _finaliser(cible)
+    installe = cible.resolve()
+    home = os.environ.get("BLINK_HOME")
+    candidats = [installe]
+    if home:
+        donnees = Path(home).expanduser().resolve()
+        if donnees not in candidats:
+            candidats.append(donnees)
+    try:
+        references = [racine for racine in candidats
+                      if any((racine / runtime.INSTANCES).glob("*.json"))]
+    except OSError:
+        print("Mise à jour interrompue : racine de contrôle illisible.", flush=True)
+        return 1
+    if len(references) > 1:
+        print("Mise à jour interrompue : plusieurs racines de contrôle possibles.", flush=True)
+        return 1
+    controle = references[0] if references else installe
+    ancien_controle = os.environ.get("BLINK_CONTROL_HOME")
+    ancien_auto = os.environ.get("BLINK_UPDATE_AUTO_HOME")
+    os.environ["BLINK_CONTROL_HOME"] = str(controle)
+    if (home and controle == installe and Path(home).expanduser().resolve()
+            == runtime.app_dir_depuis(installe)):
+        os.environ["BLINK_UPDATE_AUTO_HOME"] = "1"
+    try:
+        return _finaliser(cible)
+    finally:
+        for nom, ancienne in (("BLINK_CONTROL_HOME", ancien_controle),
+                               ("BLINK_UPDATE_AUTO_HOME", ancien_auto)):
+            if ancienne is None:
+                os.environ.pop(nom, None)
+            else:
+                os.environ[nom] = ancienne
+
+
+def _finaliser(cible: Path) -> int:
     """Second temps, exécuté par la nouvelle version depuis son dossier
     temporaire : arrêter, remplacer, relancer."""
     installe = cible.resolve()
@@ -756,20 +807,41 @@ def finaliser(cible: Path) -> int:
 
     # Ce qui tourne, noté avant l'arrêt : c'est ce qu'il faudra relancer.
     fiches = runtime.lire_instances()
-    verbes = (fiches[0].get("verbes") or []) if fiches else []
+    compositions = []
+    vues = set()
+    for fiche in fiches:
+        verbes = fiche.get("verbes") or []
+        signature = tuple(tuple(groupe) for groupe in verbes)
+        if signature and signature not in vues:
+            vues.add(signature)
+            compositions.append(verbes)
+    if not compositions:
+        compositions.append([])  # Même repli sur start en l'absence d'instance.
+
+    # L'ancienne version de stop ne connaît pas BLINK_CONTROL_HOME. Lui
+    # transmettre aussi cette racine via BLINK_HOME évite qu'elle cherche
+    # les fiches dans les données redirigées, puis annonce « rien ne tourne ».
+    env_arret = dict(os.environ, BLINK_HOME=str(runtime._dossier_controle()))
 
     print("Arrêt de la version en place…", flush=True)
-    runtime.lancer(_ligne(installe, "stop"), cwd=str(installe),
-                   stdin=subprocess.DEVNULL, check=False)
+    arret = runtime.lancer(_ligne(installe, "stop"), cwd=str(installe),
+                           env=env_arret, stdin=subprocess.DEVNULL, check=False)
+    if arret.returncode != 0:
+        print("Mise à jour interrompue : la commande d'arrêt a échoué.", flush=True)
+        return 1
 
     # Les fichiers restent tenus quelques instants après la mort du processus,
     # le temps que le système referme ses poignées.
     for essai in range(20):
-        vivants = [f for f in runtime.lire_instances()
-                   if runtime.processus_vivant(int(f.get("pid") or 0))]
+        # lire_instances garde aussi les fiches dont seul un enfant ou un
+        # ffmpeg survit : la mort du superviseur ne suffit pas.
+        vivants = runtime.lire_instances()
         if not vivants:
             break
         time.sleep(1)
+    else:
+        print("Mise à jour interrompue : une instance est encore active.", flush=True)
+        return 1
 
     # Depuis les sources, « git pull » a déjà mis les fichiers en place : il n'y
     # a rien à permuter, seulement à relancer.
@@ -780,11 +852,13 @@ def finaliser(cible: Path) -> int:
             time.sleep(2)
         else:
             print("La version précédente est intacte : rien n'a été remplacé.", flush=True)
-            _relancer(installe, verbes)
+            for verbes in compositions:
+                _relancer(installe, verbes)
             return 1
 
     print(f"Installé dans {installe}", flush=True)
-    _relancer(installe, verbes)
+    for verbes in compositions:
+        _relancer(installe, verbes)
     return 0
 
 
@@ -885,17 +959,18 @@ def installer(force: bool = False) -> int:
     # celle-ci sans se scier la branche. Détachée, car ce processus fait partie
     # de ce qu'elle va arrêter.
     print("Passage à la nouvelle version…")
-    # BLINK_HOME force le dossier de données de la version relancée, celle-ci
-    # tournant depuis un dossier temporaire dont l'ancre naturelle ignore le
-    # blink_home.txt de l'installation réelle. Imposer `installe` tel quel
-    # ramenait le dossier de données à celui de l'exécutable à chaque mise à
-    # jour, même quand l'utilisateur l'avait explicitement redirigé ailleurs
-    # (signalé sur Reddit, 2026-08-26) : app_dir_depuis suit ce pointeur
-    # depuis `installe` au lieu de l'imposer lui-même.
-    reel = runtime.app_dir_depuis(installe)
+    # Le finaliseur temporaire doit connaître séparément les données et les
+    # fiches de contrôle. Imposer les données via BLINK_HOME seul changeait
+    # aussi la recherche des processus et rendait l'ancienne instance invisible.
+    # Respecter un BLINK_HOME fourni par l'utilisateur, sinon retirer cette
+    # surcharge temporaire à la relance pour retrouver le suivi du pointeur.
+    env = dict(os.environ, BLINK_HOME=str(runtime.app_dir()),
+               BLINK_CONTROL_HOME=str(runtime._dossier_controle()))
+    if not os.environ.get("BLINK_HOME"):
+        env["BLINK_UPDATE_AUTO_HOME"] = "1"
     runtime.demarrer(
         [str(_executable(dossier)), "update", "--finaliser", str(installe)],
-        cwd=str(dossier), env=dict(os.environ, BLINK_HOME=str(reel)),
+        cwd=str(dossier), env=env,
         stdin=subprocess.DEVNULL,
         stdout=(installe / "maj.log").open("ab"), stderr=subprocess.STDOUT,
         start_new_session=(os.name != "nt"))

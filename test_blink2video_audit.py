@@ -893,7 +893,8 @@ class TestsDefautsSynchrones(BacASable):
         dossier_extrait = self.racine / "extrait"
         dossier_extrait.mkdir()
 
-        with mock.patch.object(runtime, "build_windows7", return_value=False), \
+        with mock.patch.dict(os.environ), \
+             mock.patch.object(runtime, "build_windows7", return_value=False), \
              mock.patch.object(runtime, "frozen", return_value=True), \
              mock.patch("sys.executable", str(installe / "blink2video.exe")), \
              mock.patch.object(maj, "disponible", return_value=neuve), \
@@ -903,6 +904,11 @@ class TestsDefautsSynchrones(BacASable):
              mock.patch.object(maj, "_verifier", return_value=True), \
              mock.patch.object(runtime, "demarrer") as demarrer, \
              contextlib.redirect_stdout(io.StringIO()):
+            # Ce cas teste le pointeur seul. BLINK_HOME imposé par BacASable
+            # aurait priorité sur lui ; sa préservation est testée séparément.
+            os.environ.pop("BLINK_HOME", None)
+            os.environ.pop("BLINK_CONTROL_HOME", None)
+            os.environ.pop("BLINK_UPDATE_AUTO_HOME", None)
             code = maj.installer()
 
         # demarrer() est simulé : le vrai fichier maj.log qu'installer() a

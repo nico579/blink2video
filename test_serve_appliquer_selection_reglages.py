@@ -88,8 +88,8 @@ class TestAppliquerSelectionRespecteLesReglages(unittest.TestCase):
         handler.timezone = ZoneInfo("UTC")
         return handler
 
-    def ecarter(self, handler):
-        corps = json.dumps({"exclure": [self.identity]}).encode("utf-8")
+    def ecarter(self, handler, operation="exclure"):
+        corps = json.dumps({operation: [self.identity]}).encode("utf-8")
         handler.path = "/api/appliquer-selection"
         handler.headers = {"Content-Length": str(len(corps)), "Host": "127.0.0.1",
                           "X-Blink-Token": serve.TOKEN}
@@ -165,6 +165,58 @@ class TestAppliquerSelectionRespecteLesReglages(unittest.TestCase):
             self.attendre_exclusion_appliquee()
             commande = self.attendre_commande_merge()
         self.assertNotIn("--no-timestamp", commande)
+
+    def test_reconstruction_respecte_les_deux_agregats_independamment(self):
+        for semaine in (False, True):
+            for mois in (False, True):
+                with self.subTest(semaine=semaine, mois=mois), mock.patch.object(
+                    runtime, "lire_reglages", return_value=dict(
+                        runtime.REGLAGES_DEFAUT, merge_jour=True,
+                        merge_semaine=semaine, merge_mois=mois),
+                ):
+                    self.appels_lancer.reset_mock()
+                    self.ecarter(self.construire_handler())
+                    commande = self.attendre_commande_merge()
+                    self.assertEqual("--no-weekly" in commande, not semaine)
+                    self.assertEqual("--no-monthly" in commande, not mois)
+
+    def test_homonyme_reconstruit_la_bonne_camera_a_exclusion_et_reintegration(self):
+        registre_path = self.paths["input"] / ".blink_download_state.json"
+        registre = json.loads(registre_path.read_text(encoding="utf-8"))
+        registre["clips"]["cle-1"]["network_id"] = "111"
+        self.identity = "jardin2/test.mp4"
+        chemin = self.paths["input"] / self.identity
+        chemin.parent.mkdir()
+        chemin.write_bytes(b"clip-test")
+        registre["clips"]["cle-2"] = dict(
+            registre["clips"]["cle-1"], network_id="222", path=self.identity)
+        registre_path.write_text(json.dumps(registre), encoding="utf-8")
+        with mock.patch.object(runtime, "lire_reglages", return_value=dict(
+                runtime.REGLAGES_DEFAUT, merge_jour=True)):
+            for operation in ("exclure", "inclure"):
+                with self.subTest(operation=operation):
+                    self.appels_lancer.reset_mock()
+                    self.ecarter(self.construire_handler(), operation)
+                    commande = self.attendre_commande_merge()
+                    self.assertEqual(commande[commande.index("--camera") + 1], "jardin (2)")
+                    etat = serve.blink_registre.load_download_state(self.paths["input"])
+                    self.assertEqual(bool(etat["clips"]["cle-2"].get("excluded")),
+                                     operation == "exclure")
+                    self.assertFalse(etat["clips"]["cle-1"].get("excluded"))
+
+    def test_jour_filtre_et_fuseau_fusion_restent_coherents(self):
+        registre_path = self.paths["input"] / ".blink_download_state.json"
+        registre = json.loads(registre_path.read_text(encoding="utf-8"))
+        registre["clips"]["cle-1"]["created_at"] = "2026-08-18T01:00:00+00:00"
+        registre_path.write_text(json.dumps(registre), encoding="utf-8")
+        with mock.patch.object(runtime, "lire_reglages", return_value=dict(
+                runtime.REGLAGES_DEFAUT, timezone="America/New_York")):
+            # Le serveur reste en UTC : le jour envoyé au sous-processus doit
+            # être calculé dans son fuseau de fusion, pas celui du serveur.
+            self.ecarter(self.construire_handler())
+            commande = self.attendre_commande_merge()
+        self.assertEqual(commande[commande.index("--timezone") + 1], "America/New_York")
+        self.assertEqual(commande[commande.index("--date") + 1], "2026-08-17")
 
 
 if __name__ == "__main__":

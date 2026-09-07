@@ -1723,6 +1723,13 @@ def _executer(args) -> int:
         camera_path = safe_name(camera)
         destination = output_dir / camera_path / f"{day}_{camera_path}.mp4"
         state_key = f"{camera}|{day}"
+        if (camera, day) in indisponibles:
+            # load_groups() omet les bruts absents/invalides. La liste peut
+            # donc être non vide ET incomplète : ne jamais remplacer une
+            # journalière complète par les seuls clips encore accessibles.
+            print(f"  Reportée (source absente ou invalide) : {destination.name}")
+            failed += 1
+            continue
         if not segments:
             # Rien à assembler : soit la journée n'a plus aucun clip valide
             # (tout écarté), soit l'encodage a échoué pour ceux qui
@@ -1797,6 +1804,13 @@ def _executer(args) -> int:
         save_json(registry_path, registry)
 
     print(f"Journalières : {built} créée(s), {skipped} déjà à jour, {failed} échec(s).")
+
+    if indisponibles & selected.keys():
+        # Une journalière reportée peut elle-même ne pas être présente.
+        # Reconstruire ses périodes à partir des seuls autres jours les
+        # raccourcirait aussi. Conserver les agrégats jusqu'à réparation.
+        print("Agrégats reportés : au moins une journée sélectionnée a une source indisponible.")
+        return 1
 
     for period, period_dir, desactive in (
         ("weekly", args.weekly_output.resolve(), args.no_weekly),

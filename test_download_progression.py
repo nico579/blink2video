@@ -505,7 +505,7 @@ class ProgressionInterfaceTests(unittest.TestCase):
 
     def test_actualiser_sans_session_conserve_la_fusion_si_activee(self):
         self.assertEqual(self._commandes_actualisation(None, authentifie=False),
-                         [["merge", "--no-timestamp", "--no-weekly", "--no-monthly"]])
+                         [["merge", "--timezone", "Europe/Paris", "--no-timestamp", "--no-weekly", "--no-monthly"]])
 
     def test_actualiser_sans_hub_laisse_download_choisir_tous_les_modules(self):
         # Réglages usine (REGLAGES_DEFAUT) : Incrustation, Hebdomadaire et
@@ -513,14 +513,14 @@ class ProgressionInterfaceTests(unittest.TestCase):
         # lancement, pas seulement si l'utilisateur les décoche à la main.
         self.assertEqual(
             self._commandes_actualisation(None),
-            [["download"], ["merge", "--no-timestamp", "--no-weekly", "--no-monthly"]],
+            [["download"], ["merge", "--timezone", "Europe/Paris", "--no-timestamp", "--no-weekly", "--no-monthly"]],
         )
 
     def test_actualiser_conserve_un_hub_explicitement_demande(self):
         self.assertEqual(
             self._commandes_actualisation("Jardin"),
             [["download", "--hub", "Jardin"],
-             ["merge", "--no-timestamp", "--no-weekly", "--no-monthly"]],
+             ["merge", "--timezone", "Europe/Paris", "--no-timestamp", "--no-weekly", "--no-monthly"]],
         )
 
     def test_actualiser_respecte_incrustation_et_agregats_actives(self):
@@ -533,7 +533,7 @@ class ProgressionInterfaceTests(unittest.TestCase):
         }
         self.assertEqual(
             self._commandes_actualisation(None, reglages_tout_actif),
-            [["download"], ["merge"]],
+            [["download"], ["merge", "--timezone", "Europe/Paris"]],
         )
 
     def test_api_travail_ne_relit_pas_le_registre_de_clips(self):
@@ -553,6 +553,11 @@ class ProgressionInterfaceTests(unittest.TestCase):
             serve.Handler.do_GET(faux)
 
         self.assertEqual(reponses, [{"travail": travail}])
+
+    def test_actualiser_conserve_le_fuseau_configure(self):
+        reglages = dict(runtime.REGLAGES_DEFAUT, timezone="America/New_York")
+        fusion = self._commandes_actualisation(None, reglages)[1]
+        self.assertEqual(fusion[fusion.index("--timezone") + 1], "America/New_York")
 
     def test_suivre_transmet_explicitement_zero_et_cent_pour_cent(self):
         class Processus:
