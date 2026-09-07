@@ -3014,9 +3014,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # Mêmes drapeaux que runtime.standard() pour la boucle merge : un clic
         # sur Actualiser doit produire ce que produirait la boucle automatique
         # à son prochain tour, pas une horodatée/hebdomadaire/mensuelle par
-        # défaut qui ignore la page Réglages. Quotidienne reste hors sujet
-        # ici : contrairement à la boucle, ce bouton demande explicitement
-        # une reconstruction tout de suite.
+        # défaut qui ignore la page Réglages. Comme dans standard(),
+        # merge_jour est l'interrupteur général de l'assemblage : Actualiser
+        # ne doit pas le réactiver implicitement.
         options_merge = []
         if not reglages["timestamp"]:
             options_merge.append("--no-timestamp")
@@ -3025,9 +3025,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not reglages["merge_mois"]:
             options_merge.append("--no-monthly")
         etapes = [("Téléchargement", "phase.step_download",
-                  runtime.self_command("download", *hub_args)),
-                  ("Fusion", "phase.step_merge",
-                   runtime.self_command("merge", *options_merge))]
+                  runtime.self_command("download", *hub_args))]
+        if reglages["merge_jour"]:
+            etapes.append(("Fusion", "phase.step_merge",
+                           runtime.self_command("merge", *options_merge)))
         if not auth.is_file():
             # Le téléchargement demanderait l'e-mail, le mot de passe et le code
             # de vérification sur l'entrée standard, qui n'existe pas ici : le
@@ -3035,7 +3036,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # d'assembler ce qui est déjà là.
             self.send_event({"line": (
                 f"Session Blink absente ({auth.name}). Lancez « blink2video login » "
-                "dans un terminal pour vous connecter. Reconstruction des vidéos seule."
+                "dans un terminal pour vous connecter. "
+                + ("Reconstruction des vidéos seule." if reglages["merge_jour"]
+                   else "Aucun traitement lancé : la fusion est désactivée.")
             )})
             etapes = etapes[1:]
 

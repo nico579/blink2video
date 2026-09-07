@@ -100,7 +100,7 @@ class TestsHomonymes(unittest.TestCase):
         self.assertEqual(jours, {("jardin (2)", "2026-09-01")})
         groupes = merge_daily.load_groups(self.input_dir, self.tz)
         self.assertEqual(groupes[("jardin", "2026-09-01")], [
-            (dt.datetime(2026, 9, 1, 10, tzinfo=dt.timezone.utc), self.input_dir / "a.mp4"),
+            (dt.datetime(2026, 9, 1, 10, tzinfo=dt.timezone.utc), (self.input_dir / "a.mp4").resolve()),
         ])
         self.assertEqual(groupes[("jardin (2)", "2026-09-01")], [])
 

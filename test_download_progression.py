@@ -459,14 +459,15 @@ class ProgressionCliTests(unittest.TestCase):
 
 
 class ProgressionInterfaceTests(unittest.TestCase):
-    def _commandes_actualisation(self, hub, reglages=None):
+    def _commandes_actualisation(self, hub, reglages=None, authentifie=True, evenements=None):
         with tempfile.TemporaryDirectory(prefix="blink_refresh_hub_") as dossier:
             racine = Path(dossier)
-            (racine / "blink_auth.json").write_text("{}", encoding="utf-8")
+            if authentifie:
+                (racine / "blink_auth.json").write_text("{}", encoding="utf-8")
             commandes = []
             faux = SimpleNamespace(
                 hub=hub,
-                send_event=lambda _evenement: True,
+                send_event=lambda evenement: (evenements.append(evenement) if evenements is not None else None) or True,
                 suivre=lambda commande, _env, _phase: commandes.append(commande) or True,
             )
             with mock.patch.object(serve, "BASE_DIR", racine), \
@@ -478,6 +479,33 @@ class ProgressionInterfaceTests(unittest.TestCase):
                  ):
                 serve.Handler.run_refresh(faux)
         return commandes
+
+    def test_actualiser_fusion_desactivee_ne_lance_que_download(self):
+        # Les sous-options mémorisées ne doivent pas rallumer l'interrupteur
+        # général, même si elles sont restées cochées avant sa désactivation.
+        for semaine in (False, True):
+            for mois in (False, True):
+                with self.subTest(semaine=semaine, mois=mois):
+                    evenements = []
+                    reglages = dict(runtime.REGLAGES_DEFAUT, merge_jour=False,
+                                    merge_semaine=semaine, merge_mois=mois)
+                    self.assertEqual(self._commandes_actualisation(
+                        "Jardin", reglages, evenements=evenements),
+                        [["download", "--hub", "Jardin"]])
+                    self.assertNotIn("phase.step_merge", [e.get("phase_key") for e in evenements])
+                    self.assertEqual(evenements[-1], {"done": True, "ok": True})
+
+    def test_actualiser_sans_session_et_sans_fusion_ne_lance_rien(self):
+        evenements = []
+        self.assertEqual(self._commandes_actualisation(
+            None, dict(runtime.REGLAGES_DEFAUT, merge_jour=False),
+            authentifie=False, evenements=evenements), [])
+        self.assertIn("fusion est désactivée", evenements[0]["line"])
+        self.assertEqual(evenements[-1], {"done": True, "ok": True})
+
+    def test_actualiser_sans_session_conserve_la_fusion_si_activee(self):
+        self.assertEqual(self._commandes_actualisation(None, authentifie=False),
+                         [["merge", "--no-timestamp", "--no-weekly", "--no-monthly"]])
 
     def test_actualiser_sans_hub_laisse_download_choisir_tous_les_modules(self):
         # Réglages usine (REGLAGES_DEFAUT) : Incrustation, Hebdomadaire et

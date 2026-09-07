@@ -207,12 +207,13 @@ if DISPONIBLE:
             self._recorder_demarrage = None
             self._recorder_attente = []
             self._recorder_attente_octets = 0
+            self._fermee = False
             self._tache = asyncio.ensure_future(self._lire())
 
         async def _lire(self) -> None:
             fin_normale = False
             try:
-                while True:
+                while not self._fermee:
                     # None (pas de plafond) tant que le SPS/PPS initial n'est
                     # pas arrive : PREMIERE_IMAGE_MAX_SECONDS (40s, negocier())
                     # accorde deja cette patience-la, plus longue qu'ici a
@@ -502,6 +503,9 @@ if DISPONIBLE:
                 asyncio.ensure_future(_attendre_fin_enregistrement(processus))
 
         def fermer(self) -> None:
+            # Python 3.8 : wait_for peut absorber cancel() si read() vient
+            # de finir. Le drapeau interdit alors une nouvelle lecture.
+            self._fermee = True
             self.stop()
             self._tache.cancel()
             self._terminer_file()

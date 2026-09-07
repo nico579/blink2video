@@ -61,6 +61,39 @@ class TestsLecteurMse(unittest.TestCase):
 // le scénario passé en argument de node se retrouve donc décalé en argv[2].
 const scenario = process.argv[2];
 
+// Horloge virtuelle : un runner Windows chargé peut retarder plusieurs
+// timers réels de 15/25 ms jusqu'au budget global. Avancer au prochain
+// timer après chaque tour Node laisse les promesses se vider et conserve
+// l'ordre des échéances, sans dépendre du CPU disponible.
+let horloge = 0, numeroTimer = 0, horlogeArretee = false;
+const timers = new Map();
+Object.defineProperty(globalThis, 'performance', {value:{now:()=>horloge}, configurable:true});
+globalThis.setTimeout = (fn, ms=0, ...args) => {
+  const id = ++numeroTimer;
+  timers.set(id, {fn:()=>fn(...args), at:horloge+Math.max(0,ms), interval:0});
+  return id;
+};
+globalThis.clearTimeout = id => timers.delete(id);
+globalThis.setInterval = (fn, ms=0, ...args) => {
+  const id = setTimeout(fn, ms, ...args);
+  timers.get(id).interval = Math.max(1,ms);
+  return id;
+};
+globalThis.clearInterval = globalThis.clearTimeout;
+function avancerHorloge() {
+  if(horlogeArretee) return;
+  const prochain = [...timers].sort((a,b)=>a[1].at-b[1].at || a[0]-b[0])[0];
+  if(prochain) {
+    const [id,timer] = prochain;
+    horloge = timer.at;
+    if(timer.interval) timer.at += timer.interval;
+    else timers.delete(id);
+    timer.fn();
+  }
+  setImmediate(avancerHorloge);
+}
+setImmediate(avancerHorloge);
+
 class CibleEvenements {
   constructor() { this.listeners = Object.create(null); }
   addEventListener(type, callback, options) {
@@ -275,7 +308,7 @@ function stopWatch(name) {
 })().catch((error) => {
   console.error(error && error.stack || error);
   process.exitCode = 1;
-});
+}).finally(() => { horlogeArretee = true; });
 """
         # Écrit sur disque plutôt que « node -e script » : bloc_mse suit la
         # taille de serve_app.js, et l'ajout du bouton d'enregistrement du
