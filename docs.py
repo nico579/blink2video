@@ -16,7 +16,6 @@ pas tolérée jusqu'à ce que quelqu'un s'en aperçoive.
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import runtime

@@ -33,10 +33,12 @@ import os
 import queue
 import re
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
 import webbrowser
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 try:
@@ -450,6 +452,106 @@ RANGE_PRESETS_HOURS = {
 CAMERA_MODELS = {"owl": "Blink Mini", "catalina": "Blink Outdoor"}
 # Le module, lui, porte sa génération dans son type : sm2 = Sync Module 2.
 MODULE_MODELS = {"sm": "Sync Module", "sm2": "Sync Module 2"}
+
+
+@dataclass(frozen=True)
+class _SelectionVideos:
+    """Identités locales demandées pour chacune des trois actions."""
+
+    exclure: list[str]
+    inclure: list[str]
+    supprimer: list[str]
+
+
+@dataclass(frozen=True)
+class _CibleSuppressionBlink:
+    """Relie un fichier local à son entrée de registre et à son ID distant."""
+
+    identite: str
+    entree: dict
+    id_distant: str
+
+
+def _lire_selection_videos(payload: dict) -> _SelectionVideos:
+    # Conserver les champs absents ou vides acceptés par l'API historique.
+    listes = [payload.get(champ) or [] for champ in ("exclure", "inclure", "supprimer")]
+    for identites in listes:
+        if not isinstance(identites, list):
+            raise ValueError("Sélection de vidéos invalide.")
+        for identite in identites:
+            if not isinstance(identite, str) or not _identite_selection_valide(identite):
+                raise ValueError("Sélection de vidéos invalide.")
+    return _SelectionVideos(*listes)
+
+
+def _separer_clips_et_directs(selection: _SelectionVideos, racine_direct: Path | None
+                            ) -> tuple[_SelectionVideos, _SelectionVideos, dict]:
+    """Identifie les fichiers directs avant toute lecture du registre ou mutation."""
+    chemins_directs = {}
+    if racine_direct:
+        for identite in selection.exclure + selection.inclure + selection.supprimer:
+            chemin = _chemin_direct_confine(racine_direct, identite)
+            if chemin.is_file():
+                chemins_directs[identite] = chemin
+
+    clips = _SelectionVideos([], [], [])
+    directs = _SelectionVideos([], [], [])
+    for demandes, liste_clips, liste_directs in (
+            (selection.exclure, clips.exclure, directs.exclure),
+            (selection.inclure, clips.inclure, directs.inclure),
+            (selection.supprimer, clips.supprimer, directs.supprimer)):
+        for identite in demandes:
+            if identite in chemins_directs:
+                liste_directs.append(identite)
+            else:
+                liste_clips.append(identite)
+    return clips, directs, chemins_directs
+
+
+def _trouver_entree_selection(entrees: dict, identite: str) -> dict | None:
+    # En cas de doublon de chemin, conserver la première entrée du registre.
+    return next((entree for entree in entrees.values()
+                 if isinstance(entree, dict) and entree.get("path") == identite), None)
+
+
+def _jours_selection_a_reconstruire(identites: list[str], entrees: dict,
+                                  reglages: dict) -> set[tuple[str, str]]:
+    """Un seul couple (identité caméra, jour local) par journée touchée."""
+    jours = set()
+    cles_collision = md._cles_camera_par_collision(entrees)
+    fuseau_fusion = ZoneInfo(reglages["timezone"])
+    for identite in identites:
+        entree = _trouver_entree_selection(entrees, identite)
+        camera = str((entree or {}).get("camera") or "").strip()
+        try:
+            jour = md.parse_created_at(
+                str((entree or {}).get("created_at"))
+            ).astimezone(fuseau_fusion).date().isoformat()
+        except (TypeError, ValueError):
+            jour = None
+        if camera and jour:
+            jours.add((md._camera_key(cles_collision, entree, camera), jour))
+    return jours
+
+
+def _preparer_suppressions_blink(identites: list[str], entrees: dict,
+                               resultats: dict) -> list[_CibleSuppressionBlink]:
+    """Résout les cibles connues et note les refus sans contacter Blink."""
+    cibles = []
+    for identite in identites:
+        entree = _trouver_entree_selection(entrees, identite)
+        if entree is None:
+            resultats[identite] = "inconnu"
+            continue
+        # Convention blink_models.target_path ; remote_id sert aux anciens clips.
+        correspondance = re.search(r"_(\d+)_[0-9a-f]{12}\.mp4$", identite)
+        id_distant = correspondance.group(1) if correspondance else str(
+            entree.get("remote_id") or "")
+        if not id_distant:
+            resultats[identite] = "identifiant_introuvable"
+            continue
+        cibles.append(_CibleSuppressionBlink(identite, entree, id_distant))
+    return cibles
 
 
 def camera_key(sync, name: str, camera) -> str:
@@ -1447,6 +1549,72 @@ def _choisir_dossier_windows(initial: str) -> str:
     if resultat.returncode != 0:
         raise RuntimeError((resultat.stderr or "").strip() or "PowerShell a échoué")
     return resultat.stdout.strip()
+
+
+class _ReglagesInvalides(ValueError):
+    """Refus de formulaire destiné à une réponse HTTP 400."""
+
+
+def _verifier_dossier_reglages(dossier: str) -> None:
+    """Éprouve l'écriture sans changer le dossier de stockage actif."""
+    if not dossier:
+        return
+    try:
+        candidat = Path(dossier).expanduser()
+        candidat.mkdir(parents=True, exist_ok=True)
+        # Création exclusive : ni fichier existant écrasé, ni collision entre
+        # deux requêtes. Le contexte ferme et supprime uniquement sa sonde,
+        # y compris si l'écriture ou le vidage du tampon échoue.
+        with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", prefix=".blink_ecriture_test-",
+                dir=candidat) as sonde:
+            sonde.write("blink2video")
+            sonde.flush()
+    except OSError as erreur:
+        raise _ReglagesInvalides(f"Dossier de stockage inaccessible : {erreur}") from erreur
+
+
+def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
+    """Retourne le dossier demandé et les réglages normalisés, sans les enregistrer.
+
+    La sonde du dossier est un effet réel : conserver l'ordre des contrôles,
+    qui détermine aussi la première erreur présentée à l'utilisateur.
+    """
+    try:
+        usb_minutes = int(payload.get("usb_minutes"))
+        cloud_minutes = int(payload.get("cloud_minutes"))
+        port = int(payload.get("port"))
+        if usb_minutes < 1 or cloud_minutes < 1:
+            raise ValueError
+        if not 1 <= port <= 65535:
+            raise ValueError
+    except (TypeError, ValueError) as erreur:
+        raise _ReglagesInvalides(
+            "Les cadences doivent être des nombres de minutes d'au "
+            "moins 1, et le port un nombre entre 1 et 65535.") from erreur
+
+    dossier = str(payload.get("storage_dir", "")).strip()
+    _verifier_dossier_reglages(dossier)
+
+    timezone = str(payload.get("timezone", "")).strip()
+    try:
+        ZoneInfo(timezone)
+    except (ZoneInfoNotFoundError, ValueError) as erreur:
+        raise _ReglagesInvalides(f"Fuseau horaire inconnu : « {timezone} ».") from erreur
+
+    reglages = {
+        "usb_minutes": usb_minutes, "cloud_minutes": cloud_minutes, "port": port,
+        "timestamp": bool(payload.get("timestamp", False)), "timezone": timezone,
+        "merge_jour": bool(payload.get("merge_jour", True)),
+        "merge_semaine": bool(payload.get("merge_semaine", True)),
+        "merge_mois": bool(payload.get("merge_mois", True)),
+        "download_auto": bool(payload.get("download_auto", True)),
+    }
+    protocole = str(payload.get("live_protocol", "webrtc"))
+    if protocole not in runtime.PROTOCOLES_LIVE_VALIDES:
+        raise _ReglagesInvalides(f"Protocole de direct inconnu : « {protocole} ».")
+    reglages["live_protocol"] = protocole
+    return dossier, reglages
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -2850,13 +3018,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             etat = md.load_json(watch.WATCH_STATE, {})
             surveillees = etat.get("cameras") or {}
             noms = sorted(surveillees, key=str.casefold)
-            entrees = read_entries(self.paths)
+            groupes = watch.regrouper_entrees_cameras(surveillees, read_entries(self.paths))
             actives_keys = suppression_auto_keys()
             cameras = []
             actives = []
             for nom in noms:
-                cles = [c["key"] for c in suppression_auto_choices(
-                    watch.camera_entries(nom, surveillees, entrees))]
+                cles = [c["key"] for c in suppression_auto_choices(groupes[nom])]
                 cameras.append({"name": nom})
                 if any(cle in actives_keys for cle in cles):
                     actives.append(nom)
@@ -3156,6 +3323,305 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return False
         return True
 
+    def _post_reglages(self, payload: dict) -> None:
+        """Valide les réglages, publie le stockage puis organise la relance."""
+        try:
+            dossier, reglages = _preparer_reglages_web(payload)
+        except _ReglagesInvalides as erreur:
+            self.send_json({"error": str(erreur)}, 400)
+            return
+
+        try:
+            # Le verrou couvre toute la transaction : préparation de la
+            # destination, publication du pointeur et éventuel marqueur initial.
+            with runtime.verrou_configuration():
+                runtime.ecrire_dossier_stockage(
+                    dossier, reglages=reglages, configuration_initiale=self.initial_setup)
+        except runtime.BusyError as erreur:
+            self.send_json(
+                {"error": f"Une modification des réglages est déjà en cours : {erreur}"},
+                409)
+            return
+        except OSError as erreur:
+            self.send_json(
+                {"error": f"Impossible d'enregistrer les réglages : {erreur}"}, 500)
+            return
+        if self.initial_setup:
+            # Le parent start détient encore le verrou de démarrage : il voit
+            # le marqueur et remplace lui-même le serveur initial après réponse.
+            self.send_json({"ok": True, "accepted": True,
+                            "initial_setup": True})
+            return
+        # La relance relira les réglages ; son relais laisse partir la réponse
+        # HTTP avant d'arrêter ce serveur.
+        self.repondre_puis_redemarrer(["restart"])
+
+    def _post_sourdine(self, payload: dict) -> None:
+        """Délègue la sourdine à watch, sans redémarrer le serveur."""
+        camera = str(payload.get("camera", "")).strip()
+        ignored = bool(payload.get("ignored"))
+        if not camera:
+            self.send_json({"error": "Nom de caméra manquant."}, 400)
+            return
+        # watch relit son état à chaque passage de sa propre boucle
+        # (voir _controler) : contrairement aux autres réglages, la
+        # sourdine n'a pas besoin de redémarrage, seulement de laisser
+        # « watch --ignore/--unignore » écrire le fichier partagé. Fait
+        # ici en tâche de fond pour que le clic reste immédiat, sur le
+        # même principe que le bouton Écarter (28.33).
+        option = "--ignore" if ignored else "--unignore"
+
+        def travailler():
+            runtime.lancer(
+                runtime.self_command("watch", option, camera),
+                cwd=str(runtime.app_dir()), stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+            )
+
+        threading.Thread(target=travailler, daemon=True).start()
+        self.send_json({"ok": True})
+        return
+
+    def _post_suppression_auto(self, payload: dict) -> None:
+        """Modifie les autorisations sous le verrou de configuration."""
+        camera = str(payload.get("camera", "")).strip()
+        actif = bool(payload.get("actif"))
+        try:
+            # Sérialiser lecture ET modification, y compris avec une
+            # bascule de stockage : replace seul perd les clics concurrents.
+            with runtime.verrou_configuration("suppression-auto", attente=5):
+                etat = md.load_json(watch.WATCH_STATE, {})
+                surveillees = etat.get("cameras") or {}
+                libelle = next((nom for nom in surveillees
+                                if nom.strip().casefold() == camera.casefold()), None)
+                if not camera or libelle is None:
+                    self.send_json({"error": "Caméra inconnue."}, 400)
+                    return
+                # Le nom affiché résout les identités internes persistées.
+                cles = {
+                    choice["key"] for choice in suppression_auto_choices(
+                        watch.camera_entries(libelle, surveillees, read_entries(self.paths)))
+                }
+                cameras = suppression_auto_keys()
+                if actif:
+                    cameras |= cles
+                else:
+                    cameras -= cles
+                runtime.ecrire_suppression_auto(cameras)
+        except runtime.BusyError as erreur:
+            self.send_json({"error": f"Une modification des réglages est déjà en cours : {erreur}"}, 409)
+            return
+        except OSError as erreur:
+            self.send_json({"error": f"Impossible d'enregistrer la suppression automatique : {erreur}"}, 500)
+            return
+        self.send_json({"ok": True})
+        return
+
+    def _post_appliquer_selection(self, payload: dict) -> None:
+        """Valide le lot, lance les exclusions, puis applique les suppressions."""
+        try:
+            selection = _lire_selection_videos(payload)
+            racine_direct = self.paths.get("direct")
+            clips, directs, chemins_directs = _separer_clips_et_directs(
+                selection, racine_direct)
+        except (ValueError, OSError) as erreur:
+            self.send_json({"error": str(erreur)}, 400)
+            return
+
+        # Le même instantané sert aux suppressions et au travail différé.
+        entrees = read_entries(self.paths)
+        if clips.exclure or clips.inclure:
+            # Seules les exclusions/reconstructions sont asynchrones : la
+            # réponse HTTP n'attend pas un verrou de registre déjà occupé.
+            threading.Thread(
+                target=self._appliquer_exclusions_clips,
+                args=(clips, entrees), daemon=True,
+            ).start()
+
+        resultats = {}
+        if clips.supprimer:
+            self._supprimer_sources_blink(clips.supprimer, entrees, resultats)
+        if directs.exclure or directs.inclure or directs.supprimer:
+            self._appliquer_selection_directs(
+                directs, racine_direct, chemins_directs, resultats)
+        self.send_json({"ok": True, "resultats": resultats})
+
+    def _appliquer_exclusions_clips(self, selection: _SelectionVideos, entrees: dict) -> None:
+        """Travail de fond : écarter/réintégrer, puis reconstruire si autorisé."""
+        # Le registre est partagé : sérialiser les deux actions et conserver
+        # leur ordre. Une réintégration l'emporte sur une exclusion du même clip.
+        with REGISTRE:
+            for identites, exclu in ((selection.exclure, True), (selection.inclure, False)):
+                if not identites:
+                    continue
+                try:
+                    md.set_excluded(
+                        self.paths["input"], self.paths["normalized"],
+                        self.paths["excluded"],
+                        [str(self.paths["input"] / identite) for identite in identites], exclu)
+                except RuntimeError as erreur:
+                    print(f"Écarter (lot) : {erreur}")
+
+        reglages = runtime.lire_reglages()
+        # Décocher Quotidienne interdit aussi les reconstructions déclenchées
+        # par une sélection. Les réglages sont relus après l'écriture du registre.
+        if not reglages["merge_jour"]:
+            return
+        jours = _jours_selection_a_reconstruire(
+            selection.exclure + selection.inclure, entrees, reglages)
+        options = runtime.options_fusion(reglages)
+        # Même fuseau que le calcul des jours, et jamais deux assemblages
+        # simultanés susceptibles d'écrire la même vidéo.
+        with REASSEMBLAGE:
+            for camera, jour in jours:
+                runtime.lancer(
+                    runtime.self_command("merge", "--camera", camera, "--date", jour, *options),
+                    cwd=str(runtime.app_dir()), stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+                )
+
+    def _supprimer_sources_blink(self, identites: list[str], entrees: dict,
+                                resultats: dict) -> None:
+        """Supprime un lot sous les verrous Blink, puis met à jour le registre."""
+        cibles = _preparer_suppressions_blink(identites, entrees, resultats)
+        nb_cameras_usb = len({
+            str(cible.entree.get("camera") or "").strip() for cible in cibles
+            if str(cible.entree.get("source") or "usb") != "cloud"
+        })
+        ids_presents_par_module = {}
+
+        slot_pris = False
+        try:
+            # Ressource partagée avec le direct et le téléchargement : une
+            # suppression concurrente risquerait un manifeste ou un lot partiel.
+            if not MODULE_SLOT.acquire(blocking=False):
+                raise blink_engine.BusyError(_slot_occupe_message())
+            slot_pris = True
+            _slot_pris("suppression manuelle")
+            with blink_engine.hub_lock("suppression manuelle"):
+                BLINK.call(
+                    lambda blink: self._supprimer_clips_blink(
+                        blink, cibles, resultats, ids_presents_par_module),
+                    timeout=30 + 90 * max(1, nb_cameras_usb),
+                )
+        except Exception as erreur:
+            for cible in cibles:
+                resultats.setdefault(cible.identite, f"echec: {type(erreur).__name__}")
+        finally:
+            if slot_pris:
+                _slot_rendu()
+                MODULE_SLOT.release()
+
+        self._marquer_sources_supprimees(resultats, ids_presents_par_module)
+
+    async def _supprimer_clips_blink(self, blink, cibles: list[_CibleSuppressionBlink],
+                                   resultats: dict, ids_presents_par_module: dict) -> None:
+        """Exécute les appels distants, avec un seul manifeste par Sync Module."""
+        manifestes = {}
+        for cible in cibles:
+            entree = cible.entree
+            source = str(entree.get("source") or "usb")
+            camera = str(entree.get("camera") or "").strip()
+            try:
+                if source == "cloud":
+                    clip = blink_models.CloudClip({
+                        "id": int(cible.id_distant), "device_name": camera,
+                        "created_at": entree.get("created_at"),
+                    })
+                    resultats[cible.identite] = (
+                        "supprime" if await clip.delete_video(blink) else "echec")
+                    continue
+
+                sync = BLINK.find_sync_module(blink, entree)
+                cle_module = id(sync)
+                if cle_module not in manifestes:
+                    manifestes[cle_module] = await blink_models.read_local_manifest(sync)
+                    ids_presents_par_module[str(getattr(sync, "sync_id", ""))] = {
+                        str(clip.id) for clip in manifestes[cle_module]}
+
+                # Les numéros USB peuvent être réattribués après réindexation.
+                # Retrouver le clip par caméra/date ; une ambiguïté interdit
+                # toute suppression, même si l'ancien numéro semble valide.
+                try:
+                    attendu = md.parse_created_at(str(entree.get("created_at") or ""))
+                except (ValueError, TypeError):
+                    attendu = None
+                candidats = [] if attendu is None else [
+                    clip for clip in manifestes[cle_module]
+                    if str(clip.name).casefold() == camera.casefold()
+                    and abs((blink_models.clip_datetime_utc(clip)
+                             - attendu).total_seconds()) <= 2
+                ]
+                if not candidats:
+                    resultats[cible.identite] = "deja_absent"
+                elif len(candidats) > 1:
+                    resultats[cible.identite] = "ambigu"
+                else:
+                    resultats[cible.identite] = (
+                        "supprime" if await candidats[0].delete_video(blink) else "echec")
+            except Exception as erreur:
+                resultats[cible.identite] = f"echec: {type(erreur).__name__}"
+
+    def _marquer_sources_supprimees(self, resultats: dict,
+                                   ids_presents_par_module: dict) -> None:
+        """Mémorise les absences constatées pour éviter de redemander une suppression."""
+        marques = {identite for identite, statut in resultats.items()
+                   if statut in ("supprime", "deja_absent")}
+        if not marques and not ids_presents_par_module:
+            return
+
+        etat = blink_registre.load_download_state(self.paths["input"])
+        for entree in etat["clips"].values():
+            if not isinstance(entree, dict) or entree.get("source_deleted"):
+                continue
+            if entree.get("path") in marques:
+                entree["source_deleted"] = True
+                continue
+            # La lecture du manifeste renseigne aussi les autres clips USB du
+            # même module, sans requête réseau supplémentaire.
+            ids_presents = ids_presents_par_module.get(str(entree.get("sync_id") or ""))
+            if ids_presents is None or str(entree.get("source") or "usb") != "usb":
+                continue
+            correspondance = re.search(
+                r"_(\d+)_[0-9a-f]{12}\.mp4$", str(entree.get("path") or ""))
+            id_connu = correspondance.group(1) if correspondance else str(
+                entree.get("remote_id") or "")
+            if id_connu and id_connu not in ids_presents:
+                entree["source_deleted"] = True
+        blink_registre.save_download_state(self.paths["input"], etat)
+
+    def _appliquer_selection_directs(self, selection: _SelectionVideos, racine_direct: Path,
+                                    chemins_directs: dict, resultats: dict) -> None:
+        """Modifie uniquement les fichiers directs et leurs exclusions locales."""
+        # Aucun registre de clips, appel Blink ou réassemblage pour ces fichiers.
+        exclusion_directe = _lire_exclusion_directe(self.paths)
+        exclusion_directe |= set(selection.exclure)
+        exclusion_directe -= set(selection.inclure)
+        for identite in selection.supprimer:
+            try:
+                chemin = _chemin_direct_confine(racine_direct, identite)
+                if chemin != chemins_directs[identite]:
+                    raise ValueError("Chemin de vidéo modifié pendant la sélection")
+                chemin.unlink()
+                resultats[identite] = "supprime"
+                exclusion_directe.discard(identite)
+            except FileNotFoundError:
+                resultats[identite] = "deja_absent"
+            except (OSError, ValueError) as erreur:
+                resultats[identite] = f"echec: {type(erreur).__name__}"
+                continue
+            # Nettoyage cosmétique des deux parents, seulement s'ils sont vides.
+            # Ne jamais remonter à la racine du stockage des directs ou au-delà.
+            for dossier in (chemin.parent, chemin.parent.parent):
+                if (dossier == racine_direct.resolve()
+                        or not runtime.est_relatif_a(dossier, racine_direct.resolve())):
+                    break
+                try:
+                    dossier.rmdir()
+                except OSError:
+                    break
+        _ecrire_exclusion_directe(self.paths, exclusion_directe)
+
     def do_POST(self):
         if not self.hote_autorise() or not self.jeton_valide():
             self.send_error(403)
@@ -3289,290 +3755,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/appliquer-selection":
-            # Remplace les anciens /api/toggle et /api/supprimer-source (un
-            # clip à la fois) : un lot entier en un seul appel, pour que la
-            # suppression USB ne paie qu'une fois par Sync Module concerné le
-            # délai de régénération du manifeste (jusqu'à une minute, voir
-            # AUDIT 28.73/28.75), pas une fois par clip.
-            selections = [payload.get(champ) or [] for champ in ("exclure", "inclure", "supprimer")]
-            if any(not isinstance(liste, list) or any(
-                    not isinstance(i, str) or not _identite_selection_valide(i) for i in liste)
-                   for liste in selections):
-                self.send_json({"error": "Sélection de vidéos invalide."}, 400)
-                return
-            exclure, inclure, supprimer = selections
-
-            # Un enregistrement du direct (Blink_Direct) n'a pas d'entrée
-            # dans le registre de téléchargement : repéré ici par sa
-            # présence réelle sous paths["direct"], puis retiré de exclure/
-            # inclure/supprimer pour que la logique des clips ci-dessous
-            # (registre, suppression distante Blink...) ne le voie jamais -
-            # sa propre logique, bien plus simple, vit plus bas.
-            racine_direct = self.paths.get("direct")
-            directs = {}
-            try:
-                if racine_direct:
-                    for identity in exclure + inclure + supprimer:
-                        chemin = _chemin_direct_confine(racine_direct, identity)
-                        if chemin.is_file():
-                            directs[identity] = chemin
-            except (ValueError, OSError) as erreur:
-                self.send_json({"error": str(erreur)}, 400)
-                return
-
-            def _est_direct(identity: str) -> bool:
-                return identity in directs
-
-            exclure, exclure_direct = (
-                [i for i in exclure if not _est_direct(i)],
-                [i for i in exclure if _est_direct(i)],
-            )
-            inclure, inclure_direct = (
-                [i for i in inclure if not _est_direct(i)],
-                [i for i in inclure if _est_direct(i)],
-            )
-            supprimer, supprimer_direct = (
-                [i for i in supprimer if not _est_direct(i)],
-                [i for i in supprimer if _est_direct(i)],
-            )
-
-            entrees = read_entries(self.paths)
-
-            def trouver_entree(identity):
-                return next(
-                    (e for e in entrees.values()
-                     if isinstance(e, dict) and e.get("path") == identity), None)
-
-            if exclure or inclure:
-                def travailler_registre():
-                    # Une seule décision à la fois par sens (écarter/réintégrer) :
-                    # le registre est un fichier, deux écritures concurrentes en
-                    # perdraient une. set_excluded accepte déjà une liste entière.
-                    with REGISTRE:
-                        for liste, cible in ((exclure, True), (inclure, False)):
-                            if not liste:
-                                continue
-                            try:
-                                md.set_excluded(
-                                    self.paths["input"], self.paths["normalized"],
-                                    self.paths["excluded"],
-                                    [str(self.paths["input"] / i) for i in liste], cible)
-                            except RuntimeError as error:
-                                print(f"Écarter (lot) : {error}")
-                    reglages = runtime.lire_reglages()
-                    if not reglages["merge_jour"]:
-                        # Création des vidéos temporelles désactivée (page
-                        # Réglages) : ne pas en reconstruire une ici en sous-main,
-                        # sinon écarter un clip suffit à fabriquer une quotidienne
-                        # que l'utilisateur a explicitement dit ne pas vouloir.
-                        # Recocher "Quotidienne" relance la boucle merge, qui
-                        # rattrape alors ce jour comme tous les autres.
-                        return
-                    # Une seule reconstruction par (caméra, jour) touché, même si
-                    # plusieurs clips de ce jour ont changé de statut ensemble.
-                    jours = set()
-                    cles_collision = md._cles_camera_par_collision(entrees)
-                    fuseau_fusion = ZoneInfo(reglages["timezone"])
-                    for identity in exclure + inclure:
-                        entree = trouver_entree(identity)
-                        camera = str((entree or {}).get("camera") or "").strip()
-                        try:
-                            jour = md.parse_created_at(
-                                str((entree or {}).get("created_at"))
-                            ).astimezone(fuseau_fusion).date().isoformat()
-                        except (TypeError, ValueError):
-                            jour = None
-                        if camera and jour:
-                            jours.add((md._camera_key(cles_collision, entree, camera), jour))
-                    # Même fuseau que le calcul du jour ci-dessus, mêmes
-                    # sorties que la boucle et le bouton Actualiser.
-                    options = runtime.options_fusion(reglages)
-                    # Un seul réassemblage à la fois : deux assemblages
-                    # simultanés de la même journée écriraient le même fichier.
-                    with REASSEMBLAGE:
-                        for camera, jour in jours:
-                            runtime.lancer(
-                                runtime.self_command("merge", "--camera", camera,
-                                                      "--date", jour, *options),
-                                cwd=str(runtime.app_dir()), stdin=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                check=False,
-                            )
-
-                threading.Thread(target=travailler_registre, daemon=True).start()
-
-            resultats = {}
-            if supprimer:
-                # L'identifiant distant est encodé dans le nom de fichier depuis
-                # blink_models.target_path() ({date}_{camera}_{id}_{empreinte}
-                # .mp4) ; remote_id (registre) sert de repli pour les entrées
-                # plus anciennes, d'avant cette convention.
-                cibles = []
-                for identity in supprimer:
-                    entree = trouver_entree(identity)
-                    if entree is None:
-                        resultats[identity] = "inconnu"
-                        continue
-                    correspondance = re.search(r"_(\d+)_[0-9a-f]{12}\.mp4$", identity)
-                    id_distant = correspondance.group(1) if correspondance else str(
-                        entree.get("remote_id") or "")
-                    if not id_distant:
-                        resultats[identity] = "identifiant_introuvable"
-                        continue
-                    cibles.append((identity, entree, id_distant))
-
-                nb_cameras_usb = len({
-                    str(e.get("camera") or "").strip() for _, e, _ in cibles
-                    if str(e.get("source") or "usb") != "cloud"
-                })
-
-                # Sync Module -> ids actuellement presents, remplis pendant
-                # operation() : la lecture du manifeste (payee de toute facon
-                # pour les clips vises) profite aussi a tout AUTRE clip connu
-                # du meme module, jamais visé par cette suppression.
-                ids_presents_par_module = {}
-
-                async def operation(blink):
-                    manifestes = {}
-                    for identity, entree, id_distant in cibles:
-                        source = str(entree.get("source") or "usb")
-                        camera = str(entree.get("camera") or "").strip()
-                        try:
-                            if source == "cloud":
-                                clip = blink_models.CloudClip({
-                                    "id": int(id_distant), "device_name": camera,
-                                    "created_at": entree.get("created_at"),
-                                })
-                                resultats[identity] = (
-                                    "supprime" if await clip.delete_video(blink)
-                                    else "echec")
-                                continue
-                            sync = BLINK.find_sync_module(blink, entree)
-                            # Une seule lecture de manifeste par Sync Module,
-                            # même si plusieurs clips ciblés lui appartiennent.
-                            cle = id(sync)
-                            if cle not in manifestes:
-                                manifestes[cle] = await blink_models.read_local_manifest(sync)
-                                ids_presents_par_module[str(getattr(sync, "sync_id", ""))] = {
-                                    str(c.id) for c in manifestes[cle]}
-                            # id_distant (numéro USB tiré du nom de fichier
-                            # local) est réattribué à chaque réindexation du
-                            # module : après un redémarrage, le n°7 qui
-                            # désignait "jardin" hier peut désigner "garage"
-                            # aujourd'hui. Le retrouver par caméra + date
-                            # dans le manifeste ACTUEL, plutôt que de faire
-                            # confiance à ce numéro périmé, évite de
-                            # supprimer le mauvais clip distant. Une
-                            # correspondance ambiguë (plusieurs clips de la
-                            # même caméra à quelques secondes d'écart)
-                            # refuse plutôt que de choisir au hasard.
-                            try:
-                                attendu = md.parse_created_at(
-                                    str(entree.get("created_at") or ""))
-                            except (ValueError, TypeError):
-                                attendu = None
-                            candidats = [] if attendu is None else [
-                                c for c in manifestes[cle]
-                                if str(c.name).casefold() == camera.casefold()
-                                and abs((blink_models.clip_datetime_utc(c)
-                                        - attendu).total_seconds()) <= 2
-                            ]
-                            if not candidats:
-                                resultats[identity] = "deja_absent"
-                            elif len(candidats) > 1:
-                                resultats[identity] = "ambigu"
-                            else:
-                                cible_clip = candidats[0]
-                                resultats[identity] = (
-                                    "supprime" if await cible_clip.delete_video(blink)
-                                    else "echec")
-                        except Exception as error:
-                            resultats[identity] = f"echec: {type(error).__name__}"
-
-                slot_pris = False
-                try:
-                    # Même ressource physique que le direct et le downloader :
-                    # lire puis régénérer un manifeste pendant l'une de ces
-                    # opérations produit « System is busy » ou un lot partiel.
-                    if not MODULE_SLOT.acquire(blocking=False):
-                        raise blink_engine.BusyError(_slot_occupe_message())
-                    slot_pris = True
-                    _slot_pris("suppression manuelle")
-                    with blink_engine.hub_lock("suppression manuelle"):
-                        BLINK.call(operation, timeout=30 + 90 * max(1, nb_cameras_usb))
-                except Exception as error:
-                    for identity, _, _ in cibles:
-                        resultats.setdefault(identity, f"echec: {type(error).__name__}")
-                finally:
-                    if slot_pris:
-                        _slot_rendu()
-                        MODULE_SLOT.release()
-
-                # Marqué dans le registre (issue GitHub #1, AUDIT 28.76/28.77) :
-                # la galerie sait déjà, sans appel réseau supplémentaire, qu'il
-                # n'y a plus rien à supprimer là-bas. "deja_absent" compte
-                # aussi : c'est exactement l'état que la case doit refléter.
-                marques = {identity for identity, statut in resultats.items()
-                           if statut in ("supprime", "deja_absent")}
-                if marques or ids_presents_par_module:
-                    etat = blink_registre.load_download_state(self.paths["input"])
-                    for entree in etat["clips"].values():
-                        if not isinstance(entree, dict) or entree.get("source_deleted"):
-                            continue
-                        if entree.get("path") in marques:
-                            entree["source_deleted"] = True
-                            continue
-                        # Reste des clips USB du même Sync Module : la lecture
-                        # du manifeste, déjà payée ci-dessus, dit aussi qu'ils
-                        # n'y sont plus, sans requête de plus.
-                        ids_presents = ids_presents_par_module.get(
-                            str(entree.get("sync_id") or ""))
-                        if ids_presents is None or str(entree.get("source") or "usb") != "usb":
-                            continue
-                        correspondance = re.search(
-                            r"_(\d+)_[0-9a-f]{12}\.mp4$", str(entree.get("path") or ""))
-                        id_connu = correspondance.group(1) if correspondance else str(
-                            entree.get("remote_id") or "")
-                        if id_connu and id_connu not in ids_presents:
-                            entree["source_deleted"] = True
-                    blink_registre.save_download_state(self.paths["input"], etat)
-
-            if exclure_direct or inclure_direct or supprimer_direct:
-                # Pas de registre à tenir à jour, pas de réassemblage, pas de
-                # suppression distante (aucun n'a de sens pour un fichier
-                # purement local) : juste un ensemble d'identités écartées, et
-                # un unlink pour supprimer - voir DIRECT_EXCLUSION plus haut.
-                exclusion_directe = _lire_exclusion_directe(self.paths)
-                exclusion_directe |= set(exclure_direct)
-                exclusion_directe -= set(inclure_direct)
-                for identity in supprimer_direct:
-                    try:
-                        chemin = _chemin_direct_confine(racine_direct, identity)
-                        if chemin != directs[identity]:
-                            raise ValueError("Chemin de vidéo modifié pendant la sélection")
-                        chemin.unlink()
-                        resultats[identity] = "supprime"
-                        exclusion_directe.discard(identity)
-                    except FileNotFoundError:
-                        resultats[identity] = "deja_absent"
-                    except (OSError, ValueError) as error:
-                        resultats[identity] = f"echec: {type(error).__name__}"
-                        continue
-                    # Dossiers mois puis caméra devenus vides : nettoyage
-                    # cosmétique seulement, jamais si non vide (rmdir échoue
-                    # alors, ce qui arrête la remontée ici).
-                    for dossier in (chemin.parent, chemin.parent.parent):
-                        if (dossier == racine_direct.resolve()
-                                or not runtime.est_relatif_a(dossier, racine_direct.resolve())):
-                            break
-                        try:
-                            dossier.rmdir()
-                        except OSError:
-                            break
-                _ecrire_exclusion_directe(self.paths, exclusion_directe)
-
-            self.send_json({"ok": True, "resultats": resultats})
-            return
+            return self._post_appliquer_selection(payload)
 
         if route == "/api/autostart":
             code = autostart.appliquer("on" if payload.get("actif") else "off")
@@ -3587,148 +3770,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         if route == "/api/reglages":
-            try:
-                usb_minutes = int(payload.get("usb_minutes"))
-                cloud_minutes = int(payload.get("cloud_minutes"))
-                port = int(payload.get("port"))
-                if usb_minutes < 1 or cloud_minutes < 1:
-                    raise ValueError
-                if not 1 <= port <= 65535:
-                    raise ValueError
-            except (TypeError, ValueError):
-                self.send_json(
-                    {"error": "Les cadences doivent être des nombres de minutes d'au "
-                              "moins 1, et le port un nombre entre 1 et 65535."}, 400)
-                return
-            storage_dir = str(payload.get("storage_dir", "")).strip()
-            if storage_dir:
-                # Vérifié en écrivant pour de vrai plutôt que par simple
-                # inspection : un chemin qui a l'air valide peut être en
-                # lecture seule, sur un disque non monté, etc. Mieux vaut le
-                # découvrir ici, avant d'enregistrer quoi que ce soit, qu'au
-                # prochain démarrage, en cascade et sans page pour le dire.
-                try:
-                    candidat = Path(storage_dir).expanduser()
-                    candidat.mkdir(parents=True, exist_ok=True)
-                    sonde = candidat / ".blink_ecriture_test"
-                    sonde.write_text("", encoding="utf-8")
-                    sonde.unlink()
-                except OSError as error:
-                    self.send_json({"error": f"Dossier de stockage inaccessible : {error}"},
-                                    400)
-                    return
-            timezone_str = str(payload.get("timezone", "")).strip()
-            try:
-                ZoneInfo(timezone_str)
-            except (ZoneInfoNotFoundError, ValueError):
-                self.send_json({"error": f"Fuseau horaire inconnu : « {timezone_str} »."}, 400)
-                return
-            timestamp = bool(payload.get("timestamp", False))
-            merge_jour = bool(payload.get("merge_jour", True))
-            merge_semaine = bool(payload.get("merge_semaine", True))
-            merge_mois = bool(payload.get("merge_mois", True))
-            download_auto = bool(payload.get("download_auto", True))
-            live_protocol = str(payload.get("live_protocol", "webrtc"))
-            if live_protocol not in runtime.PROTOCOLES_LIVE_VALIDES:
-                self.send_json(
-                    {"error": f"Protocole de direct inconnu : « {live_protocol} »."}, 400)
-                return
-            try:
-                # Préparer session, préférences et nouveaux réglages dans la
-                # destination avant de publier le pointeur. Une écriture
-                # refusée ne doit jamais partager l'application entre deux racines.
-                with runtime.verrou_configuration():
-                    runtime.ecrire_dossier_stockage(
-                        storage_dir, reglages={
-                            "usb_minutes": usb_minutes, "cloud_minutes": cloud_minutes,
-                            "port": port, "timestamp": timestamp, "timezone": timezone_str,
-                            "merge_jour": merge_jour, "merge_semaine": merge_semaine,
-                            "merge_mois": merge_mois, "download_auto": download_auto,
-                            "live_protocol": live_protocol,
-                        }, configuration_initiale=self.initial_setup)
-            except runtime.BusyError as erreur:
-                self.send_json(
-                    {"error": f"Une modification des réglages est déjà en cours : {erreur}"},
-                    409)
-                return
-            except OSError as erreur:
-                self.send_json(
-                    {"error": f"Impossible d'enregistrer les réglages : {erreur}"}, 500)
-                return
-            if self.initial_setup:
-                # Le parent ``start`` voit maintenant le marqueur, laisse à
-                # cette réponse le temps d'arriver, puis remplace ce serveur
-                # seul par la composition complète. Lui demander un restart
-                # ici créerait une course avec le verrou ``start`` qu'il tient
-                # justement pendant tout le parcours initial.
-                self.send_json({"ok": True, "accepted": True,
-                                "initial_setup": True})
-                return
-            # Comme /api/update : ce processus fait partie de ce que « restart »
-            # va arrêter. Le verbe diffère de « update » puisqu'aucune nouvelle
-            # version n'est en jeu, seuls les réglages ont changé - mais
-            # « restart » relance « start » à neuf, donc les relit.
-            self.repondre_puis_redemarrer(["restart"])
-            return
+            return self._post_reglages(payload)
 
         if route == "/api/sourdine":
-            camera = str(payload.get("camera", "")).strip()
-            ignored = bool(payload.get("ignored"))
-            if not camera:
-                self.send_json({"error": "Nom de caméra manquant."}, 400)
-                return
-            # watch relit son état à chaque passage de sa propre boucle
-            # (voir _controler) : contrairement aux autres réglages, la
-            # sourdine n'a pas besoin de redémarrage, seulement de laisser
-            # « watch --ignore/--unignore » écrire le fichier partagé. Fait
-            # ici en tâche de fond pour que le clic reste immédiat, sur le
-            # même principe que le bouton Écarter (28.33).
-            option = "--ignore" if ignored else "--unignore"
-
-            def travailler():
-                runtime.lancer(
-                    runtime.self_command("watch", option, camera),
-                    cwd=str(runtime.app_dir()), stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
-                )
-
-            threading.Thread(target=travailler, daemon=True).start()
-            self.send_json({"ok": True})
-            return
+            return self._post_sourdine(payload)
 
         if route == "/api/suppression-auto":
-            camera = str(payload.get("camera", "")).strip()
-            actif = bool(payload.get("actif"))
-            try:
-                # Sérialiser lecture ET modification, y compris avec une
-                # bascule de stockage : replace seul perd les clics concurrents.
-                with runtime.verrou_configuration("suppression-auto", attente=5):
-                    etat = md.load_json(watch.WATCH_STATE, {})
-                    surveillees = etat.get("cameras") or {}
-                    libelle = next((nom for nom in surveillees
-                                    if nom.strip().casefold() == camera.casefold()), None)
-                    if not camera or libelle is None:
-                        self.send_json({"error": "Caméra inconnue."}, 400)
-                        return
-                    # Le nom affiché résout les identités internes persistées.
-                    cles = {
-                        choice["key"] for choice in suppression_auto_choices(
-                            watch.camera_entries(libelle, surveillees, read_entries(self.paths)))
-                    }
-                    cameras = suppression_auto_keys()
-                    if actif:
-                        cameras |= cles
-                    else:
-                        cameras -= cles
-                    runtime.ecrire_suppression_auto(cameras)
-            except runtime.BusyError as erreur:
-                self.send_json({"error": f"Une modification des réglages est déjà en cours : {erreur}"}, 409)
-                return
-            except OSError as erreur:
-                self.send_json({"error": f"Impossible d'enregistrer la suppression automatique : {erreur}"}, 500)
-                return
-            self.send_json({"ok": True})
-            return
+            return self._post_suppression_auto(payload)
 
         if route == "/api/stop":
             # --sans-relance pour que « restart » s'arrête sans revenir,

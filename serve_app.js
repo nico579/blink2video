@@ -2392,29 +2392,37 @@ $("autostart").onchange = async () => {
 
 let portActuel = null;   // relu à chaque ouverture, comparé à l'envoi
 
-async function ouvrirReglages(configurationInitiale = false) {
-  try {
-    const reglages = await lireJSON(await fetch("/api/reglages"));
-    configurationInitiale = configurationInitiale || !!reglages.initial_setup;
-    $("usbMinutes").value = reglages.usb_minutes;
-    $("cloudMinutes").value = reglages.cloud_minutes;
-    $("port").value = reglages.port;
-    portActuel = reglages.port;
-    $("storageDir").value = reglages.storage_dir;
-    $("timestamp").checked = reglages.timestamp;
-    $("timezone").value = reglages.timezone;
-    $("liveProtocol").value = reglages.live_protocol;
-    $("mergeJour").checked = reglages.merge_jour;
-    $("mergeSemaine").checked = reglages.merge_semaine;
-    $("mergeMois").checked = reglages.merge_mois;
-    appliquerDependanceMergeJour();
-    $("downloadAuto").checked = reglages.download_auto;
-    appliquerDependanceDownloadAuto();
-  } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
+function afficherFormulaireReglages(reglages) {
+  $("usbMinutes").value = reglages.usb_minutes;
+  $("cloudMinutes").value = reglages.cloud_minutes;
+  $("port").value = reglages.port;
+  portActuel = reglages.port;
+  $("storageDir").value = reglages.storage_dir;
+  $("timestamp").checked = reglages.timestamp;
+  $("timezone").value = reglages.timezone;
+  $("liveProtocol").value = reglages.live_protocol;
+  $("mergeJour").checked = reglages.merge_jour;
+  $("mergeSemaine").checked = reglages.merge_semaine;
+  $("mergeMois").checked = reglages.merge_mois;
+  appliquerDependanceMergeJour();
+  $("downloadAuto").checked = reglages.download_auto;
+  appliquerDependanceDownloadAuto();
+}
+
+function configurerDialogueReglages(configurationInitiale) {
   $("initialSetupHint").hidden = !configurationInitiale;
   $("reglagesClose").hidden = configurationInitiale;
   $("stopButton").hidden = configurationInitiale;
   $("reglages").dataset.initialSetup = configurationInitiale ? "1" : "0";
+}
+
+async function ouvrirReglages(configurationInitiale = false) {
+  try {
+    const reglages = await lireJSON(await fetch("/api/reglages"));
+    configurationInitiale = configurationInitiale || !!reglages.initial_setup;
+    afficherFormulaireReglages(reglages);
+  } catch (erreur) { /* les champs gardent leur dernière valeur affichée */ }
+  configurerDialogueReglages(configurationInitiale);
   chargerSourdine();
   chargerSuppressionAuto();
   $("reglages").showModal();
@@ -2486,32 +2494,33 @@ $("downloadAuto").onchange = appliquerDependanceDownloadAuto;
 // fuseau, la sourdine n'exige pas de redémarrage (watch relit son état à
 // chaque passage), donc chaque case s'applique tout de suite, comme le
 // bouton Écarter d'un clip.
-async function chargerSourdine() {
-  const conteneur = $("sourdineListe");
-  conteneur.textContent = t("sourdine.loading");
+async function chargerListeReglageCameras({ liste, url, traduction, selection, champ, nomCamera }) {
+  const conteneur = $(liste);
+  conteneur.textContent = t(`${traduction}.loading`);
   let etat;
   try {
-    etat = await lireJSON(await fetch("/api/sourdine"));
+    etat = await lireJSON(await fetch(url));
   } catch (erreur) {
-    conteneur.textContent = t("sourdine.unavailable");
+    conteneur.textContent = t(`${traduction}.unavailable`);
     return;
   }
   if (!etat.cameras.length) {
-    conteneur.textContent = t("sourdine.none");
+    conteneur.textContent = t(`${traduction}.none`);
     return;
   }
   conteneur.replaceChildren();
-  for (const camera of etat.cameras) {
+  for (const entree of etat.cameras) {
+    const camera = nomCamera(entree);
     const label = document.createElement("label");
     const case_ = document.createElement("input");
     case_.type = "checkbox";
-    case_.checked = etat.ignored.includes(camera);
+    case_.checked = etat[selection].includes(camera);
     case_.onchange = async () => {
       case_.disabled = true;
       try {
-        const reponse = await fetch("/api/sourdine", { method: "POST",
+        const reponse = await fetch(url, { method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ camera, ignored: case_.checked }) });
+          body: JSON.stringify({ camera, [champ]: case_.checked }) });
         const resultat = await lireJSON(reponse);
         if (resultat.error) {
           alert(resultat.error);
@@ -2530,6 +2539,13 @@ async function chargerSourdine() {
   }
 }
 
+async function chargerSourdine() {
+  return chargerListeReglageCameras({
+    liste: "sourdineListe", url: "/api/sourdine", traduction: "sourdine",
+    selection: "ignored", champ: "ignored", nomCamera: (camera) => camera,
+  });
+}
+
 // Même motif que chargerSourdine() : chaque case s'applique tout de suite,
 // pas de redémarrage. Une caméra peut porter plusieurs clés internes au fil
 // du temps (Sync Module remplacé, vieux clips USB sans identifiant stable -
@@ -2537,182 +2553,146 @@ async function chargerSourdine() {
 // nom -> clé(s) est réglée côté serveur (suppression_auto_choices() dans
 // serve.py), jamais ici.
 async function chargerSuppressionAuto() {
-  const conteneur = $("suppressionAutoListe");
-  conteneur.textContent = t("suppressionAuto.loading");
-  let etat;
-  try {
-    etat = await lireJSON(await fetch("/api/suppression-auto"));
-  } catch (erreur) {
-    conteneur.textContent = t("suppressionAuto.unavailable");
-    return;
-  }
-  if (!etat.cameras.length) {
-    conteneur.textContent = t("suppressionAuto.none");
-    return;
-  }
-  conteneur.innerHTML = "";
-  for (const camera of etat.cameras) {
-    const label = document.createElement("label");
-    const case_ = document.createElement("input");
-    case_.type = "checkbox";
-    case_.checked = etat.actives.includes(camera.name);
-    case_.onchange = async () => {
-      case_.disabled = true;
-      try {
-        const reponse = await fetch("/api/suppression-auto", { method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ camera: camera.name, actif: case_.checked }) });
-        const resultat = await lireJSON(reponse);
-        if (resultat.error) {
-          alert(resultat.error);
-          case_.checked = !case_.checked;
-        }
-      } catch (erreur) {
-        alert(String(erreur));
-        case_.checked = !case_.checked;
-      } finally {
-        case_.disabled = false;
-      }
-    };
-    label.appendChild(case_);
-    label.append(` ${camera.name}`);
-    conteneur.appendChild(label);
-  }
+  return chargerListeReglageCameras({
+    liste: "suppressionAutoListe", url: "/api/suppression-auto", traduction: "suppressionAuto",
+    selection: "actives", champ: "actif", nomCamera: (camera) => camera.name,
+  });
 }
 
 // Même déroulé que le bouton de mise à jour : enregistrer, attendre que le
-// serveur disparaisse puis revienne, recharger. Le verbe diffère (« restart »
-// au lieu de « update ») puisqu'aucune nouvelle version n'est en jeu, mais
-// c'est le même arrêt-puis-relance vu de la page. Si le port change, la page
-// qui redémarre n'écoute plus à la même adresse : le sondage habituel (même
-// origine) ne verrait jamais le retour, il faut viser la nouvelle adresse.
-$("reglagesApply").onclick = async () => {
+// serveur redémarre, puis retrouver la page. Les trois parcours d'attente
+// restent distincts : nouveau port, première configuration, relance ordinaire.
+function lireParametresReglages() {
   const usb = parseInt($("usbMinutes").value, 10);
   const cloud = parseInt($("cloudMinutes").value, 10);
   const port = parseInt($("port").value, 10);
   if (!(usb >= 1) || !(cloud >= 1)) {
     alert(t("reglages.error.cadence"));
-    return;
+    return null;
   }
   if (!(port >= 1 && port <= 65535)) {
     alert(t("reglages.error.port"));
-    return;
+    return null;
   }
   const timezone = $("timezone").value.trim();
   if (!timezone) {
     alert(t("reglages.error.timezone"));
-    return;
+    return null;
   }
+  return { usb, cloud, port, timezone };
+}
+
+async function envoyerFormulaireReglages({ usb, cloud, port, timezone }) {
+  const reponse = await fetch("/api/reglages", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      usb_minutes: usb, cloud_minutes: cloud, port,
+      storage_dir: $("storageDir").value.trim(),
+      timestamp: $("timestamp").checked, timezone,
+      live_protocol: $("liveProtocol").value,
+      merge_jour: $("mergeJour").checked,
+      merge_semaine: $("mergeSemaine").checked,
+      merge_mois: $("mergeMois").checked,
+      download_auto: $("downloadAuto").checked,
+    }) });
+  return lireJSON(reponse);
+}
+
+$("reglagesApply").onclick = async () => {
+  const parametres = lireParametresReglages();
+  if (!parametres) return;
+
   const bouton = $("reglagesApply");
   let configurationInitiale = false;
   bouton.disabled = true;
   bouton.textContent = t("reglages.restarting");
   try {
-    const storageDir = $("storageDir").value.trim();
-    const timestamp = $("timestamp").checked;
-    const liveProtocol = $("liveProtocol").value;
-    const mergeJour = $("mergeJour").checked;
-    const mergeSemaine = $("mergeSemaine").checked;
-    const mergeMois = $("mergeMois").checked;
-    const downloadAuto = $("downloadAuto").checked;
-    const reponse = await fetch("/api/reglages", { method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ usb_minutes: usb, cloud_minutes: cloud, port,
-                             storage_dir: storageDir, timestamp, timezone,
-                             live_protocol: liveProtocol,
-                             merge_jour: mergeJour, merge_semaine: mergeSemaine,
-                             merge_mois: mergeMois, download_auto: downloadAuto }) });
-    const resultat = await lireJSON(reponse);
+    const resultat = await envoyerFormulaireReglages(parametres);
     if (resultat.error) {
       alert(resultat.error);
-      bouton.disabled = false;
-      bouton.textContent = t("reglages.apply");
       return;
     }
     configurationInitiale = !!resultat.initial_setup;
   } catch (erreur) {
-    // Une erreur de validation arrive toujours en JSON propre, AVANT que le
-    // serveur ne se tue pour redémarrer (voir resultat.error ci-dessus) :
-    // si on arrive ici, c'est que la réponse a été coupée par ce
-    // redémarrage lui-même, pas que la sauvegarde a échoué. Même principe
-    // que le bouton Stop plus bas : on continue comme en cas de succès
-    // plutôt que d'alarmer à tort sur une erreur réseau qui ne veut rien
-    // dire ici.
+    // Le redémarrage peut couper la réponse. Conserver le sondage dans ce
+    // cas : son délai de garde signalera si l'arrêt n'a pas commencé.
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = t("reglages.apply");
   }
-  bouton.disabled = false;
-  bouton.textContent = t("reglages.apply");
   $("reglages").close();
 
-  if (port !== portActuel) {
-    // Un délai fixe se serait trompé de quelques secondes selon la charge
-    // de la machine : on attend plutôt la confirmation que l'ancien
-    // serveur (cette origine) a bien disparu, comme pour un redémarrage
-    // ordinaire, avant de viser la nouvelle adresse.
-    const nouvelleAdresse = `http://${location.hostname}:${port}/`;
-    $("phase").textContent = tf("reglages.portchange", { url: nouvelleAdresse });
-    $("bar").removeAttribute("value");
-    $("work").classList.add("on");
-    $("refresh").disabled = true;
-    let parti = false;
-    const attentePort = setInterval(async () => {
-      try {
-        await fetch("/api/status", { cache: "no-store" });
-      } catch (erreur) {
-        parti = true;
-      }
-      if (parti) {
-        clearInterval(attentePort);
-        // L'ancien a disparu ; le nouveau, déjà en cours de lancement,
-        // a besoin d'un instant de plus pour se lier au port.
-        setTimeout(() => { location.href = nouvelleAdresse; }, 3000);
-      }
-    }, 1000);
-    setTimeout(() => {
-      if (!parti) {
-        clearInterval(attentePort);
-        $("phase").textContent = t("reglages.restartFailed");
-        $("bar").value = 0;
-        $("refresh").disabled = false;
-      }
-    }, 45000);
-    return;
+  if (parametres.port !== portActuel) {
+    attendreChangementPortReglages(parametres.port);
+  } else if (configurationInitiale) {
+    attendreFinConfigurationInitiale();
+  } else {
+    attendreRedemarrageReglages();
   }
+};
 
-  if (configurationInitiale) {
-    // Le parent ``start`` remplace le serveur temporaire par le serveur
-    // complet seulement après avoir vu la validation. Attendre explicitement
-    // un /api/status sorti du mode initial évite de manquer une coupure très
-    // brève sur une machine rapide et de rester bloqué inutilement.
-    $("phase").textContent = t("reglages.restarting.settings");
-    $("bar").removeAttribute("value");
-    $("work").classList.add("on");
-    $("refresh").disabled = true;
-    let delaiInitial = null;
-    const attenteInitiale = setInterval(async () => {
-      try {
-        const etat = await (await fetch("/api/status", { cache: "no-store" })).json();
-        if (etat.initial_setup === false) {
-          clearInterval(attenteInitiale);
-          clearTimeout(delaiInitial);
-          // Retire ?setup=1 : le serveur définitif ne doit pas rouvrir le
-          // panneau qui vient précisément d'être validé.
-          location.href = location.pathname;
-        }
-      } catch (erreur) { /* coupure attendue entre les deux serveurs */ }
-    }, 1000);
-    delaiInitial = setTimeout(() => {
-      clearInterval(attenteInitiale);
-      $("phase").textContent = t("reglages.restartFailed");
-      $("bar").value = 0;
-      $("refresh").disabled = false;
-    }, 60000);
-    return;
-  }
-
-  $("phase").textContent = t("reglages.restarting.settings");
+function afficherAttenteReglages(message) {
+  $("phase").textContent = message;
   $("bar").removeAttribute("value");
   $("work").classList.add("on");
   $("refresh").disabled = true;
+}
+
+function signalerEchecRedemarrageReglages() {
+  $("phase").textContent = t("reglages.restartFailed");
+  $("bar").value = 0;
+  $("refresh").disabled = false;
+}
+
+function attendreChangementPortReglages(port) {
+  // Attendre la disparition de l'ancien serveur avant de quitter son origine.
+  const nouvelleAdresse = `http://${location.hostname}:${port}/`;
+  afficherAttenteReglages(tf("reglages.portchange", { url: nouvelleAdresse }));
+  let parti = false;
+  const attentePort = setInterval(async () => {
+    try {
+      await fetch("/api/status", { cache: "no-store" });
+    } catch (erreur) {
+      parti = true;
+    }
+    if (parti) {
+      clearInterval(attentePort);
+      // Laisser au nouveau serveur le temps de se lier au port.
+      setTimeout(() => { location.href = nouvelleAdresse; }, 3000);
+    }
+  }, 1000);
+  setTimeout(() => {
+    if (!parti) {
+      clearInterval(attentePort);
+      signalerEchecRedemarrageReglages();
+    }
+  }, 45000);
+}
+
+function attendreFinConfigurationInitiale() {
+  // Le parent start remplace le serveur temporaire après validation. Le
+  // statut explicite évite de manquer une coupure très brève entre les deux.
+  afficherAttenteReglages(t("reglages.restarting.settings"));
+  let delaiInitial = null;
+  const attenteInitiale = setInterval(async () => {
+    try {
+      const etat = await (await fetch("/api/status", { cache: "no-store" })).json();
+      if (etat.initial_setup === false) {
+        clearInterval(attenteInitiale);
+        clearTimeout(delaiInitial);
+        // Retirer ?setup=1 pour ne pas rouvrir les réglages déjà validés.
+        location.href = location.pathname;
+      }
+    } catch (erreur) { /* coupure attendue entre les deux serveurs */ }
+  }, 1000);
+  delaiInitial = setTimeout(() => {
+    clearInterval(attenteInitiale);
+    signalerEchecRedemarrageReglages();
+  }, 60000);
+}
+
+function attendreRedemarrageReglages() {
+  afficherAttenteReglages(t("reglages.restarting.settings"));
   let parti = false;
   const attente = setInterval(async () => {
     try {
@@ -2725,12 +2705,10 @@ $("reglagesApply").onclick = async () => {
   setTimeout(() => {
     if (!parti) {
       clearInterval(attente);
-      $("phase").textContent = t("reglages.restartFailed");
-      $("bar").value = 0;
-      $("refresh").disabled = false;
+      signalerEchecRedemarrageReglages();
     }
   }, 45000);
-};
+}
 
 $("stopButton").onclick = async () => {
   const bouton = $("stopButton");

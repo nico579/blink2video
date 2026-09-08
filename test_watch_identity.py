@@ -256,6 +256,22 @@ class TestAPIIdentitesSurveillance(unittest.TestCase):
         self.assertEqual(code, 400)
         self.assertEqual(self.actives, set())
 
+    def test_get_suppression_auto_resout_le_registre_une_seule_fois(self):
+        with mock.patch.object(watch, "_cameras_correspondantes",
+                               wraps=watch._cameras_correspondantes) as rapprocher:
+            code, etat = self.requete("/api/suppression-auto")
+        self.assertEqual(code, 200)
+        self.assertEqual(etat["actives"], self.noms)
+        self.assertEqual(rapprocher.call_count, len(self.entrees))
+
+    def test_get_suppression_auto_reflete_le_registre_courant(self):
+        _, etat = self.requete("/api/suppression-auto")
+        self.assertEqual(etat["actives"], self.noms)
+        del self.entrees["second"]
+        _, suivant = self.requete("/api/suppression-auto")
+        self.assertEqual(suivant["cameras"], etat["cameras"])
+        self.assertEqual(suivant["actives"], [self.noms[0]])
+
 
 if __name__ == "__main__":
     unittest.main()

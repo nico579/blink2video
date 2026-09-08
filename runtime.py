@@ -36,7 +36,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.12.11"
+VERSION = "0.12.12"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -155,31 +155,36 @@ def lire_reglages() -> dict:
     }
 
 
+def _ecrire_texte_atomique(cible: Path, contenu: str) -> None:
+    """Remplace un petit fichier UTF-8 après écriture complète à côté de lui.
+
+    Le temporaire est propre à chaque appel, y compris dans un même processus.
+    L'appelant conserve la création des dossiers, la sérialisation et les
+    verrous de transaction : un replace atomique ne protège pas à lui seul
+    une lecture-modification-écriture concurrente. Les erreurs remontent.
+    """
+    import uuid
+
+    temporaire = cible.with_name(f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        temporaire.write_text(contenu, encoding="utf-8")
+        temporaire.replace(cible)
+    finally:
+        temporaire.unlink(missing_ok=True)
+
+
 def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool,
                     timezone: str, merge_jour: bool, merge_semaine: bool,
                     merge_mois: bool, download_auto: bool, live_protocol: str, *,
                     dossier: Path | None = None) -> None:
-    # Écriture atomique (temporaire propre à ce processus, puis replace) :
-    # même précaution que blink_auth.save_session (I-02) - un plantage en
-    # cours d'écriture ne doit jamais laisser un JSON à moitié écrit, que
-    # lire_reglages() prendrait pour un fichier corrompu et remplacerait
-    # entièrement par les défauts (revue de code du 0eab463, bug #10).
-    import uuid
-
     cible = (app_dir() if dossier is None else dossier) / REGLAGES
-    temporaire = cible.with_name(f"{cible.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    try:
-        temporaire.write_text(
-            json.dumps({"usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
-                        "port": int(port), "timestamp": bool(timestamp),
-                        "timezone": str(timezone), "merge_jour": bool(merge_jour),
-                        "merge_semaine": bool(merge_semaine), "merge_mois": bool(merge_mois),
-                        "download_auto": bool(download_auto),
-                        "live_protocol": str(live_protocol)}),
-            encoding="utf-8")
-        temporaire.replace(cible)
-    finally:
-        temporaire.unlink(missing_ok=True)
+    _ecrire_texte_atomique(cible, json.dumps({
+        "usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
+        "port": int(port), "timestamp": bool(timestamp),
+        "timezone": str(timezone), "merge_jour": bool(merge_jour),
+        "merge_semaine": bool(merge_semaine), "merge_mois": bool(merge_mois),
+        "download_auto": bool(download_auto), "live_protocol": str(live_protocol),
+    }))
 
 
 LANGUE = "blink_langue.txt"
@@ -205,15 +210,7 @@ def ecrire_langue(code: str) -> None:
     manuel : sans ça, un premier lancement jamais retouché aux boutons
     FR/EN laisserait le menu du systray dans le défaut, même si la page
     s'affichait déjà en anglais (langue détectée du navigateur)."""
-    import uuid
-
-    cible = app_dir() / LANGUE
-    temporaire = cible.with_name(f"{cible.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    try:
-        temporaire.write_text("en" if code == "en" else "fr", encoding="utf-8")
-        temporaire.replace(cible)
-    finally:
-        temporaire.unlink(missing_ok=True)
+    _ecrire_texte_atomique(app_dir() / LANGUE, "en" if code == "en" else "fr")
 
 
 SUPPRESSION_AUTO = "blink_suppression_auto.json"
@@ -244,16 +241,8 @@ def lire_suppression_auto() -> set:
 
 def ecrire_suppression_auto(cameras: set) -> None:
     """Enregistre l'ensemble des caméras en suppression automatique (USB)."""
-    import json
-    import uuid
-
-    cible = app_dir() / SUPPRESSION_AUTO
-    temporaire = cible.with_name(f"{cible.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    try:
-        temporaire.write_text(json.dumps(sorted(cameras), ensure_ascii=False), encoding="utf-8")
-        temporaire.replace(cible)
-    finally:
-        temporaire.unlink(missing_ok=True)
+    _ecrire_texte_atomique(app_dir() / SUPPRESSION_AUTO,
+                           json.dumps(sorted(cameras), ensure_ascii=False))
 
 
 def options_fusion(reglages: dict) -> list:
@@ -567,29 +556,56 @@ def lire_dossier_stockage() -> str:
     return str(app_dir())
 
 
-def ecrire_dossier_stockage(chemin: str, *, reglages: dict | None = None,
-                            configuration_initiale: bool = False) -> None:
-    """Enregistre le nouveau dossier, ou efface le réglage si `chemin` est
-    vide (retour à l'emplacement par défaut).
-
-    Ne déplace pas les clips : les fichiers déjà présents à l'ancien
-    emplacement y restent, à charge de qui change ce réglage de les
-    reprendre lui-même - choix délibéré, un déplacement automatique
-    engageant bien plus (espace disque, fichiers ouverts, échec à
-    mi-chemin) pour des données qui peuvent peser plusieurs Go.
-
-    Les réglages et la session, eux, sont copiés vers le nouvel
-    emplacement : ce n'est pas de la donnée gérée par l'application mais
-    son état courant, et le nouveau app_dir() démarrerait sinon vide -
-    déconnecté, réglages revenus aux défauts (revue du 27/08, "je perds mon
-    authentification" en changeant de dossier). Les nouveaux `reglages`,
-    s'ils sont fournis, sont écrits dans la destination préparée avant de
-    publier son pointeur : leur échec laisse l'ancienne racine active.
-    Une copie, jamais un
-    déplacement : l'ancien emplacement reste utilisable si ce changement
-    est annulé ensuite."""
+def _copier_preferences_stockage(ancien: Path, nouveau: Path) -> None:
+    """Copie l'état courant sans déplacer les clips ni modifier la source."""
     import uuid
 
+    nouveau.mkdir(parents=True, exist_ok=True)
+    # Une préférence absente est aussi un choix : ne pas hériter des
+    # anciennes autorisations de suppression présentes dans la destination.
+    preferences_defaut = {LANGUE: "fr", SUPPRESSION_AUTO: "[]"}
+    for nom in (REGLAGES, "blink_auth.json", LANGUE, SUPPRESSION_AUTO):
+        source = ancien / nom
+        presente = source.is_file()
+        if not presente and nom not in preferences_defaut:
+            continue
+        cible = nouveau / nom
+        temporaire_copie = cible.with_name(
+            f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+        try:
+            if presente:
+                shutil.copy2(source, temporaire_copie)
+            else:
+                temporaire_copie.write_text(preferences_defaut[nom], encoding="utf-8")
+            temporaire_copie.replace(cible)
+        finally:
+            temporaire_copie.unlink(missing_ok=True)
+
+
+def _publier_pointeur_stockage(pointeur: Path, contenu: bytes | None) -> None:
+    """Publie atomiquement les octets du pointeur, ou le supprime si absent."""
+    import uuid
+
+    if contenu is None:
+        pointeur.unlink(missing_ok=True)
+        return
+    temporaire_pointeur = pointeur.with_name(
+        f".{pointeur.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        temporaire_pointeur.write_bytes(contenu)
+        temporaire_pointeur.replace(pointeur)
+    finally:
+        temporaire_pointeur.unlink(missing_ok=True)
+
+
+def ecrire_dossier_stockage(chemin: str, *, reglages: dict | None = None,
+                            configuration_initiale: bool = False) -> None:
+    """Change le stockage ; un chemin vide revient à l'emplacement par défaut.
+
+    Les clips restent sur place. Préférences, session et nouveaux réglages
+    sont préparés avant de publier le pointeur : un échec de préparation
+    conserve la racine active et laisse l'ancien emplacement intact.
+    """
     ancien = app_dir()
     ancre = _dossier_ancre()
     pointeur = ancre / POINTEUR_STOCKAGE
@@ -612,58 +628,21 @@ def ecrire_dossier_stockage(chemin: str, *, reglages: dict | None = None,
     # imposée par l'environnement.
     nouveau = ancien if os.environ.get("BLINK_HOME") else destination
 
-    # Préparer intégralement la nouvelle racine AVANT de publier le pointeur.
-    # Auparavant le pointeur changeait d'abord : une copie de session refusée
-    # ou un disque retiré à cet instant laissait l'application basculée vers
-    # un dossier incomplet. Ici, tout échec conserve l'ancienne racine active.
+    # Préparer entièrement la nouvelle racine avant de la rendre active.
     if nouveau != ancien:
-        nouveau.mkdir(parents=True, exist_ok=True)
-        # Les préférences absentes expriment aussi un choix : notamment
-        # aucune suppression autorisée. Ne pas hériter d'un ancien fichier
-        # présent dans la destination lorsque la source n'en possède pas.
-        preferences_defaut = {LANGUE: "fr", SUPPRESSION_AUTO: "[]"}
-        for nom in (REGLAGES, "blink_auth.json", LANGUE, SUPPRESSION_AUTO):
-            source = ancien / nom
-            presente = source.is_file()
-            if not presente and nom not in preferences_defaut:
-                continue
-            cible = nouveau / nom
-            temporaire_copie = cible.with_name(
-                f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-            try:
-                if presente:
-                    shutil.copy2(source, temporaire_copie)
-                else:
-                    temporaire_copie.write_text(preferences_defaut[nom], encoding="utf-8")
-                temporaire_copie.replace(cible)
-            finally:
-                temporaire_copie.unlink(missing_ok=True)
+        _copier_preferences_stockage(ancien, nouveau)
 
     if reglages is not None:
         ecrire_reglages(**reglages, dossier=nouveau)
 
-    # Écriture atomique du pointeur : un arrêt brutal ne peut plus laisser un
-    # blink_home.txt vide ou tronqué que le prochain démarrage interpréterait
-    # comme un retour silencieux à l'ancien stockage.
-    def publier(contenu: bytes | None) -> None:
-        if contenu is None:
-            pointeur.unlink(missing_ok=True)
-            return
-        temporaire_pointeur = pointeur.with_name(
-            f".{pointeur.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-        try:
-            temporaire_pointeur.write_bytes(contenu)
-            temporaire_pointeur.replace(pointeur)
-        finally:
-            temporaire_pointeur.unlink(missing_ok=True)
-
-    publier(str(destination).encode("utf-8") if chemin else None)
+    _publier_pointeur_stockage(
+        pointeur, str(destination).encode("utf-8") if chemin else None)
     if configuration_initiale:
         try:
             marquer_configuration_initiale()
         except OSError as erreur:
             try:
-                publier(ancien_pointeur)
+                _publier_pointeur_stockage(pointeur, ancien_pointeur)
             except OSError as restauration:
                 raise OSError(
                     "Échec du marqueur initial et de la restauration du stockage : "
@@ -737,17 +716,9 @@ def _ecrire_marqueur_configuration(nom: str) -> None:
     nouvelle installation. ``_dossier_controle()`` reste à côté de
     l'exécutable même lorsque ``blink_home.txt`` redirige les clips.
     """
-    import uuid
-
     dossier = _dossier_controle()
     dossier.mkdir(parents=True, exist_ok=True)
-    cible = dossier / nom
-    temporaire = dossier / f".{nom}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
-    try:
-        temporaire.write_text(VERSION, encoding="utf-8")
-        temporaire.replace(cible)
-    finally:
-        temporaire.unlink(missing_ok=True)
+    _ecrire_texte_atomique(dossier / nom, VERSION)
 
 
 def _traces_installation_existante() -> bool:
@@ -1056,15 +1027,7 @@ def _ecrire_fiche(fiche: Path, donnees: dict) -> None:
     comme une fiche périmée et la supprimait, faisant perdre à stop la
     trace d'un processus pourtant vivant (revue du 27/08, bug 8). Même
     motif que _ecrire_registre() (blink_registre.py)."""
-    import uuid
-
-    temporaire = fiche.with_name(
-        f".{fiche.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    try:
-        temporaire.write_text(json.dumps(donnees, ensure_ascii=False), encoding="utf-8")
-        temporaire.replace(fiche)
-    finally:
-        temporaire.unlink(missing_ok=True)
+    _ecrire_texte_atomique(fiche, json.dumps(donnees, ensure_ascii=False))
 
 
 def _verrou_fiche(fiche: Path, attente: int = 5):
@@ -1729,9 +1692,8 @@ PASSAGES = Path(".blink_passages.json")
 def marquer(verbe: str) -> None:
     """Note l'heure à laquelle un verbe vient de finir son travail.
 
-    Deux usages : l'interface affiche ces heures, ce qui rend visible d'un coup
-    d'œil une boucle qui ne tourne plus, et un verbe évite de refaire ce qu'un
-    autre vient de faire."""
+    L'interface affiche ces heures, ce qui rend visible d'un coup d'œil une
+    boucle qui ne tourne plus."""
     import datetime as dt
 
     fichier = app_dir() / PASSAGES
@@ -1753,20 +1715,6 @@ def passages() -> dict:
         return json.loads((app_dir() / PASSAGES).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-
-
-def passage_recent(verbe: str, minutes: float) -> bool:
-    """Vrai si ce verbe est passé il y a moins de `minutes`."""
-    import datetime as dt
-
-    quand = passages().get(verbe)
-    if not quand:
-        return False
-    try:
-        moment = dt.datetime.fromisoformat(quand)
-    except ValueError:
-        return False
-    return (dt.datetime.now().astimezone() - moment).total_seconds() < minutes * 60
 
 
 TRAVAIL = Path(".blink_travail.json")

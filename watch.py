@@ -1,4 +1,4 @@
-"""Surveille l'installation Blink et prévient par courriel quand elle se dégrade.
+"""Surveille l'installation Blink et signale les dégradations localement.
 
 Le besoin vient d'un constat : une caméra peut cesser d'enregistrer sans que
 rien ne le signale. Le Portail était hors ligne depuis seize jours, découvert
@@ -11,10 +11,9 @@ plus « ok », une détection coupée, un silence anormalement long. Les retours
 la normale sont signalés aussi, mais sans insistance, pour qu'on sache qu'un
 incident est clos.
 
-En mode continu (--loop), c'est le verbe qui fait tout : il démarre l'interface
-web, puis à chaque tour il contrôle l'état, alerte s'il se dégrade, rapatrie les
-nouveaux clips, les assemble, et le signale par une notification cliquable. Trois
-interrupteurs permettent de restreindre : --no-serve, --no-download, --no-build.
+En mode continu (--loop), la boucle commune répète ce contrôle. Le démarrage
+de l'interface, le téléchargement et la fusion restent les responsabilités
+des autres verbes, réunis par la commande start.
 
 Sans --loop, il ne fait qu'un contrôle et s'arrête, ce qui convient à un
 lancement périodique par un planificateur.
@@ -23,14 +22,8 @@ lancement périodique par un planificateur.
 import argparse
 import asyncio
 import datetime as dt
-import json
-import os
-import re
-import shutil
-import subprocess
-import time
 import sys
-from pathlib import Path
+from collections import Counter
 
 # Avant tout import de dépendance : c'est ici qu'un environnement isolé
 # est préparé et le programme relancé dedans si nécessaire.
@@ -41,8 +34,6 @@ runtime.bootstrap()
 import blink_auth
 import merge_daily as md
 
-
-import runtime
 
 BASE_DIR = runtime.app_dir()
 WATCH_STATE = BASE_DIR / ".blink_watch_state.json"
@@ -62,12 +53,12 @@ def _identite_camera(etat: dict):
 
 def _libelles_cameras(etats: list) -> dict:
     """Ne change les noms visibles que lorsqu'ils sont effectivement ambigus."""
-    noms = [etat["name"].casefold() for etat in etats]
+    noms = Counter(etat["name"].casefold() for etat in etats)
     reserves = set(noms)
     cameras = {}
     for etat in sorted(etats, key=lambda e: (e["name"].casefold(), _identite_camera(e))):
         nom = etat["name"]
-        if noms.count(nom.casefold()) > 1:
+        if noms[nom.casefold()] > 1:
             suffixe = ", ".join(valeur for valeur in (
                 "réseau " + etat["network_id"] if etat.get("network_id") else "",
                 "appareil " + etat["device_id"] if etat.get("device_id") else "",
@@ -100,15 +91,24 @@ def _cameras_correspondantes(entree: dict, cameras: dict) -> list:
     return candidats
 
 
-def camera_entries(libelle: str, cameras: dict, entrees: dict) -> dict:
-    """Entrées attribuables sans ambiguïté à une caméra affichée.
+def regrouper_entrees_cameras(cameras: dict, entrees: dict) -> dict:
+    """Attribue chaque entrée une seule fois, sans arbitrer les ambiguïtés.
 
-    Utilisé aussi par le réglage destructif du serveur : le suffixe visible
-    ne doit ni perdre une préférence, ni autoriser l'autre homonyme.
+    Regroupement local à l'appel : aucun cache ne doit survivre à un changement
+    de caméras ou de registre, notamment pour les autorisations de suppression.
     """
-    return {cle: entree for cle, entree in entrees.items()
-            if isinstance(entree, dict)
-            and _cameras_correspondantes(entree, cameras) == [libelle]}
+    groupes = {nom: {} for nom in cameras}
+    for cle, entree in entrees.items():
+        if isinstance(entree, dict):
+            correspondantes = _cameras_correspondantes(entree, cameras)
+            if len(correspondantes) == 1:
+                groupes[correspondantes[0]][cle] = entree
+    return groupes
+
+
+def camera_entries(libelle: str, cameras: dict, entrees: dict) -> dict:
+    """Entrées attribuables sans ambiguïté à une caméra affichée."""
+    return regrouper_entrees_cameras(cameras, entrees).get(libelle, {})
 
 
 def normaliser_sourdines(ignores, cameras: dict, precedentes=None) -> set:
@@ -288,21 +288,80 @@ def _msg(cle: str, **kw) -> str:
     return MESSAGES[runtime.lire_langue()][cle].format(**kw)
 
 
-def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
-    """Établit la liste des dégradations et des retours à la normale.
+def _etat_camera_precedent(nom: str, etat: dict, avant: dict, cameras: dict) -> dict:
+    """Suit l'identité de l'appareil ; le nom seul ne suffit pas aux homonymes."""
+    if not etat.get("name"):
+        return avant.get(nom) or {}
 
-    Une alerte ne se déclenche que sur un *changement* : sans cela, une caméra
-    durablement hors ligne enverrait un courriel à chaque passage et on
-    cesserait de les lire, ce qui reviendrait à ne rien surveiller."""
+    ancien = next((e for e in avant.values() if e.get("name")
+                   and _identite_camera(e) == _identite_camera(etat)), {})
+    # Les anciennes sauvegardes indexées par nom restent utilisables si ce
+    # nom est unique dans l'inventaire complet, caméras en sourdine comprises.
+    if not ancien and sum(e.get("name") == etat["name"] for e in cameras.values()) == 1:
+        candidat = avant.get(etat["name"]) or {}
+        if not candidat.get("name"):
+            ancien = candidat
+    return ancien
+
+
+def _comparer_camera(nom: str, etat: dict, ancien: dict) -> tuple:
+    """Liste les transitions de connexion, batterie et détection, dans cet ordre."""
+    alertes, retours = [], []
+    # La première observation d'une anomalie compte aussi comme une transition.
+    if not etat["online"] and (not ancien or ancien.get("online")):
+        alertes.append(_msg("camera_hors_ligne", nom=nom))
+    elif etat["online"] and ancien and not ancien.get("online"):
+        retours.append(_msg("camera_retour", nom=nom))
+
+    if etat["battery"] and etat["battery"] != "ok" and (
+            not ancien or ancien.get("battery") == "ok"):
+        alertes.append(_msg("camera_batterie", nom=nom, etat=etat["battery"]))
+
+    if not etat["armed"] and (not ancien or ancien.get("armed")):
+        alertes.append(_msg("camera_detection_coupee", nom=nom))
+    elif etat["armed"] and ancien and not ancien.get("armed"):
+        retours.append(_msg("camera_detection_reactivee", nom=nom))
+    return alertes, retours
+
+
+def _alertes_silence(previous: dict, current: dict, cameras: dict, timezone) -> list:
+    """Signale le franchissement du seuil de silence, seulement en ligne et armé."""
+    alertes = []
+    now = dt.datetime.now(timezone)
+    for name, iso in (current.get("last_clip") or {}).items():
+        etat = cameras.get(name) or {}
+        if not etat.get("online") or not etat.get("armed"):
+            continue
+        try:
+            jours = (now - dt.datetime.fromisoformat(iso)).days
+        except ValueError:
+            continue
+        # Sans date du passage précédent, une caméra déjà silencieuse doit
+        # alerter dès sa première observation.
+        deja = 0
+        previous_at = previous.get("at")
+        if previous_at:
+            try:
+                deja = (dt.datetime.fromisoformat(previous_at)
+                        - dt.datetime.fromisoformat(iso)).days
+            except ValueError:
+                pass
+        if jours >= SILENCE_DAYS > deja:
+            alertes.append(_msg("camera_silence", nom=name, jours=jours))
+    return alertes
+
+
+def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
+    """Compare deux observations sans répéter les anomalies déjà signalées.
+
+    Ordre des messages : modules, caméras, système, puis silence prolongé.
+    Les caméras en sourdine ne produisent ni alerte ni retour à la normale.
+    """
     alerts, recoveries = [], []
     avant = previous.get("cameras") or {}
     cameras = current.get("cameras") or {}
     ignores = normaliser_sourdines(ignores, cameras, avant)
-    # Une caméra explicitement mise en sourdine disparaît de la comparaison :
-    # c'est le cas d'un appareil qu'on laisse volontairement hors ligne, ou
-    # qu'on a démonté. Elle ne produit ni alerte ni retour à la normale.
-    maintenant = {nom: etat for nom, etat in cameras.items()
-                  if nom not in ignores}
+    maintenant = {nom: etat for nom, etat in cameras.items() if nom not in ignores}
 
     for module in current.get("modules") or []:
         etait = next((m for m in previous.get("modules") or []
@@ -313,71 +372,16 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
             recoveries.append(_msg("module_retour", nom=module["name"]))
 
     for name, etat in sorted(maintenant.items()):
-        if etat.get("name"):
-            ancien = next((e for e in avant.values() if e.get("name")
-                           and _identite_camera(e) == _identite_camera(etat)), {})
-            # Un état ancien indexé seulement par nom ne prouve rien pour
-            # les homonymes : ne pas reprendre son « ok » ou son alerte.
-            if not ancien and sum(e.get("name") == etat["name"]
-                                  for e in cameras.values()) == 1:
-                candidat = avant.get(etat["name"]) or {}
-                if not candidat.get("name"):
-                    ancien = candidat
-        else:
-            ancien = avant.get(name) or {}
-        if not etat["online"] and (not ancien or ancien.get("online")):
-            alerts.append(_msg("camera_hors_ligne", nom=name))
-        elif etat["online"] and ancien and not ancien.get("online"):
-            recoveries.append(_msg("camera_retour", nom=name))
-
-        # `not ancien` (premier passage, ou caméra jamais vue avant) compte
-        # comme un « ok » implicite ailleurs dans cette fonction (en ligne,
-        # armement) ; la batterie ne suivait pas la même règle (revue de
-        # code du 0eab463, bug #11) : une caméra déjà faible dès sa première
-        # observation ne déclenchait donc jamais rien, jusqu'à ce qu'elle
-        # remonte à « ok » puis redescende.
-        if etat["battery"] and etat["battery"] != "ok" and (
-                not ancien or ancien.get("battery") == "ok"):
-            alerts.append(_msg("camera_batterie", nom=name, etat=etat["battery"]))
-
-        # Même règle que online/battery ci-dessus (bug #11) : une caméra déjà
-        # désarmée dès sa première observation doit alerter, pas seulement
-        # une transition armé -> désarmé.
-        if not etat["armed"] and (not ancien or ancien.get("armed")):
-            alerts.append(_msg("camera_detection_coupee", nom=name))
-        elif etat["armed"] and ancien and not ancien.get("armed"):
-            recoveries.append(_msg("camera_detection_reactivee", nom=name))
+        ancien = _etat_camera_precedent(name, etat, avant, cameras)
+        alertes_camera, retours_camera = _comparer_camera(name, etat, ancien)
+        alerts.extend(alertes_camera)
+        recoveries.extend(retours_camera)
 
     if maintenant and not any(e["system_armed"] for e in maintenant.values()):
         if not avant or any(e.get("system_armed") for e in avant.values()):
             alerts.append(_msg("systeme_desarme"))
 
-    # Silence prolongé : seulement pour une caméra armée et en ligne, sinon on
-    # répéterait ce que les alertes précédentes ont déjà dit.
-    now = dt.datetime.now(timezone)
-    for name, iso in (current.get("last_clip") or {}).items():
-        etat = maintenant.get(name) or {}
-        if not etat.get("online") or not etat.get("armed"):
-            continue
-        try:
-            jours = (now - dt.datetime.fromisoformat(iso)).days
-        except ValueError:
-            continue
-        # deja reste à 0 (donc < SILENCE_DAYS, alerte possible) faute de
-        # passage précédent : un « at » absent par défaut sur now() masquait
-        # un premier passage déjà silencieux depuis longtemps (même bug #11
-        # que l'armement ci-dessus et la batterie).
-        deja = 0
-        previous_at = previous.get("at")
-        if previous_at:
-            try:
-                deja = (dt.datetime.fromisoformat(previous_at)
-                        - dt.datetime.fromisoformat(iso)).days
-            except ValueError:
-                pass
-        if jours >= SILENCE_DAYS > deja:
-            alerts.append(_msg("camera_silence", nom=name, jours=jours))
-
+    alerts.extend(_alertes_silence(previous, current, maintenant, timezone))
     return alerts, recoveries
 
 
@@ -405,29 +409,6 @@ def popup(title: str, body: str) -> None:
     ctypes.windll.user32.MessageBoxW(
         None, body, title, ICONE_AVERTISSEMENT | PREMIER_PLAN | AU_DESSUS
     )
-
-
-def ensure_server(port: int) -> bool:
-    """Démarre l'interface si elle ne tourne pas déjà.
-
-    On teste le port plutôt que de chercher un processus : c'est ce qui
-    détermine réellement si la page répond, et ça reste vrai quelle que soit la
-    façon dont le serveur a été lancé."""
-    import socket
-
-    with socket.socket() as sonde:
-        sonde.settimeout(0.5)
-        if sonde.connect_ex(("127.0.0.1", port)) == 0:
-            return False
-
-    runtime.demarrer(
-        runtime.self_command("serve", "--port", str(port)),
-        cwd=str(BASE_DIR), stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    journal(f"interface demarree sur le port {port}")
-    return True
 
 
 def journal(ligne: str) -> None:
@@ -497,13 +478,13 @@ def _controler(args, timezone) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="blink2video watch",
-        description="Surveille l'installation Blink et alerte par courriel."
+        description="Surveille l'installation Blink et signale les anomalies."
     )
     parser.add_argument("--timezone", default="Europe/Paris")
     runtime.ajouter_boucle(parser)
     parser.add_argument(
         "--dry-run", action="store_true",
-        help="afficher les alertes sans envoyer de courriel ni enregistrer l'état",
+        help="afficher les alertes sans enregistrer l'état observé",
     )
     parser.add_argument(
         "--test", action="store_true",
@@ -511,7 +492,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--port", type=runtime.port_valide, default=8765,
-        help="port de l'interface (défaut : 8765)",
+        help="option conservée pour compatibilité ; watch ne démarre plus l'interface",
     )
     parser.add_argument(
         "--ignore", metavar="CAMERA", nargs="+", default=[],

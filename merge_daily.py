@@ -1555,6 +1555,112 @@ def main() -> int:
     return runtime.repeter(travail, args.loop, journal)
 
 
+def _calculer_cibles_encodage(groups: dict, registry: dict, input_dir: Path,
+                             ffmpeg: str) -> dict:
+    """Calcule un format par caméra sur tous ses clips, indépendamment des filtres."""
+    targets = {}
+    for camera in sorted({key[0] for key in groups}):
+        infos = [
+            clip_info(ffmpeg, registry, clip_identity(input_dir, source), created, source)
+            for key, clips in groups.items()
+            if key[0] == camera
+            for created, source in clips
+        ]
+        targets[camera] = camera_target(registry, camera, infos)
+    return targets
+
+
+def _planifier_normalisation(args, groups: dict, selected: dict, targets: dict,
+                            registry: dict, *, ffmpeg: str, timezone: ZoneInfo,
+                            input_dir: Path, normalized_dir: Path,
+                            font_path: Path | None) -> tuple:
+    """Liste les journées à traiter, les segments à garder et les clips à encoder."""
+    plan: dict = {}
+    used_segments: set = set()
+    pending: set = set()
+    for (camera, day), clips in sorted(groups.items(), key=lambda item: item[0]):
+        target = targets[camera]
+        entries = []
+        for created, source in clips:
+            identity = clip_identity(input_dir, source)
+            info = clip_info(ffmpeg, registry, identity, created, source)
+            key = render_key(
+                identity, info, target, wall_clock_epoch(created, timezone),
+                font_path, args.preset, args.crf,
+            )
+            # Déclaré même hors sélection, pour échapper au nettoyage.
+            used_segments.add(normalized_dir / identity)
+            if (camera, day) not in selected:
+                continue
+            entries.append((identity, info, key))
+            known = (registry["clips"].get(identity) or {}).get("key")
+            if args.force or known != key or not valid_mp4(normalized_dir / identity):
+                pending.add(identity)
+        if (camera, day) in selected:
+            plan[(camera, day)] = (target, entries)
+    return plan, used_segments, pending
+
+
+def _normaliser_plan(args, plan: dict, pending: set, registry: dict,
+                    registry_path: Path, *, ffmpeg: str, timezone: ZoneInfo,
+                    normalized_dir: Path, font_path: Path | None) -> tuple:
+    """Encode le plan et rend les journées préparées ainsi que le nombre d'échecs."""
+    normalized: dict = {}
+    encoded = reused = failed = 0
+    position, total = 0, len(pending)
+    if total:
+        print(f"Normalisation : {total} clip(s) à encoder")
+    for (camera, day), (target, entries) in sorted(plan.items(), key=lambda i: i[0]):
+        keys, segments = [], []
+        journee_incomplete = False
+        for identity, info, key in entries:
+            report = None
+            if identity in pending:
+                position += 1
+                print(f"  [{position}/{total}] {identity}", flush=True)
+                report = progress_printer(f"[{position}/{total}]")
+                runtime.travail("Préparation des clips", position - 1, total,
+                                cle="phase.prepare_clips")
+            ok, error, did_encode = normalize_clip(
+                ffmpeg, timezone, registry, normalized_dir, identity, info,
+                target, key, font_path, args.preset, args.crf, args.force,
+                report,
+            )
+            if not ok:
+                print(f"    Échec : {error}")
+                failed += 1
+                # Une journée dont un seul clip échoue à normaliser ne doit
+                # pas voir sa liste de segments amputée servir quand même à
+                # l'assemblage (étape 3) : ça remplacerait une journalière
+                # complète par une version partielle, silencieusement plus
+                # courte. journee_incomplete bloque cet assemblage.
+                journee_incomplete = True
+                continue
+            encoded += did_encode
+            reused += not did_encode
+            keys.append(key)
+            segments.append(normalized_dir / identity)
+            if did_encode:
+                # Sauvegarde par clip fraîchement encodé, pas seulement en
+                # fin de journée : un arrêt en cours de route (redémarrage,
+                # plantage) ne doit perdre que le clip en train d'être
+                # encodé, pas tout le progrès déjà acquis sur les
+                # précédents du même jour. Sans ça, une journée de
+                # plusieurs dizaines de clips recommençait entièrement à
+                # chaque interruption, même après avoir déjà correctement
+                # encodé la plupart d'entre eux - vécu en réel : plusieurs
+                # redémarrages consécutifs sur une même journée d'environ
+                # trente clips, qui relançait ffmpeg sur la totalité à
+                # chaque fois.
+                save_json(registry_path, registry)
+
+        normalized[(camera, day)] = (keys, segments, journee_incomplete)
+        save_json(registry_path, registry)
+
+    print(f"Normalisation : {encoded} clip(s) encodé(s), {reused} réutilisé(s).")
+    return normalized, failed
+
+
 def _executer(args) -> int:
     input_dir = args.input.resolve()
     output_dir = args.output.resolve()
@@ -1618,15 +1724,7 @@ def _executer(args) -> int:
     # d'une caméra, y compris ceux qu'un filtre --date ou --camera exclut de la
     # construction, sinon la cible dépendrait du filtre employé.
     try:
-        targets = {}
-        for camera in sorted({key[0] for key in groups}):
-            infos = [
-                clip_info(ffmpeg, registry, clip_identity(input_dir, source), created, source)
-                for key, clips in groups.items()
-                if key[0] == camera
-                for created, source in clips
-            ]
-            targets[camera] = camera_target(registry, camera, infos)
+        targets = _calculer_cibles_encodage(groups, registry, input_dir, ffmpeg)
     except RuntimeError as error:
         print(f"Erreur : {error}")
         return 1
@@ -1636,85 +1734,18 @@ def _executer(args) -> int:
     # d'encoder quoi que ce soit, pour pouvoir annoncer « [3/24] » : un
     # compteur sans total connu n'apprend rien sur le temps restant, et c'est
     # ce total qui alimente la barre de progression de serve.py.
-    plan: dict = {}
-    used_segments: set = set()
-    pending: set = set()
-    for (camera, day), clips in sorted(groups.items(), key=lambda item: item[0]):
-        target = targets[camera]
-        entries = []
-        for created, source in clips:
-            identity = clip_identity(input_dir, source)
-            info = clip_info(ffmpeg, registry, identity, created, source)
-            key = render_key(
-                identity, info, target, wall_clock_epoch(created, timezone),
-                font_path, args.preset, args.crf,
-            )
-            # Déclaré même hors sélection, pour échapper au nettoyage.
-            used_segments.add(normalized_dir / identity)
-            if (camera, day) not in selected:
-                continue
-            entries.append((identity, info, key))
-            known = (registry["clips"].get(identity) or {}).get("key")
-            if args.force or known != key or not valid_mp4(normalized_dir / identity):
-                pending.add(identity)
-        if (camera, day) in selected:
-            plan[(camera, day)] = (target, entries)
+    plan, used_segments, pending = _planifier_normalisation(
+        args, groups, selected, targets, registry, ffmpeg=ffmpeg,
+        timezone=timezone, input_dir=input_dir, normalized_dir=normalized_dir,
+        font_path=font_path,
+    )
     save_json(registry_path, registry)
 
     # Étape 2 bis : encodage des seuls segments manquants ou périmés.
-    normalized: dict = {}
-    encoded = reused = failed = 0
-    position, total = 0, len(pending)
-    if total:
-        print(f"Normalisation : {total} clip(s) à encoder")
-    for (camera, day), (target, entries) in sorted(plan.items(), key=lambda i: i[0]):
-        keys, segments = [], []
-        journee_incomplete = False
-        for identity, info, key in entries:
-            report = None
-            if identity in pending:
-                position += 1
-                print(f"  [{position}/{total}] {identity}", flush=True)
-                report = progress_printer(f"[{position}/{total}]")
-                runtime.travail("Préparation des clips", position - 1, total,
-                                cle="phase.prepare_clips")
-            ok, error, did_encode = normalize_clip(
-                ffmpeg, timezone, registry, normalized_dir, identity, info,
-                target, key, font_path, args.preset, args.crf, args.force,
-                report,
-            )
-            if not ok:
-                print(f"    Échec : {error}")
-                failed += 1
-                # Une journée dont un seul clip échoue à normaliser ne doit
-                # pas voir sa liste de segments amputée servir quand même à
-                # l'assemblage (étape 3) : ça remplacerait une journalière
-                # complète par une version partielle, silencieusement plus
-                # courte. journee_incomplete bloque cet assemblage.
-                journee_incomplete = True
-                continue
-            encoded += did_encode
-            reused += not did_encode
-            keys.append(key)
-            segments.append(normalized_dir / identity)
-            if did_encode:
-                # Sauvegarde par clip fraîchement encodé, pas seulement en
-                # fin de journée : un arrêt en cours de route (redémarrage,
-                # plantage) ne doit perdre que le clip en train d'être
-                # encodé, pas tout le progrès déjà acquis sur les
-                # précédents du même jour. Sans ça, une journée de
-                # plusieurs dizaines de clips recommençait entièrement à
-                # chaque interruption, même après avoir déjà correctement
-                # encodé la plupart d'entre eux - vécu en réel : plusieurs
-                # redémarrages consécutifs sur une même journée d'environ
-                # trente clips, qui relançait ffmpeg sur la totalité à
-                # chaque fois.
-                save_json(registry_path, registry)
-
-        normalized[(camera, day)] = (keys, segments, journee_incomplete)
-        save_json(registry_path, registry)
-
-    print(f"Normalisation : {encoded} clip(s) encodé(s), {reused} réutilisé(s).")
+    normalized, failed = _normaliser_plan(
+        args, plan, pending, registry, registry_path, ffmpeg=ffmpeg,
+        timezone=timezone, normalized_dir=normalized_dir, font_path=font_path,
+    )
 
     # Étape 3 : assemblage des journalières, par simple copie de flux.
     built = skipped = 0

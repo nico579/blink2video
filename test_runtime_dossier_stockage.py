@@ -169,6 +169,70 @@ class TestsDossierStockage(unittest.TestCase):
         runtime.ecrire_dossier_stockage(str(self.ancre / "ailleurs"))
         self.assertEqual(list(self.ancre.glob(".*blink_home*.tmp")), [])
 
+    def test_preferences_absentes_remplacent_les_anciens_choix_de_destination(self):
+        cible = self.ancre / "ailleurs"
+        cible.mkdir()
+        (cible / runtime.LANGUE).write_text("en", encoding="utf-8")
+        (cible / runtime.SUPPRESSION_AUTO).write_text('["ancienne-camera"]', encoding="utf-8")
+        runtime.ecrire_dossier_stockage(str(cible))
+        self.assertEqual((cible / runtime.LANGUE).read_text(encoding="utf-8"), "fr")
+        self.assertEqual((cible / runtime.SUPPRESSION_AUTO).read_text(encoding="utf-8"), "[]")
+        self.assertEqual(list(cible.glob(".*.tmp")), [])
+
+    def test_copie_conserve_octets_des_preferences_et_ne_deplace_pas_les_clips(self):
+        contenus = {
+            runtime.REGLAGES: b'{ "port": 9999 }\r\n',
+            "blink_auth.json": b'{ "session": "fictive" }\r\n',
+            runtime.LANGUE: b'en\r\n',
+            runtime.SUPPRESSION_AUTO: b'["camera-1"]\r\n',
+        }
+        for nom, contenu in contenus.items():
+            (self.ancre / nom).write_bytes(contenu)
+        clip = self.ancre / "Blink_Clips" / "camera" / "test.mp4"
+        clip.parent.mkdir(parents=True)
+        clip.write_bytes(b"clip synthetique")
+        cible = self.ancre / "ailleurs"
+        runtime.ecrire_dossier_stockage(str(cible))
+        for nom, contenu in contenus.items():
+            self.assertEqual((cible / nom).read_bytes(), contenu)
+            self.assertEqual((self.ancre / nom).read_bytes(), contenu)
+        self.assertEqual(clip.read_bytes(), b"clip synthetique")
+        self.assertFalse((cible / "Blink_Clips").exists())
+        self.assertEqual(list(cible.glob(".*.tmp")), [])
+
+    def test_copie_partielle_refusee_nettoie_son_temporaire_sans_publier(self):
+        (self.ancre / "blink_auth.json").write_bytes(b"session source fictive")
+        cible = self.ancre / "ailleurs"
+        cible.mkdir()
+        (cible / "blink_auth.json").write_bytes(b"ancienne session fictive")
+
+        def copier_partiellement(source, temporaire):
+            Path(temporaire).write_bytes(b"copie interrompue")
+            raise OSError("copie interrompue")
+
+        with mock.patch.object(runtime.shutil, "copy2", side_effect=copier_partiellement):
+            with self.assertRaisesRegex(OSError, "copie interrompue"):
+                runtime.ecrire_dossier_stockage(str(cible))
+        self.assertEqual((cible / "blink_auth.json").read_bytes(), b"ancienne session fictive")
+        self.assertEqual((self.ancre / "blink_auth.json").read_bytes(), b"session source fictive")
+        self.assertEqual(list(cible.glob(".*.tmp")), [])
+        self.assertFalse((self.ancre / runtime.POINTEUR_STOCKAGE).exists())
+
+    def test_echec_marqueur_restaure_les_octets_exacts_du_pointeur(self):
+        ancien = self.ancre / "ancien"
+        ancien.mkdir()
+        pointeur = self.ancre / runtime.POINTEUR_STOCKAGE
+        contenu = (" \t" + str(ancien) + "\r\n").encode("utf-8")
+        pointeur.write_bytes(contenu)
+        cible = self.ancre / "nouveau"
+        with mock.patch.object(runtime, "marquer_configuration_initiale",
+                               side_effect=OSError("marqueur refusé")):
+            with self.assertRaisesRegex(OSError, "marqueur refusé"):
+                runtime.ecrire_dossier_stockage(str(cible), configuration_initiale=True)
+        self.assertEqual(pointeur.read_bytes(), contenu)
+        self.assertEqual(runtime.app_dir(), ancien.resolve())
+        self.assertEqual(list(self.ancre.glob(".*blink_home*.tmp")), [])
+
     def test_installation_neuve_reste_en_attente_jusqu_a_validation(self):
         self.assertTrue(runtime.configuration_initiale_requise())
         attente = self.ancre / runtime.MARQUEUR_CONFIGURATION_EN_ATTENTE

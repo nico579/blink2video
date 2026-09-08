@@ -343,15 +343,16 @@ def main() -> int:
         preflight()
 
     changed = compute_diff(args.dry_run)
+    # Une simulation ne doit pas non plus publier de tag sur un dépôt propre.
+    if args.dry_run:
+        cprint("\n==> --dry-run : pas de commit ni de push.", "yellow")
+        return 0
+
     if not changed:
         if args.new_tag:
             cprint(f"\n==> Aucun changement à pousser ; tag {args.new_tag} sur le HEAD courant.", "cyan")
             _publier_tag(args.new_tag, sha_initial)
             watch_release(args.new_tag, sha_initial)
-        return 0
-
-    if args.dry_run:
-        cprint("\n==> --dry-run : pas de commit ni de push.", "yellow")
         return 0
 
     sha_publie = commit_and_push(args.message, args.new_tag)
