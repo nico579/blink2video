@@ -7,6 +7,7 @@ import datetime as dt
 import io
 import json
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -180,7 +181,7 @@ class TestsPlanNormalisation(unittest.TestCase):
             connus={"a.mp4": {"key": "rendu/a.mp4"}},
         )
 
-        resultat.valid_mp4.assert_called_once_with(self.args.normalized_output / "a.mp4")
+        resultat.valid_mp4.assert_called_once_with(self.args.normalized_output.resolve() / "a.mp4")
         resultat.normalize_clip.assert_called_once()
         self.assertIsNone(resultat.normalize_clip.call_args.args[-1])
         resultat.progress_printer.assert_not_called()
@@ -192,7 +193,7 @@ class TestsPlanNormalisation(unittest.TestCase):
             connus={"a.mp4": {"key": "rendu/a.mp4"}}, invalides={"a.mp4"},
         )
 
-        resultat.valid_mp4.assert_called_once_with(self.args.normalized_output / "a.mp4")
+        resultat.valid_mp4.assert_called_once_with(self.args.normalized_output.resolve() / "a.mp4")
         resultat.progress_printer.assert_called_once_with("[1/1]")
         self.assertIn("1 clip(s) encodé(s), 0 réutilisé(s)", resultat.sortie)
 
@@ -219,7 +220,34 @@ class TestsPlanNormalisation(unittest.TestCase):
 
         resultat.prune_normalized.assert_called_once()
         self.assertEqual(resultat.prune_normalized.call_args.args[2],
-                         {self.args.normalized_output / nom for nom in ("a.mp4", "b.mp4", "c.mp4")})
+                         {self.args.normalized_output.resolve() / nom
+                          for nom in ("a.mp4", "b.mp4", "c.mp4")})
+
+    def test_un_alias_de_stockage_utilise_le_chemin_resolu_a_toutes_les_etapes(self):
+        dossier_reel = self.args.normalized_output.resolve()
+        alias = dossier_reel.with_name("alias-normalized")
+        self.args.normalized_output = alias
+        resoudre = Path.resolve
+
+        def resoudre_alias(chemin, *args, **kwargs):
+            # Simule un nom court Windows ou /var -> /private/var sur macOS,
+            # sans créer de lien symbolique ni demander de privilèges.
+            return dossier_reel if chemin == alias else resoudre(chemin, *args, **kwargs)
+
+        with mock.patch.object(Path, "resolve", autospec=True, side_effect=resoudre_alias):
+            resultat = self._executer(
+                {("Salon", "2026-09-08"): [self._clip("a.mp4")]},
+                connus={"a.mp4": {"key": "rendu/a.mp4"}},
+                identites_indisponibles={"b.mp4"},
+            )
+
+        self.assertEqual(resultat.code, 0)
+        resultat.valid_mp4.assert_called_once_with(dossier_reel / "a.mp4")
+        self.assertEqual(resultat.normalize_clip.call_args.args[3], dossier_reel)
+        self.assertEqual(resultat.merge_group.call_args.args[1], [dossier_reel / "a.mp4"])
+        self.assertEqual(resultat.prune_normalized.call_args.args[0], dossier_reel)
+        self.assertEqual(resultat.prune_normalized.call_args.args[2],
+                         {dossier_reel / "a.mp4", dossier_reel / "b.mp4"})
 
     def test_un_identifiant_repete_ne_gonfle_pas_le_total_annonce(self):
         resultat = self._executer({
