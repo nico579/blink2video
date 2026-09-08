@@ -387,6 +387,28 @@ ASSEMBLED_DURATIONS = "assembled_durations.json"
 DIRECT_EXCLUSION = "direct_exclusion.json"
 
 
+def _identite_selection_valide(identity: str) -> bool:
+    # fullmatch interdit notamment une fin de ligne après l'extension.
+    # Les suffixes espaces/points sont normalisés par Windows : les refuser
+    # empêche aussi les variantes « .. » après normalisation native.
+    return bool(IDENTITY.fullmatch(identity)) and all(
+        morceau not in (".", "..") and morceau.rstrip(" .") == morceau
+        for morceau in identity.split("/"))
+
+
+def _chemin_direct_confine(racine: Path, identity: str) -> Path:
+    if not _identite_selection_valide(identity):
+        raise ValueError("Identité de vidéo invalide")
+    try:
+        racine = racine.resolve()
+        chemin = (racine / identity).resolve()
+    except (OSError, RuntimeError) as erreur:
+        raise ValueError("Chemin de vidéo inaccessible") from erreur
+    if not runtime.est_relatif_a(chemin, racine):
+        raise ValueError("Vidéo hors du dossier des directs")
+    return chemin
+
+
 def _lire_exclusion_directe(paths: dict) -> set:
     # {"excluded": [...]}, pas une liste nue : md.load_json/save_json (déjà
     # utilisés pour CAMERA_FACTS, ASSEMBLED_DURATIONS...) exigent un objet
@@ -2805,9 +2827,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # donc impossible à mettre en sourdine depuis cette page (cas
             # vécu : « Portail »).
             etat = md.load_json(watch.WATCH_STATE, {})
-            cameras = sorted(set(provenances(read_entries(self.paths)))
-                              | set(etat.get("cameras") or {}))
-            self.send_json({"cameras": cameras, "ignored": sorted(etat.get("ignored") or [])})
+            surveillees = etat.get("cameras") or {}
+            noms_connus = {str(e.get("name") or nom).strip().casefold()
+                           for nom, e in surveillees.items()}
+            historiques = {nom for nom in provenances(read_entries(self.paths))
+                           if nom.strip().casefold() not in noms_connus}
+            cameras = sorted(historiques | set(surveillees))
+            self.send_json({"cameras": cameras, "ignored": sorted(
+                watch.normaliser_sourdines(etat.get("ignored") or [], surveillees))})
             return
 
         if route == "/api/suppression-auto":
@@ -2821,15 +2848,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # résolution nom -> clé(s) (camera-v2-*, suppression_auto_choices
             # ci-dessus) reste un détail interne, jamais exposé ici.
             etat = md.load_json(watch.WATCH_STATE, {})
-            noms = sorted((etat.get("cameras") or {}).keys(), key=str.casefold)
-            choix_internes = suppression_auto_choices(read_entries(self.paths))
+            surveillees = etat.get("cameras") or {}
+            noms = sorted(surveillees, key=str.casefold)
+            entrees = read_entries(self.paths)
             actives_keys = suppression_auto_keys()
             cameras = []
             actives = []
             for nom in noms:
-                cible = nom.strip().casefold()
-                cles = [c["key"] for c in choix_internes
-                       if c["name"].strip().casefold() == cible]
+                cles = [c["key"] for c in suppression_auto_choices(
+                    watch.camera_entries(nom, surveillees, entrees))]
                 cameras.append({"name": nom})
                 if any(cle in actives_keys for cle in cles):
                     actives.append(nom)
@@ -3267,12 +3294,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # suppression USB ne paie qu'une fois par Sync Module concerné le
             # délai de régénération du manifeste (jusqu'à une minute, voir
             # AUDIT 28.73/28.75), pas une fois par clip.
-            exclure = [str(x) for x in (payload.get("exclure") or [])
-                       if IDENTITY.match(str(x))]
-            inclure = [str(x) for x in (payload.get("inclure") or [])
-                       if IDENTITY.match(str(x))]
-            supprimer = [str(x) for x in (payload.get("supprimer") or [])
-                         if IDENTITY.match(str(x))]
+            selections = [payload.get(champ) or [] for champ in ("exclure", "inclure", "supprimer")]
+            if any(not isinstance(liste, list) or any(
+                    not isinstance(i, str) or not _identite_selection_valide(i) for i in liste)
+                   for liste in selections):
+                self.send_json({"error": "Sélection de vidéos invalide."}, 400)
+                return
+            exclure, inclure, supprimer = selections
 
             # Un enregistrement du direct (Blink_Direct) n'a pas d'entrée
             # dans le registre de téléchargement : repéré ici par sa
@@ -3281,9 +3309,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # (registre, suppression distante Blink...) ne le voie jamais -
             # sa propre logique, bien plus simple, vit plus bas.
             racine_direct = self.paths.get("direct")
+            directs = {}
+            try:
+                if racine_direct:
+                    for identity in exclure + inclure + supprimer:
+                        chemin = _chemin_direct_confine(racine_direct, identity)
+                        if chemin.is_file():
+                            directs[identity] = chemin
+            except (ValueError, OSError) as erreur:
+                self.send_json({"error": str(erreur)}, 400)
+                return
 
             def _est_direct(identity: str) -> bool:
-                return bool(racine_direct) and (racine_direct / identity).is_file()
+                return identity in directs
 
             exclure, exclure_direct = (
                 [i for i in exclure if not _est_direct(i)],
@@ -3508,20 +3546,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 exclusion_directe |= set(exclure_direct)
                 exclusion_directe -= set(inclure_direct)
                 for identity in supprimer_direct:
-                    chemin = racine_direct / identity
                     try:
+                        chemin = _chemin_direct_confine(racine_direct, identity)
+                        if chemin != directs[identity]:
+                            raise ValueError("Chemin de vidéo modifié pendant la sélection")
                         chemin.unlink()
                         resultats[identity] = "supprime"
                         exclusion_directe.discard(identity)
                     except FileNotFoundError:
                         resultats[identity] = "deja_absent"
-                    except OSError as error:
+                    except (OSError, ValueError) as error:
                         resultats[identity] = f"echec: {type(error).__name__}"
                         continue
                     # Dossiers mois puis caméra devenus vides : nettoyage
                     # cosmétique seulement, jamais si non vide (rmdir échoue
                     # alors, ce qui arrête la remontée ici).
                     for dossier in (chemin.parent, chemin.parent.parent):
+                        if (dossier == racine_direct.resolve()
+                                or not runtime.est_relatif_a(dossier, racine_direct.resolve())):
+                            break
                         try:
                             dossier.rmdir()
                         except OSError:
@@ -3591,16 +3634,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     {"error": f"Protocole de direct inconnu : « {live_protocol} »."}, 400)
                 return
             try:
-                # Le changement de racine prépare et copie d'abord session et
-                # réglages, puis publie atomiquement son pointeur. Les nouvelles
-                # valeurs sont écrites ensuite dans cette racine devenue active.
+                # Préparer session, préférences et nouveaux réglages dans la
+                # destination avant de publier le pointeur. Une écriture
+                # refusée ne doit jamais partager l'application entre deux racines.
                 with runtime.verrou_configuration():
-                    runtime.ecrire_dossier_stockage(storage_dir)
-                    runtime.ecrire_reglages(
-                        usb_minutes, cloud_minutes, port, timestamp, timezone_str,
-                        merge_jour, merge_semaine, merge_mois, download_auto, live_protocol)
-                    if self.initial_setup:
-                        runtime.marquer_configuration_initiale()
+                    runtime.ecrire_dossier_stockage(
+                        storage_dir, reglages={
+                            "usb_minutes": usb_minutes, "cloud_minutes": cloud_minutes,
+                            "port": port, "timestamp": timestamp, "timezone": timezone_str,
+                            "merge_jour": merge_jour, "merge_semaine": merge_semaine,
+                            "merge_mois": merge_mois, "download_auto": download_auto,
+                            "live_protocol": live_protocol,
+                        }, configuration_initiale=self.initial_setup)
             except runtime.BusyError as erreur:
                 self.send_json(
                     {"error": f"Une modification des réglages est déjà en cours : {erreur}"},
@@ -3659,14 +3704,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # bascule de stockage : replace seul perd les clics concurrents.
                 with runtime.verrou_configuration("suppression-auto", attente=5):
                     etat = md.load_json(watch.WATCH_STATE, {})
-                    noms_actuels = {nom.strip().casefold() for nom in (etat.get("cameras") or {})}
-                    if not camera or camera.casefold() not in noms_actuels:
+                    surveillees = etat.get("cameras") or {}
+                    libelle = next((nom for nom in surveillees
+                                    if nom.strip().casefold() == camera.casefold()), None)
+                    if not camera or libelle is None:
                         self.send_json({"error": "Caméra inconnue."}, 400)
                         return
                     # Le nom affiché résout les identités internes persistées.
                     cles = {
-                        choice["key"] for choice in suppression_auto_choices(read_entries(self.paths))
-                        if choice["name"].strip().casefold() == camera.casefold()
+                        choice["key"] for choice in suppression_auto_choices(
+                            watch.camera_entries(libelle, surveillees, read_entries(self.paths)))
                     }
                     cameras = suppression_auto_keys()
                     if actif:

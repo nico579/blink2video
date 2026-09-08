@@ -146,15 +146,13 @@ class TestAppliquerSelectionNAttendPasLeVerrouRegistre(unittest.TestCase):
         self.assertTrue((self.paths["excluded"] / self.identity).is_file(),
                          "le brut aurait dû être déplacé vers Blink_Excluded")
 
-    def test_identifiant_invalide_est_filtre_sans_verrou(self):
-        # Un identifiant hors-forme (tentative de traversée de chemin) ne
-        # doit jamais atteindre set_excluded : /api/appliquer-selection le
-        # retire silencieusement de la liste plutôt que de rejeter tout le
-        # lot, un client légitime (les cases de la page) ne pouvant de toute
-        # façon pas en produire un.
+    def test_identifiant_invalide_est_refuse_sans_verrou(self):
+        # Un lot malformé est rejeté avant toute mutation, pas partiellement
+        # appliqué avec un faux succès.
         handler = self.construire_handler()
         reponses = self.appeler(handler, {"exclure": ["../../etc/passwd"]})
-        self.assertEqual(reponses, [(200, {"ok": True, "resultats": {}})])
+        self.assertEqual(reponses[0][0], 400)
+        self.assertIn("error", reponses[0][1])
         etat_fichier = self.paths["input"] / ".blink_download_state.json"
         etat = json.loads(etat_fichier.read_text(encoding="utf-8"))
         self.assertNotIn("excluded", etat["clips"]["cle-1"],

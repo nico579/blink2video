@@ -36,7 +36,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.12.9"
+VERSION = "0.12.10"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -157,7 +157,8 @@ def lire_reglages() -> dict:
 
 def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool,
                     timezone: str, merge_jour: bool, merge_semaine: bool,
-                    merge_mois: bool, download_auto: bool, live_protocol: str) -> None:
+                    merge_mois: bool, download_auto: bool, live_protocol: str, *,
+                    dossier: Path | None = None) -> None:
     # Écriture atomique (temporaire propre à ce processus, puis replace) :
     # même précaution que blink_auth.save_session (I-02) - un plantage en
     # cours d'écriture ne doit jamais laisser un JSON à moitié écrit, que
@@ -165,7 +166,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
     # entièrement par les défauts (revue de code du 0eab463, bug #10).
     import uuid
 
-    cible = app_dir() / REGLAGES
+    cible = (app_dir() if dossier is None else dossier) / REGLAGES
     temporaire = cible.with_name(f"{cible.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     try:
         temporaire.write_text(
@@ -566,7 +567,8 @@ def lire_dossier_stockage() -> str:
     return str(app_dir())
 
 
-def ecrire_dossier_stockage(chemin: str) -> None:
+def ecrire_dossier_stockage(chemin: str, *, reglages: dict | None = None,
+                            configuration_initiale: bool = False) -> None:
     """Enregistre le nouveau dossier, ou efface le réglage si `chemin` est
     vide (retour à l'emplacement par défaut).
 
@@ -579,10 +581,11 @@ def ecrire_dossier_stockage(chemin: str) -> None:
     Les réglages et la session, eux, sont copiés vers le nouvel
     emplacement : ce n'est pas de la donnée gérée par l'application mais
     son état courant, et le nouveau app_dir() démarrerait sinon vide -
-    déconnecté, réglages revenus aux défauts, y compris ceux tout juste
-    enregistrés dans le même appel (ecrire_reglages() écrit dans l'ancien
-    emplacement, juste avant celui-ci - revue du 27/08, "je perds mon
-    authentification" en changeant de dossier). Une copie, jamais un
+    déconnecté, réglages revenus aux défauts (revue du 27/08, "je perds mon
+    authentification" en changeant de dossier). Les nouveaux `reglages`,
+    s'ils sont fournis, sont écrits dans la destination préparée avant de
+    publier son pointeur : leur échec laisse l'ancienne racine active.
+    Une copie, jamais un
     déplacement : l'ancien emplacement reste utilisable si ce changement
     est annulé ensuite."""
     import uuid
@@ -592,6 +595,16 @@ def ecrire_dossier_stockage(chemin: str) -> None:
     pointeur = ancre / POINTEUR_STOCKAGE
     chemin = chemin.strip()
     destination = (Path(chemin).expanduser().resolve() if chemin else ancre)
+
+    # Le marqueur initial doit suivre le pointeur : le parent start le
+    # surveille pour lancer les workers. Garder le pointeur exact permet de
+    # revenir à la racine précédente si cette dernière écriture échoue.
+    ancien_pointeur = None
+    if configuration_initiale:
+        try:
+            ancien_pointeur = pointeur.read_bytes()
+        except FileNotFoundError:
+            pass
 
     # BLINK_HOME a priorité sur le pointeur. On mémorise tout de même le choix
     # demandé pour le jour où cette variable ne sera plus fournie, mais il ne
@@ -626,22 +639,36 @@ def ecrire_dossier_stockage(chemin: str) -> None:
             finally:
                 temporaire_copie.unlink(missing_ok=True)
 
-    if not chemin:
-        # La suppression elle-même est le commit du retour à l'ancre : les
-        # fichiers nécessaires y ont déjà été copiés juste au-dessus.
-        pointeur.unlink(missing_ok=True)
-        return
+    if reglages is not None:
+        ecrire_reglages(**reglages, dossier=nouveau)
 
     # Écriture atomique du pointeur : un arrêt brutal ne peut plus laisser un
     # blink_home.txt vide ou tronqué que le prochain démarrage interpréterait
     # comme un retour silencieux à l'ancien stockage.
-    temporaire_pointeur = pointeur.with_name(
-        f".{pointeur.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    try:
-        temporaire_pointeur.write_text(str(destination), encoding="utf-8")
-        temporaire_pointeur.replace(pointeur)
-    finally:
-        temporaire_pointeur.unlink(missing_ok=True)
+    def publier(contenu: bytes | None) -> None:
+        if contenu is None:
+            pointeur.unlink(missing_ok=True)
+            return
+        temporaire_pointeur = pointeur.with_name(
+            f".{pointeur.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+        try:
+            temporaire_pointeur.write_bytes(contenu)
+            temporaire_pointeur.replace(pointeur)
+        finally:
+            temporaire_pointeur.unlink(missing_ok=True)
+
+    publier(str(destination).encode("utf-8") if chemin else None)
+    if configuration_initiale:
+        try:
+            marquer_configuration_initiale()
+        except OSError as erreur:
+            try:
+                publier(ancien_pointeur)
+            except OSError as restauration:
+                raise OSError(
+                    "Échec du marqueur initial et de la restauration du stockage : "
+                    f"{restauration}") from erreur
+            raise
 
 
 def resource_dir() -> Path:

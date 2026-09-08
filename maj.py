@@ -20,6 +20,7 @@ n'est touché tant que la nouvelle version n'a pas prouvé qu'elle démarre.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -655,6 +656,38 @@ def _verifier(dossier: Path, attendue: str) -> bool:
 # du dossier (clips, vidéos, registres, session Blink) appartient à
 # l'utilisateur et n'est jamais touché.
 CONTENU_DU_PROGRAMME = ("blink2video.exe", "blink2video", "_internal")
+MARQUEUR_PERMUTATION = ".blink_maj_permutation.json"
+
+
+class RestaurationIncomplete(RuntimeError):
+    """La sauvegarde doit rester intacte jusqu'à une réparation explicite."""
+
+
+@contextlib.contextmanager
+def _reservation_installation(installe: Path):
+    """Sérialise nettoyage et permutation, indépendamment du stockage.
+
+    Le verrou empêche un nettoyage concurrent de franchir le contrôle du
+    marqueur avant sa création. Le marqueur, lui, survit à un arrêt brutal.
+    """
+    with contextlib.ExitStack() as reservations:
+        try:
+            reservations.enter_context(runtime.verrou(
+                "maj-installation", "mise à jour", attente=0, racine=installe))
+        except (runtime.BusyError, OSError) as erreur:
+            raise RestaurationIncomplete(
+                "Installation non réservée ; aucun remplacement ni nettoyage "
+                f"autorisé ({erreur}).") from erreur
+        # Les erreurs du corps ne sont pas des échecs d'acquisition : les
+        # laisser suivre leur propre retour arrière, sans les requalifier.
+        yield
+
+
+def _effacer_element_programme(chemin: Path) -> None:
+    if chemin.is_dir() and not chemin.is_symlink():
+        shutil.rmtree(chemin)
+    else:
+        chemin.unlink(missing_ok=True)
 
 
 def _poser(source: Path, cible: Path) -> None:
@@ -680,31 +713,66 @@ def _permuter(neuf: Path, installe: Path) -> bool:
     Les anciens sont écartés avant d'être supprimés : si une copie échoue à
     mi-chemin, on sait revenir en arrière, ce qu'un effacement préalable
     rendrait impossible."""
-    ecartes = []
+    with _reservation_installation(installe):
+        return _permuter_reserve(neuf, installe)
+
+
+def _permuter_reserve(neuf: Path, installe: Path) -> bool:
+    marqueur = installe / MARQUEUR_PERMUTATION
+    try:
+        # Création exclusive AVANT la première mutation : un arrêt brutal
+        # laisse aussi le garde-fou empêchant de purger la seule sauvegarde.
+        with marqueur.open("x", encoding="utf-8") as fichier:
+            json.dump({"elements": list(CONTENU_DU_PROGRAMME)}, fichier)
+    except FileExistsError as erreur:
+        raise RestaurationIncomplete(
+            f"Une permutation non finalisée subsiste : {marqueur}. "
+            "Sauvegardes .ancien conservées ; réparation nécessaire.") from erreur
+    except OSError as erreur:
+        if marqueur.exists():
+            raise RestaurationIncomplete(
+                f"Préparation de permutation interrompue : {marqueur}. "
+                "Aucun remplacement autorisé avant vérification.") from erreur
+        print(f"Permutation non démarrée : {erreur}", flush=True)
+        return False
+
+    touches = []
     try:
         for nom in CONTENU_DU_PROGRAMME:
             source = neuf / nom
             if not source.exists():
                 continue
             ancien = installe / nom
+            retire = None
             if ancien.exists():
                 retire = installe / f"{nom}.ancien"
-                shutil.rmtree(retire, ignore_errors=True) if retire.is_dir() \
-                    else retire.unlink(missing_ok=True)
+                _effacer_element_programme(retire)
                 os.replace(ancien, retire)
-                ecartes.append((retire, ancien))
+            touches.append((retire, ancien))
             _poser(source, installe / nom)
+        marqueur.unlink()
         return True
     except OSError as erreur:
         print(f"Échec du remplacement ({erreur}). Retour à la version précédente.")
-        for retire, ancien in ecartes:
+        echecs = []
+        for retire, ancien in reversed(touches):
             try:
-                if ancien.exists():
-                    shutil.rmtree(ancien, ignore_errors=True) if ancien.is_dir() \
-                        else ancien.unlink(missing_ok=True)
-                os.replace(retire, ancien)
-            except OSError:
-                pass
+                # Supprimer aussi un élément neuf qui n'existait pas avant.
+                _effacer_element_programme(ancien)
+                if retire is not None:
+                    os.replace(retire, ancien)
+            except OSError as restauration:
+                echecs.append(f"{ancien.name}: {restauration}")
+        if not echecs:
+            try:
+                marqueur.unlink()
+            except OSError as restauration:
+                echecs.append(str(restauration))
+        if echecs:
+            raise RestaurationIncomplete(
+                "Restauration incomplète ; aucune relance ni nouvelle tentative. "
+                f"Conserver {marqueur} et les sauvegardes .ancien. "
+                + " ; ".join(echecs)) from erreur
         return False
 
 
@@ -715,6 +783,14 @@ def _nettoyer(installe: Path) -> None:
     permute tourne depuis ``update``, et sous Windows un exécutable ne peut pas
     effacer le dossier dont il est issu. On le fait donc au début de la suivante,
     quand plus personne n'y tient."""
+    with _reservation_installation(installe):
+        _nettoyer_reserve(installe)
+
+
+def _nettoyer_reserve(installe: Path) -> None:
+    if (installe / MARQUEUR_PERMUTATION).exists():
+        raise RestaurationIncomplete(
+            "Mise à jour précédente non finalisée : sauvegardes et préparation conservées.")
     for nom in CONTENU_DU_PROGRAMME:
         reste = installe / f"{nom}.ancien"
         try:
@@ -847,7 +923,12 @@ def _finaliser(cible: Path) -> int:
     # a rien à permuter, seulement à relancer.
     if neuf != installe:
         for essai in range(15):
-            if _permuter(neuf, installe):
+            try:
+                reussi = _permuter(neuf, installe)
+            except RestaurationIncomplete as erreur:
+                print(str(erreur), flush=True)
+                return 1
+            if reussi:
                 break
             time.sleep(2)
         else:
@@ -917,7 +998,11 @@ def installer(force: bool = False) -> int:
         return _depuis_les_sources()
 
     installe = Path(sys.executable).resolve().parent
-    _nettoyer(installe)
+    try:
+        _nettoyer(installe)
+    except RestaurationIncomplete as erreur:
+        _conclure_sans_relance(str(erreur))
+        return 1
 
     neuve = disponible(force=True)
     if not neuve:

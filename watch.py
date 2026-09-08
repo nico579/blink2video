@@ -52,6 +52,138 @@ WATCH_STATE = BASE_DIR / ".blink_watch_state.json"
 SILENCE_DAYS = 2
 
 
+def _identite_camera(etat: dict):
+    """Identité de comparaison, indépendante du nom et de l'ordre de Blink."""
+    reseau = str(etat.get("network_id") or "")
+    appareil = str(etat.get("device_id") or "")
+    return ("device", reseau, appareil) if appareil else (
+        "name", reseau, str(etat.get("name") or "").casefold())
+
+
+def _libelles_cameras(etats: list) -> dict:
+    """Ne change les noms visibles que lorsqu'ils sont effectivement ambigus."""
+    noms = [etat["name"].casefold() for etat in etats]
+    reserves = set(noms)
+    cameras = {}
+    for etat in sorted(etats, key=lambda e: (e["name"].casefold(), _identite_camera(e))):
+        nom = etat["name"]
+        if noms.count(nom.casefold()) > 1:
+            suffixe = ", ".join(valeur for valeur in (
+                "réseau " + etat["network_id"] if etat.get("network_id") else "",
+                "appareil " + etat["device_id"] if etat.get("device_id") else "",
+            ) if valeur) or "sans identifiant"
+            nom += " [" + suffixe + "]"
+            while nom.casefold() in reserves:
+                nom += " (2)"
+        reserves.add(nom.casefold())
+        cameras[nom] = etat
+    return cameras
+
+
+def _cameras_correspondantes(entree: dict, cameras: dict) -> list:
+    """Un ancien clip sans identifiants ne désigne jamais deux homonymes."""
+    nom = str(entree.get("camera") or "camera").strip().casefold()
+    reseau = str(entree.get("network_id") or "")
+    appareil = str(entree.get("device_id") or "")
+    candidats = []
+    for libelle, etat in cameras.items():
+        r = str(etat.get("network_id") or "")
+        a = str(etat.get("device_id") or "")
+        if (reseau and r and reseau != r) or (appareil and a and appareil != a):
+            continue
+        # Les IDs des deux côtés autorisent un renommage ; sinon le nom
+        # reste nécessaire, notamment pour les anciens clips USB sans ID.
+        if not (appareil and a and reseau and r):
+            if nom != str(etat.get("name") or libelle).strip().casefold():
+                continue
+        candidats.append(libelle)
+    return candidats
+
+
+def camera_entries(libelle: str, cameras: dict, entrees: dict) -> dict:
+    """Entrées attribuables sans ambiguïté à une caméra affichée.
+
+    Utilisé aussi par le réglage destructif du serveur : le suffixe visible
+    ne doit ni perdre une préférence, ni autoriser l'autre homonyme.
+    """
+    return {cle: entree for cle, entree in entrees.items()
+            if isinstance(entree, dict)
+            and _cameras_correspondantes(entree, cameras) == [libelle]}
+
+
+def normaliser_sourdines(ignores, cameras: dict, precedentes=None) -> set:
+    """Migre les anciens noms et suit un appareil dont le libellé change."""
+    resultat = set()
+    for nom in ignores:
+        ancien = (precedentes or {}).get(nom) or {}
+        if ancien.get("name"):
+            correspondants = [cle for cle, etat in cameras.items()
+                              if _identite_camera(etat) == _identite_camera(ancien)]
+        else:
+            correspondants = [cle for cle, etat in cameras.items()
+                              if cle == nom or etat.get("name") == nom]
+        resultat.update(correspondants or [nom])
+    return resultat
+
+
+def _photos_cameras(blink, home: dict) -> dict:
+    bruts = [item for groupe in ("cameras", "owls", "doorbells")
+             for item in home.get(groupe) or [] if isinstance(item, dict)]
+    objets = []
+    for sync in blink.sync.values():
+        for nom, camera in sync.cameras.items():
+            attrs = camera.attributes or {}
+            appareil = (getattr(camera, "device_id", None)
+                        or getattr(camera, "camera_id", None)
+                        or attrs.get("device_id") or attrs.get("camera_id") or attrs.get("id"))
+            objets.append((sync, camera, {
+                "name": nom.strip(),
+                "network_id": str(getattr(camera, "network_id", None)
+                                  or getattr(sync, "network_id", None) or ""),
+                "device_id": str(appareil or ""),
+            }))
+    photos, utilises = [], set()
+    for info in bruts:
+        meta = {"name": str(info.get("name") or "camera").strip(),
+                "network_id": str(info.get("network_id") or info.get("network") or ""),
+                "device_id": str(info.get("id") or info.get("device_id")
+                                 or info.get("camera_id") or "")}
+        candidats = _cameras_correspondantes(
+            {**meta, "camera": meta["name"]},
+            {str(i): objet[2] for i, objet in enumerate(objets)})
+        # Sans ID sur l'objet blinkpy, deux appareils de même nom/réseau
+        # restent distincts grâce à homescreen, sans emprunter leurs mesures.
+        if len(candidats) == 1:
+            index = int(candidats[0])
+            sync, camera, objet_meta = objets[index]
+            homonymes = [brut for brut in bruts
+                         if str(brut.get("name") or "").strip() == meta["name"]
+                         and str(brut.get("network_id") or brut.get("network") or "")
+                         == meta["network_id"]]
+            fiable = bool(objet_meta["device_id"]) or len(homonymes) == 1
+            utilises.add(index)
+        else:
+            sync = next((s for s in blink.sync.values()
+                         if str(getattr(s, "network_id", "")) == meta["network_id"]), None)
+            camera, fiable = None, False
+        enabled = info.get("enabled")
+        if enabled is None and fiable:
+            enabled = camera.motion_enabled
+        photos.append({**meta,
+                       "online": str(info.get("status") or "") != "offline",
+                       "armed": bool(enabled),
+                       "battery": info.get("battery", camera.attributes.get("battery")
+                                           if fiable else None),
+                       "system_armed": bool(getattr(sync, "arm", False))})
+    for index, (sync, camera, meta) in enumerate(objets):
+        if index not in utilises:
+            photos.append({**meta, "online": True,
+                           "armed": bool(camera.motion_enabled),
+                           "battery": camera.attributes.get("battery"),
+                           "system_armed": bool(sync.arm)})
+    return _libelles_cameras(photos)
+
+
 
 
 async def read_state(timezone) -> dict:
@@ -65,39 +197,23 @@ async def read_state(timezone) -> dict:
         await blink.refresh(force=True)
 
         home = blink.homescreen or {}
-        raw = {}
-        for group in ("cameras", "owls", "doorbells"):
-            for item in home.get(group) or []:
-                raw[str(item.get("name") or "").strip()] = item
-
         modules = [
             {"name": str(m.get("name") or "").strip(),
              "online": str(m.get("status") or "") != "offline"}
             for m in (home.get("sync_modules") or [])
         ]
 
-        cameras = {}
-        for sync in blink.sync.values():
-            for name, camera in sync.cameras.items():
-                info = raw.get(name.strip(), {})
-                cameras[name.strip()] = {
-                    "online": str(info.get("status") or "") != "offline",
-                    "armed": bool(camera.motion_enabled
-                                  if camera.motion_enabled is not None
-                                  else info.get("enabled")),
-                    "battery": camera.attributes.get("battery"),
-                    "system_armed": bool(sync.arm),
-                }
+        cameras = _photos_cameras(blink, home)
 
     return {
         "at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "modules": modules,
         "cameras": cameras,
-        "last_clip": last_clip_per_camera(timezone),
+        "last_clip": last_clip_per_camera(timezone, cameras),
     }
 
 
-def last_clip_per_camera(timezone) -> dict:
+def last_clip_per_camera(timezone, cameras=None) -> dict:
     """Date du dernier clip acquis par caméra, d'après le registre local.
 
     On lit le registre de téléchargement plutôt que d'interroger Blink : c'est
@@ -120,6 +236,11 @@ def last_clip_per_camera(timezone) -> dict:
         except (KeyError, TypeError, ValueError):
             continue
         camera = str(entry.get("camera") or "camera").strip()
+        if cameras is not None:
+            correspondantes = _cameras_correspondantes(entry, cameras)
+            if len(correspondantes) != 1:
+                continue
+            camera = correspondantes[0]
         if camera not in latest or created > latest[camera]:
             latest[camera] = created
     return {name: moment.isoformat() for name, moment in latest.items()}
@@ -175,10 +296,12 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
     cesserait de les lire, ce qui reviendrait à ne rien surveiller."""
     alerts, recoveries = [], []
     avant = previous.get("cameras") or {}
+    cameras = current.get("cameras") or {}
+    ignores = normaliser_sourdines(ignores, cameras, avant)
     # Une caméra explicitement mise en sourdine disparaît de la comparaison :
     # c'est le cas d'un appareil qu'on laisse volontairement hors ligne, ou
     # qu'on a démonté. Elle ne produit ni alerte ni retour à la normale.
-    maintenant = {nom: etat for nom, etat in (current.get("cameras") or {}).items()
+    maintenant = {nom: etat for nom, etat in cameras.items()
                   if nom not in ignores}
 
     for module in current.get("modules") or []:
@@ -190,7 +313,18 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
             recoveries.append(_msg("module_retour", nom=module["name"]))
 
     for name, etat in sorted(maintenant.items()):
-        ancien = avant.get(name) or {}
+        if etat.get("name"):
+            ancien = next((e for e in avant.values() if e.get("name")
+                           and _identite_camera(e) == _identite_camera(etat)), {})
+            # Un état ancien indexé seulement par nom ne prouve rien pour
+            # les homonymes : ne pas reprendre son « ok » ou son alerte.
+            if not ancien and sum(e.get("name") == etat["name"]
+                                  for e in cameras.values()) == 1:
+                candidat = avant.get(etat["name"]) or {}
+                if not candidat.get("name"):
+                    ancien = candidat
+        else:
+            ancien = avant.get(name) or {}
         if not etat["online"] and (not ancien or ancien.get("online")):
             alerts.append(_msg("camera_hors_ligne", nom=name))
         elif etat["online"] and ancien and not ancien.get("online"):
@@ -332,7 +466,9 @@ def _controler(args, timezone) -> None:
     # écrivain gagne).
     with runtime.verrou("watch", "controle", stale_after=60, attente=10):
         previous = md.load_json(WATCH_STATE, {})
-        ignores = set(previous.get("ignored") or [])
+        ignores = normaliser_sourdines(previous.get("ignored") or [],
+                                      current.get("cameras") or {},
+                                      previous.get("cameras") or {})
         alerts, recoveries = compare(previous, current, timezone, ignores)
         current["ignored"] = sorted(ignores)
         # Écrire avant de prévenir : la boîte de dialogue attend un clic, et une
@@ -406,9 +542,10 @@ def main() -> int:
         # de relire/réécrire WATCH_STATE pendant qu'on modifie la sourdine.
         with runtime.verrou("watch", "sourdine", stale_after=60, attente=10):
             state = md.load_json(WATCH_STATE, {})
-            ignores = set(state.get("ignored") or [])
-            ignores |= set(args.ignore)
-            ignores -= set(args.unignore)
+            cameras = state.get("cameras") or {}
+            ignores = normaliser_sourdines(state.get("ignored") or [], cameras)
+            ignores |= normaliser_sourdines(args.ignore, cameras)
+            ignores -= normaliser_sourdines(args.unignore, cameras)
             state["ignored"] = sorted(ignores)
             md.save_json(WATCH_STATE, state)
         print("Caméras en sourdine :", ", ".join(state["ignored"]) or "aucune")

@@ -379,6 +379,17 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
     )
 
 
+def _suppression_auto_autorisee(sync, clip) -> bool:
+    """Relit le choix après la copie locale, juste avant l'appel distant.
+
+    Ne pas figer ce choix au début du lot : une désactivation pendant un
+    transfert doit protéger ce clip et les suivants. Aucun verrou de réglages
+    n'est maintenu pendant l'API ; une requête déjà partie peut encore aboutir.
+    """
+    return (blink_registre.camera_setting_key(sync, clip)
+            in runtime.lire_suppression_auto())
+
+
 async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                              plan: _PlanCloud, jobs: list,
                              progression: _ProgressionTelechargement) -> CloudResult:
@@ -386,7 +397,6 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
     if not plan.clips:
         return CloudResult()
 
-    suppression_auto = runtime.lire_suppression_auto()
     downloaded = failed = adopted_execution = skipped_execution = 0
     # Un job déjà terminé a réussi par l'USB : son équivalent cloud est bien
     # un doublon, jamais un second clip à faire avancer dans la barre.
@@ -447,7 +457,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                     blink_registre.save_download_state(output, state)
                     downloaded += 1
                     resultat = "downloaded"
-                    if blink_registre.camera_setting_key(sync, clip) in suppression_auto:
+                    if _suppression_auto_autorisee(sync, clip):
                         if await clip.delete_video(blink):
                             print("    Supprimé du cloud (caméra en suppression "
                                   "automatique).")
@@ -788,7 +798,6 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
             jobs.append(_DownloadJob(cloud=clip))
 
     progression = _ProgressionTelechargement(len(jobs))
-    suppression_auto = runtime.lire_suppression_auto()
 
     # Phase 2a : USB, regroupé par module pour n'occuper qu'une source à la
     # fois. Un échec ayant un équivalent cloud garde le même job inachevé : le
@@ -820,7 +829,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                             state, plan.sync, plan.nom, clip, output, target,
                         )
                         blink_registre.save_download_state(output, state)
-                        if blink_registre.camera_setting_key(plan.sync, clip) in suppression_auto:
+                        if _suppression_auto_autorisee(plan.sync, clip):
                             # La copie locale est déjà valide et inscrite. Une
                             # panne de l'API de suppression ne doit ni annuler
                             # ce succès, ni interrompre tous les clips suivants,
