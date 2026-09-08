@@ -74,10 +74,13 @@ class TestDirectConfinement(unittest.TestCase):
 
     def test_resolution_sortante_est_refusee_meme_sans_droits_de_creation_de_lien(self):
         resolver = Path.resolve
-        alias = self.paths["direct"] / "alias.mp4"
+        # TEMP peut passer par un nom court Windows ou /var -> /private/var
+        # sur macOS ; le serveur résout déjà la racine avant l'identité.
+        alias = resolver(self.paths["direct"] / "alias.mp4")
 
         def resoudre(chemin, *args, **kwargs):
-            return resolver(self.exterieur) if chemin == alias else resolver(chemin, *args, **kwargs)
+            normalise = resolver(chemin, *args, **kwargs)
+            return resolver(self.exterieur) if normalise == alias else normalise
 
         with mock.patch.object(Path, "resolve", autospec=True, side_effect=resoudre):
             code, _ = self.poster({"supprimer": ["alias.mp4"]})

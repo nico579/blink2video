@@ -166,6 +166,17 @@ avant correction ; les tests de non-régression versionnés vérifient le correc
 - 44 tests supplémentaires par rapport aux 553 tests de la version 0.12.9,
   dont 14 pour la restauration et la réservation de l'installation.
 
+### Ajustements des tests pour la publication 0.12.11
+
+La CI de 0.12.10 a révélé deux défauts des nouvelles simulations, absents
+sur l'hôte de développement : le chemin temporaire peut être normalisé
+différemment (nom court Windows, `/var` sur macOS), et le faux lancement de
+`stop` interceptait aussi la commande `ps` servant à identifier le propriétaire
+du verrou sur POSIX. Les tests normalisent désormais leurs chemins et isolent
+explicitement l'identité simulée. Aucun correctif applicatif supplémentaire :
+0.12.11 reprend les cinq corrections avec ces tests portables. Le tag 0.12.10,
+déjà publié sans archive Win7 à cause de cet échec, n'est pas déplacé.
+
 Résultats reproduits sous Python 3.12 et 3.8.10 sur l'hôte Windows. Aucun
 processus utilisateur arrêté, aucune caméra réveillée, aucune suppression
 distante ni modification TLS. Les suppressions locales de diagnostic

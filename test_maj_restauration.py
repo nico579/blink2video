@@ -258,7 +258,11 @@ class TestRestaurationMiseAJour(unittest.TestCase):
         self.assertFalse((self.installe / ".blink_maj-installation.lock").exists())
 
     def test_finaliseur_concurrent_ne_reessaie_et_ne_relance_pas(self):
-        with maj._reservation_installation(self.installe), \
+        # Sur POSIX, identite_processus interroge ps via runtime.lancer.
+        # Le faux lancement de stop ne doit pas lui fournir un Mock comme ID.
+        with mock.patch.object(runtime, "identite_processus", return_value="processus-test"), \
+                mock.patch.object(runtime, "processus_vivant", return_value=True), \
+                maj._reservation_installation(self.installe), \
                 mock.patch.object(runtime, "frozen", return_value=False), \
                 mock.patch.object(runtime, "lire_instances", side_effect=[
                     [{"pid": 123, "verbes": [["serve"]]}], []]), \
