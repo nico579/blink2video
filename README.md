@@ -20,6 +20,16 @@ The web interface listens on `127.0.0.1` only: nothing else on your local
 network can reach it, just this machine. It has no login of its own beyond
 the Blink account session, so anyone with access to this machine can open it.
 
+## Video walkthrough
+
+[![Watch the blink2video walkthrough: Blink on your PC, live view and archives](https://i.ytimg.com/vi/6rNqLI9K8Tc/hqdefault.jpg)](https://www.youtube.com/watch?v=6rNqLI9K8Tc)
+
+**[Watch the English walkthrough on YouTube](https://www.youtube.com/watch?v=6rNqLI9K8Tc)**
+— 3 min 10 s, with captions and no voice-over. See why blink2video exists,
+explore live view and archives, then follow Windows installation, first launch
+and the main settings.
+[Version française](https://www.youtube.com/watch?v=V2E4m_SLgb4).
+
 ## Features
 
 - Live view of any camera in the browser, arming the system or a single camera.

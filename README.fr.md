@@ -23,6 +23,16 @@ local ne peut l'atteindre, seulement cette machine. Elle n'a pas de mot de
 passe propre au-delà de la session du compte Blink : quiconque a accès à
 cette machine peut donc l'ouvrir.
 
+## Présentation vidéo
+
+[![Voir la présentation de blink2video : Blink sur votre PC, direct et archives](https://i.ytimg.com/vi/V2E4m_SLgb4/hqdefault.jpg)](https://www.youtube.com/watch?v=V2E4m_SLgb4)
+
+**[Voir la présentation française sur YouTube](https://www.youtube.com/watch?v=V2E4m_SLgb4)**
+— 3 min 10 s, avec sous-titres et sans voix off. Découvrez pourquoi blink2video
+existe, le direct et les archives, puis l'installation sous Windows, le premier
+lancement et les principaux réglages.
+[English version](https://www.youtube.com/watch?v=6rNqLI9K8Tc).
+
 ## Fonctionnalités
 
 - Visionnage du direct de n'importe quelle caméra dans le navigateur, armement
