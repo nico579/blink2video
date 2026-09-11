@@ -261,6 +261,11 @@ downloaded would come back as new.
   with an "An app update is required" message. Live view and downloading work
   today; nothing guarantees Blink will not widen that refusal.
 - Blink exposes no way to restart a stuck Sync Module: you have to unplug it.
+- No iOS or Android build: continuous downloading and video assembly need a
+  background process and ffmpeg, which neither mobile OS allows to run in the
+  background. The web interface itself is just a page though, reachable from a
+  phone or tablet's browser like any other device on the LAN by setting
+  `BLINK_BIND=0.0.0.0` (no login on the web UI, so only on a network you trust).
 
 ## Neighbours
 

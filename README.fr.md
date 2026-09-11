@@ -286,6 +286,13 @@ récupérés reviendraient comme neufs.
   n'étende pas ce refus.
 - Blink n'expose aucun moyen de redémarrer un module bloqué : il faut le
   débrancher.
+- Pas de version iOS ou Android : le téléchargement continu et l'assemblage
+  vidéo ont besoin d'un processus en arrière-plan et de ffmpeg, que ni l'un ni
+  l'autre système mobile n'autorise à tourner en tâche de fond. L'interface web
+  elle-même n'est qu'une page, en revanche, accessible depuis le navigateur
+  d'un téléphone ou d'une tablette comme n'importe quel appareil du réseau
+  local en réglant `BLINK_BIND=0.0.0.0` (pas d'identifiant sur l'interface web,
+  donc uniquement sur un réseau de confiance).
 
 ## Voisins
 
