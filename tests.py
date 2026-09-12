@@ -33,6 +33,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -376,14 +377,20 @@ def test_arret() -> None:
     environnement = environnement_test(maison)
     port = port_dynamique()
     marque = f"controle-stop-{os.getpid()}-{time.time_ns()}"
+    # Relative à maintenant, jamais une date fixe : /api/clips (interrogé plus
+    # bas sans ?all=1) ne rend que DEFAULT_WINDOW_DAYS jours glissants
+    # (serve.py) - une date écrite en dur finit toujours par en sortir, ce qui
+    # a fait échouer ce test 30 jours pile après son écriture (constaté en
+    # réel, 2026-09-12).
+    recente = datetime.now(timezone.utc) - timedelta(days=1)
     md.save_json(maison / "Blink_Clips" / md.DOWNLOAD_STATE, {
         "version": 1,
         "clips": {
             marque: {
                 "hub": "Test",
                 "camera": marque,
-                "created_at": "2026-08-13T12:00:00+00:00",
-                "path": f"{marque}/2026-08/{marque}.mp4",
+                "created_at": recente.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+                "path": f"{marque}/{recente:%Y-%m}/{marque}.mp4",
                 "bytes": 0,
             },
         },
