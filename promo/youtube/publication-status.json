@@ -1,0 +1,15 @@
+{
+  "channel": {
+    "name": "Nico — Projets logiciels",
+    "id": "UCyW61N0ueQmkU1MkczXRsJw",
+    "url": "https://www.youtube.com/@NicoProjetsLogiciels"
+  },
+  "verified_date": "2026-09-09",
+  "videos": {
+    "fr": {"id": "V2E4m_SLgb4", "url": "https://www.youtube.com/watch?v=V2E4m_SLgb4", "visibility": "public", "captions": "published", "comment": "https://www.youtube.com/watch?v=V2E4m_SLgb4&lc=Ugx0KD3NGwqvZuwRNS14AaABAg", "comment_verified": true},
+    "en": {"id": "6rNqLI9K8Tc", "url": "https://www.youtube.com/watch?v=6rNqLI9K8Tc", "visibility": "public", "captions": "published", "comment": "https://www.youtube.com/watch?v=6rNqLI9K8Tc&lc=Ugz-D0GuKLc85JXRHOt4AaABAg", "comment_verified": true}
+  },
+  "verification": "Both videos public in Studio; captions published; exact comment texts and @NicoProjetsLogiciels authorship verified after opening fresh watch pages. YouTube checks completed without issues.",
+  "thumbnails": {"fr": "custom thumbnail saved and visually verified after reload", "en": "custom thumbnail saved and visually verified after reload"},
+  "remaining": "Studio still says external description links need a one-time validation to become clickable."
+}

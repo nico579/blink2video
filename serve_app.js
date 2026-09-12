@@ -682,6 +682,12 @@ function rechargerEnArrierePlan() {
   // passage de heuresDePassage()/montrerTravail() retentera.
   const { exclure, inclure, supprimer } = calculerSelection();
   if (exclure.length + inclure.length + supprimer.length > 0) return;
+  // Même raison que le gel de renderLive() pour un direct actif (voir son
+  // commentaire) : reconstruire #list détruit toute <video> de clip en train
+  // d'être lue, perçu comme un rafraîchissement intempestif en plein
+  // visionnage (signalé par Nico, 2026-09-12). On reporte, comme pour une
+  // sélection en attente ci-dessus.
+  if ([...$("list").querySelectorAll("video")].some((v) => !v.paused)) return;
   dernierRechargementAuto = maintenant;
   load();
 }
