@@ -41,6 +41,138 @@ except ImportError:  # Python 3.8 (build Windows 7, voir build-win7.yml) : pas d
 
 import runtime
 
+LIBELLES = {
+    "fr": {
+        "registre_inconnu": "  Inconnu du registre, ignoré : {identity}",
+        "clip_exclu": "  Exclu : {identity}",
+        "clip_reintegre": "  Réintégré : {identity}",
+        "clip_reintegre_brut_absent":
+            "  Réintégré : {identity} (brut absent, relancer blink2video.py)",
+        "ffmpeg_introuvable":
+            "FFmpeg est introuvable. Installez imageio-ffmpeg ou ajoutez ffmpeg au PATH.",
+        "drawtext_absent":
+            "Le binaire ffmpeg utilisé n'inclut pas le filtre drawtext "
+            "(compilation sans libfreetype). Utilisez un build ffmpeg complet "
+            "(ex. gyan.dev sous Windows, ou 'apt install ffmpeg' sous Linux).",
+        "horodatage_echec_police":
+            "L'incrustation de l'horodatage échoue avec la police {police} :\n{detail}",
+        "horodatage_echec_sans_message": "échec sans message",
+        "horodatage_vide":
+            "L'incrustation de l'horodatage ne dessine rien avec la police "
+            "{police} (image de test entièrement noire). Police illisible "
+            "par drawtext, ou format de date non supporté par la libc.",
+        "police_introuvable": "Police introuvable : {chemin}",
+        "police_absente":
+            "Aucune police TrueType trouvée pour l'incrustation de l'horodatage. "
+            "Placez un fichier .ttf (ex. DejaVuSans-Bold.ttf) à côté de "
+            "{fichier}, ou passez --font /chemin/vers/police.ttf.",
+        "registre_illisible": "Registre de téléchargement illisible : {chemin}",
+        "duree_introuvable": "durée introuvable pour {nom}",
+        "duree_invalide": "durée invalide pour {nom}",
+        "flux_video_introuvable": "flux vidéo introuvable pour {nom}",
+        "resolution_introuvable": "résolution introuvable pour {nom}",
+        "chemin_hors_racines": "Chemin situé hors de {racines} : {valeur}",
+        "ffmpeg_silencieux":
+            "FFmpeg silencieux plus de {secondes} s, processus tué "
+            "(reprise au prochain passage)",
+        "mp4_invalide": "FFmpeg n'a pas produit un MP4 valide",
+        "copie_refusee": "  Copie de flux refusée, ré-encodage de la période",
+        "periode_deja_a_jour": "Déjà à jour : {nom} ({jours} jour(s))",
+        "periode_assemblage": "Assemblage : {label} / {camera} / {jours} jour(s)",
+        "echec_generique": "  Échec : {erreur}",
+        "cree": "  Créé : {destination}",
+        "periode_supprimee": "Supprimé (période vide) : {cle}",
+        "assemblage_deja_en_cours": "Assemblage déjà en cours ({erreur}). Rien à faire.",
+        "normalisation_titre": "Normalisation : {total} clip(s) à encoder",
+        "echec_normalisation": "    Échec : {erreur}",
+        "normalisation_resume": "Normalisation : {encoded} clip(s) encodé(s), {reused} réutilisé(s).",
+        "erreur_generique": "Erreur : {erreur}",
+        "aucun_groupe": "Aucun groupe de clips à fusionner.",
+        "cache_supprime": "Ancien cache supprimé : {chemin}",
+        "jour_reportee_source":
+            "  Reportée (source absente ou invalide) : {nom}",
+        "jour_supprimee": "Supprimée (plus aucun clip) : {nom}",
+        "jour_reportee_partielle": "  Reportée (encodage partiel) : {nom}",
+        "jour_deja_a_jour": "Déjà à jour : {nom} ({clips} clip(s))",
+        "jour_assemblage": "  [{index}/{total}] Assemblage : {jour} / {camera} / {clips} clip(s)",
+        "stock_normalise": "Stock normalisé : {n} segment(s) obsolète(s) supprimé(s)",
+        "journalieres_resume": "Journalières : {built} créée(s), {skipped} déjà à jour, {failed} échec(s).",
+        "agregats_reportes":
+            "Agrégats reportés : au moins une journée sélectionnée a une source indisponible.",
+        "label_hebdomadaires": "Hebdomadaires",
+        "label_mensuelles": "Mensuelles",
+        "periode_titre": "\n{label} :",
+        "periode_resume": "{label} : {built} créée(s), {skipped} déjà à jour, {failed} échec(s).",
+    },
+    "en": {
+        "registre_inconnu": "  Unknown to the registry, ignored: {identity}",
+        "clip_exclu": "  Excluded: {identity}",
+        "clip_reintegre": "  Reinstated: {identity}",
+        "clip_reintegre_brut_absent":
+            "  Reinstated: {identity} (raw file missing, restart blink2video.py)",
+        "ffmpeg_introuvable":
+            "FFmpeg not found. Install imageio-ffmpeg or add ffmpeg to PATH.",
+        "drawtext_absent":
+            "The ffmpeg binary in use does not include the drawtext filter "
+            "(built without libfreetype). Use a full ffmpeg build "
+            "(e.g. gyan.dev on Windows, or 'apt install ffmpeg' on Linux).",
+        "horodatage_echec_police":
+            "Burning in the timestamp fails with font {police}:\n{detail}",
+        "horodatage_echec_sans_message": "failed with no message",
+        "horodatage_vide":
+            "Burning in the timestamp draws nothing with font "
+            "{police} (test image entirely black). Font unreadable "
+            "by drawtext, or date format unsupported by libc.",
+        "police_introuvable": "Font not found: {chemin}",
+        "police_absente":
+            "No TrueType font found to burn in the timestamp. "
+            "Place a .ttf file (e.g. DejaVuSans-Bold.ttf) next to "
+            "{fichier}, or pass --font /path/to/font.ttf.",
+        "registre_illisible": "Download registry unreadable: {chemin}",
+        "duree_introuvable": "duration not found for {nom}",
+        "duree_invalide": "invalid duration for {nom}",
+        "flux_video_introuvable": "video stream not found for {nom}",
+        "resolution_introuvable": "resolution not found for {nom}",
+        "chemin_hors_racines": "Path outside of {racines}: {valeur}",
+        "ffmpeg_silencieux":
+            "FFmpeg silent for more than {secondes}s, process killed "
+            "(will resume next round)",
+        "mp4_invalide": "FFmpeg did not produce a valid MP4",
+        "copie_refusee": "  Stream copy refused, re-encoding the period",
+        "periode_deja_a_jour": "Already up to date: {nom} ({jours} day(s))",
+        "periode_assemblage": "Assembling: {label} / {camera} / {jours} day(s)",
+        "echec_generique": "  Failed: {erreur}",
+        "cree": "  Created: {destination}",
+        "periode_supprimee": "Deleted (empty period): {cle}",
+        "assemblage_deja_en_cours": "Assembly already in progress ({erreur}). Nothing to do.",
+        "normalisation_titre": "Normalizing: {total} clip(s) to encode",
+        "echec_normalisation": "    Failed: {erreur}",
+        "normalisation_resume": "Normalizing: {encoded} clip(s) encoded, {reused} reused.",
+        "erreur_generique": "Error: {erreur}",
+        "aucun_groupe": "No clip group to merge.",
+        "cache_supprime": "Old cache deleted: {chemin}",
+        "jour_reportee_source":
+            "  Postponed (source missing or invalid): {nom}",
+        "jour_supprimee": "Deleted (no clip left): {nom}",
+        "jour_reportee_partielle": "  Postponed (partial encoding): {nom}",
+        "jour_deja_a_jour": "Already up to date: {nom} ({clips} clip(s))",
+        "jour_assemblage": "  [{index}/{total}] Assembling: {jour} / {camera} / {clips} clip(s)",
+        "stock_normalise": "Normalized storage: {n} obsolete segment(s) deleted",
+        "journalieres_resume": "Daily videos: {built} created, {skipped} already up to date, {failed} failed.",
+        "agregats_reportes":
+            "Aggregates postponed: at least one selected day has an unavailable source.",
+        "label_hebdomadaires": "Weekly",
+        "label_mensuelles": "Monthly",
+        "periode_titre": "\n{label}:",
+        "periode_resume": "{label}: {built} created, {skipped} already up to date, {failed} failed.",
+    },
+}
+
+
+def msg(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
+
+
 BASE_DIR = runtime.app_dir()
 DEFAULT_INPUT = BASE_DIR / "Blink_Clips"
 DEFAULT_OUTPUT = BASE_DIR / "Blink_Daily"
@@ -291,9 +423,7 @@ def find_ffmpeg() -> str:
         pass
 
     if not candidats:
-        raise RuntimeError(
-            "FFmpeg est introuvable. Installez imageio-ffmpeg ou ajoutez ffmpeg au PATH."
-        )
+        raise RuntimeError(msg("ffmpeg_introuvable"))
     for candidat in candidats:
         if has_drawtext(candidat):
             return candidat
@@ -328,11 +458,7 @@ def check_drawtext_available(ffmpeg: str) -> None:
         check=False,
     )
     if "drawtext" not in result.stdout:
-        raise RuntimeError(
-            "Le binaire ffmpeg utilisé n'inclut pas le filtre drawtext "
-            "(compilation sans libfreetype). Utilisez un build ffmpeg complet "
-            "(ex. gyan.dev sous Windows, ou 'apt install ffmpeg' sous Linux)."
-        )
+        raise RuntimeError(msg("drawtext_absent"))
 
 
 def check_timestamp_rendering(ffmpeg: str, font_path: Path) -> None:
@@ -360,23 +486,19 @@ def check_timestamp_rendering(ffmpeg: str, font_path: Path) -> None:
     )
     stderr = result.stderr.decode("utf-8", "replace").strip()
     if result.returncode != 0 or stderr:
-        raise RuntimeError(
-            f"L'incrustation de l'horodatage échoue avec la police {font_path} :\n"
-            f"{stderr or 'échec sans message'}"
-        )
+        raise RuntimeError(msg(
+            "horodatage_echec_police", police=font_path,
+            detail=stderr or msg("horodatage_echec_sans_message"),
+        ))
     if not any(result.stdout):
-        raise RuntimeError(
-            f"L'incrustation de l'horodatage ne dessine rien avec la police "
-            f"{font_path} (image de test entièrement noire). Police illisible "
-            f"par drawtext, ou format de date non supporté par la libc."
-        )
+        raise RuntimeError(msg("horodatage_vide", police=font_path))
 
 
 def find_font(explicit: Path | None) -> Path:
     if explicit is not None:
         if explicit.is_file():
             return explicit
-        raise RuntimeError(f"Police introuvable : {explicit}")
+        raise RuntimeError(msg("police_introuvable", chemin=explicit))
 
     candidates = [
         BASE_DIR / "DejaVuSans-Bold.ttf",
@@ -407,11 +529,7 @@ def find_font(explicit: Path | None) -> Path:
         if candidate.is_file():
             return candidate
 
-    raise RuntimeError(
-        "Aucune police TrueType trouvée pour l'incrustation de l'horodatage. "
-        f"Placez un fichier .ttf (ex. DejaVuSans-Bold.ttf) à côté de "
-        f"{Path(__file__).name}, ou passez --font /chemin/vers/police.ttf."
-    )
+    raise RuntimeError(msg("police_absente", fichier=Path(__file__).name))
 
 
 def quote_filter_path(path: Path) -> str:
@@ -449,7 +567,7 @@ def read_registry(state_path: Path) -> dict:
     state = load_json(state_path, None)
     entries = state.get("clips") if isinstance(state, dict) else None
     if not isinstance(entries, dict):
-        raise RuntimeError(f"Registre de téléchargement illisible : {state_path}")
+        raise RuntimeError(msg("registre_illisible", chemin=state_path))
     return entries
 
 
@@ -618,20 +736,20 @@ def probe_clip_info(ffmpeg: str, source: Path) -> tuple[float, int, int, float, 
 
     duration_match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
     if not duration_match:
-        raise RuntimeError(f"durée introuvable pour {source.name}")
+        raise RuntimeError(msg("duree_introuvable", nom=source.name))
     hours, minutes, seconds = duration_match.groups()
     duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
     if duration <= 0:
-        raise RuntimeError(f"durée invalide pour {source.name}")
+        raise RuntimeError(msg("duree_invalide", nom=source.name))
 
     video_line_match = re.search(r"Stream #\d+:\d+[^\n]*Video:[^\n]*", stderr)
     if not video_line_match:
-        raise RuntimeError(f"flux vidéo introuvable pour {source.name}")
+        raise RuntimeError(msg("flux_video_introuvable", nom=source.name))
     video_line = video_line_match.group(0)
 
     size_match = re.search(r"(\d{2,5})x(\d{2,5})", video_line)
     if not size_match:
-        raise RuntimeError(f"résolution introuvable pour {source.name}")
+        raise RuntimeError(msg("resolution_introuvable", nom=source.name))
     width, height = int(size_match.group(1)), int(size_match.group(2))
 
     fps_match = re.search(r"([\d.]+)\s*fps", video_line)
@@ -658,11 +776,10 @@ def resolve_identity(
     for root in roots:
         if runtime.est_relatif_a(path, root):
             return path.relative_to(root).as_posix()
-    raise RuntimeError(
-        "Chemin situé hors de "
-        + ", ".join(root.name for root in roots)
-        + f" : {value}"
-    )
+    raise RuntimeError(msg(
+        "chemin_hors_racines",
+        racines=", ".join(root.name for root in roots), valeur=value,
+    ))
 
 
 def move_aside(source: Path, destination: Path) -> None:
@@ -715,7 +832,7 @@ def set_excluded(
                 if isinstance(entry, dict) and entry.get("path") == identity
             ]
             if not keys:
-                print(f"  Inconnu du registre, ignoré : {identity}")
+                print(msg("registre_inconnu", identity=identity))
                 continue
             for key in keys:
                 if excluded:
@@ -723,7 +840,7 @@ def set_excluded(
                     clips[key]["excluded_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
                     move_aside(input_dir / identity, excluded_dir / identity)
                     (normalized_dir / identity).unlink(missing_ok=True)
-                    print(f"  Exclu : {identity}")
+                    print(msg("clip_exclu", identity=identity))
                 else:
                     # Un horodatage plutôt qu'un simple retrait du champ :
                     # _ecrire_registre() (blink_registre.py) s'en sert pour
@@ -734,9 +851,9 @@ def set_excluded(
                     clips[key]["excluded_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
                     move_aside(excluded_dir / identity, input_dir / identity)
                     if (input_dir / identity).exists():
-                        print(f"  Réintégré : {identity}")
+                        print(msg("clip_reintegre", identity=identity))
                     else:
-                        print(f"  Réintégré : {identity} (brut absent, relancer blink2video.py)")
+                        print(msg("clip_reintegre_brut_absent", identity=identity))
                 changed += 1
 
         if changed:
@@ -1017,12 +1134,9 @@ def run_ffmpeg_batch(
     drain.join(timeout=5)
     stderr = "".join(part for part in captured if part).strip()
     if tue_par_silence:
-        return False, (
-            f"FFmpeg silencieux plus de {int(SILENCE_MAX)} s, processus tué "
-            f"(reprise au prochain passage)"
-        )
+        return False, msg("ffmpeg_silencieux", secondes=int(SILENCE_MAX))
     if process.returncode != 0 or not valid_mp4(output_path):
-        return False, stderr or "FFmpeg n'a pas produit un MP4 valide"
+        return False, stderr or msg("mp4_invalide")
     return True, ""
 
 
@@ -1083,14 +1197,11 @@ def concat_copy(ffmpeg: str, parts: list, destination: Path) -> tuple[bool, str]
                 # restent ouverts et un futur wait() peut se bloquer à son tour.
                 process.kill()
                 process.communicate()
-                return False, (
-                    f"FFmpeg silencieux plus de {int(SILENCE_MAX)} s, "
-                    f"processus tué (reprise au prochain passage)"
-                )
+                return False, msg("ffmpeg_silencieux", secondes=int(SILENCE_MAX))
         finally:
             runtime.retirer_travailleur(process.pid)
         if process.returncode != 0 or not valid_mp4(destination):
-            message = (stderr or "").strip() or "FFmpeg n'a pas produit un MP4 valide"
+            message = (stderr or "").strip() or msg("mp4_invalide")
             return False, message
         return True, ""
     finally:
@@ -1236,7 +1347,7 @@ def merge_group(
         if not ok:
             return False, error
         if not valid_mp4(temporary_video):
-            return False, "FFmpeg n'a pas produit un MP4 valide"
+            return False, msg("mp4_invalide")
         temporary_video.replace(destination)
         return True, ""
     finally:
@@ -1350,7 +1461,7 @@ def concat_videos(
         # et ré-encodait la semaine et le mois entiers à chaque passage.
         ok, error = concat_copy(ffmpeg, parts, temporary)
         if not ok:
-            print("  Copie de flux refusée, ré-encodage de la période")
+            print(msg("copie_refusee"))
             try:
                 infos = []
                 for part in parts:
@@ -1370,7 +1481,7 @@ def concat_videos(
         if not ok:
             return False, error
         if not valid_mp4(temporary):
-            return False, "FFmpeg n'a pas produit un MP4 valide"
+            return False, msg("mp4_invalide")
         temporary.replace(destination)
         return True, ""
     finally:
@@ -1421,16 +1532,16 @@ def build_periods(
                 and state["groups"].get(key, {}).get("fingerprint") == fingerprint
                 and valid_mp4(destination)
             ):
-                print(f"Déjà à jour : {destination.name} ({len(parts)} jour(s))")
+                print(msg("periode_deja_a_jour", nom=destination.name, jours=len(parts)))
                 skipped += 1
                 continue
 
-            print(f"Assemblage : {label} / {camera} / {len(parts)} jour(s)")
+            print(msg("periode_assemblage", label=label, camera=camera, jours=len(parts)))
             ok, error = concat_videos(
                 ffmpeg, timezone, parts, destination, preset, crf
             )
             if not ok:
-                print(f"  Échec : {error}")
+                print(msg("echec_generique", erreur=error))
                 failed += 1
                 continue
 
@@ -1441,7 +1552,7 @@ def build_periods(
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             }
             save_json(state_path, state)
-            print(f"  Créé : {destination}")
+            print(msg("cree", destination=destination))
             built += 1
 
     obsoletes = [key for key in state["groups"] if key not in labels_attendus]
@@ -1451,7 +1562,7 @@ def build_periods(
             chemin = entree.get("path")
             if chemin:
                 (period_dir / chemin).unlink(missing_ok=True)
-            print(f"Supprimé (période vide) : {key}")
+            print(msg("periode_supprimee", cle=key))
         save_json(state_path, state)
 
     return built, skipped, failed
@@ -1546,7 +1657,7 @@ def main() -> int:
         except runtime.BusyError as erreur:
             # Un assemblage déjà en cours fait le même travail : le doubler
             # réencoderait les mêmes clips et brouillerait le registre.
-            print(f"Assemblage déjà en cours ({erreur}). Rien à faire.")
+            print(msg("assemblage_deja_en_cours", erreur=erreur))
             journal(f"assemblage deja en cours : {erreur}")
             return 0
         runtime.marquer("merge")
@@ -1609,7 +1720,7 @@ def _normaliser_plan(args, plan: dict, pending: set, registry: dict,
     encoded = reused = failed = 0
     position, total = 0, len(pending)
     if total:
-        print(f"Normalisation : {total} clip(s) à encoder")
+        print(msg("normalisation_titre", total=total))
     for (camera, day), (target, entries) in sorted(plan.items(), key=lambda i: i[0]):
         keys, segments = [], []
         journee_incomplete = False
@@ -1627,7 +1738,7 @@ def _normaliser_plan(args, plan: dict, pending: set, registry: dict,
                 report,
             )
             if not ok:
-                print(f"    Échec : {error}")
+                print(msg("echec_normalisation", erreur=error))
                 failed += 1
                 # Une journée dont un seul clip échoue à normaliser ne doit
                 # pas voir sa liste de segments amputée servir quand même à
@@ -1657,7 +1768,7 @@ def _normaliser_plan(args, plan: dict, pending: set, registry: dict,
         normalized[(camera, day)] = (keys, segments, journee_incomplete)
         save_json(registry_path, registry)
 
-    print(f"Normalisation : {encoded} clip(s) encodé(s), {reused} réutilisé(s).")
+    print(msg("normalisation_resume", encoded=encoded, reused=reused))
     return normalized, failed
 
 
@@ -1676,7 +1787,7 @@ def _executer(args) -> int:
             if args.include:
                 set_excluded(input_dir, normalized_dir, excluded_dir, args.include, False)
         except RuntimeError as error:
-            print(f"Erreur : {error}")
+            print(msg("erreur_generique", erreur=error))
             return 1
 
     try:
@@ -1692,7 +1803,7 @@ def _executer(args) -> int:
             input_dir, timezone
         )
     except (RuntimeError, ZoneInfoNotFoundError) as error:
-        print(f"Erreur : {error}")
+        print(msg("erreur_generique", erreur=error))
         return 1
 
     selected = {
@@ -1702,7 +1813,7 @@ def _executer(args) -> int:
         and (not args.camera or key[0].casefold() == args.camera.casefold())
     }
     if not selected:
-        print("Aucun groupe de clips à fusionner.")
+        print(msg("aucun_groupe"))
 
     merge_state_path = output_dir / MERGE_STATE
     merge_state = load_json(merge_state_path, {"version": 1, "groups": {}})
@@ -1718,7 +1829,7 @@ def _executer(args) -> int:
     legacy = output_dir / LEGACY_SEGMENT_DIR
     if legacy.is_dir():
         shutil.rmtree(legacy, ignore_errors=True)
-        print(f"Ancien cache supprimé : {legacy}")
+        print(msg("cache_supprime", chemin=legacy))
 
     # Étape 1 : cibles d'encodage. Elles se calculent sur l'ensemble des clips
     # d'une caméra, y compris ceux qu'un filtre --date ou --camera exclut de la
@@ -1726,7 +1837,7 @@ def _executer(args) -> int:
     try:
         targets = _calculer_cibles_encodage(groups, registry, input_dir, ffmpeg)
     except RuntimeError as error:
-        print(f"Erreur : {error}")
+        print(msg("erreur_generique", erreur=error))
         return 1
     save_json(registry_path, registry)
 
@@ -1758,7 +1869,7 @@ def _executer(args) -> int:
             # load_groups() omet les bruts absents/invalides. La liste peut
             # donc être non vide ET incomplète : ne jamais remplacer une
             # journalière complète par les seuls clips encore accessibles.
-            print(f"  Reportée (source absente ou invalide) : {destination.name}")
+            print(msg("jour_reportee_source", nom=destination.name))
             failed += 1
             continue
         if not segments:
@@ -1778,7 +1889,7 @@ def _executer(args) -> int:
                 destination.unlink()
                 merge_state["groups"].pop(state_key, None)
                 save_json(merge_state_path, merge_state)
-                print(f"Supprimée (plus aucun clip) : {destination.name}")
+                print(msg("jour_supprimee", nom=destination.name))
             continue
         if journee_incomplete:
             # Au moins un clip de cette journée a échoué à normaliser :
@@ -1787,7 +1898,7 @@ def _executer(args) -> int:
             # version partielle plus courte, silencieusement. failed est déjà
             # compté (étape 2) ; la journée reste à jour et sera retentée au
             # prochain passage, comme un échec total (voir plus haut).
-            print(f"  Reportée (encodage partiel) : {destination.name}")
+            print(msg("jour_reportee_partielle", nom=destination.name))
             continue
         fingerprint = group_fingerprint(keys)
         previous = merge_state["groups"].get(state_key, {})
@@ -1797,17 +1908,17 @@ def _executer(args) -> int:
             and previous.get("fingerprint") == fingerprint
             and valid_mp4(destination)
         ):
-            print(f"Déjà à jour : {destination.name} ({len(segments)} clip(s))")
+            print(msg("jour_deja_a_jour", nom=destination.name, clips=len(segments)))
             skipped += 1
             continue
 
-        print(f"  [{index}/{len(todo)}] Assemblage : {day} / {camera} / "
-              f"{len(segments)} clip(s)")
+        print(msg("jour_assemblage", index=index, total=len(todo), jour=day,
+                  camera=camera, clips=len(segments)))
         runtime.travail("Assemblage des vidéos", index - 1, len(todo),
                         cle="phase.assemble_videos")
         ok, error = merge_group(ffmpeg, segments, destination)
         if not ok:
-            print(f"  Échec : {error}")
+            print(msg("echec_generique", erreur=error))
             failed += 1
             continue
 
@@ -1818,7 +1929,7 @@ def _executer(args) -> int:
             "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         }
         save_json(merge_state_path, merge_state)
-        print(f"  Créé : {destination}")
+        print(msg("cree", destination=destination))
         built += 1
 
     if not args.date and not args.camera and not failed:
@@ -1831,16 +1942,16 @@ def _executer(args) -> int:
                                 for identity in identites_indisponibles}
         removed = prune_normalized(normalized_dir, registry, keep)
         if removed:
-            print(f"Stock normalisé : {removed} segment(s) obsolète(s) supprimé(s)")
+            print(msg("stock_normalise", n=removed))
         save_json(registry_path, registry)
 
-    print(f"Journalières : {built} créée(s), {skipped} déjà à jour, {failed} échec(s).")
+    print(msg("journalieres_resume", built=built, skipped=skipped, failed=failed))
 
     if indisponibles & selected.keys():
         # Une journalière reportée peut elle-même ne pas être présente.
         # Reconstruire ses périodes à partir des seuls autres jours les
         # raccourcirait aussi. Conserver les agrégats jusqu'à réparation.
-        print("Agrégats reportés : au moins une journée sélectionnée a une source indisponible.")
+        print(msg("agregats_reportes"))
         return 1
 
     for period, period_dir, desactive in (
@@ -1849,17 +1960,15 @@ def _executer(args) -> int:
     ):
         if desactive:
             continue
-        label = "Hebdomadaires" if period == "weekly" else "Mensuelles"
-        print(f"\n{label} :")
+        label = msg("label_hebdomadaires") if period == "weekly" else msg("label_mensuelles")
+        print(msg("periode_titre", label=label))
         p_built, p_skipped, p_failed = build_periods(
             ffmpeg, timezone, output_dir, period_dir, period,
             args.force, args.preset, args.crf,
         )
         failed += p_failed
-        print(
-            f"{label} : {p_built} créée(s), {p_skipped} déjà à jour, "
-            f"{p_failed} échec(s)."
-        )
+        print(msg("periode_resume", label=label, built=p_built, skipped=p_skipped,
+                  failed=p_failed))
 
     return 1 if failed else 0
 

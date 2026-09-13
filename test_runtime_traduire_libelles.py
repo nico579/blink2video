@@ -4,10 +4,11 @@ page web qui suit déjà la langue choisie. `runtime.traduire()` leur donne le
 même mécanisme bilingue que LIBELLES dans tray.py, indexé par
 `runtime.lire_langue()` (le fichier `blink_langue.txt` laissé par le dernier
 chargement de la page). blink_auth.py, le flux login/download de
-blink_cli.py (async def main), blink_models.py et blink_engine.py sont les
-modules convertis jusqu'ici ; tous sauf blink_auth.py nomment leur alias
-local `msg()` plutôt que `_()` puisqu'ils utilisent déjà `_` comme variable
-jetable ailleurs (`for _, p in lances`, etc.)."""
+blink_cli.py (async def main), blink_models.py, blink_engine.py et
+merge_daily.py sont les modules convertis jusqu'ici ; tous sauf
+blink_auth.py nomment leur alias local `msg()` plutôt que `_()` puisqu'ils
+utilisent déjà `_` comme variable jetable ailleurs (`for _, p in lances`,
+etc.)."""
 
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ import blink_auth
 import blink_cli
 import blink_models
 import blink_engine
+import merge_daily
 
 
 class TestTraduireLibelles(unittest.TestCase):
@@ -103,6 +105,26 @@ class TestTraduireLibelles(unittest.TestCase):
                          "1 new clip downloaded. Click to open.")
         self.assertEqual(blink_engine.msg("notif_corps_pluriel", n=3),
                          "3 new clips downloaded. Click to open.")
+
+    def test_merge_daily_toutes_les_cles_existent_dans_les_deux_langues(self):
+        self.assertEqual(set(merge_daily.LIBELLES["fr"]), set(merge_daily.LIBELLES["en"]))
+
+    def test_merge_daily_msg_bascule_et_formate(self):
+        self._regler_langue("en")
+        self.assertEqual(merge_daily.msg("mp4_invalide"), "FFmpeg did not produce a valid MP4")
+        self.assertEqual(
+            merge_daily.msg("jour_deja_a_jour", nom="Garage_2026-09-01.mp4", clips=5),
+            "Already up to date: Garage_2026-09-01.mp4 (5 clip(s))")
+        self._regler_langue("fr")
+        self.assertEqual(merge_daily.msg("mp4_invalide"), "FFmpeg n'a pas produit un MP4 valide")
+
+    def test_merge_daily_labels_periode(self):
+        self._regler_langue("en")
+        self.assertEqual(merge_daily.msg("label_hebdomadaires"), "Weekly")
+        self.assertEqual(merge_daily.msg("label_mensuelles"), "Monthly")
+        self._regler_langue("fr")
+        self.assertEqual(merge_daily.msg("label_hebdomadaires"), "Hebdomadaires")
+        self.assertEqual(merge_daily.msg("label_mensuelles"), "Mensuelles")
 
 
 if __name__ == "__main__":
