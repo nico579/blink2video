@@ -16,6 +16,8 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import runtime
+
 # O-06/8.7/8.8 : blink_registre.py importe ce module pour ses seules fonctions
 # de corrélation, y compris pour des verbes (stop, open) qui n'ont besoin ni
 # de blinkpy ni d'aiohttp. `Blink` n'est utilisé ici qu'en annotation de type
@@ -28,6 +30,103 @@ if TYPE_CHECKING:
 # I-15 : réutilise la même vérification de boîte ftyp que merge_daily plutôt
 # que d'en écrire une seconde copie qui dériverait tôt ou tard.
 import merge_daily as md
+
+LIBELLES = {
+    "fr": {
+        "stockage_non_active": "le stockage local n'est pas activé sur ce hub",
+        "stockage_non_actif":
+            "le stockage local n'est pas actif (clé USB ou carte microSD "
+            "absente/non reconnue, ou clips enregistrés dans le cloud)",
+        "lecture_manifeste_local": "  Lecture du manifeste du stockage local...",
+        "module_occupe_attente":
+            "  Module occupé, nouvelle tentative dans {delay} s ({attempt}/{total})...",
+        "manifeste_local_absent":
+            "Blink n'a pas renvoyé le manifeste du stockage local après "
+            "{tentatives} tentatives (module resté occupé)",
+        "jours_negatifs": "le nombre de jours doit être positif ou nul",
+        "cloud_plafond_securite":
+            "  ! [données] Manifeste cloud proche du plafond de sécurité "
+            "({plafond} pages) : des clips plus anciens dans la fenêtre "
+            "demandée ont peut-être été omis.",
+        "cloud_racine_inattendue":
+            "  ! [données] Manifeste cloud ignoré : racine JSON inattendue.",
+        "cloud_entrees_invalides":
+            "  ! [données] {invalides} entrée(s) cloud invalide(s) ignorée(s).",
+        "resume_volume": "  {n} clip(s), volume annoncé : environ {volume}",
+        "resume_periode": "  Période : {debut} -> {fin}",
+        "resume_cameras": "  Caméra(s) : {cameras}",
+        "aucun": "aucun",
+        "sync_module_introuvable":
+            "Sync Module introuvable : {demande!r}. Disponible(s) : {disponibles}.",
+        "cat_donnees": "données",
+        "cat_reseau": "réseau",
+        "cat_http": "HTTP",
+        "cat_ecriture": "écriture",
+        "cat_media": "média",
+        "contenu_indisponible": "contenu indisponible",
+        "media_absent": "adresse du média absente",
+        "aucune_reponse": "aucune réponse du service Blink",
+        "statut_http": "statut HTTP {statut}",
+        "statut_http_absent": "statut HTTP absent",
+        "reponse_refusee": "réponse refusée ({detail})",
+        "reponse_vide": "réponse vide",
+        "reponse_tronquee": "réponse tronquée ({recus} octets reçus sur {attendu})",
+        "mp4_invalide": "corps reçu, mais MP4 incomplet ou invalide",
+        "unite_octet": "o",
+        "unite_kibioctet": "Kio",
+        "unite_mebioctet": "Mio",
+        "unite_gibioctet": "Gio",
+    },
+    "en": {
+        "stockage_non_active": "local storage is not enabled on this hub",
+        "stockage_non_actif":
+            "local storage is not active (USB drive or microSD card "
+            "missing/not recognized, or clips are stored in the cloud)",
+        "lecture_manifeste_local": "  Reading the local storage manifest...",
+        "module_occupe_attente":
+            "  Module busy, retrying in {delay}s ({attempt}/{total})...",
+        "manifeste_local_absent":
+            "Blink did not return the local storage manifest after "
+            "{tentatives} attempts (module stayed busy)",
+        "jours_negatifs": "the number of days must be zero or positive",
+        "cloud_plafond_securite":
+            "  ! [data] Cloud manifest close to the safety cap "
+            "({plafond} pages): older clips in the requested window may "
+            "have been omitted.",
+        "cloud_racine_inattendue":
+            "  ! [data] Cloud manifest ignored: unexpected JSON root.",
+        "cloud_entrees_invalides":
+            "  ! [data] {invalides} invalid cloud entrie(s) ignored.",
+        "resume_volume": "  {n} clip(s), reported size: about {volume}",
+        "resume_periode": "  Period: {debut} -> {fin}",
+        "resume_cameras": "  Camera(s): {cameras}",
+        "aucun": "none",
+        "sync_module_introuvable":
+            "Sync Module not found: {demande!r}. Available: {disponibles}.",
+        "cat_donnees": "data",
+        "cat_reseau": "network",
+        "cat_http": "HTTP",
+        "cat_ecriture": "write",
+        "cat_media": "media",
+        "contenu_indisponible": "unavailable content",
+        "media_absent": "missing media address",
+        "aucune_reponse": "no response from the Blink service",
+        "statut_http": "HTTP status {statut}",
+        "statut_http_absent": "no HTTP status",
+        "reponse_refusee": "response refused ({detail})",
+        "reponse_vide": "empty response",
+        "reponse_tronquee": "truncated response ({recus} bytes received out of {attendu})",
+        "mp4_invalide": "body received, but MP4 incomplete or invalid",
+        "unite_octet": "B",
+        "unite_kibioctet": "KiB",
+        "unite_mebioctet": "MiB",
+        "unite_gibioctet": "GiB",
+    },
+}
+
+
+def msg(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
 
 
 def _premiere_valeur(*valeurs):
@@ -242,10 +341,9 @@ def select_sync_modules(blink: Blink, requested_name: str | None):
         }
     ]
     if not selected:
-        available = ", ".join(name for name, _ in modules) or "aucun"
-        raise ValueError(
-            f"Sync Module introuvable : {requested_name!r}. Disponible(s) : {available}."
-        )
+        available = ", ".join(name for name, _ in modules) or msg("aucun")
+        raise ValueError(msg("sync_module_introuvable", demande=requested_name,
+                             disponibles=available))
     return selected
 
 
@@ -260,14 +358,11 @@ async def read_local_manifest(sync) -> list:
     # opérationnelle à lire le manifeste XR. blinkpy ne bloque lui-même que sur
     # ``status`` : un stockage actif est la preuve la plus forte et doit primer.
     if not sync.local_storage and not storage.get("enabled"):
-        raise RuntimeError("le stockage local n'est pas activé sur ce hub")
+        raise RuntimeError(msg("stockage_non_active"))
     if not sync.local_storage:
-        raise RuntimeError(
-            "le stockage local n'est pas actif (clé USB ou carte microSD "
-            "absente/non reconnue, ou clips enregistrés dans le cloud)"
-        )
+        raise RuntimeError(msg("stockage_non_actif"))
 
-    print("  Lecture du manifeste du stockage local...")
+    print(msg("lecture_manifeste_local"))
     # Le Sync Module ne traite qu'une commande à la fois et répond « System is
     # busy » (code 307) tant qu'il n'a pas fini la précédente : un direct qui
     # vient de se fermer, ou une autre demande de manifeste, suffisent. Ce
@@ -279,14 +374,11 @@ async def read_local_manifest(sync) -> list:
             return list(storage["manifest"])
         if delay is None:
             break
-        print(f"  Module occupé, nouvelle tentative dans {delay} s "
-              f"({attempt}/{len(delays)})...")
+        print(msg("module_occupe_attente", delay=delay, attempt=attempt,
+                  total=len(delays)))
         await asyncio.sleep(delay)
 
-    raise RuntimeError(
-        "Blink n'a pas renvoyé le manifeste du stockage local après "
-        f"{len(delays) + 1} tentatives (module resté occupé)"
-    )
+    raise RuntimeError(msg("manifeste_local_absent", tentatives=len(delays) + 1))
 
 
 class CloudClip:
@@ -314,17 +406,18 @@ class CloudClip:
         self.download_issue = None
         target.unlink(missing_ok=True)
         if not self.address:
-            self.download_issue = ("données", "adresse du média absente")
+            self.download_issue = (msg("cat_donnees"), msg("media_absent"))
             return False
         try:
             reponse = await blink.do_http_get(self.address)
             if reponse is None:
-                self.download_issue = ("réseau", "aucune réponse du service Blink")
+                self.download_issue = (msg("cat_reseau"), msg("aucune_reponse"))
                 return False
             statut = getattr(reponse, "status", None)
             if not isinstance(statut, int) or not 200 <= statut < 300:
-                detail = f"statut HTTP {statut}" if isinstance(statut, int) else "statut HTTP absent"
-                self.download_issue = ("HTTP", f"réponse refusée ({detail})")
+                detail = (msg("statut_http", statut=statut) if isinstance(statut, int)
+                          else msg("statut_http_absent"))
+                self.download_issue = (msg("cat_http"), msg("reponse_refusee", detail=detail))
                 with contextlib.suppress(Exception):
                     await reponse.read()
                 return False
@@ -350,7 +443,7 @@ class CloudClip:
                 recus = len(contenu)
 
             if recus == 0:
-                self.download_issue = ("HTTP", "réponse vide")
+                self.download_issue = (msg("cat_http"), msg("reponse_vide"))
                 return False
 
             entetes = getattr(reponse, "headers", None)
@@ -363,21 +456,19 @@ class CloudClip:
                     attendu = None
                 if attendu is not None and attendu >= 0 and recus != attendu:
                     self.download_issue = (
-                        "données",
-                        f"réponse tronquée ({recus} octets reçus sur {attendu})",
+                        msg("cat_donnees"),
+                        msg("reponse_tronquee", recus=recus, attendu=attendu),
                     )
                     return False
 
             # Contrôle structurel peu coûteux ici ; l'appelant effectue la
             # lecture approfondie avant le renommage atomique et la suppression.
             if not md.valid_mp4(target):
-                self.download_issue = (
-                    "données", "corps reçu, mais MP4 incomplet ou invalide",
-                )
+                self.download_issue = (msg("cat_donnees"), msg("mp4_invalide"))
                 return False
             return True
         except Exception as erreur:
-            categorie = "écriture" if isinstance(erreur, OSError) else "réseau"
+            categorie = msg("cat_ecriture") if isinstance(erreur, OSError) else msg("cat_reseau")
             self.download_issue = (categorie, type(erreur).__name__)
             return False
         finally:
@@ -426,7 +517,7 @@ async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
     rapprochement fait plus loin plutôt qu'un choix de source."""
     jours = 30 if since_days is None else since_days
     if jours < 0:
-        raise ValueError("le nombre de jours doit être positif ou nul")
+        raise ValueError(msg("jours_negatifs"))
     depuis = dt.datetime.now() - dt.timedelta(days=jours)
     entrees = await blink.get_videos_metadata(
         since=depuis.strftime("%Y/%m/%d %H:%M:%S"), stop=PLAFOND_PAGES_CLOUD
@@ -435,13 +526,11 @@ async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
         # Compte proche du plafond : impossible de savoir depuis ici si la
         # dernière page était vide (fin réelle) ou si le plafond a coupé une
         # pagination encore active - signalé plutôt que tranché en silence.
-        print(f"  ! [données] Manifeste cloud proche du plafond de sécurité "
-              f"({PLAFOND_PAGES_CLOUD} pages) : des clips plus anciens dans "
-              f"la fenêtre demandée ont peut-être été omis.")
+        print(msg("cloud_plafond_securite", plafond=PLAFOND_PAGES_CLOUD))
     if entrees is None:
         return []
     if not isinstance(entrees, (list, tuple)):
-        print("  ! [données] Manifeste cloud ignoré : racine JSON inattendue.")
+        print(msg("cloud_racine_inattendue"))
         return []
     clips = []
     invalides = 0
@@ -460,7 +549,7 @@ async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
         except (KeyError, TypeError, ValueError):
             invalides += 1
     if invalides:
-        print(f"  ! [données] {invalides} entrée(s) cloud invalide(s) ignorée(s).")
+        print(msg("cloud_entrees_invalides", invalides=invalides))
     return clips
 
 
@@ -677,13 +766,15 @@ def reported_bytes(value) -> int:
 
 
 def human_size(size: int) -> str:
-    """Affiche une taille lisible."""
+    """Affiche une taille lisible, dans les unités de la langue affichée."""
+    unites = (msg("unite_octet"), msg("unite_kibioctet"),
+              msg("unite_mebioctet"), msg("unite_gibioctet"))
     amount = float(size)
-    for unit in ("o", "Kio", "Mio", "Gio"):
-        if amount < 1024 or unit == "Gio":
-            return f"{amount:.0f} {unit}" if unit == "o" else f"{amount:.1f} {unit}"
+    for unit in unites:
+        if amount < 1024 or unit == unites[-1]:
+            return f"{amount:.0f} {unit}" if unit == unites[0] else f"{amount:.1f} {unit}"
         amount /= 1024
-    return f"{size} o"
+    return f"{size} {unites[0]}"
 
 
 # Alias, pas une copie : trois versions quasi identiques de ce nettoyage
@@ -732,10 +823,11 @@ def target_path(output: Path, clip, sync=None, source: str | None = None) -> Pat
 def print_clip_summary(clips: list) -> None:
     """Affiche un résumé du manifeste, sans URL ni donnée sensible."""
     total_size = sum(reported_bytes(clip.size) for clip in clips)
-    print(f"  {len(clips)} clip(s), volume annoncé : environ {human_size(total_size)}")
+    print(msg("resume_volume", n=len(clips), volume=human_size(total_size)))
     if clips:
         first = clip_datetime_utc(clips[0]).astimezone()
         last = clip_datetime_utc(clips[-1]).astimezone()
-        print(f"  Période : {first:%Y-%m-%d %H:%M:%S %Z} -> {last:%Y-%m-%d %H:%M:%S %Z}")
+        print(msg("resume_periode", debut=f"{first:%Y-%m-%d %H:%M:%S %Z}",
+                  fin=f"{last:%Y-%m-%d %H:%M:%S %Z}"))
         cameras = sorted({clip.name for clip in clips}, key=str.casefold)
-        print(f"  Caméra(s) : {', '.join(cameras)}")
+        print(msg("resume_cameras", cameras=", ".join(cameras)))

@@ -106,10 +106,8 @@ async def _recv_corrige(self):
                 # va nulle part d'observable.
                 try:
                     horodatage = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-                    ligne = (
-                        f"[direct] {horodatage} {self.camera.name} : "
-                        f"premier octet vidéo du relais"
-                    )
+                    ligne = msg("direct_premier_octet", horodatage=horodatage,
+                               camera=self.camera.name)
                     print(ligne, flush=True)
                     runtime.ajouter_ligne("direct.log", ligne)
                 except Exception:
@@ -150,6 +148,93 @@ _blinkpy_livestream.BlinkLiveStream.recv = _recv_corrige
 # v0.10.6 ; elle a cassé tous les directs avec CERTIFICATE_VERIFY_FAILED avant
 # le premier octet. Les appels API Blink ordinaires restent, eux, strictement
 # validés par blink_auth.contexte_tls().
+
+
+LIBELLES = {
+    "fr": {
+        "direct_premier_octet": "[direct] {horodatage} {camera} : premier octet vidéo du relais",
+        "mp4_tronque": "MP4 tronqué ou illisible après téléchargement",
+        "cloud_inventaire_titre": "\n--- Inventaire du cloud de l'abonnement ---",
+        "cloud_inventaire_resume":
+            "  {total} clip(s) dans le cloud, {doublons} déjà acquis par "
+            "ailleurs, {inedits} à rapatrier.",
+        "cloud_section_titre": "\n=== CLOUD DE L'ABONNEMENT ===",
+        "cloud_supprime_auto": "    Supprimé du cloud (caméra en suppression automatique).",
+        "cloud_suppression_echec": "    ! Échec de la suppression sur le cloud (clip conservé là-bas).",
+        "echec_categorie": "    Échec [{categorie}] : {detail}.",
+        "cloud_termine":
+            "  Terminé : {downloaded} téléchargé(s), {adopted} adopté(s), "
+            "{skipped} ignoré(s), {failed} échec(s).",
+        "telechargement_deja_en_cours": "Téléchargement déjà en cours ({erreur}).",
+        "tour_interrompu":
+            "Tour de téléchargement interrompu par une erreur, on réessaie "
+            "au prochain : {erreur}",
+        "stockage_local_titre": "\n=== STOCKAGE LOCAL : {nom} ===",
+        "module_occupe": "  Module occupé (direct ou actualisation en cours) : {erreur}.",
+        "indisponible": "  Indisponible : {erreur}.",
+        "stockage_local_inventaire_titre": "\n--- Inventaire du stockage local : {nom} ---",
+        "destination": "  Destination : {output}",
+        "incremental": "  Incrémental : {nouveaux} nouveau(x), {deja} déjà acquis.",
+        "cloud_indisponible": "  Cloud indisponible : {type}: {erreur}",
+        "usb_echec": "    Échec : {type}: {erreur}",
+        "sync_suppression_impossible":
+            "    ! Suppression impossible sur le Sync Module ({type}) ; "
+            "clip conservé là-bas.",
+        "sync_supprime_auto": "    Supprimé du Sync Module (caméra en suppression automatique).",
+        "sync_suppression_echec":
+            "    ! Échec de la suppression sur le Sync Module (clip conservé là-bas).",
+        "usb_echec_final": "    Échec du téléchargement après plusieurs tentatives.",
+        "usb_termine":
+            "  Terminé : {downloaded} téléchargé(s), {skipped} déjà présent(s), "
+            "{failed} échec(s).",
+        "nouveaux_clips": "\nNouveaux clips : {n}",
+        "notif_corps_singulier": "{n} nouveau clip récupéré. Cliquez pour ouvrir.",
+        "notif_corps_pluriel": "{n} nouveaux clips récupérés. Cliquez pour ouvrir.",
+    },
+    "en": {
+        "direct_premier_octet": "[direct] {horodatage} {camera}: first video byte from the relay",
+        "mp4_tronque": "MP4 truncated or unreadable after download",
+        "cloud_inventaire_titre": "\n--- Cloud subscription inventory ---",
+        "cloud_inventaire_resume":
+            "  {total} clip(s) in the cloud, {doublons} already acquired "
+            "elsewhere, {inedits} to fetch.",
+        "cloud_section_titre": "\n=== SUBSCRIPTION CLOUD ===",
+        "cloud_supprime_auto": "    Deleted from the cloud (camera set to auto-delete).",
+        "cloud_suppression_echec": "    ! Failed to delete from the cloud (clip kept there).",
+        "echec_categorie": "    Failed [{categorie}]: {detail}.",
+        "cloud_termine":
+            "  Done: {downloaded} downloaded, {adopted} adopted, "
+            "{skipped} skipped, {failed} failed.",
+        "telechargement_deja_en_cours": "Download already in progress ({erreur}).",
+        "tour_interrompu":
+            "Download round interrupted by an error, retrying next round: {erreur}",
+        "stockage_local_titre": "\n=== LOCAL STORAGE: {nom} ===",
+        "module_occupe": "  Module busy (live view or refresh in progress): {erreur}.",
+        "indisponible": "  Unavailable: {erreur}.",
+        "stockage_local_inventaire_titre": "\n--- Local storage inventory: {nom} ---",
+        "destination": "  Destination: {output}",
+        "incremental": "  Incremental: {nouveaux} new, {deja} already acquired.",
+        "cloud_indisponible": "  Cloud unavailable: {type}: {erreur}",
+        "usb_echec": "    Failed: {type}: {erreur}",
+        "sync_suppression_impossible":
+            "    ! Could not delete from the Sync Module ({type}); "
+            "clip kept there.",
+        "sync_supprime_auto": "    Deleted from the Sync Module (camera set to auto-delete).",
+        "sync_suppression_echec":
+            "    ! Failed to delete from the Sync Module (clip kept there).",
+        "usb_echec_final": "    Download failed after several attempts.",
+        "usb_termine":
+            "  Done: {downloaded} downloaded, {skipped} already present, "
+            "{failed} failed.",
+        "nouveaux_clips": "\nNew clips: {n}",
+        "notif_corps_singulier": "{n} new clip downloaded. Click to open.",
+        "notif_corps_pluriel": "{n} new clips downloaded. Click to open.",
+    },
+}
+
+
+def msg(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
 
 
 class CloudResult(NamedTuple):
@@ -316,7 +401,7 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
     if not clips:
         return _PlanCloud()
 
-    print("\n--- Inventaire du cloud de l'abonnement ---")
+    print(msg("cloud_inventaire_titre"))
     # Le rapprochement se fait avec ce qui est déjà au registre, et non avec le
     # manifeste USB : celui-ci ne montre que ce que la clé contient encore,
     # alors que le registre garde la trace de tout ce qui a été rapatrié.
@@ -341,8 +426,8 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
         inedits, doublons = clips_autorises, []
     else:
         inedits, doublons = blink_models.rapprocher(connus, clips_autorises)
-    print(f"  {len(clips)} clip(s) dans le cloud, {len(doublons)} déjà acquis "
-          f"par ailleurs, {len(inedits)} à rapatrier.")
+    print(msg("cloud_inventaire_resume", total=len(clips), doublons=len(doublons),
+              inedits=len(inedits)))
     if args.command != "download" or not inedits:
         return _PlanCloud(
             clips=clips,
@@ -409,7 +494,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
     # lorsque tous ses clips sont déjà venus de l'USB, la barre doit rester à
     # N/N au lieu de finir visuellement sur un spinner.
     if jobs_a_executer:
-        print("\n=== CLOUD DE L'ABONNEMENT ===")
+        print(msg("cloud_section_titre"))
 
     for job in jobs_a_executer:
         clip = job.cloud
@@ -459,28 +544,28 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                     resultat = "downloaded"
                     if _suppression_auto_autorisee(sync, clip):
                         if await clip.delete_video(blink):
-                            print("    Supprimé du cloud (caméra en suppression "
-                                  "automatique).")
+                            print(msg("cloud_supprime_auto"))
                             state["clips"][
                                 blink_registre.state_key(sync, clip, source="cloud")
                             ]["source_deleted"] = True
                             blink_registre.save_download_state(output, state)
                         else:
-                            print("    ! Échec de la suppression sur le cloud "
-                                  "(clip conservé là-bas).")
+                            print(msg("cloud_suppression_echec"))
                 else:
                     if telecharge:
                         clip.download_issue = (
-                            "données", "MP4 tronqué ou illisible après téléchargement",
+                            blink_models.msg("cat_donnees"), msg("mp4_tronque"),
                         )
                     categorie, detail = getattr(
                         clip, "download_issue", None
-                    ) or ("média", "contenu indisponible")
-                    print(f"    Échec [{categorie}] : {detail}.")
+                    ) or (blink_models.msg("cat_media"), blink_models.msg("contenu_indisponible"))
+                    print(msg("echec_categorie", categorie=categorie, detail=detail))
         except (ClientError, OSError, asyncio.TimeoutError) as erreur:
-            print(f"    Échec [réseau] : {type(erreur).__name__}.")
+            print(msg("echec_categorie", categorie=blink_models.msg("cat_reseau"),
+                      detail=type(erreur).__name__))
         except Exception as erreur:  # Isoler un clip invalide des suivants.
-            print(f"    Échec [données] : {type(erreur).__name__}.")
+            print(msg("echec_categorie", categorie=blink_models.msg("cat_donnees"),
+                      detail=type(erreur).__name__))
         finally:
             partiel.unlink(missing_ok=True)
 
@@ -497,11 +582,8 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
         skipped=plan.skipped + skipped_usb + skipped_execution,
         failed=failed,
     )
-    print(
-        f"  Terminé : {resultat.downloaded} téléchargé(s), "
-        f"{resultat.adopted} adopté(s), {resultat.skipped} ignoré(s), "
-        f"{resultat.failed} échec(s)."
-    )
+    print(msg("cloud_termine", downloaded=resultat.downloaded, adopted=resultat.adopted,
+              skipped=resultat.skipped, failed=resultat.failed))
     return resultat
 
 
@@ -548,15 +630,14 @@ async def _faire_passage(blink: Blink, args, modules: list,
                 runtime.fin_travail(conserver=10)
             return _ResultatPassage(code, True)
     except runtime.BusyError as erreur:
-        print(f"Téléchargement déjà en cours ({erreur}).")
+        print(msg("telechargement_deja_en_cours", erreur=erreur))
         # Dans une boucle, l'autre worker fait déjà le travail et le prochain
         # tour réessaiera. Pour un clic manuel, répondre succès ferait lancer
         # la fusion puis afficher « terminé » alors qu'aucun téléchargement de
         # ce clic n'a eu lieu.
         return _ResultatPassage(0 if repetition else 1, False)
     except Exception as erreur:
-        print(f"Tour de téléchargement interrompu par une erreur, "
-              f"on réessaie au prochain : {erreur}")
+        print(msg("tour_interrompu", erreur=erreur))
         return _ResultatPassage(1, execute)
 
 
@@ -671,16 +752,16 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
     # sorties par source, sans créer un faux travail dans l'interface.
     if args.command != "download":
         for name, sync in ([] if args.source == "cloud" else modules):
-            print(f"\n=== STOCKAGE LOCAL : {name} ===")
+            print(msg("stockage_local_titre", nom=name))
             try:
                 with hub_lock(name):
                     clips = await blink_models.read_local_manifest(sync)
             except runtime.BusyError as error:
-                print(f"  Module occupé (direct ou actualisation en cours) : {error}.")
+                print(msg("module_occupe", erreur=error))
                 had_error = True
                 continue
             except RuntimeError as error:
-                print(f"  Indisponible : {error}.")
+                print(msg("indisponible", erreur=error))
                 had_error = True
                 continue
             clips = blink_models.filter_clips(clips, args.camera, args.since)
@@ -699,24 +780,24 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
     # transféré. C'est la seule manière de connaître un vrai total global.
     plans_usb = []
     for name, sync in ([] if args.source == "cloud" else modules):
-        print(f"\n--- Inventaire du stockage local : {name} ---")
+        print(msg("stockage_local_inventaire_titre", nom=name))
         runtime.travail("Inventaire des clips", 0, 0,
                         cle="phase.inventory_clips")
         try:
             with hub_lock(name):
                 clips = await blink_models.read_local_manifest(sync)
         except runtime.BusyError as error:
-            print(f"  Module occupé (direct ou actualisation en cours) : {error}.")
+            print(msg("module_occupe", erreur=error))
             had_error = True
             continue
         except RuntimeError as error:
-            print(f"  Indisponible : {error}.")
+            print(msg("indisponible", erreur=error))
             had_error = True
             continue
 
         clips = blink_models.filter_clips(clips, args.camera, args.since)
         blink_models.print_clip_summary(clips)
-        print(f"  Destination : {output}")
+        print(msg("destination", output=output))
         pending = []
         adopted = 0
         index_registre = blink_registre._index_registre(state)
@@ -752,7 +833,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
 
         blink_registre.save_download_state(output, state)
         deja = len(clips) - len(pending)
-        print(f"  Incrémental : {len(pending)} nouveau(x), {deja} déjà acquis.")
+        print(msg("incremental", nouveaux=len(pending), deja=deja))
         plans_usb.append(_PlanUSB(name, sync, clips, pending, adopted))
 
     plan_cloud = _PlanCloud()
@@ -764,7 +845,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
         except Exception as error:
             # Un cloud momentanément indisponible ne doit pas jeter le plan USB
             # déjà inventorié : il sera retenté au prochain passage.
-            print(f"  Cloud indisponible : {type(error).__name__}: {error}")
+            print(msg("cloud_indisponible", type=type(error).__name__, erreur=error))
             had_error = True
 
     # Un job par clip USB ; un clip cloud corrélé devient son repli. Les clips
@@ -805,7 +886,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
     for plan in plans_usb:
         if not plan.jobs:
             continue
-        print(f"\n=== STOCKAGE LOCAL : {plan.nom} ===")
+        print(msg("stockage_local_titre", nom=plan.nom))
         downloaded = skipped = failed = echecs_sans_repli = 0
         try:
             with hub_lock(plan.nom):
@@ -820,7 +901,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                             blink, clip, target, args.overwrite,
                         )
                     except Exception as error:
-                        print(f"    Échec : {type(error).__name__}: {error}")
+                        print(msg("usb_echec", type=type(error).__name__, erreur=error))
                         resultat = "failed"
 
                     if resultat == "downloaded":
@@ -837,20 +918,17 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                             try:
                                 supprime = await clip.delete_video(blink)
                             except Exception as error:
-                                print("    ! Suppression impossible sur le Sync "
-                                      f"Module ({type(error).__name__}) ; clip "
-                                      "conservé là-bas.")
+                                print(msg("sync_suppression_impossible",
+                                          type=type(error).__name__))
                             else:
                                 if supprime:
-                                    print("    Supprimé du Sync Module (caméra en "
-                                          "suppression automatique).")
+                                    print(msg("sync_supprime_auto"))
                                     state["clips"][
                                         blink_registre.state_key(plan.sync, clip)
                                     ]["source_deleted"] = True
                                     blink_registre.save_download_state(output, state)
                                 else:
-                                    print("    ! Échec de la suppression sur le "
-                                          "Sync Module (clip conservé là-bas).")
+                                    print(msg("sync_suppression_echec"))
                     elif resultat == "skipped":
                         skipped += 1
                         if target.exists() and md.valid_mp4(target):
@@ -862,13 +940,13 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                         failed += 1
                         if job.cloud is None:
                             echecs_sans_repli += 1
-                        print("    Échec du téléchargement après plusieurs tentatives.")
+                        print(msg("usb_echec_final"))
 
                     if resultat != "failed" or job.cloud is None:
                         job.done = True
                         progression.terminer()
         except runtime.BusyError as error:
-            print(f"  Module occupé (direct ou actualisation en cours) : {error}.")
+            print(msg("module_occupe", erreur=error))
             failed = len(plan.jobs)
             for job in plan.jobs:
                 if job.done:
@@ -883,10 +961,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                     job.done = True
                     progression.terminer()
 
-        print(
-            f"  Terminé : {downloaded} téléchargé(s), "
-            f"{skipped} déjà présent(s), {failed} échec(s)."
-        )
+        print(msg("usb_termine", downloaded=downloaded, skipped=skipped, failed=failed))
         # Un échec USB corrélé au cloud n'est pas encore définitif : le même job
         # sera tenté juste après par cette seconde source. Seul l'échec du repli
         # (compté par resultat_cloud) doit alors rendre le passage non nul.
@@ -905,21 +980,16 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
 
     if args.command == "download":
         # Ligne de synthèse, toutes sources confondues.
-        print(f"\nNouveaux clips : {neufs_total}")
+        print(msg("nouveaux_clips", n=neufs_total))
         runtime.marquer("download")
         if neufs_total:
             # Le verbe qui ramène est celui qui annonce : « watch » regarde les
             # caméras, il n'a pas à parler des clips.
-            pluriel = "s" if neufs_total > 1 else ""
             # Suit la langue de la page (runtime.lire_langue(), voir tray.py) :
             # une notification système reste visible même fenêtre fermée, elle
             # doit parler la même langue que ce que l'utilisateur a choisi.
-            if runtime.lire_langue() == "en":
-                corps = (f"{neufs_total} new clip{'s' if neufs_total > 1 else ''} "
-                         "downloaded. Click to open.")
-            else:
-                corps = (f"{neufs_total} nouveau{'x' if neufs_total > 1 else ''} "
-                         f"clip{pluriel} récupéré{pluriel}. Cliquez pour ouvrir.")
+            cle = "notif_corps_singulier" if neufs_total == 1 else "notif_corps_pluriel"
+            corps = msg(cle, n=neufs_total)
             # Le port configuré, pas 8765 en dur : sans ça, la notification
             # pointait vers la mauvaise page dès que l'utilisateur changeait
             # de port dans les réglages (revue du 27/08, bug 5).

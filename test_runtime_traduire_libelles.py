@@ -3,10 +3,11 @@
 page web qui suit déjà la langue choisie. `runtime.traduire()` leur donne le
 même mécanisme bilingue que LIBELLES dans tray.py, indexé par
 `runtime.lire_langue()` (le fichier `blink_langue.txt` laissé par le dernier
-chargement de la page). blink_auth.py et le flux login/download de
-blink_cli.py (async def main) sont les deux premiers convertis ; blink_cli.py
-nomme son alias local `msg()` plutôt que `_()` puisque ce fichier utilise déjà
-`_` comme variable jetable ailleurs (`for _, p in lances`, etc.)."""
+chargement de la page). blink_auth.py, le flux login/download de
+blink_cli.py (async def main), blink_models.py et blink_engine.py sont les
+modules convertis jusqu'ici ; tous sauf blink_auth.py nomment leur alias
+local `msg()` plutôt que `_()` puisqu'ils utilisent déjà `_` comme variable
+jetable ailleurs (`for _, p in lances`, etc.)."""
 
 from __future__ import annotations
 
@@ -18,6 +19,8 @@ from pathlib import Path
 import runtime
 import blink_auth
 import blink_cli
+import blink_models
+import blink_engine
 
 
 class TestTraduireLibelles(unittest.TestCase):
@@ -69,6 +72,37 @@ class TestTraduireLibelles(unittest.TestCase):
         self.assertEqual(
             blink_cli.msg("sync_module_ligne", nom="Garage", sync_id=1, network_id=2),
             "- Garage (ID 1, réseau 2)")
+
+    def test_blink_models_toutes_les_cles_existent_dans_les_deux_langues(self):
+        self.assertEqual(set(blink_models.LIBELLES["fr"]), set(blink_models.LIBELLES["en"]))
+
+    def test_blink_models_human_size_suit_la_langue(self):
+        self._regler_langue("fr")
+        self.assertEqual(blink_models.human_size(1024), "1.0 Kio")
+        self._regler_langue("en")
+        self.assertEqual(blink_models.human_size(1024), "1.0 KiB")
+
+    def test_blink_models_categorie_bascule(self):
+        self._regler_langue("en")
+        self.assertEqual(blink_models.msg("cat_reseau"), "network")
+        self._regler_langue("fr")
+        self.assertEqual(blink_models.msg("cat_reseau"), "réseau")
+
+    def test_blink_engine_toutes_les_cles_existent_dans_les_deux_langues(self):
+        self.assertEqual(set(blink_engine.LIBELLES["fr"]), set(blink_engine.LIBELLES["en"]))
+
+    def test_blink_engine_msg_bascule_et_formate(self):
+        self._regler_langue("en")
+        self.assertEqual(blink_engine.msg("nouveaux_clips", n=3), "\nNew clips: 3")
+        self._regler_langue("fr")
+        self.assertEqual(blink_engine.msg("nouveaux_clips", n=3), "\nNouveaux clips : 3")
+
+    def test_blink_engine_notification_singulier_pluriel(self):
+        self._regler_langue("en")
+        self.assertEqual(blink_engine.msg("notif_corps_singulier", n=1),
+                         "1 new clip downloaded. Click to open.")
+        self.assertEqual(blink_engine.msg("notif_corps_pluriel", n=3),
+                         "3 new clips downloaded. Click to open.")
 
 
 if __name__ == "__main__":
