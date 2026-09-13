@@ -263,9 +263,13 @@ downloaded would come back as new.
 - Blink exposes no way to restart a stuck Sync Module: you have to unplug it.
 - No iOS or Android build: continuous downloading and video assembly need a
   background process and ffmpeg, which neither mobile OS allows to run in the
-  background. The web interface itself is just a page though, reachable from a
-  phone or tablet's browser like any other device on the LAN by setting
-  `BLINK_BIND=0.0.0.0` (no login on the web UI, so only on a network you trust).
+  background. The web interface itself is just a page though: reaching it from
+  a phone, tablet, or any other device on the LAN needs a reverse proxy (or a
+  tunnel such as Tailscale/WireGuard) on the same machine, forwarding to
+  `127.0.0.1` with its own authentication in front, the same pattern as the
+  Docker container below. The web UI has no login of its own, so the built-in
+  server refuses any request that doesn't come from the local machine itself;
+  setting `BLINK_BIND=0.0.0.0` alone does not expose it to the LAN.
 
 ## Neighbours
 
@@ -412,7 +416,7 @@ nobody is listening. `--port` if you moved it.
 |---|---|
 | `BLINK_HOME` | data folder, defaulting to the executable's own |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` or `none`: how the Python environment is handled |
-| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. The UI deliberately remains local-only unless you opt in: set `0.0.0.0` to reach it from other machines on the LAN, or to bind it inside the official Docker container behind a `127.0.0.1` port publication. There is no authentication on the web UI, so only do this on a trusted home network, never expose it to the internet |
+| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. Only needed to bind it inside the official Docker container, behind a `127.0.0.1` port publication and `BLINK_TRUSTED_LOOPBACK_PROXY=1` (see the Docker section). There is no authentication on the web UI, so the server refuses any request that doesn't come from the local machine itself: setting this to `0.0.0.0` alone does not expose the UI to the LAN, a reverse proxy or tunnel with its own authentication is needed in front for that |
 
 </details>
 

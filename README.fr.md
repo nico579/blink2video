@@ -289,10 +289,13 @@ récupérés reviendraient comme neufs.
 - Pas de version iOS ou Android : le téléchargement continu et l'assemblage
   vidéo ont besoin d'un processus en arrière-plan et de ffmpeg, que ni l'un ni
   l'autre système mobile n'autorise à tourner en tâche de fond. L'interface web
-  elle-même n'est qu'une page, en revanche, accessible depuis le navigateur
-  d'un téléphone ou d'une tablette comme n'importe quel appareil du réseau
-  local en réglant `BLINK_BIND=0.0.0.0` (pas d'identifiant sur l'interface web,
-  donc uniquement sur un réseau de confiance).
+  elle-même n'est qu'une page, en revanche : y accéder depuis un téléphone, une
+  tablette ou tout autre appareil du LAN demande un reverse proxy (ou un tunnel
+  du type Tailscale/WireGuard) sur la même machine, qui relaie vers
+  `127.0.0.1` avec sa propre authentification devant, le même principe que le
+  conteneur Docker plus bas. L'interface web n'a pas d'identifiant à elle : le
+  serveur intégré refuse donc toute requête qui ne vient pas de la machine
+  locale elle-même, et régler seul `BLINK_BIND=0.0.0.0` ne l'expose pas au LAN.
 
 ## Voisins
 
@@ -439,7 +442,7 @@ de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
 |---|---|
 | `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
-| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. L'interface reste volontairement limitée à la machine locale sauf choix explicite : mettre `0.0.0.0` pour y accéder depuis d'autres machines du LAN, ou pour l'utiliser à l'intérieur du conteneur Docker officiel derrière une publication `127.0.0.1`. Le tableau de bord n'a aucune authentification : ne faire ça que sur un réseau domestique de confiance, jamais exposé sur internet |
+| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. Utile uniquement pour l'utiliser à l'intérieur du conteneur Docker officiel, derrière une publication `127.0.0.1` et `BLINK_TRUSTED_LOOPBACK_PROXY=1` (voir la section Docker). Le tableau de bord n'a aucune authentification : le serveur refuse donc toute requête qui ne vient pas de la machine locale elle-même, régler ceci seul à `0.0.0.0` n'expose pas l'interface au LAN, il faut un reverse proxy ou un tunnel avec sa propre authentification devant pour ça |
 
 </details>
 
