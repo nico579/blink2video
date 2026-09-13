@@ -2297,7 +2297,7 @@ $("refresh").onclick = async () => {
         `${label} ${current}/${p.total} (${Math.round((p.done / p.total) * 100)} %)`;
     }
     if (event.line !== undefined) {
-      $("log").textContent += event.line + "\\n";
+      $("log").textContent += event.line + "\n";
       $("log").scrollTop = $("log").scrollHeight;
     }
     if (event.done) {
