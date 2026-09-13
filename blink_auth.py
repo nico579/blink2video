@@ -41,6 +41,45 @@ AUTH_FIELDS = (
     "host", "region_id", "client_id", "account_id", "user_id", "hardware_id",
 )
 
+LIBELLES = {
+    "fr": {
+        "session_illisible_fichier":
+            "Session illisible [fichier]. Une nouvelle connexion est nécessaire.",
+        "session_illisible_json":
+            "Session illisible [données JSON]. Une nouvelle connexion est nécessaire.",
+        "session_illisible_schema":
+            "Session illisible [schéma JSON]. Une nouvelle connexion est nécessaire.",
+        "connexion_titre": "\nConnexion au compte Blink",
+        "prompt_email": "Adresse e-mail : ",
+        "prompt_password": "Mot de passe (non affiché) : ",
+        "prompt_code": "Code Blink : ",
+        "code_envoye": "\nUn code de vérification Blink vient d'être envoyé.",
+        "code_refuse": "Code refusé. {remaining} tentative(s) restante(s).",
+        "session_reutilisee": "Réutilisation de la session enregistrée dans {config}...",
+        "session_invalide": "La session enregistrée n'est plus valide.",
+    },
+    "en": {
+        "session_illisible_fichier":
+            "Session unreadable [file]. Signing in again is required.",
+        "session_illisible_json":
+            "Session unreadable [JSON data]. Signing in again is required.",
+        "session_illisible_schema":
+            "Session unreadable [JSON structure]. Signing in again is required.",
+        "connexion_titre": "\nSigning in to the Blink account",
+        "prompt_email": "Email address: ",
+        "prompt_password": "Password (hidden): ",
+        "prompt_code": "Blink code: ",
+        "code_envoye": "\nA Blink verification code was just sent.",
+        "code_refuse": "Code rejected. {remaining} attempt(s) left.",
+        "session_reutilisee": "Reusing the session saved in {config}...",
+        "session_invalide": "The saved session is no longer valid.",
+    },
+}
+
+
+def _(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
+
 
 def contexte_tls() -> ssl.SSLContext:
     """Étend les racines système avec le magasin Mozilla livré par certifi.
@@ -81,14 +120,14 @@ def load_saved_session() -> dict | None:
     try:
         data = json.loads(CONFIG.read_text(encoding="utf-8"))
     except OSError:
-        print("Session illisible [fichier]. Une nouvelle connexion est nécessaire.")
+        print(_("session_illisible_fichier"))
         return None
     except json.JSONDecodeError:
-        print("Session illisible [données JSON]. Une nouvelle connexion est nécessaire.")
+        print(_("session_illisible_json"))
         return None
 
     if not isinstance(data, dict):
-        print("Session illisible [schéma JSON]. Une nouvelle connexion est nécessaire.")
+        print(_("session_illisible_schema"))
         return None
 
     if not isinstance(data.get("refresh_token"), str) or not data["refresh_token"]:
@@ -103,9 +142,9 @@ def load_saved_session() -> dict | None:
 
 def ask_credentials() -> dict:
     """Demande les identifiants dans le terminal."""
-    print("\nConnexion au compte Blink")
-    username = input("Adresse e-mail : ").strip()
-    password = getpass.getpass("Mot de passe (non affiché) : ")
+    print(_("connexion_titre"))
+    username = input(_("prompt_email")).strip()
+    password = getpass.getpass(_("prompt_password"))
     return {"username": username, "password": password}
 
 
@@ -125,7 +164,7 @@ def make_blink(session: ClientSession, login_data: dict) -> Blink:
 
 async def prompt_2fa_code(attempt: int) -> str:
     """Demande le code de vérification dans le terminal."""
-    return input("Code Blink : ").strip()
+    return input(_("prompt_code")).strip()
 
 
 async def finish_login(blink: Blink, ask_code=None) -> bool:
@@ -139,14 +178,14 @@ async def finish_login(blink: Blink, ask_code=None) -> bool:
         connected = await blink.start()
     except BlinkTwoFARequiredError:
         ask_code = ask_code or prompt_2fa_code
-        print("\nUn code de vérification Blink vient d'être envoyé.")
+        print(_("code_envoye"))
         for attempt in range(3):
             code = (await ask_code(attempt) or "").strip()
             if code and await blink.send_2fa_code(code):
                 return True
             remaining = 2 - attempt
             if remaining:
-                print(f"Code refusé. {remaining} tentative(s) restante(s).")
+                print(_("code_refuse", remaining=remaining))
         return False
 
     return bool(connected)
@@ -253,11 +292,11 @@ async def connect(session: ClientSession) -> Blink | None:
     saved_session = load_saved_session()
 
     if saved_session:
-        print(f"Réutilisation de la session enregistrée dans {CONFIG}...")
+        print(_("session_reutilisee", config=CONFIG))
         blink = make_blink(session, saved_session)
         connected = await finish_login(blink)
         if not connected:
-            print("La session enregistrée n'est plus valide.")
+            print(_("session_invalide"))
             blink = make_blink(session, ask_credentials())
             connected = await finish_login(blink)
     else:

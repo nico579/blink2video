@@ -125,6 +125,34 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+LIBELLES = {
+    "fr": {
+        "echec_connexion": "\nÉchec de la connexion Blink.",
+        "connexion_reussie": "\nConnexion Blink réussie.",
+        "session_sauvegardee": "Session sauvegardée dans : {chemin}",
+        "sync_modules_titre": "\n=== SYNC MODULES ===",
+        "aucun_sync_module": "Aucun Sync Module trouvé sur ce compte.",
+        "sync_module_ligne": "- {nom} (ID {sync_id}, réseau {network_id})",
+        "usb_exige_sync_module": "\nLe stockage local exige un Sync Module ; utilisez --from cloud.",
+        "erreur_hub": "\nErreur : {erreur}",
+    },
+    "en": {
+        "echec_connexion": "\nBlink sign-in failed.",
+        "connexion_reussie": "\nSigned in to Blink.",
+        "session_sauvegardee": "Session saved to: {chemin}",
+        "sync_modules_titre": "\n=== SYNC MODULES ===",
+        "aucun_sync_module": "No Sync Module found on this account.",
+        "sync_module_ligne": "- {nom} (ID {sync_id}, network {network_id})",
+        "usb_exige_sync_module": "\nLocal storage needs a Sync Module; use --from cloud.",
+        "erreur_hub": "\nError: {erreur}",
+    },
+}
+
+
+def msg(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
+
+
 async def main(args: argparse.Namespace) -> int:
     # Lazy : seuls login/list/download/start (via ce chemin) paient le coût
     # d'aiohttp et de blinkpy (O-06/8.7/8.8).
@@ -136,27 +164,28 @@ async def main(args: argparse.Namespace) -> int:
     async with blink_auth.session_http_temporaire() as session:
         blink = await blink_auth.connect(session)
         if blink is None:
-            print("\nÉchec de la connexion Blink.")
+            print(msg("echec_connexion"))
             return 1
 
-        print("\nConnexion Blink réussie.")
-        print(f"Session sauvegardée dans : {blink_auth.CONFIG.resolve()}")
-        print("\n=== SYNC MODULES ===")
+        print(msg("connexion_reussie"))
+        print(msg("session_sauvegardee", chemin=blink_auth.CONFIG.resolve()))
+        print(msg("sync_modules_titre"))
         # Le homescreen moderne peut annoncer un véritable module de stockage
         # que les anciens endpoints encore utilisés par blinkpy 0.25.9 n'ont
         # pas placé dans blink.sync (notamment avec un XR). La même découverte
         # que le téléchargeur doit donc précéder l'affichage et le garde-fou USB.
         modules_disponibles = blink_models.select_sync_modules(blink, None)
         if not modules_disponibles:
-            print("Aucun Sync Module trouvé sur ce compte.")
+            print(msg("aucun_sync_module"))
         for name, sync in modules_disponibles:
-            print(f"- {name} (ID {sync.sync_id}, réseau {sync.network_id})")
+            print(msg("sync_module_ligne", nom=name, sync_id=sync.sync_id,
+                      network_id=sync.network_id))
 
         if args.command == "login":
             return 0
 
         if args.source == "usb" and not modules_disponibles:
-            print("\nLe stockage local exige un Sync Module ; utilisez --from cloud.")
+            print(msg("usb_exige_sync_module"))
             return 1
 
         try:
@@ -166,7 +195,7 @@ async def main(args: argparse.Namespace) -> int:
                       else blink_models.select_sync_modules(blink, args.hub))
             )
         except ValueError as error:
-            print(f"\nErreur : {error}")
+            print(msg("erreur_hub", erreur=error))
             return 2
 
         return await blink_engine.boucler(blink, args, modules)

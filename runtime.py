@@ -36,7 +36,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.12.16"
+VERSION = "0.12.17"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -211,6 +211,20 @@ def ecrire_langue(code: str) -> None:
     FR/EN laisserait le menu du systray dans le défaut, même si la page
     s'affichait déjà en anglais (langue détectée du navigateur)."""
     _ecrire_texte_atomique(app_dir() / LANGUE, "en" if code == "en" else "fr")
+
+
+def traduire(libelles: dict, cle: str, **valeurs) -> str:
+    """Rend libelles[langue][cle] dans la langue de la page (lire_langue()),
+    formatée avec valeurs au besoin.
+
+    Même dictionnaire bilingue à deux clés "fr"/"en" que LIBELLES dans
+    tray.py, réutilisé ici pour les messages que les commandes (download,
+    login, merge...) impriment sur leur propre sortie standard : ces
+    processus n'ont pas de page web à qui déléguer la traduction, seulement
+    le fichier `blink_langue.txt` laissé par le dernier chargement de la
+    page (issue GitHub #6 : ces messages restaient tout en français)."""
+    texte = libelles[lire_langue()][cle]
+    return texte.format(**valeurs) if valeurs else texte
 
 
 SUPPRESSION_AUTO = "blink_suppression_auto.json"
