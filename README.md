@@ -181,6 +181,46 @@ port mapping yourself.
 
 </details>
 
+<details>
+<summary>Reaching it remotely (reverse proxy)</summary>
+
+Because the dashboard has no login, the server only accepts requests whose
+`Host` header is `127.0.0.1`, `localhost` or `::1`, on top of requiring the
+connection itself to come from this machine (a check `BLINK_TRUSTED_LOOPBACK_PROXY=1`
+relaxes for the Docker bridge above, see its comment in `docker-compose.yml`).
+A reverse proxy on the same machine satisfies the second part automatically,
+but by default it forwards the `Host` your browser sent (its own public name
+or LAN address), not `127.0.0.1`, and still gets refused with a 403 until
+it's told to rewrite it. A plain TCP/L4 proxy (`socat`, a router's port
+forwarding) can't do that rewriting at all, it never gets to see HTTP
+headers, so it cannot reach this server no matter how it's configured; the
+fix always needs an HTTP-aware reverse proxy.
+
+Caddy:
+
+```
+your.domain.example {
+  reverse_proxy 127.0.0.1:8765 {
+    header_up Host 127.0.0.1
+  }
+}
+```
+
+nginx:
+
+```
+location / {
+    proxy_pass http://127.0.0.1:8765;
+    proxy_set_header Host 127.0.0.1;
+}
+```
+
+Put your own authentication (basic auth, a client certificate, an access
+list) in front of either, the proxy is what's reachable from the network,
+blink2video itself still has none.
+
+</details>
+
 ## The interface
 
 The page, at `127.0.0.1:8765`, has five views:
@@ -269,8 +309,9 @@ downloaded would come back as new.
   background. The web interface itself is just a page though: reaching it from
   a phone, tablet, or any other device on the LAN needs a reverse proxy (or a
   tunnel such as Tailscale/WireGuard) on the same machine, forwarding to
-  `127.0.0.1` with its own authentication in front, the same pattern as the
-  Docker container below. The web UI has no login of its own, so the built-in
+  `127.0.0.1` with its own authentication in front and its `Host` header set
+  accordingly (see "Reaching it remotely" above), the same pattern as the
+  Docker container. The web UI has no login of its own, so the built-in
   server refuses any request that doesn't come from the local machine itself;
   setting `BLINK_BIND=0.0.0.0` alone does not expose it to the LAN.
 

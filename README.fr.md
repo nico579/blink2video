@@ -198,6 +198,47 @@ volontairement la publication du port.
 
 </details>
 
+<details>
+<summary>Y accéder à distance (reverse proxy)</summary>
+
+Le tableau de bord n'ayant aucune connexion, le serveur n'accepte que les
+requêtes dont l'en-tête `Host` vaut `127.0.0.1`, `localhost` ou `::1`, en plus
+d'exiger que la connexion elle-même vienne de cette machine (une vérification
+que `BLINK_TRUSTED_LOOPBACK_PROXY=1` assouplit pour le pont Docker ci-dessus,
+voir son commentaire dans `docker-compose.yml`). Un reverse proxy sur la même
+machine satisfait automatiquement la deuxième condition, mais par défaut il
+transmet le `Host` envoyé par le navigateur (son nom public ou son adresse
+LAN), pas `127.0.0.1`, et se fait donc refuser avec un 403 tant qu'on ne lui
+a pas dit de le réécrire. Un simple relais TCP (`socat`, la redirection de
+port d'un routeur) ne peut pas faire cette réécriture : il ne voit jamais les
+en-têtes HTTP, donc aucune configuration ne le fera atteindre ce serveur ; il
+faut toujours un reverse proxy qui comprend le HTTP.
+
+Caddy :
+
+```
+mondomaine.exemple {
+  reverse_proxy 127.0.0.1:8765 {
+    header_up Host 127.0.0.1
+  }
+}
+```
+
+nginx :
+
+```
+location / {
+    proxy_pass http://127.0.0.1:8765;
+    proxy_set_header Host 127.0.0.1;
+}
+```
+
+Mettez votre propre authentification (mot de passe HTTP basique, certificat
+client, liste d'accès) devant l'un ou l'autre : c'est le proxy qui est
+joignable depuis le réseau, blink2video lui-même n'en a toujours aucune.
+
+</details>
+
 ## L'interface
 
 La page, sur `127.0.0.1:8765`, a cinq vues :
@@ -295,10 +336,12 @@ récupérés reviendraient comme neufs.
   elle-même n'est qu'une page, en revanche : y accéder depuis un téléphone, une
   tablette ou tout autre appareil du LAN demande un reverse proxy (ou un tunnel
   du type Tailscale/WireGuard) sur la même machine, qui relaie vers
-  `127.0.0.1` avec sa propre authentification devant, le même principe que le
-  conteneur Docker plus bas. L'interface web n'a pas d'identifiant à elle : le
-  serveur intégré refuse donc toute requête qui ne vient pas de la machine
-  locale elle-même, et régler seul `BLINK_BIND=0.0.0.0` ne l'expose pas au LAN.
+  `127.0.0.1` avec sa propre authentification devant et son en-tête `Host`
+  réglé en conséquence (voir « Y accéder à distance » plus haut), le même
+  principe que le conteneur Docker. L'interface web n'a pas d'identifiant à
+  elle : le serveur intégré refuse donc toute requête qui ne vient pas de la
+  machine locale elle-même, et régler seul `BLINK_BIND=0.0.0.0` ne l'expose
+  pas au LAN.
 
 ## Voisins
 
