@@ -48,6 +48,9 @@ and the main settings.
 - Continuous monitoring and alerts: camera offline, low battery, detection
   switched off, or nothing recorded for two days. Alerts to acknowledge,
   per-camera muting.
+- French and English throughout: web interface, notifications, and every
+  command's own console output. Detected from your browser, switchable from
+  the page.
 - Standalone bundle for Windows, Linux and macOS, ffmpeg included.
 
 ## Screenshots

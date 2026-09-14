@@ -55,6 +55,9 @@ lancement et les principaux réglages.
 - Surveillance continue et alerte : caméra hors ligne, batterie faible,
   détection coupée, ou rien d'enregistré depuis deux jours. Alerte à acquitter,
   sourdine par caméra.
+- Français et anglais partout : interface web, notifications, et la sortie
+  console de chaque commande. Détecté depuis le navigateur, changeable
+  depuis la page.
 - Logiciel autonome pour Windows, Linux et macOS, ffmpeg inclus.
 
 ## Captures d'écran
