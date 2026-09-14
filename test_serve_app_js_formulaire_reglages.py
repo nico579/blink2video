@@ -16,6 +16,7 @@ REGLAGES = {
     "timezone": "Europe/Paris", "live_protocol": "webrtc",
     "merge_jour": True, "merge_semaine": True, "merge_mois": False,
     "download_auto": True, "initial_setup": False,
+    "webhook_token": "jeton-test-abc123",
 }
 
 
@@ -57,6 +58,7 @@ const ids = [
   'usbMinutes', 'cloudMinutes', 'port', 'storageDir', 'timestamp', 'timezone',
   'liveProtocol', 'mergeJour', 'mergeSemaine', 'mergeMois', 'downloadAuto',
   'initialSetupHint', 'reglagesClose', 'stopButton', 'reglages', 'reglagesButton',
+  'webhookUrl', 'webhookRegenerer',
 ];
 class Element {
   constructor(id) {
@@ -82,7 +84,7 @@ globalThis.$ = (id) => {
   if (!elements[id]) throw new Error(`Élément inattendu : ${id}`);
   return elements[id];
 };
-globalThis.location = {reload: () => { rechargements += 1; }};
+globalThis.location = {origin: 'http://localhost:1234', reload: () => { rechargements += 1; }};
 globalThis.chargerSourdine = () => {
   evenements.push('chargerSourdine');
   return attenteListes;
@@ -173,6 +175,10 @@ function capturer() {
                 for identifiant, cle in cases.items():
                     self.assertEqual(etat["champs"][identifiant]["checked"], reglages[cle])
                 self.assertEqual(etat["portActuel"], 8127)
+                self.assertEqual(
+                    etat["champs"]["webhookUrl"]["value"],
+                    "http://localhost:1234/webhook/snapshot?camera=NOM_CAMERA&token=jeton-test-abc123",
+                )
 
     def test_ouverture_attend_reglages_puis_lance_listes_avant_dialogue(self):
         resultat = self._executer()

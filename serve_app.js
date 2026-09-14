@@ -48,6 +48,7 @@ async function lireJSON(reponse) {
 
 let data = { clips: [], cameras: [], days: [] };
 let videos = { daily: [], weekly: [], monthly: [] };
+let snapshots = [];
 const $ = (id) => document.getElementById(id);
 
 // ── i18n ─────────────────────────────────────────────────────────────────
@@ -62,6 +63,7 @@ const I18N = {
     "view.live": "Directs Vues", "view.direct": "Directs Enregistrements",
     "view.clips": "Détections Enregistrements", "view.daily": "Détections Journalières",
     "view.weekly": "Détections Hebdomadaires", "view.monthly": "Détections Mensuelles",
+    "view.pictures": "Photos",
     "filter.allcameras": "toutes caméras",
     "btn.refresh": "↻ Actualiser", "btn.reglages": "⚙ Réglages…", "btn.reglages.title": "Réglages",
     "update.installing": "Installer {version}",
@@ -108,6 +110,12 @@ const I18N = {
     "reglages.archivage.hint": "Hebdomadaire et mensuelle sont assemblées à partir de la quotidienne : décocher « Quotidienne » désactive aussi les deux autres.",
     "reglages.alertes": "Mise en sourdine des alertes",
     "reglages.suppressionAuto": "Suppression automatique après téléchargement",
+    "reglages.webhook": "Photo par webhook",
+    "reglages.webhook.hint": "Déclenche une photo à distance (domotique, automatisation) sans ouvrir cette page.",
+    "reglages.webhook.hint.text": "Appelez cette URL en GET, en remplaçant NOM_CAMERA par le nom exact d'une caméra, pour déclencher une photo à distance. Le secret fait partie de l'URL : gardez-la privée.",
+    "reglages.webhook.url": "URL",
+    "reglages.webhook.regenerer": "Régénérer le secret",
+    "reglages.webhook.regenerer.confirm": "Régénérer invalidera l'URL actuelle : toute automatisation existante devra être mise à jour avec la nouvelle. Continuer ?",
     "reglages.hint": "Les réglages ne prennent effet qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le port redirige cette page vers la nouvelle adresse.",
     "reglages.apply": "Appliquer", "reglages.restarting": "Redémarrage…",
     "reglages.restarting.settings": "Redémarrage avec les nouveaux réglages…",
@@ -142,6 +150,8 @@ const I18N = {
     "camera.detection.on": "Détection active", "camera.detection.off": "Détection coupée",
     "camera.wake": "Réveiller", "camera.waking": "Réveil…",
     "camera.wake.title": "Réveille la caméra maintenant (prend une photo). Consomme un peu de batterie, jusqu'à 2 minutes.",
+    "camera.snapshot": "Photo", "camera.snapshotting": "Photo…",
+    "camera.snapshot.title": "Prend une photo maintenant et la garde dans Photos. Consomme un peu de batterie, jusqu'à 2 minutes.",
     "camera.battery": "batterie {v}", "camera.wifi": "Wi-Fi {v} dBm",
     "camera.lfr": "liaison module {v}", "camera.measured.at": "relevé à {v}",
     "camera.measured.on": "relevé du {v}", "camera.firmware": "micrologiciel {v}",
@@ -179,6 +189,11 @@ const I18N = {
     "videos.count": "{n} vidéo(s) · {duree} au total",
     "videos.none": "Aucune vidéo assemblée. Lancez une actualisation.",
     "videos.download": "Télécharger",
+    "pictures.count": "{n} photo(s)",
+    "pictures.none": "Aucune photo pour l'instant. Prenez-en une depuis Direct, ou via le webhook.",
+    "pictures.delete": "Supprimer",
+    "pictures.delete.title": "Supprimer cette photo du disque.",
+    "pictures.delete.confirm": "Supprimer cette photo ?",
     "clip.resume": "Reprendre", "clip.discard": "Écarter",
     "clip.discard.title": "Retirer ce clip des vidéos assemblées (quotidienne, hebdomadaire, mensuelle). La copie téléchargée reste sur le disque.",
     "clip.resume.title": "Réinclure ce clip dans les prochains assemblages.",
@@ -195,6 +210,7 @@ const I18N = {
     "view.live": "Live Views", "view.direct": "Live Recordings",
     "view.clips": "Detection Recordings", "view.daily": "Detection Daily",
     "view.weekly": "Detection Weekly", "view.monthly": "Detection Monthly",
+    "view.pictures": "Pictures",
     "filter.allcameras": "all cameras",
     "btn.refresh": "↻ Refresh", "btn.reglages": "⚙ Settings…", "btn.reglages.title": "Settings",
     "update.installing": "Install {version}",
@@ -241,6 +257,12 @@ const I18N = {
     "reglages.archivage.hint": "Weekly and Monthly are assembled from the Daily: unchecking \u201cDaily\u201d also disables the other two.",
     "reglages.alertes": "Mute alerts",
     "reglages.suppressionAuto": "Automatic deletion after download",
+    "reglages.webhook": "Webhook picture",
+    "reglages.webhook.hint": "Triggers a picture remotely (home automation) without opening this page.",
+    "reglages.webhook.hint.text": "Call this URL with GET, replacing NOM_CAMERA with a camera's exact name, to trigger a picture remotely. The secret is part of the URL: keep it private.",
+    "reglages.webhook.url": "URL",
+    "reglages.webhook.regenerer": "Regenerate the secret",
+    "reglages.webhook.regenerer.confirm": "Regenerating will invalidate the current URL: any existing automation will need the new one. Continue?",
     "reglages.hint": "Settings only take effect on restart: \u201cApply\u201d saves and restarts. Changing the port redirects this page to the new address.",
     "reglages.apply": "Apply", "reglages.restarting": "Restarting…",
     "reglages.restarting.settings": "Restarting with the new settings…",
@@ -275,6 +297,8 @@ const I18N = {
     "camera.detection.on": "Detection on", "camera.detection.off": "Detection off",
     "camera.wake": "Wake", "camera.waking": "Waking…",
     "camera.wake.title": "Wakes the camera now (takes a photo). Uses a bit of battery, up to 2 minutes.",
+    "camera.snapshot": "Snapshot", "camera.snapshotting": "Snapshot…",
+    "camera.snapshot.title": "Takes a picture now and keeps it under Pictures. Uses a bit of battery, up to 2 minutes.",
     "camera.battery": "battery {v}", "camera.wifi": "Wi-Fi {v} dBm",
     "camera.lfr": "module link {v}", "camera.measured.at": "measured at {v}",
     "camera.measured.on": "measured on {v}", "camera.firmware": "firmware {v}",
@@ -312,6 +336,11 @@ const I18N = {
     "videos.count": "{n} video(s) · {duree} total",
     "videos.none": "No assembled video. Run a refresh.",
     "videos.download": "Download",
+    "pictures.count": "{n} picture(s)",
+    "pictures.none": "No picture yet. Take one from Live, or via the webhook.",
+    "pictures.delete": "Delete",
+    "pictures.delete.title": "Delete this picture from disk.",
+    "pictures.delete.confirm": "Delete this picture?",
     "clip.resume": "Resume", "clip.discard": "Discard",
     "clip.discard.title": "Remove this clip from the assembled videos (daily, weekly, monthly). The downloaded copy stays on disk.",
     "clip.resume.title": "Include this clip in future assemblies again.",
@@ -407,6 +436,10 @@ function camerasConnues() {
   for (const liste of Object.values(videos)) {
     for (const v of liste) ensemble.add(v.camera);
   }
+  // Une caméra sans aucun clip ni vidéo assemblée (webhook seul, jamais
+  // armée) doit quand même apparaître ici : sinon rien ne permet de filtrer
+  // sur elle dans Photos.
+  for (const s of snapshots) ensemble.add(s.camera);
   return [...ensemble].sort();
 }
 
@@ -479,6 +512,7 @@ function render() {
   // périmé derrière une autre vue.
   if (!carteClips) $("filtreCompte").textContent = "";
   if (kind === "live") return renderLive();
+  if (kind === "pictures") return renderPictures();
   return carteClips ? renderClips() : renderVideos(kind);
 }
 
@@ -821,6 +855,8 @@ function cameraCard(c, systemArmed) {
       </button>
       <button class="act grouped" title="${h(t("camera.wake.title"))}"
               data-action="wake" data-name="${h(c.key)}">${h(t("camera.wake"))}</button>
+      <button class="act grouped" title="${h(t("camera.snapshot.title"))}"
+              data-action="snapshot" data-name="${h(c.key)}">${h(t("camera.snapshot"))}</button>
     </div>
   </div>`;
 }
@@ -1817,6 +1853,51 @@ async function reveillerCamera(name, bouton) {
   }
 }
 
+async function prendreSnapshot(name, bouton) {
+  const libelle = bouton.textContent;
+  bouton.disabled = true;
+  bouton.textContent = t("camera.snapshotting");
+  try {
+    const answer = await fetch("/api/snapshot", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const result = await lireJSON(answer);
+    if (result.error) { alert(result.error); return; }
+    if ($("view").value === "pictures") chargerSnapshots();
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = libelle;
+  }
+}
+
+// Fonction dédiée plutôt que passer par load() : un appel après une prise
+// manuelle (prendreSnapshot) ou à chaque bascule de vue (load()) ne doit pas
+// redemander clips/vidéos ni réinitialiser leurs cases à cocher en attente
+// (excludedStaged/supprimerStaged), pour rien.
+async function chargerSnapshots() {
+  const answer = await fetch("/api/snapshots");
+  const result = await lireJSON(answer);
+  snapshots = result.snapshots || [];
+  if ($("view").value === "pictures") render();
+}
+
+async function supprimerSnapshot(fichier, bouton) {
+  if (!confirm(t("pictures.delete.confirm"))) return;
+  bouton.disabled = true;
+  try {
+    const answer = await fetch("/api/snapshot-supprimer", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fichier }),
+    });
+    const result = await lireJSON(answer);
+    if (result.error) { alert(result.error); return; }
+    await chargerSnapshots();
+  } finally {
+    bouton.disabled = false;
+  }
+}
+
 function renderClips() {
   // Propre au genre affiché (clip ou direct) : data.clips mélange les deux
   // depuis le 2026-09-04, ce récapitulatif ne doit pas compter l'autre vue.
@@ -1876,6 +1957,43 @@ function renderVideos(kind) {
       ${items.filter((v) => v.camera === camera).map(videoCard).join("")}
     </div>
   `).join("");
+}
+
+// Le nom du fichier porte l'horodatage UTC (déclencherSnapshot, serve.py) :
+// pas de champ séparé à demander, juste le reformater pour l'affichage.
+function dateSnapshot(horodatage) {
+  const m = horodatage.match(/^(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})Z_/);
+  if (!m) return horodatage;
+  return new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}Z`).toLocaleString();
+}
+
+function renderPictures() {
+  const items = snapshots.filter((s) => !$("camera").value || s.camera === $("camera").value);
+  $("count").textContent = items.length ? tf("pictures.count", { n: items.length }) : "";
+  if (!items.length) {
+    $("list").innerHTML = `<p class="empty">${t("pictures.none")}</p>`;
+    return;
+  }
+  const cameras = [...new Set(items.map((s) => s.camera))];
+  $("list").innerHTML = cameras.map((camera) => `
+    <h2>${h(camera)}</h2>
+    <div class="grid">
+      ${items.filter((s) => s.camera === camera).map(pictureCard).join("")}
+    </div>
+  `).join("");
+}
+
+function pictureCard(s) {
+  const media = avecJeton(`/snapshot/${encodeURI(s.fichier)}`);
+  return `<div class="card">
+    <img class="snapshot" loading="lazy" src="${h(media)}" alt="">
+    <div class="meta">
+      <div class="time">${h(dateSnapshot(s.horodatage))}</div>
+      <a class="act" href="${h(media)}" download>${h(t("videos.download"))}</a>
+      <button class="act grouped" title="${h(t("pictures.delete.title"))}"
+              data-action="delete-snapshot" data-fichier="${h(s.fichier)}">${h(t("pictures.delete"))}</button>
+    </div>
+  </div>`;
 }
 
 function videoCard(v) {
@@ -2018,6 +2136,7 @@ async function load() {
   }
   render();
   majBoutonAppliquer();
+  chargerSnapshots();
 }
 
 // Un préréglage suffit à retrouver un incident récent (aujourd'hui, cette
@@ -2413,7 +2532,23 @@ function afficherFormulaireReglages(reglages) {
   appliquerDependanceMergeJour();
   $("downloadAuto").checked = reglages.download_auto;
   appliquerDependanceDownloadAuto();
+  afficherUrlWebhook(reglages.webhook_token);
 }
+
+// NOM_CAMERA reste un espace réservé littéral : l'utilisateur le remplace
+// lui-même dans la configuration de son automatisation, cette page ne
+// connaît pas d'avance quelle caméra sera visée par l'appel externe.
+function afficherUrlWebhook(jeton) {
+  $("webhookUrl").value = `${location.origin}/webhook/snapshot?camera=NOM_CAMERA&token=${jeton}`;
+}
+$("webhookUrl").onclick = () => $("webhookUrl").select();
+$("webhookRegenerer").onclick = async () => {
+  if (!confirm(t("reglages.webhook.regenerer.confirm"))) return;
+  const reponse = await fetch("/api/webhook-regenerer", { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: "{}" });
+  const resultat = await lireJSON(reponse);
+  afficherUrlWebhook(resultat.token);
+};
 
 function configurerDialogueReglages(configurationInitiale) {
   $("initialSetupHint").hidden = !configurationInitiale;
@@ -2759,6 +2894,9 @@ $("list").addEventListener("click", (event) => {
     case "wake":
       reveillerCamera(name, cible);
       break;
+    case "snapshot":
+      prendreSnapshot(name, cible);
+      break;
     case "watch-live":
       watchLive(name);
       break;
@@ -2770,6 +2908,9 @@ $("list").addEventListener("click", (event) => {
       break;
     case "toggle-record":
       toggleRecord(name, cible);
+      break;
+    case "delete-snapshot":
+      supprimerSnapshot(cible.dataset.fichier, cible);
       break;
   }
 });

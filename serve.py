@@ -4039,6 +4039,7 @@ __CSS__
     <option value="daily" data-i18n="view.daily">Détections Journalières</option>
     <option value="weekly" data-i18n="view.weekly">Détections Hebdomadaires</option>
     <option value="monthly" data-i18n="view.monthly">Détections Mensuelles</option>
+    <option value="pictures" data-i18n="view.pictures">Photos</option>
   </select>
   <button id="filtreButton" data-i18n="filtre.button" data-i18n-title="filtre.button.title"
           title="Filtrer">🔍 Filtre</button>
@@ -4186,6 +4187,20 @@ __CSS__
         <input type="checkbox" id="mergeMois"> <span data-i18n="reglages.mergeMois">Mensuelle</span>
       </label>
     </div>
+  </fieldset>
+  <fieldset>
+    <legend data-i18n="reglages.webhook" data-i18n-title="reglages.webhook.hint"
+            title="Déclenche une photo à distance (domotique, automatisation) sans ouvrir cette page.">Photo par webhook</legend>
+    <p class="sub tiny" data-i18n="reglages.webhook.hint.text">
+      Appelez cette URL en GET, en remplaçant NOM_CAMERA par le nom exact d'une
+      caméra, pour déclencher une photo à distance. Le secret fait partie de
+      l'URL : gardez-la privée.
+    </p>
+    <div class="champCadence">
+      <label for="webhookUrl" data-i18n="reglages.webhook.url">URL</label>
+      <input type="text" id="webhookUrl" readonly>
+    </div>
+    <button type="button" id="webhookRegenerer" data-i18n="reglages.webhook.regenerer">Régénérer le secret</button>
   </fieldset>
   <fieldset>
     <legend data-i18n="reglages.alertes">Mise en sourdine des alertes</legend>

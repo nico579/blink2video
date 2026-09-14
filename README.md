@@ -36,6 +36,9 @@ and the main settings.
 - Live view recording on demand, one click while watching: saved to its own
   archive, browsable and filterable exactly like detection clips (discard,
   delete, camera and period filter).
+- On-demand camera snapshot, one click from the Live tile or triggered
+  remotely through a webhook URL (home automation, a smart button): saved
+  under Pictures, browsable and deletable from the page.
 - Incremental download of motion-detection clips from the module's local storage
   (Sync Module 2 USB stick or Sync Module XR microSD card)
   and from the subscription cloud, never fetching the same recording twice.
@@ -223,17 +226,43 @@ blink2video itself still has none.
 
 ## The interface
 
-The page, at `127.0.0.1:8765`, has five views:
+The page, at `127.0.0.1:8765`, has six views:
 
 - **Live**: one tile per camera, its state, detection arming, a fullscreen
-  button, and a "Wake" button that requests a fresh photo from the camera
-  right now instead of waiting for its next scheduled check-in (uses a bit
-  of battery, can take up to two minutes on a sleeping camera).
+  button, a "Wake" button that forces the camera to check in right now for
+  fresher battery/temperature/thumbnail readings instead of waiting for its
+  next scheduled one, and a "Snapshot" button that does the same but keeps
+  the resulting picture under Pictures instead of discarding it (both use a
+  bit of battery, can take up to two minutes on a sleeping camera).
 - **Clips**: newest first, with a preview and an "Écarter" button that removes a
   clip from every assembled video.
 - **Daily, Weekly, Monthly**: the assembled videos.
+- **Pictures**: on-demand snapshots, newest first, with a delete button.
+  Filled by the Live tile's "Snapshot" button, or remotely through a webhook
+  URL meant for home automation or a physical smart button (Settings,
+  "Webhook picture", has the URL and lets you regenerate its secret).
 
 The Refresh button fetches new clips and rebuilds the videos, showing progress.
+
+<details>
+<summary>Webhook picture, in detail</summary>
+
+`GET /webhook/snapshot?camera=<name>&token=<secret>` triggers a snapshot the
+same way the Live tile's Snapshot button does. It answers with a small JSON
+body (`{"ok": true, "fichier": "..."}`, or `{"error": "..."}`), not an image:
+fetch the picture itself afterward from the Pictures view or `/api/snapshots`.
+
+The secret travels in the URL rather than a header because none of the usual
+callers (Home Assistant, IFTTT, a GET-only smart button) can set a custom
+header on a webhook call; this matches how those services' own webhooks work.
+It is generated once, shown (and regenerable) under Settings, checked in
+constant time against what's supplied: treat it like a password, since
+whoever has it can trigger a photo on any camera by name. Unlike the rest of
+the dashboard, this one route is reachable from anywhere on the network on
+purpose, since a smart-home hub is rarely running on `127.0.0.1`; keep it off
+the public internet all the same, a LAN-only caller is the intended use.
+
+</details>
 
 ## Being warned
 
@@ -259,6 +288,7 @@ Blink_Daily/       one video per camera per day
 Blink_Weekly/      one per ISO week
 Blink_Monthly/     one per month
 Blink_Direct/      live view recordings, saved on demand
+Blink_Snapshots/   on-demand pictures, one per Snapshot click or webhook call
 ```
 
 Next to the executable, or in the folder named by `BLINK_HOME`.

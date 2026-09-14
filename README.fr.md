@@ -40,6 +40,9 @@ lancement et les principaux réglages.
 - Enregistrement du direct à la demande, un clic pendant le visionnage :
   conservé dans sa propre archive, consultable et filtrable exactement comme
   les clips de détection (écarter, supprimer, filtre caméra et période).
+- Photo à la demande, un clic depuis la vignette du direct ou déclenchée à
+  distance via une URL webhook (domotique, bouton connecté) : conservée dans
+  Photos, consultable et supprimable depuis la page.
 - Téléchargement incrémental des clips de détection de mouvement depuis le
   stockage local du module (clé USB du Sync Module 2 ou carte microSD du XR) et
   depuis le cloud de l'abonnement, sans jamais rapatrier deux
@@ -241,19 +244,48 @@ joignable depuis le réseau, blink2video lui-même n'en a toujours aucune.
 
 ## L'interface
 
-La page, sur `127.0.0.1:8765`, a cinq vues :
+La page, sur `127.0.0.1:8765`, a six vues :
 
 - **Direct** : une tuile par caméra, son état, l'armement de la détection, un
-  bouton plein écran, et un bouton « Réveiller » qui demande une photo
-  fraîche à la caméra tout de suite plutôt que d'attendre son prochain
-  passage prévu (consomme un peu de batterie, jusqu'à deux minutes sur une
-  caméra endormie).
+  bouton plein écran, un bouton « Réveiller » qui force la caméra à se
+  manifester tout de suite pour des relevés (batterie, température,
+  vignette) plus frais plutôt que d'attendre son prochain passage prévu, et
+  un bouton « Photo » qui fait la même chose mais conserve la photo obtenue
+  dans Photos au lieu de la jeter (les deux consomment un peu de batterie,
+  jusqu'à deux minutes sur une caméra endormie).
 - **Clips** : du plus récent au plus ancien, avec un aperçu et un bouton
   « Écarter » qui retire un clip de toutes les vidéos assemblées.
 - **Journalières, Hebdomadaires, Mensuelles** : les vidéos assemblées.
+- **Photos** : les photos prises à la demande, de la plus récente à la plus
+  ancienne, avec un bouton de suppression. Alimentée par le bouton « Photo »
+  du Direct, ou à distance via une URL webhook pensée pour la domotique ou un
+  bouton connecté (Réglages, « Photo par webhook », donne l'URL et permet de
+  régénérer son secret).
 
 Le bouton Actualiser rapatrie les nouveaux clips et reconstruit les vidéos, en
 affichant l'avancement.
+
+<details>
+<summary>Photo par webhook, en détail</summary>
+
+`GET /webhook/snapshot?camera=<nom>&token=<secret>` déclenche une photo de la
+même façon que le bouton « Photo » du Direct. La réponse est un petit JSON
+(`{"ok": true, "fichier": "..."}`, ou `{"error": "..."}`), pas une image :
+récupérez la photo elle-même ensuite depuis la vue Photos ou `/api/snapshots`.
+
+Le secret voyage dans l'URL plutôt que dans un en-tête parce qu'aucun des
+appelants habituels (Home Assistant, IFTTT, un bouton connecté qui ne sait
+faire que du GET) ne peut poser un en-tête personnalisé sur un appel webhook :
+c'est le même choix que font leurs propres webhooks. Il est généré une fois,
+affiché (et régénérable) dans Réglages, comparé en temps constant à ce qui
+est fourni : traitez-le comme un mot de passe, puisque le détenir permet de
+déclencher une photo sur n'importe quelle caméra en la nommant. Contrairement
+au reste du tableau de bord, cette seule route est volontairement joignable
+depuis tout le réseau, puisqu'un hub domotique tourne rarement sur
+`127.0.0.1` : gardez-la quand même hors d'internet, un appelant limité au
+réseau local est l'usage prévu.
+
+</details>
 
 ## Être prévenu
 
@@ -280,6 +312,7 @@ Blink_Daily/       une vidéo par caméra et par jour
 Blink_Weekly/      une par semaine ISO
 Blink_Monthly/     une par mois
 Blink_Direct/      enregistrements du direct, sauvés à la demande
+Blink_Snapshots/   photos à la demande, une par clic Snapshot ou appel webhook
 ```
 
 À côté de l'exécutable, ou dans le dossier désigné par `BLINK_HOME`.
