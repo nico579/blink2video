@@ -382,6 +382,9 @@ occupe son propre processus jusqu'à `blink2video stop`.
 | `--preset NOM` | preset libx264, d'`ultrafast` à `veryslow` (défaut `veryfast`) |
 | `--crf N` | qualité, 0 à 51, plus bas est meilleur (défaut 21) |
 | `--font FICHIER` | police .ttf pour l'horodatage |
+| `--font-size N` | taille de l'horodatage en pixels, 8 à 500 (défaut : proportionnelle à la hauteur de la vidéo) |
+| `--font-color COULEUR` | couleur de l'horodatage : un nom (`white`, `yellow`...) ou un hexadécimal (`#RRGGBB`, `0xRRGGBB`), éventuellement suivi de `@opacité` (ex. `white@0.8`), défaut `white` |
+| `--box-opacity N` | opacité du bandeau derrière l'horodatage, `0.0` (invisible) à `1.0` (opaque), défaut `0.55` |
 | `--timezone ZONE` | fuseau de l'horodatage (défaut `Europe/Paris`) |
 | `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | emplacements de chaque dossier |
 

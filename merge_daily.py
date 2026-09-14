@@ -103,6 +103,12 @@ LIBELLES = {
         "label_mensuelles": "Mensuelles",
         "periode_titre": "\n{label} :",
         "periode_resume": "{label} : {built} créée(s), {skipped} déjà à jour, {failed} échec(s).",
+        "couleur_invalide":
+            "Couleur invalide : {valeur!r}. Un nom (white, yellow...) ou un "
+            "code hexadécimal (#RRGGBB, 0xRRGGBB), éventuellement suivi de "
+            "@opacité (ex. white@0.8).",
+        "taille_police_invalide": "Taille de police invalide : {valeur!r} (8 à 500).",
+        "opacite_invalide": "Opacité invalide : {valeur!r} (0.0 à 1.0).",
     },
     "en": {
         "registre_inconnu": "  Unknown to the registry, ignored: {identity}",
@@ -165,6 +171,12 @@ LIBELLES = {
         "label_mensuelles": "Monthly",
         "periode_titre": "\n{label}:",
         "periode_resume": "{label}: {built} created, {skipped} already up to date, {failed} failed.",
+        "couleur_invalide":
+            "Invalid color: {valeur!r}. A name (white, yellow...) or a "
+            "hex code (#RRGGBB, 0xRRGGBB), optionally followed by "
+            "@opacity (e.g. white@0.8).",
+        "taille_police_invalide": "Invalid font size: {valeur!r} (8 to 500).",
+        "opacite_invalide": "Invalid opacity: {valeur!r} (0.0 to 1.0).",
     },
 }
 
@@ -205,6 +217,14 @@ LEGACY_SEGMENT_DIR = ".blink_segments"
 ClipInfo = namedtuple(
     "ClipInfo", ["created", "source", "duration", "width", "height", "fps", "has_audio"]
 )
+
+# Apparence de l'horodatage incrusté (issue GitHub #7 : le fichier de police
+# seul, via --font, ne suffisait pas à qui voulait aussi ajuster taille,
+# couleur ou transparence du bandeau). size=None conserve l'ancien calcul
+# automatique (proportionnel à la hauteur vidéo) plutôt que d'imposer une
+# valeur fixe qui rendrait mal sur une autre résolution.
+TimestampStyle = namedtuple("TimestampStyle", ["size", "color", "box_opacity"])
+STYLE_PAR_DEFAUT = TimestampStyle(size=None, color="white", box_opacity=0.55)
 
 
 def _tronquer_utf8(value: str, maximum: int) -> str:
@@ -461,7 +481,8 @@ def check_drawtext_available(ffmpeg: str) -> None:
         raise RuntimeError(msg("drawtext_absent"))
 
 
-def check_timestamp_rendering(ffmpeg: str, font_path: Path) -> None:
+def check_timestamp_rendering(ffmpeg: str, font_path: Path,
+                              style: TimestampStyle = STYLE_PAR_DEFAUT) -> None:
     """Incruste un horodatage de test sur une image noire et vérifie qu'il en
     reste quelque chose.
 
@@ -469,10 +490,15 @@ def check_timestamp_rendering(ffmpeg: str, font_path: Path) -> None:
     police mal encodé dans le filtergraph (fontconfig prend le relais en
     silence), ni un format strftime que la libc locale ignore (le texte rendu
     est alors simplement vide). Sans ce test, ces deux pannes ne se voient
-    qu'en regardant la vidéo finale."""
+    qu'en regardant la vidéo finale.
+
+    La couleur de style est reprise ici, pas seulement la police : un texte
+    choisi noir sur ce fond noir de test échouerait sinon à tort ce garde-fou
+    (image entièrement noire par construction, cause confondue avec une
+    police illisible)."""
     graph = (
         "color=c=black:s=640x120:d=0.1,"
-        + drawtext_chain(quote_filter_path(font_path), 40, 0)
+        + drawtext_chain(quote_filter_path(font_path), 40, 0, style.color)
         + ",format=gray"
     )
     result = runtime.lancer(
@@ -944,18 +970,23 @@ def wall_clock_epoch(moment_utc: dt.datetime, timezone: ZoneInfo) -> int:
     return int(naive_as_utc.timestamp())
 
 
-def drawtext_chain(font_value: str, fontsize: int, epoch: int) -> str:
+def drawtext_chain(font_value: str, fontsize: int, epoch: int,
+                   color: str = "white", box_opacity: float = 0.55) -> str:
     """Filtre drawtext affichant une horloge murale partant de `epoch`.
 
     %X (heure complète) plutôt que %T ou %H:%M:%S : d'une part le strftime de
     MSVC ne connaît pas %T et rend alors une chaîne vide sans la moindre
     erreur, d'autre part un ':' littéral ne survit pas aux dé-échappements
     successifs du filtergraph. ffmpeg n'appelant pas setlocale, %X reste en
-    locale « C », soit HH:MM:SS partout."""
+    locale « C », soit HH:MM:SS partout.
+
+    `color` a déjà été validé (_couleur_ffmpeg_valide, appelé par argparse) :
+    seuls alphanumériques, « # » et un éventuel « @opacité » peuvent
+    l'atteindre, aucun caractère qui romprait ce filtergraph."""
     text_expr = f"'%{{pts\\:localtime\\:{epoch}\\:%d/%m/%Y %X}}'"
     return (
-        f"drawtext=fontfile={font_value}:fontsize={fontsize}:fontcolor=white:"
-        f"box=1:boxcolor=black@0.55:boxborderw=8:x=20:y=h-th-20:text={text_expr}"
+        f"drawtext=fontfile={font_value}:fontsize={fontsize}:fontcolor={color}:"
+        f"box=1:boxcolor=black@{box_opacity}:boxborderw=8:x=20:y=h-th-20:text={text_expr}"
     )
 
 
@@ -966,6 +997,7 @@ def build_batch_filter(
     target_fps: float,
     timezone: ZoneInfo,
     font_value: str | None,
+    style: TimestampStyle = STYLE_PAR_DEFAUT,
 ) -> str:
     """Construit le filtergraph d'un lot : normalisation + horodatage incrusté
     sur chaque clip, puis concaténation.
@@ -979,13 +1011,14 @@ def build_batch_filter(
     une sortie de filtre ne peut être branchée qu'une seule fois, donc deux
     clips muets dans le même lot rendraient le graphe invalide.
     """
-    fontsize = max(18, target_h // 18)
+    fontsize = style.size if style.size is not None else max(18, target_h // 18)
     chains = []
     for i, clip in enumerate(batch):
         overlay = ""
         if font_value is not None:
             epoch = wall_clock_epoch(clip.created, timezone)
-            overlay = "," + drawtext_chain(font_value, fontsize, epoch)
+            overlay = "," + drawtext_chain(font_value, fontsize, epoch,
+                                           style.color, style.box_opacity)
         chains.append(
             f"[{i}:v]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
             f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
@@ -1021,9 +1054,10 @@ def run_ffmpeg_batch(
     crf: int,
     output_path: Path,
     on_progress=None,
+    style: TimestampStyle = STYLE_PAR_DEFAUT,
 ) -> tuple[bool, str]:
     filter_graph = build_batch_filter(
-        batch, target_w, target_h, target_fps, timezone, font_value
+        batch, target_w, target_h, target_fps, timezone, font_value, style
     )
 
     command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y"]
@@ -1259,13 +1293,23 @@ def render_key(
     font_path: Path | None,
     preset: str,
     crf: int,
+    style: TimestampStyle = STYLE_PAR_DEFAUT,
 ) -> str:
     """Empreinte de rendu d'un segment normalisé : tout ce qui change son
     contenu doit figurer ici, sinon un segment périmé serait réutilisé
     silencieusement. Bascule avec/sans horodatage comprise : sans elle, un
     segment déjà encodé horodaté resterait tel quel après désactivation du
-    réglage, l'horodatage figé dedans plutôt que réellement retiré."""
+    réglage, l'horodatage figé dedans plutôt que réellement retiré.
+
+    Le style (taille/couleur/opacité, issue GitHub #7) ne compte que si un
+    horodatage est effectivement dessiné : sans ça, changer de couleur alors
+    que --no-timestamp est actif réencoderait tout pour rien, la valeur
+    n'ayant jamais atteint l'image."""
     target_w, target_h, target_fps = target
+    style_tag = (
+        f"{style.size}/{style.color}/{style.box_opacity}"
+        if font_path is not None else "sans-horodatage"
+    )
     payload = "|".join(
         [
             NORMALIZE_VERSION,
@@ -1276,6 +1320,7 @@ def render_key(
             font_path.as_posix() if font_path is not None else "sans-horodatage",
             preset,
             str(crf),
+            style_tag,
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -1295,6 +1340,7 @@ def normalize_clip(
     crf: int,
     force: bool,
     on_progress=None,
+    style: TimestampStyle = STYLE_PAR_DEFAUT,
 ) -> tuple[bool, str, bool]:
     """Produit la version normalisée (et horodatée si `font_path` est donné)
     d'un clip, si nécessaire.
@@ -1316,7 +1362,7 @@ def normalize_clip(
     font_value = quote_filter_path(font_path) if font_path is not None else None
     ok, error = run_ffmpeg_batch(
         ffmpeg, [clip], target_w, target_h, target_fps, timezone,
-        font_value, preset, crf, pending, on_progress,
+        font_value, preset, crf, pending, on_progress, style=style,
     )
     if not ok:
         pending.unlink(missing_ok=True)
@@ -1568,6 +1614,39 @@ def build_periods(
     return built, skipped, failed
 
 
+COULEUR_FFMPEG_RE = re.compile(r"^#?[A-Za-z0-9]+(@(0(\.[0-9]+)?|1(\.0+)?))?$")
+
+
+def _couleur_ffmpeg_valide(valeur: str) -> str:
+    """N'admet qu'un nom de couleur ou un code hexadécimal, avec un éventuel
+    @opacité (0.0-1.0) : la syntaxe complète que sait lire fontcolor= dans
+    drawtext_chain(). Rejette tout le reste, en particulier « : » et « , »
+    qui romprait ce filtergraph (une nouvelle option, ou un nouveau filtre)."""
+    if not COULEUR_FFMPEG_RE.match(valeur):
+        raise argparse.ArgumentTypeError(msg("couleur_invalide", valeur=valeur))
+    return valeur
+
+
+def _taille_police_valide(valeur: str) -> int:
+    try:
+        nombre = int(valeur)
+    except ValueError:
+        nombre = -1
+    if not 8 <= nombre <= 500:
+        raise argparse.ArgumentTypeError(msg("taille_police_invalide", valeur=valeur))
+    return nombre
+
+
+def _opacite_valide(valeur: str) -> float:
+    try:
+        nombre = float(valeur)
+    except ValueError:
+        nombre = -1.0
+    if not 0.0 <= nombre <= 1.0:
+        raise argparse.ArgumentTypeError(msg("opacite_invalide", valeur=valeur))
+    return nombre
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="blink2video merge",
@@ -1619,6 +1698,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--font", type=Path, default=None,
         help="chemin vers une police .ttf pour l'horodatage incrusté",
+    )
+    parser.add_argument(
+        "--font-size", type=_taille_police_valide, default=None,
+        help="taille en pixels de l'horodatage incrusté, 8 à 500 "
+             "(défaut : proportionnelle à la hauteur de la vidéo)",
+    )
+    parser.add_argument(
+        "--font-color", type=_couleur_ffmpeg_valide, default="white",
+        help="couleur de l'horodatage incrusté : nom (white, yellow...) ou "
+             "hexadécimal (#RRGGBB, 0xRRGGBB), éventuellement @opacité "
+             "(ex. white@0.8), défaut white",
+    )
+    parser.add_argument(
+        "--box-opacity", type=_opacite_valide, default=0.55,
+        help="opacité du bandeau derrière l'horodatage, 0.0 (invisible) à "
+             "1.0 (opaque), défaut 0.55",
     )
     parser.add_argument(
         "--preset", default="veryfast",
@@ -1684,7 +1779,8 @@ def _calculer_cibles_encodage(groups: dict, registry: dict, input_dir: Path,
 def _planifier_normalisation(args, groups: dict, selected: dict, targets: dict,
                             registry: dict, *, ffmpeg: str, timezone: ZoneInfo,
                             input_dir: Path, normalized_dir: Path,
-                            font_path: Path | None) -> tuple:
+                            font_path: Path | None,
+                            style: TimestampStyle = STYLE_PAR_DEFAUT) -> tuple:
     """Liste les journées à traiter, les segments à garder et les clips à encoder."""
     plan: dict = {}
     used_segments: set = set()
@@ -1697,7 +1793,7 @@ def _planifier_normalisation(args, groups: dict, selected: dict, targets: dict,
             info = clip_info(ffmpeg, registry, identity, created, source)
             key = render_key(
                 identity, info, target, wall_clock_epoch(created, timezone),
-                font_path, args.preset, args.crf,
+                font_path, args.preset, args.crf, style=style,
             )
             # Déclaré même hors sélection, pour échapper au nettoyage.
             used_segments.add(normalized_dir / identity)
@@ -1714,7 +1810,8 @@ def _planifier_normalisation(args, groups: dict, selected: dict, targets: dict,
 
 def _normaliser_plan(args, plan: dict, pending: set, registry: dict,
                     registry_path: Path, *, ffmpeg: str, timezone: ZoneInfo,
-                    normalized_dir: Path, font_path: Path | None) -> tuple:
+                    normalized_dir: Path, font_path: Path | None,
+                    style: TimestampStyle = STYLE_PAR_DEFAUT) -> tuple:
     """Encode le plan et rend les journées préparées ainsi que le nombre d'échecs."""
     normalized: dict = {}
     encoded = reused = failed = 0
@@ -1735,7 +1832,7 @@ def _normaliser_plan(args, plan: dict, pending: set, registry: dict,
             ok, error, did_encode = normalize_clip(
                 ffmpeg, timezone, registry, normalized_dir, identity, info,
                 target, key, font_path, args.preset, args.crf, args.force,
-                report,
+                report, style=style,
             )
             if not ok:
                 print(msg("echec_normalisation", erreur=error))
@@ -1790,6 +1887,7 @@ def _executer(args) -> int:
             print(msg("erreur_generique", erreur=error))
             return 1
 
+    style = TimestampStyle(args.font_size, args.font_color, args.box_opacity)
     try:
         timezone = ZoneInfo(args.timezone)
         ffmpeg = find_ffmpeg()
@@ -1797,7 +1895,7 @@ def _executer(args) -> int:
         if not args.no_timestamp:
             check_drawtext_available(ffmpeg)
             font_path = find_font(args.font)
-            check_timestamp_rendering(ffmpeg, font_path)
+            check_timestamp_rendering(ffmpeg, font_path, style)
         groups = load_groups(input_dir, timezone)
         indisponibles, identites_indisponibles = journees_a_source_indisponible(
             input_dir, timezone
@@ -1848,7 +1946,7 @@ def _executer(args) -> int:
     plan, used_segments, pending = _planifier_normalisation(
         args, groups, selected, targets, registry, ffmpeg=ffmpeg,
         timezone=timezone, input_dir=input_dir, normalized_dir=normalized_dir,
-        font_path=font_path,
+        font_path=font_path, style=style,
     )
     save_json(registry_path, registry)
 
@@ -1856,6 +1954,7 @@ def _executer(args) -> int:
     normalized, failed = _normaliser_plan(
         args, plan, pending, registry, registry_path, ffmpeg=ffmpeg,
         timezone=timezone, normalized_dir=normalized_dir, font_path=font_path,
+        style=style,
     )
 
     # Étape 3 : assemblage des journalières, par simple copie de flux.

@@ -46,7 +46,7 @@ class TestsPlanNormalisation(unittest.TestCase):
 
         def normalisation(ffmpeg, timezone, registry, normalized_dir, identity,
                           info, target, key, font_path, preset, crf, force,
-                          on_progress=None):
+                          on_progress=None, style=None):
             registry["clips"][identity] = {"key": key}
             return True, "", on_progress is not None
 
@@ -65,7 +65,8 @@ class TestsPlanNormalisation(unittest.TestCase):
                       return_value=(set(), set(identites_indisponibles)))
             remplacer("clip_info", side_effect=information)
             remplacer("camera_target", wraps=md.camera_target)
-            remplacer("render_key", side_effect=lambda identity, *args: "rendu/" + identity)
+            remplacer("render_key",
+                     side_effect=lambda identity, *args, **kw: "rendu/" + identity)
             remplacer("valid_mp4", side_effect=lambda chemin: chemin.name not in invalides)
             remplacer("normalize_clip", side_effect=normalisation)
             remplacer("progress_printer", side_effect=lambda libelle: mock.Mock(name=libelle))
@@ -275,11 +276,15 @@ class TestsPlanNormalisation(unittest.TestCase):
         resultat = self._executer({("Salon", "2026-09-08"): [self._clip("a.mp4")]})
 
         police = self.args.input / "police.ttf"
+        style_attendu = md.TimestampStyle(None, "white", 0.55)
         resultat.check_drawtext_available.assert_called_once_with("ffmpeg-simule")
         resultat.find_font.assert_called_once_with(self.args.font)
-        resultat.check_timestamp_rendering.assert_called_once_with("ffmpeg-simule", police)
+        resultat.check_timestamp_rendering.assert_called_once_with(
+            "ffmpeg-simule", police, style_attendu)
         self.assertEqual(resultat.render_key.call_args.args[4], police)
+        self.assertEqual(resultat.render_key.call_args.kwargs["style"], style_attendu)
         self.assertEqual(resultat.normalize_clip.call_args.args[8], police)
+        self.assertEqual(resultat.normalize_clip.call_args.kwargs["style"], style_attendu)
 
 
 if __name__ == "__main__":

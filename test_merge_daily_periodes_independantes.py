@@ -71,6 +71,9 @@ class TestsExecuterRespecteLesDrapeaux(unittest.TestCase):
             camera=None,
             force=False,
             font=None,
+            font_size=None,
+            font_color="white",
+            box_opacity=0.55,
             preset="veryfast",
             crf=21,
         )

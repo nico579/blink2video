@@ -44,7 +44,8 @@ class TestsSauvegardeIncrementale(unittest.TestCase):
             normalized_output=self.racine / "normalized", excluded_output=self.racine / "excluded",
             no_weekly=True, no_monthly=True, no_timestamp=True,
             exclude=[], include=[], timezone="UTC", date=None, camera=None,
-            force=False, font=None, preset="veryfast", crf=21,
+            force=False, font=None, font_size=None, font_color="white",
+            box_opacity=0.55, preset="veryfast", crf=21,
         )
 
     def test_un_clip_reussi_reste_acquis_si_le_suivant_plante(self):
@@ -58,7 +59,8 @@ class TestsSauvegardeIncrementale(unittest.TestCase):
                                     width=1920, height=1080, fps=30.0, has_audio=True)
 
         def normalize_simule(ffmpeg, timezone, registry, normalized_dir, identity, clip,
-                             target, key, font_path, preset, crf, force, on_progress=None):
+                             target, key, font_path, preset, crf, force, on_progress=None,
+                             style=None):
             if identity.endswith("a.mp4"):
                 registry["clips"][identity] = {"key": key, "normalized_at": "now"}
                 return True, "", True

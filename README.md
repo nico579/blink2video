@@ -356,6 +356,9 @@ assembles, while `serve`, or any verb given `--loop`, holds its own process unti
 | `--preset NAME` | libx264 preset, from `ultrafast` to `veryslow` (default `veryfast`) |
 | `--crf N` | quality, 0 to 51, lower is better (default 21) |
 | `--font FILE` | .ttf font for the timestamp |
+| `--font-size N` | timestamp size in pixels, 8 to 500 (default: scales with the video's height) |
+| `--font-color COLOR` | timestamp color: a name (`white`, `yellow`...) or hex (`#RRGGBB`, `0xRRGGBB`), optionally with `@opacity` (e.g. `white@0.8`), default `white` |
+| `--box-opacity N` | opacity of the band behind the timestamp, `0.0` (invisible) to `1.0` (opaque), default `0.55` |
 | `--timezone ZONE` | time zone of the timestamp (default `Europe/Paris`) |
 | `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | location of each folder |
 
