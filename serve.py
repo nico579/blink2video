@@ -50,6 +50,44 @@ except ImportError:  # Python 3.8 (build Windows 7, voir build-win7.yml) : pas d
 # est préparé et le programme relancé dedans si nécessaire.
 import runtime
 
+LIBELLES = {
+    "fr": {
+        "vignette_erreur": "[vignette] {identity} : {type}: {erreur}",
+        "ecarter_lot_erreur": "Écarter (lot) : {erreur}",
+        "erreur_generique": "Erreur : {erreur}",
+        "echec_ecoute_port": "Impossible d'écouter sur le port {port} : {erreur}",
+        "autre_instance_deja":
+            "Un autre « blink2video serve » tourne sans doute déjà. Arrêtez-le, "
+            "choisissez un autre port avec --port.",
+        "interface_disponible": "Interface disponible sur {url}   (Ctrl+C pour arrêter)",
+        "attention_blink_bind":
+            "Attention : BLINK_BIND={bind} - interface aussi joignable "
+            "depuis le reste du réseau sur le port {port}, sans "
+            "authentification. À réserver à un réseau de confiance.",
+        "interruption_arret": "\nArrêt.",
+    },
+    "en": {
+        "vignette_erreur": "[thumbnail] {identity}: {type}: {erreur}",
+        "ecarter_lot_erreur": "Exclude (batch): {erreur}",
+        "erreur_generique": "Error: {erreur}",
+        "echec_ecoute_port": "Could not listen on port {port}: {erreur}",
+        "autre_instance_deja":
+            "Another « blink2video serve » is probably already running. Stop it, "
+            "or choose another port with --port.",
+        "interface_disponible": "Interface available at {url}   (Ctrl+C to stop)",
+        "attention_blink_bind":
+            "Warning: BLINK_BIND={bind} - the interface is also reachable "
+            "from the rest of the network on port {port}, with no "
+            "authentication. Only do this on a trusted network.",
+        "interruption_arret": "\nStopping.",
+    },
+}
+
+
+def msg(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
+
+
 runtime.bootstrap()
 
 import autostart
@@ -2156,7 +2194,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 body = BLINK.call(fetch, timeout=45)
             except Exception as error:
-                print(f"[vignette] {identity} : {type(error).__name__}: {error}", flush=True)
+                print(msg("vignette_erreur", identity=identity,
+                          type=type(error).__name__, erreur=error), flush=True)
                 body = b""
             if not body and not cached.is_file():
                 self.send_error(404)
@@ -3460,7 +3499,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         self.paths["excluded"],
                         [str(self.paths["input"] / identite) for identite in identites], exclu)
                 except RuntimeError as erreur:
-                    print(f"Écarter (lot) : {erreur}")
+                    print(msg("ecarter_lot_erreur", erreur=erreur))
 
         reglages = runtime.lire_reglages()
         # Décocher Quotidienne interdit aussi les reconstructions déclenchées
@@ -4120,7 +4159,7 @@ def main() -> int:
         Handler.timezone = ZoneInfo(args.timezone)
         collect(Handler.paths, Handler.timezone, Handler.ffmpeg)
     except (RuntimeError, ZoneInfoNotFoundError) as error:
-        print(f"Erreur : {error}")
+        print(msg("erreur_generique", erreur=error))
         return 1
 
     # 127.0.0.1 et pas 0.0.0.0 par défaut : le tableau de bord n'a aucune
@@ -4166,21 +4205,18 @@ def main() -> int:
     try:
         server = Server((bind, args.port), Handler)
     except OSError as error:
-        print(f"Impossible d'écouter sur le port {args.port} : {error}")
-        print("Un autre « blink2video serve » tourne sans doute déjà. Arrêtez-le, "
-              "choisissez un autre port avec --port.")
+        print(msg("echec_ecoute_port", port=args.port, erreur=error))
+        print(msg("autre_instance_deja"))
         return 1
     url = f"http://127.0.0.1:{args.port}/"
-    print(f"Interface disponible sur {url}   (Ctrl+C pour arrêter)")
+    print(msg("interface_disponible", url=url))
     if bind not in ("127.0.0.1", "localhost"):
         # webbrowser.open() ci-dessous garde volontairement 127.0.0.1 (le
         # navigateur ouvert est celui de cette machine), mais quelqu'un qui a
         # positionné BLINK_BIND pour l'accès LAN doit voir, sans avoir à
         # relire la doc, qu'il vient d'ouvrir l'interface sans authentification
         # au reste du réseau.
-        print(f"Attention : BLINK_BIND={bind} - interface aussi joignable "
-              f"depuis le reste du réseau sur le port {args.port}, sans "
-              f"authentification. À réserver à un réseau de confiance.")
+        print(msg("attention_blink_bind", bind=bind, port=args.port))
     # Le serveur de configuration initiale ne doit créer aucun travail de
     # fond avant validation. Même la veille de version, sans rapport avec les
     # clips, attend donc le vrai démarrage pour garder ce mode strictement
@@ -4203,7 +4239,7 @@ def main() -> int:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nArrêt.")
+        print(msg("interruption_arret"))
     finally:
         server.server_close()
     return 0

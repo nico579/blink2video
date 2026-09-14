@@ -27,6 +27,7 @@ import maj
 import autostart
 import smoketest
 import watch
+import serve
 
 
 class TestTraduireLibelles(unittest.TestCase):
@@ -199,6 +200,20 @@ class TestTraduireLibelles(unittest.TestCase):
         self.assertEqual(watch._msg("aucune"), "none")
         self._regler_langue("fr")
         self.assertEqual(watch._msg("cameras_en_sourdine"), "Caméras en sourdine :")
+
+    def test_serve_toutes_les_cles_existent_dans_les_deux_langues(self):
+        self.assertEqual(set(serve.LIBELLES["fr"]), set(serve.LIBELLES["en"]))
+
+    def test_serve_msg_bascule_et_formate(self):
+        self._regler_langue("en")
+        self.assertEqual(serve.msg("erreur_generique", erreur="ffmpeg introuvable"),
+                         "Error: ffmpeg introuvable")
+        self.assertEqual(
+            serve.msg("echec_ecoute_port", port=8765, erreur="port deja utilise"),
+            "Could not listen on port 8765: port deja utilise")
+        self._regler_langue("fr")
+        self.assertEqual(serve.msg("erreur_generique", erreur="ffmpeg introuvable"),
+                         "Erreur : ffmpeg introuvable")
 
     def test_maj_restauration_incomplete_garde_le_message_traduit(self):
         self._regler_langue("en")
