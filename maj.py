@@ -40,6 +40,208 @@ from pathlib import Path, PurePosixPath
 
 import runtime
 
+LIBELLES = {
+    "fr": {
+        "message_windows7":
+            "Mise à jour automatique désactivée pour l'édition Windows 7 "
+            "legacy : une archive Windows standard réinstallerait Python 3.12 "
+            "et ne démarrerait plus sur ce système.",
+        "empreinte_url_etrangere": "URL d'empreinte étrangère à la release officielle.",
+        "empreinte_redirection": "La redirection de l'empreinte quitte GitHub ou HTTPS.",
+        "empreinte_taille_http_invalide": "Taille d'empreinte HTTP invalide.",
+        "empreinte_trop_volumineuse": "Fichier d'empreinte anormalement volumineux.",
+        "empreinte_non_ascii": "Fichier d'empreinte non ASCII.",
+        "empreinte_ambigue": "Fichier d'empreinte ambigu.",
+        "empreinte_absente": "Empreinte SHA-256 absente ou invalide.",
+        "empreinte_archive_incorrecte": "L'empreinte ne désigne pas l'archive attendue.",
+        "empreinte_release_absente":
+            "Cette release ne fournit aucune empreinte SHA-256 : mise à jour "
+            "automatique refusée. Téléchargez-la manuellement depuis GitHub.",
+        "nom_archive_impropre": "Nom d'archive impropre : {nom!r}",
+        "archive_url_etrangere": "URL d'archive étrangère à la release officielle.",
+        "archive_taille_invalide": "Taille d'archive invalide ou excessive : {taille} octets.",
+        "archive_empreinte_invalide": "Empreinte SHA-256 d'archive invalide.",
+        "archive_redirection": "La redirection de l'archive quitte GitHub ou HTTPS.",
+        "archive_taille_http_invalide": "Taille d'archive HTTP invalide.",
+        "archive_taille_http_inattendue": "Taille HTTP inattendue : {annoncee}, attendu {taille}.",
+        "archive_depasse_taille": "L'archive dépasse la taille publiée.",
+        "archive_tronquee": "Archive tronquée : {recu} octets, attendu {taille}.",
+        "archive_empreinte_incorrecte": "Empreinte SHA-256 incorrecte : {obtenue}, attendu {sha256}.",
+        "archive_recue": "  archive reçue : {nom} ({mo} Mo)",
+        "archive_chemin_dangereux": "Chemin dangereux dans l'archive : {brut!r}",
+        "archive_nom_non_portable": "Nom non portable dans l'archive : {brut!r}",
+        "archive_chemin_hors_dossier": "Chemin hors du dossier d'extraction : {brut!r}",
+        "archive_collision_chemins": "Collision de chemins dans l'archive : {nom!r}",
+        "archive_membre_duplique": "Membre dupliqué dans l'archive : {nom!r}",
+        "archive_membre_tronque": "Membre tronqué dans l'archive : {nom}",
+        "archive_membre_plus_long": "Membre plus long qu'annoncé : {nom}",
+        "archive_trop_de_membres": "Archive contenant trop de membres.",
+        "archive_membre_zip_chiffre": "Membre ZIP chiffré interdit : {nom!r}",
+        "archive_type_zip_dangereux": "Type ZIP dangereux : {nom!r}",
+        "archive_lien_type_zip_dangereux": "Lien ou type ZIP dangereux : {nom!r}",
+        "archive_zip_trop_volumineux": "Contenu ZIP décompressé trop volumineux.",
+        "archive_tar_trop_volumineux": "Contenu TAR décompressé trop volumineux.",
+        "archive_lien_type_tar_dangereux": "Lien ou type TAR dangereux : {nom!r}",
+        "archive_membre_tar_illisible": "Membre TAR illisible : {nom!r}",
+        "archive_format_inconnu": "Format d'archive inconnu : {nom}",
+        "archive_bundle_unique": "L'archive doit contenir un unique dossier de bundle.",
+        "version_dossier_impropre": "Numéro de version impropre à un dossier : {version!r}",
+        "dossier_deja_existant":
+            "Le dossier {racine} existe déjà et n'appartient pas à "
+            "blink2video. Renommez-le avant de relancer la mise à jour.",
+        "echec_binaire_absent": "Échec : {nom} absent de l'archive.",
+        "echec_binaire_ne_demarre_pas": "Échec : le nouvel exécutable ne démarre pas ({erreur}).",
+        "echec_binaire_annonce":
+            "Échec : le nouvel exécutable annonce « {annonce} », "
+            "on attendait « {attendue} ».",
+        "binaire_verifie": "  vérifié : {annonce}",
+        "permutation_non_finalisee":
+            "Une permutation non finalisée subsiste : {marqueur}. "
+            "Sauvegardes .ancien conservées ; réparation nécessaire.",
+        "permutation_preparation_interrompue":
+            "Préparation de permutation interrompue : {marqueur}. "
+            "Aucun remplacement autorisé avant vérification.",
+        "permutation_non_demarree": "Permutation non démarrée : {erreur}",
+        "echec_remplacement": "Échec du remplacement ({erreur}). Retour à la version précédente.",
+        "restauration_incomplete":
+            "Restauration incomplète ; aucune relance ni nouvelle tentative. "
+            "Conserver {marqueur} et les sauvegardes .ancien. {echecs}",
+        "maj_precedente_non_finalisee":
+            "Mise à jour précédente non finalisée : sauvegardes et préparation conservées.",
+        "relance": "Relance : {commande}",
+        "racine_controle_illisible": "Mise à jour interrompue : racine de contrôle illisible.",
+        "racines_controle_multiples":
+            "Mise à jour interrompue : plusieurs racines de contrôle possibles.",
+        "arret_version_en_place": "Arrêt de la version en place…",
+        "arret_echoue": "Mise à jour interrompue : la commande d'arrêt a échoué.",
+        "instance_encore_active": "Mise à jour interrompue : une instance est encore active.",
+        "version_precedente_intacte": "La version précédente est intacte : rien n'a été remplacé.",
+        "installe_dans": "Installé dans {installe}",
+        "pas_un_depot_git":
+            "Ces sources ne viennent pas d'un dépôt git : rien à tirer. "
+            "Téléchargez l'archive publiée, ou clonez le dépôt.",
+        "deja_a_jour": "blink2video {version} est à jour.",
+        "maj_git_pull": "Mise à jour {ancienne} vers {neuve} (git pull)",
+        "git_pull_refuse":
+            "« git pull » a refusé : des modifications locales attendent "
+            "peut-être. Rien n'a changé.",
+        "depot_version_inattendue":
+            "Le dépôt annonce {obtenue} après le tirage, on attendait {neuve}. "
+            "Relance refusée.",
+        "passage_nouvelle_version": "Passage à la nouvelle version…",
+        "archive_absente_pour_ce_systeme":
+            "La version {version} est publiée, mais sans archive "
+            "pour ce système. Voir {page}",
+        "maj_vers": "Mise à jour {ancienne} vers {neuve}",
+        "echec_maj_binaire_incorrect":
+            "Échec de la mise à jour : le nouvel exécutable n'a pas démarré correctement.",
+        "echec_maj_exception": "Échec de la mise à jour : {type}: {erreur}",
+        "version_disponible": "Version {version} disponible (vous avez {actuelle}) : {page}",
+    },
+    "en": {
+        "message_windows7":
+            "Automatic updates disabled for the legacy Windows 7 "
+            "edition: a standard Windows archive would reinstall Python 3.12 "
+            "and no longer start on this system.",
+        "empreinte_url_etrangere": "Checksum URL foreign to the official release.",
+        "empreinte_redirection": "The checksum redirect leaves GitHub or HTTPS.",
+        "empreinte_taille_http_invalide": "Invalid checksum HTTP size.",
+        "empreinte_trop_volumineuse": "Checksum file abnormally large.",
+        "empreinte_non_ascii": "Checksum file not ASCII.",
+        "empreinte_ambigue": "Ambiguous checksum file.",
+        "empreinte_absente": "Missing or invalid SHA-256 checksum.",
+        "empreinte_archive_incorrecte": "The checksum does not name the expected archive.",
+        "empreinte_release_absente":
+            "This release provides no SHA-256 checksum: automatic update "
+            "refused. Download it manually from GitHub.",
+        "nom_archive_impropre": "Improper archive name: {nom!r}",
+        "archive_url_etrangere": "Archive URL foreign to the official release.",
+        "archive_taille_invalide": "Invalid or excessive archive size: {taille} bytes.",
+        "archive_empreinte_invalide": "Invalid archive SHA-256 checksum.",
+        "archive_redirection": "The archive redirect leaves GitHub or HTTPS.",
+        "archive_taille_http_invalide": "Invalid archive HTTP size.",
+        "archive_taille_http_inattendue": "Unexpected HTTP size: {annoncee}, expected {taille}.",
+        "archive_depasse_taille": "The archive exceeds its published size.",
+        "archive_tronquee": "Truncated archive: {recu} bytes, expected {taille}.",
+        "archive_empreinte_incorrecte": "Incorrect SHA-256 checksum: {obtenue}, expected {sha256}.",
+        "archive_recue": "  archive received: {nom} ({mo} MB)",
+        "archive_chemin_dangereux": "Dangerous path in the archive: {brut!r}",
+        "archive_nom_non_portable": "Non-portable name in the archive: {brut!r}",
+        "archive_chemin_hors_dossier": "Path outside the extraction folder: {brut!r}",
+        "archive_collision_chemins": "Path collision in the archive: {nom!r}",
+        "archive_membre_duplique": "Duplicate member in the archive: {nom!r}",
+        "archive_membre_tronque": "Truncated member in the archive: {nom}",
+        "archive_membre_plus_long": "Member longer than announced: {nom}",
+        "archive_trop_de_membres": "Archive contains too many members.",
+        "archive_membre_zip_chiffre": "Encrypted ZIP member forbidden: {nom!r}",
+        "archive_type_zip_dangereux": "Dangerous ZIP type: {nom!r}",
+        "archive_lien_type_zip_dangereux": "Dangerous ZIP link or type: {nom!r}",
+        "archive_zip_trop_volumineux": "Decompressed ZIP content too large.",
+        "archive_tar_trop_volumineux": "Decompressed TAR content too large.",
+        "archive_lien_type_tar_dangereux": "Dangerous TAR link or type: {nom!r}",
+        "archive_membre_tar_illisible": "Unreadable TAR member: {nom!r}",
+        "archive_format_inconnu": "Unknown archive format: {nom}",
+        "archive_bundle_unique": "The archive must contain a single bundle folder.",
+        "version_dossier_impropre": "Version number improper for a folder: {version!r}",
+        "dossier_deja_existant":
+            "The folder {racine} already exists and does not belong to "
+            "blink2video. Rename it before running the update again.",
+        "echec_binaire_absent": "Failed: {nom} missing from the archive.",
+        "echec_binaire_ne_demarre_pas": "Failed: the new executable does not start ({erreur}).",
+        "echec_binaire_annonce":
+            "Failed: the new executable reports « {annonce} », "
+            "expected « {attendue} ».",
+        "binaire_verifie": "  verified: {annonce}",
+        "permutation_non_finalisee":
+            "An unfinished swap remains: {marqueur}. "
+            ".old backups kept; repair needed.",
+        "permutation_preparation_interrompue":
+            "Swap preparation interrupted: {marqueur}. "
+            "No replacement allowed before verification.",
+        "permutation_non_demarree": "Swap not started: {erreur}",
+        "echec_remplacement": "Replacement failed ({erreur}). Reverting to the previous version.",
+        "restauration_incomplete":
+            "Incomplete restoration; no relaunch or further attempt. "
+            "Keep {marqueur} and the .old backups. {echecs}",
+        "maj_precedente_non_finalisee":
+            "Previous update not finalized: backups and preparation kept.",
+        "relance": "Relaunching: {commande}",
+        "racine_controle_illisible": "Update interrupted: control root unreadable.",
+        "racines_controle_multiples":
+            "Update interrupted: multiple possible control roots.",
+        "arret_version_en_place": "Stopping the current version…",
+        "arret_echoue": "Update interrupted: the stop command failed.",
+        "instance_encore_active": "Update interrupted: an instance is still active.",
+        "version_precedente_intacte": "The previous version is intact: nothing was replaced.",
+        "installe_dans": "Installed in {installe}",
+        "pas_un_depot_git":
+            "These sources don't come from a git repository: nothing to pull. "
+            "Download the published archive, or clone the repository.",
+        "deja_a_jour": "blink2video {version} is up to date.",
+        "maj_git_pull": "Updating {ancienne} to {neuve} (git pull)",
+        "git_pull_refuse":
+            "« git pull » refused: local changes may be pending. "
+            "Nothing has changed.",
+        "depot_version_inattendue":
+            "The repository reports {obtenue} after pulling, expected {neuve}. "
+            "Relaunch refused.",
+        "passage_nouvelle_version": "Switching to the new version…",
+        "archive_absente_pour_ce_systeme":
+            "Version {version} is published, but with no archive "
+            "for this system. See {page}",
+        "maj_vers": "Updating {ancienne} to {neuve}",
+        "echec_maj_binaire_incorrect":
+            "Update failed: the new executable did not start correctly.",
+        "echec_maj_exception": "Update failed: {type}: {erreur}",
+        "version_disponible": "Version {version} available (you have {actuelle}): {page}",
+    },
+}
+
+
+def msg(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
+
+
 DEPOT = "nico579/blink2video"
 CACHE = Path(".blink_maj.json")
 # Six heures : une version ne sort pas plus souvent, et l'interface ne doit pas
@@ -61,11 +263,6 @@ MAX_CHECKSUM_BYTES = 4096
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 VERSION_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 UPDATE_HOST_SUFFIXES = ("github.com", "githubusercontent.com")
-MESSAGE_WINDOWS7 = (
-    "Mise à jour automatique désactivée pour l'édition Windows 7 "
-    "legacy : une archive Windows standard réinstallerait Python 3.12 "
-    "et ne démarrerait plus sur ce système."
-)
 
 
 # ------------------------------------------------------------------ détection
@@ -272,39 +469,39 @@ def _url_release_officielle(url: str, nom: str) -> bool:
 def _lire_empreinte(url: str, nom_archive: str) -> str:
     """Lit le petit fichier ``<archive>.sha256`` publié avec l'archive."""
     if not _url_release_officielle(url, nom_archive + ".sha256"):
-        raise OSError("URL d'empreinte étrangère à la release officielle.")
+        raise OSError(msg("empreinte_url_etrangere"))
     requete = urllib.request.Request(
         url, headers={"User-Agent": f"blink2video/{runtime.VERSION}"})
     with urllib.request.urlopen(requete, timeout=15) as reponse:
         finale = getattr(reponse, "geturl", lambda: url)()
         if not _url_mise_a_jour_autorisee(finale):
-            raise OSError("La redirection de l'empreinte quitte GitHub ou HTTPS.")
+            raise OSError(msg("empreinte_redirection"))
         annoncee = reponse.headers.get("Content-Length")
         if annoncee:
             try:
                 annoncee = int(annoncee)
             except ValueError as erreur:
-                raise OSError("Taille d'empreinte HTTP invalide.") from erreur
+                raise OSError(msg("empreinte_taille_http_invalide")) from erreur
             if annoncee < 1 or annoncee > MAX_CHECKSUM_BYTES:
-                raise OSError("Fichier d'empreinte anormalement volumineux.")
+                raise OSError(msg("empreinte_trop_volumineuse"))
         corps = reponse.read(MAX_CHECKSUM_BYTES + 1)
         if len(corps) > MAX_CHECKSUM_BYTES:
-            raise OSError("Fichier d'empreinte anormalement volumineux.")
+            raise OSError(msg("empreinte_trop_volumineuse"))
 
     try:
         lignes = [ligne.strip() for ligne in corps.decode("ascii").splitlines()
                   if ligne.strip()]
     except UnicodeDecodeError as erreur:
-        raise OSError("Fichier d'empreinte non ASCII.") from erreur
+        raise OSError(msg("empreinte_non_ascii")) from erreur
     if len(lignes) != 1:
-        raise OSError("Fichier d'empreinte ambigu.")
+        raise OSError(msg("empreinte_ambigue"))
     champs = lignes[0].split()
     empreinte = _sha256_normalise(champs[0] if champs else "")
     if not empreinte:
-        raise OSError("Empreinte SHA-256 absente ou invalide.")
+        raise OSError(msg("empreinte_absente"))
     if len(champs) > 2 or (len(champs) == 2
                            and champs[1].lstrip("*") != nom_archive):
-        raise OSError("L'empreinte ne désigne pas l'archive attendue.")
+        raise OSError(msg("empreinte_archive_incorrecte"))
     return empreinte
 
 
@@ -315,10 +512,7 @@ def _empreinte_attendue(archive: dict) -> str:
     checksum_url = str(archive.get("checksum_url") or "")
     if checksum_url:
         return _lire_empreinte(checksum_url, str(archive.get("nom") or ""))
-    raise OSError(
-        "Cette release ne fournit aucune empreinte SHA-256 : mise à jour "
-        "automatique refusée. Téléchargez-la manuellement depuis GitHub."
-    )
+    raise OSError(msg("empreinte_release_absente"))
 
 
 def _nom_archive_sur(nom) -> str:
@@ -327,7 +521,7 @@ def _nom_archive_sur(nom) -> str:
             or Path(nom).name != nom
             or not (nom.lower().endswith(".zip")
                     or nom.lower().endswith(".tar.gz"))):
-        raise OSError(f"Nom d'archive impropre : {nom!r}")
+        raise OSError(msg("nom_archive_impropre", nom=nom))
     return nom
 
 
@@ -337,12 +531,12 @@ def _telecharger(url: str, destination: Path, taille: int, sha256: str) -> None:
     Le même canal que le téléchargement des clips et l'assemblage : l'interface
     montre déjà cette barre, il n'y avait rien à inventer."""
     if not _url_release_officielle(url, destination.name):
-        raise OSError("URL d'archive étrangère à la release officielle.")
+        raise OSError(msg("archive_url_etrangere"))
     if not 1 <= taille <= MAX_ARCHIVE_BYTES:
-        raise OSError(f"Taille d'archive invalide ou excessive : {taille} octets.")
+        raise OSError(msg("archive_taille_invalide", taille=taille))
     sha256 = _sha256_normalise(sha256)
     if not sha256:
-        raise OSError("Empreinte SHA-256 d'archive invalide.")
+        raise OSError(msg("archive_empreinte_invalide"))
 
     requete = urllib.request.Request(
         url, headers={"Accept": "application/octet-stream",
@@ -351,16 +545,16 @@ def _telecharger(url: str, destination: Path, taille: int, sha256: str) -> None:
         with urllib.request.urlopen(requete, timeout=60) as reponse:
             finale = getattr(reponse, "geturl", lambda: url)()
             if not _url_mise_a_jour_autorisee(finale):
-                raise OSError("La redirection de l'archive quitte GitHub ou HTTPS.")
+                raise OSError(msg("archive_redirection"))
             annoncee = reponse.headers.get("Content-Length")
             if annoncee:
                 try:
                     annoncee = int(annoncee)
                 except ValueError as erreur:
-                    raise OSError("Taille d'archive HTTP invalide.") from erreur
+                    raise OSError(msg("archive_taille_http_invalide")) from erreur
                 if annoncee != taille:
                     raise OSError(
-                        f"Taille HTTP inattendue : {annoncee}, attendu {taille}.")
+                        msg("archive_taille_http_inattendue", annoncee=annoncee, taille=taille))
 
             hacheur = hashlib.sha256()
             recu = 0
@@ -372,7 +566,7 @@ def _telecharger(url: str, destination: Path, taille: int, sha256: str) -> None:
                         break
                     recu += len(bloc)
                     if recu > taille or recu > MAX_ARCHIVE_BYTES:
-                        raise OSError("L'archive dépasse la taille publiée.")
+                        raise OSError(msg("archive_depasse_taille"))
                     sortie.write(bloc)
                     hacheur.update(bloc)
                     if time.time() - dernier > 0.5:
@@ -383,16 +577,16 @@ def _telecharger(url: str, destination: Path, taille: int, sha256: str) -> None:
                             recu / (1024 * 1024), taille / (1024 * 1024),
                             cle="phase.update_download")
             if recu != taille:
-                raise OSError(f"Archive tronquée : {recu} octets, attendu {taille}.")
+                raise OSError(msg("archive_tronquee", recu=recu, taille=taille))
             obtenue = hacheur.hexdigest()
             if obtenue != sha256:
                 raise OSError(
-                    f"Empreinte SHA-256 incorrecte : {obtenue}, attendu {sha256}.")
+                    msg("archive_empreinte_incorrecte", obtenue=obtenue, sha256=sha256))
     except Exception:
         destination.unlink(missing_ok=True)
         raise
-    print(f"  archive reçue : {destination.name} "
-          f"({destination.stat().st_size // (1024 * 1024)} Mo)")
+    print(msg("archive_recue", nom=destination.name,
+              mo=destination.stat().st_size // (1024 * 1024)))
 
 
 _NOMS_WINDOWS_INTERDITS = {
@@ -407,23 +601,23 @@ def _destination_archive(racine: Path, nom: str) -> tuple:
     brut = str(nom or "")
     if (not brut or len(brut) > 4096 or "\x00" in brut
             or brut.startswith(("/", "\\"))):
-        raise OSError(f"Chemin dangereux dans l'archive : {brut!r}")
+        raise OSError(msg("archive_chemin_dangereux", brut=brut))
     portable = brut.replace("\\", "/").rstrip("/")
     chemin_posix = PurePosixPath(portable)
     morceaux = portable.split("/")
     if (not portable or chemin_posix.is_absolute()
             or any(not morceau or morceau in (".", "..") for morceau in morceaux)):
-        raise OSError(f"Chemin dangereux dans l'archive : {brut!r}")
+        raise OSError(msg("archive_chemin_dangereux", brut=brut))
     for morceau in morceaux:
         base = morceau.split(".", 1)[0].upper()
         if (len(morceau) > 255 or ":" in morceau
                 or morceau.endswith((" ", "."))
                 or any(ord(caractere) < 32 for caractere in morceau)
                 or base in _NOMS_WINDOWS_INTERDITS):
-            raise OSError(f"Nom non portable dans l'archive : {brut!r}")
+            raise OSError(msg("archive_nom_non_portable", brut=brut))
     cible = racine.joinpath(*morceaux).resolve()
     if not runtime.est_relatif_a(cible, racine):
-        raise OSError(f"Chemin hors du dossier d'extraction : {brut!r}")
+        raise OSError(msg("archive_chemin_hors_dossier", brut=brut))
     return cible, tuple(morceaux)
 
 
@@ -438,9 +632,9 @@ def _inscrire_destination(registre: dict, morceaux: tuple, genre: str) -> None:
             registre[cle] = (nom, courant)
             continue
         if precedent[0] != nom or precedent[1] != courant:
-            raise OSError(f"Collision de chemins dans l'archive : {nom!r}")
+            raise OSError(msg("archive_collision_chemins", nom=nom))
         if courant != "dir":
-            raise OSError(f"Membre dupliqué dans l'archive : {nom!r}")
+            raise OSError(msg("archive_membre_duplique", nom=nom))
 
 
 def _copier_exactement(source, destination: Path, taille: int) -> None:
@@ -449,18 +643,18 @@ def _copier_exactement(source, destination: Path, taille: int) -> None:
         while restant:
             bloc = source.read(min(262144, restant))
             if not bloc:
-                raise OSError(f"Membre tronqué dans l'archive : {destination.name}")
+                raise OSError(msg("archive_membre_tronque", nom=destination.name))
             sortie.write(bloc)
             restant -= len(bloc)
         if source.read(1):
-            raise OSError(f"Membre plus long qu'annoncé : {destination.name}")
+            raise OSError(msg("archive_membre_plus_long", nom=destination.name))
 
 
 def _extraire_zip(archive: Path, racine: Path) -> None:
     with zipfile.ZipFile(archive) as zip_:
         infos = zip_.infolist()
         if len(infos) > MAX_ARCHIVE_MEMBERS:
-            raise OSError("Archive contenant trop de membres.")
+            raise OSError(msg("archive_trop_de_membres"))
         registre = {}
         membres = []
         total = 0
@@ -469,18 +663,18 @@ def _extraire_zip(archive: Path, racine: Path) -> None:
             type_mode = stat.S_IFMT(mode)
             dossier = info.is_dir()
             if info.flag_bits & 0x1:
-                raise OSError(f"Membre ZIP chiffré interdit : {info.filename!r}")
+                raise OSError(msg("archive_membre_zip_chiffre", nom=info.filename))
             if dossier:
                 if type_mode not in (0, stat.S_IFDIR):
-                    raise OSError(f"Type ZIP dangereux : {info.filename!r}")
+                    raise OSError(msg("archive_type_zip_dangereux", nom=info.filename))
                 genre = "dir"
             else:
                 if type_mode not in (0, stat.S_IFREG):
-                    raise OSError(f"Lien ou type ZIP dangereux : {info.filename!r}")
+                    raise OSError(msg("archive_lien_type_zip_dangereux", nom=info.filename))
                 genre = "file"
                 total += info.file_size
                 if info.file_size < 0 or total > MAX_EXTRACTED_BYTES:
-                    raise OSError("Contenu ZIP décompressé trop volumineux.")
+                    raise OSError(msg("archive_zip_trop_volumineux"))
             cible, morceaux = _destination_archive(racine, info.filename)
             _inscrire_destination(registre, morceaux, genre)
             membres.append((info, cible, genre))
@@ -502,7 +696,7 @@ def _extraire_tar(archive: Path, racine: Path) -> None:
         for info in tar:
             infos.append(info)
             if len(infos) > MAX_ARCHIVE_MEMBERS:
-                raise OSError("Archive contenant trop de membres.")
+                raise OSError(msg("archive_trop_de_membres"))
         registre = {}
         membres = []
         total = 0
@@ -513,9 +707,9 @@ def _extraire_tar(archive: Path, racine: Path) -> None:
                 genre = "file"
                 total += info.size
                 if info.size < 0 or total > MAX_EXTRACTED_BYTES:
-                    raise OSError("Contenu TAR décompressé trop volumineux.")
+                    raise OSError(msg("archive_tar_trop_volumineux"))
             else:
-                raise OSError(f"Lien ou type TAR dangereux : {info.name!r}")
+                raise OSError(msg("archive_lien_type_tar_dangereux", nom=info.name))
             cible, morceaux = _destination_archive(racine, info.name)
             _inscrire_destination(registre, morceaux, genre)
             membres.append((info, cible, genre))
@@ -529,7 +723,7 @@ def _extraire_tar(archive: Path, racine: Path) -> None:
             cible.parent.mkdir(parents=True, exist_ok=True)
             source = tar.extractfile(info)
             if source is None:
-                raise OSError(f"Membre TAR illisible : {info.name!r}")
+                raise OSError(msg("archive_membre_tar_illisible", nom=info.name))
             with source:
                 _copier_exactement(source, cible, info.size)
             # Pas de propriétaire, setuid/setgid ni mode arbitraire venant de
@@ -546,12 +740,12 @@ def _extraire(archive: Path, vers: Path) -> Path:
     elif archive.name.lower().endswith(".tar.gz"):
         _extraire_tar(archive, racine)
     else:
-        raise OSError(f"Format d'archive inconnu : {archive.name}")
+        raise OSError(msg("archive_format_inconnu", nom=archive.name))
     # Les archives publiées contiennent un unique dossier « blink2video ».
     contenu = list(vers.iterdir())
     if (len(contenu) != 1 or not contenu[0].is_dir()
             or contenu[0].is_symlink()):
-        raise OSError("L'archive doit contenir un unique dossier de bundle.")
+        raise OSError(msg("archive_bundle_unique"))
     return contenu[0]
 
 
@@ -571,24 +765,18 @@ def _creer_dossier_travail(installe: Path, version: str) -> Path:
     if (not nom_version or nom_version in (".", "..")
             or not all(c.isascii() and (c.isalnum() or c in ".-_")
                        for c in nom_version)):
-        raise OSError(f"Numéro de version impropre à un dossier : {version!r}")
+        raise OSError(msg("version_dossier_impropre", version=version))
 
     racine = installe / DOSSIER_TRAVAIL
     marqueur = racine / MARQUEUR_TRAVAIL
     if racine.exists():
         if not racine.is_dir():
-            raise OSError(
-                f"Le dossier {racine} existe déjà et n'appartient pas à "
-                "blink2video. Renommez-le avant de relancer la mise à jour."
-            )
+            raise OSError(msg("dossier_deja_existant", racine=racine))
         if not marqueur.is_file():
             # Une interruption entre mkdir() et l'écriture du marqueur laisse
             # un dossier vide : il est sûr de reprendre ce cas précis.
             if any(racine.iterdir()):
-                raise OSError(
-                    f"Le dossier {racine} existe déjà et n'appartient pas à "
-                    "blink2video. Renommez-le avant de relancer la mise à jour."
-                )
+                raise OSError(msg("dossier_deja_existant", racine=racine))
             marqueur.write_text(
                 "Répertoire temporaire de mise à jour.\n", encoding="utf-8"
             )
@@ -634,21 +822,20 @@ def _verifier(dossier: Path, attendue: str) -> bool:
     échoue ici, sur une installation encore intacte."""
     binaire = _executable(dossier)
     if not binaire.is_file():
-        print(f"Échec : {binaire.name} absent de l'archive.")
+        print(msg("echec_binaire_absent", nom=binaire.name))
         return False
     try:
         sortie = runtime.lancer([str(binaire), "--version"], capture_output=True,
                                 text=True, timeout=120, check=False)
     except (OSError, subprocess.SubprocessError) as erreur:
-        print(f"Échec : le nouvel exécutable ne démarre pas ({erreur}).")
+        print(msg("echec_binaire_ne_demarre_pas", erreur=erreur))
         return False
     annonce = (sortie.stdout or "").strip()
     annonce_attendue = f"blink2video {attendue}"
     if sortie.returncode != 0 or annonce != annonce_attendue:
-        print(f"Échec : le nouvel exécutable annonce « {annonce or '?'} », "
-              f"on attendait « {annonce_attendue} ».")
+        print(msg("echec_binaire_annonce", annonce=annonce or "?", attendue=annonce_attendue))
         return False
-    print(f"  vérifié : {annonce}")
+    print(msg("binaire_verifie", annonce=annonce))
     return True
 
 
@@ -726,14 +913,12 @@ def _permuter_reserve(neuf: Path, installe: Path) -> bool:
             json.dump({"elements": list(CONTENU_DU_PROGRAMME)}, fichier)
     except FileExistsError as erreur:
         raise RestaurationIncomplete(
-            f"Une permutation non finalisée subsiste : {marqueur}. "
-            "Sauvegardes .ancien conservées ; réparation nécessaire.") from erreur
+            msg("permutation_non_finalisee", marqueur=marqueur)) from erreur
     except OSError as erreur:
         if marqueur.exists():
             raise RestaurationIncomplete(
-                f"Préparation de permutation interrompue : {marqueur}. "
-                "Aucun remplacement autorisé avant vérification.") from erreur
-        print(f"Permutation non démarrée : {erreur}", flush=True)
+                msg("permutation_preparation_interrompue", marqueur=marqueur)) from erreur
+        print(msg("permutation_non_demarree", erreur=erreur), flush=True)
         return False
 
     touches = []
@@ -753,7 +938,7 @@ def _permuter_reserve(neuf: Path, installe: Path) -> bool:
         marqueur.unlink()
         return True
     except OSError as erreur:
-        print(f"Échec du remplacement ({erreur}). Retour à la version précédente.")
+        print(msg("echec_remplacement", erreur=erreur))
         echecs = []
         for retire, ancien in reversed(touches):
             try:
@@ -770,9 +955,8 @@ def _permuter_reserve(neuf: Path, installe: Path) -> bool:
                 echecs.append(str(restauration))
         if echecs:
             raise RestaurationIncomplete(
-                "Restauration incomplète ; aucune relance ni nouvelle tentative. "
-                f"Conserver {marqueur} et les sauvegardes .ancien. "
-                + " ; ".join(echecs)) from erreur
+                msg("restauration_incomplete", marqueur=marqueur,
+                    echecs=" ; ".join(echecs))) from erreur
         return False
 
 
@@ -789,8 +973,7 @@ def _nettoyer(installe: Path) -> None:
 
 def _nettoyer_reserve(installe: Path) -> None:
     if (installe / MARQUEUR_PERMUTATION).exists():
-        raise RestaurationIncomplete(
-            "Mise à jour précédente non finalisée : sauvegardes et préparation conservées.")
+        raise RestaurationIncomplete(msg("maj_precedente_non_finalisee"))
     for nom in CONTENU_DU_PROGRAMME:
         reste = installe / f"{nom}.ancien"
         try:
@@ -816,7 +999,7 @@ def _relancer(installe: Path, verbes: list) -> None:
     commande = _ligne(installe, *[mot for groupe in verbes for mot in groupe])
     if not verbes:
         commande.append("start")
-    print(f"Relance : {' '.join(commande)}", flush=True)
+    print(msg("relance", commande=" ".join(commande)), flush=True)
     env = dict(os.environ)
     if env.pop("BLINK_UPDATE_AUTO_HOME", "") == "1":
         # Le finaliseur seul avait besoin d'une racine de données forcée.
@@ -851,10 +1034,10 @@ def finaliser(cible: Path) -> int:
         references = [racine for racine in candidats
                       if any((racine / runtime.INSTANCES).glob("*.json"))]
     except OSError:
-        print("Mise à jour interrompue : racine de contrôle illisible.", flush=True)
+        print(msg("racine_controle_illisible"), flush=True)
         return 1
     if len(references) > 1:
-        print("Mise à jour interrompue : plusieurs racines de contrôle possibles.", flush=True)
+        print(msg("racines_controle_multiples"), flush=True)
         return 1
     controle = references[0] if references else installe
     ancien_controle = os.environ.get("BLINK_CONTROL_HOME")
@@ -899,11 +1082,11 @@ def _finaliser(cible: Path) -> int:
     # les fiches dans les données redirigées, puis annonce « rien ne tourne ».
     env_arret = dict(os.environ, BLINK_HOME=str(runtime._dossier_controle()))
 
-    print("Arrêt de la version en place…", flush=True)
+    print(msg("arret_version_en_place"), flush=True)
     arret = runtime.lancer(_ligne(installe, "stop"), cwd=str(installe),
                            env=env_arret, stdin=subprocess.DEVNULL, check=False)
     if arret.returncode != 0:
-        print("Mise à jour interrompue : la commande d'arrêt a échoué.", flush=True)
+        print(msg("arret_echoue"), flush=True)
         return 1
 
     # Les fichiers restent tenus quelques instants après la mort du processus,
@@ -916,7 +1099,7 @@ def _finaliser(cible: Path) -> int:
             break
         time.sleep(1)
     else:
-        print("Mise à jour interrompue : une instance est encore active.", flush=True)
+        print(msg("instance_encore_active"), flush=True)
         return 1
 
     # Depuis les sources, « git pull » a déjà mis les fichiers en place : il n'y
@@ -932,12 +1115,12 @@ def _finaliser(cible: Path) -> int:
                 break
             time.sleep(2)
         else:
-            print("La version précédente est intacte : rien n'a été remplacé.", flush=True)
+            print(msg("version_precedente_intacte"), flush=True)
             for verbes in compositions:
                 _relancer(installe, verbes)
             return 1
 
-    print(f"Installé dans {installe}", flush=True)
+    print(msg("installe_dans", installe=installe), flush=True)
     for verbes in compositions:
         _relancer(installe, verbes)
     return 0
@@ -951,24 +1134,20 @@ def _depuis_les_sources() -> int:
     version n'est pas là, et c'est elle qui arrête et relance."""
     dossier = Path(__file__).resolve().parent
     if not (dossier / ".git").exists():
-        _conclure_sans_relance(
-            "Ces sources ne viennent pas d'un dépôt git : rien à tirer. "
-            "Téléchargez l'archive publiée, ou clonez le dépôt.")
+        _conclure_sans_relance(msg("pas_un_depot_git"))
         return 2
 
     neuve = disponible(force=True)
     if not neuve:
-        _conclure_sans_relance(f"blink2video {_version_locale()} est à jour.")
+        _conclure_sans_relance(msg("deja_a_jour", version=_version_locale()))
         return 0
 
-    print(f"Mise à jour {_version_locale()} vers {neuve['version']} (git pull)")
+    print(msg("maj_git_pull", ancienne=_version_locale(), neuve=neuve['version']))
     tire = runtime.lancer(["git", "pull", "--ff-only"], cwd=str(dossier),
                           capture_output=True, text=True, check=False)
     print((tire.stdout or "").strip() or (tire.stderr or "").strip())
     if tire.returncode != 0:
-        _conclure_sans_relance(
-            "« git pull » a refusé : des modifications locales attendent "
-            "peut-être. Rien n'a changé.")
+        _conclure_sans_relance(msg("git_pull_refuse"))
         return 1
 
     # Notre propre VERSION est celle d'avant le tirage : c'est le fichier sur
@@ -976,11 +1155,10 @@ def _depuis_les_sources() -> int:
     obtenue = _version_locale()
     if obtenue != neuve["version"]:
         _conclure_sans_relance(
-            f"Le dépôt annonce {obtenue or '?'} après le tirage, "
-            f"on attendait {neuve['version']}. Relance refusée.")
+            msg("depot_version_inattendue", obtenue=obtenue or "?", neuve=neuve['version']))
         return 1
 
-    print("Passage à la nouvelle version…")
+    print(msg("passage_nouvelle_version"))
     runtime.demarrer(
         [sys.executable, "-u", str(dossier / "maj.py"), "--finaliser", str(dossier)],
         cwd=str(dossier), stdin=subprocess.DEVNULL,
@@ -992,7 +1170,7 @@ def _depuis_les_sources() -> int:
 def installer(force: bool = False) -> int:
     """Premier temps : chercher, télécharger, vérifier, puis passer la main."""
     if runtime.build_windows7():
-        print(MESSAGE_WINDOWS7)
+        print(msg("message_windows7"))
         return 0
     if not runtime.frozen():
         return _depuis_les_sources()
@@ -1006,16 +1184,16 @@ def installer(force: bool = False) -> int:
 
     neuve = disponible(force=True)
     if not neuve:
-        _conclure_sans_relance(f"blink2video {runtime.VERSION} est à jour.")
+        _conclure_sans_relance(msg("deja_a_jour", version=runtime.VERSION))
         return 0
     archive = neuve.get("archive") or {}
     if not archive.get("url"):
         _conclure_sans_relance(
-            f"La version {neuve['version']} est publiée, mais sans archive "
-            f"pour ce système. Voir {neuve.get('page')}")
+            msg("archive_absente_pour_ce_systeme", version=neuve['version'],
+                page=neuve.get('page')))
         return 1
 
-    print(f"Mise à jour {runtime.VERSION} vers {neuve['version']}")
+    print(msg("maj_vers", ancienne=runtime.VERSION, neuve=neuve['version']))
     travail = None
     try:
         nom_archive = _nom_archive_sur(archive.get("nom"))
@@ -1028,13 +1206,13 @@ def installer(force: bool = False) -> int:
         dossier = _extraire(fichier, travail / "contenu")
         _rendre_executable(dossier)
         if not _verifier(dossier, neuve["version"]):
-            _conclure_sans_relance(
-                "Échec de la mise à jour : le nouvel exécutable n'a pas démarré correctement.")
+            _conclure_sans_relance(msg("echec_maj_binaire_incorrect"))
             return 1
         fichier.unlink(missing_ok=True)
     except (OSError, urllib.error.URLError, zipfile.BadZipFile,
             tarfile.TarError) as erreur:
-        _conclure_sans_relance(f"Échec de la mise à jour : {type(erreur).__name__}: {erreur}")
+        _conclure_sans_relance(
+            msg("echec_maj_exception", type=type(erreur).__name__, erreur=erreur))
         if travail is not None:
             shutil.rmtree(travail, ignore_errors=True)
         return 1
@@ -1043,7 +1221,7 @@ def installer(force: bool = False) -> int:
     # La suite appartient à la nouvelle version : elle seule peut remplacer
     # celle-ci sans se scier la branche. Détachée, car ce processus fait partie
     # de ce qu'elle va arrêter.
-    print("Passage à la nouvelle version…")
+    print(msg("passage_nouvelle_version"))
     # Le finaliseur temporaire doit connaître séparément les données et les
     # fiches de contrôle. Imposer les données via BLINK_HOME seul changeait
     # aussi la recherche des processus et rendait l'ancienne instance invisible.
@@ -1075,15 +1253,15 @@ def main() -> int:
     if arguments.finaliser:
         return finaliser(Path(arguments.finaliser))
     if runtime.build_windows7():
-        print(MESSAGE_WINDOWS7)
+        print(msg("message_windows7"))
         return 0
     if arguments.check:
         neuve = disponible(force=True)
         if neuve:
-            print(f"Version {neuve['version']} disponible "
-                  f"(vous avez {runtime.VERSION}) : {neuve.get('page')}")
+            print(msg("version_disponible", version=neuve['version'],
+                      actuelle=runtime.VERSION, page=neuve.get('page')))
         else:
-            print(f"blink2video {runtime.VERSION} est à jour.")
+            print(msg("deja_a_jour", version=runtime.VERSION))
         return 0
     return installer()
 

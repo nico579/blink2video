@@ -3,12 +3,11 @@
 page web qui suit déjà la langue choisie. `runtime.traduire()` leur donne le
 même mécanisme bilingue que LIBELLES dans tray.py, indexé par
 `runtime.lire_langue()` (le fichier `blink_langue.txt` laissé par le dernier
-chargement de la page). blink_auth.py, le flux login/download de
-blink_cli.py (async def main), blink_models.py, blink_engine.py et
-merge_daily.py sont les modules convertis jusqu'ici ; tous sauf
-blink_auth.py nomment leur alias local `msg()` plutôt que `_()` puisqu'ils
-utilisent déjà `_` comme variable jetable ailleurs (`for _, p in lances`,
-etc.)."""
+chargement de la page). blink_auth.py, blink_cli.py (en entier), blink_models.py,
+blink_engine.py, merge_daily.py et maj.py sont les modules convertis
+jusqu'ici ; tous sauf blink_auth.py nomment leur alias local `msg()`
+plutôt que `_()` puisqu'ils utilisent déjà `_` comme variable jetable
+ailleurs (`for _, p in lances`, etc.)."""
 
 from __future__ import annotations
 
@@ -23,6 +22,7 @@ import blink_cli
 import blink_models
 import blink_engine
 import merge_daily
+import maj
 
 
 class TestTraduireLibelles(unittest.TestCase):
@@ -135,6 +135,30 @@ class TestTraduireLibelles(unittest.TestCase):
         self._regler_langue("fr")
         self.assertEqual(merge_daily.msg("label_hebdomadaires"), "Hebdomadaires")
         self.assertEqual(merge_daily.msg("label_mensuelles"), "Mensuelles")
+
+    def test_maj_toutes_les_cles_existent_dans_les_deux_langues(self):
+        self.assertEqual(set(maj.LIBELLES["fr"]), set(maj.LIBELLES["en"]))
+
+    def test_maj_msg_bascule_et_formate(self):
+        self._regler_langue("en")
+        self.assertEqual(
+            maj.msg("archive_chemin_dangereux", brut="../../etc/passwd"),
+            "Dangerous path in the archive: '../../etc/passwd'")
+        self.assertEqual(maj.msg("deja_a_jour", version="0.12.20"),
+                         "blink2video 0.12.20 is up to date.")
+        self._regler_langue("fr")
+        self.assertEqual(maj.msg("deja_a_jour", version="0.12.20"),
+                         "blink2video 0.12.20 est à jour.")
+
+    def test_maj_restauration_incomplete_garde_le_message_traduit(self):
+        self._regler_langue("en")
+        try:
+            raise maj.RestaurationIncomplete(
+                maj.msg("maj_precedente_non_finalisee"))
+        except maj.RestaurationIncomplete as erreur:
+            self.assertEqual(
+                str(erreur),
+                "Previous update not finalized: backups and preparation kept.")
 
 
 if __name__ == "__main__":
