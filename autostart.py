@@ -23,6 +23,69 @@ from pathlib import Path
 
 import runtime
 
+LIBELLES = {
+    "fr": {
+        "verbe_inconnu": "verbe inconnu : {verbe}",
+        "note_open_browser":
+            "Note : « --open-browser » ouvrira un navigateur à chaque "
+            "ouverture de session.",
+        "en_cours_non": "En cours  : non",
+        "en_cours_ligne": "En cours  : {commande} (PID {pid}, depuis {depuis})",
+        "plateforme_non_prise_en_charge":
+            "Démarrage automatique non pris en charge sur {plateforme}.",
+        "creerait": "Créerait {cible}",
+        "cible_label": "  cible : {executable}",
+        "args_label": "  args  : {arguments}",
+        "raccourci_non_cree": "raccourci non créé",
+        "echec_raccourci": "Échec : {detail}",
+        "ecrirait": "Écrirait {cible} :\n{contenu}",
+        "label_raccourcis_demarrage": "Raccourcis de démarrage",
+        "label_agents_lancement": "Agents de lancement",
+        "label_services_utilisateur": "Services utilisateur",
+        "intitule_aucune": "{intitule} : aucune",
+        "intitule_compte": "{intitule} : {n}",
+        "lance_commande": "    lance : {commande}",
+        "supprimerait": "Supprimerait {cible}",
+        "demarrage_retire": "Démarrage automatique retiré : {cible}",
+        "demarrage_deja_absent": "Démarrage automatique déjà absent : {cible}",
+        "demarrage_installe": "Démarrage automatique installé : {cible}",
+        "commande_label": "  commande : {commande}",
+        "prendra_effet": "  Il prendra effet à la prochaine ouverture de session.",
+    },
+    "en": {
+        "verbe_inconnu": "unknown verb: {verbe}",
+        "note_open_browser":
+            "Note: « --open-browser » will open a browser every "
+            "time you log in.",
+        "en_cours_non": "Running   : no",
+        "en_cours_ligne": "Running   : {commande} (PID {pid}, since {depuis})",
+        "plateforme_non_prise_en_charge":
+            "Autostart not supported on {plateforme}.",
+        "creerait": "Would create {cible}",
+        "cible_label": "  target: {executable}",
+        "args_label": "  args  : {arguments}",
+        "raccourci_non_cree": "shortcut not created",
+        "echec_raccourci": "Failed: {detail}",
+        "ecrirait": "Would write {cible}:\n{contenu}",
+        "label_raccourcis_demarrage": "Startup shortcuts",
+        "label_agents_lancement": "Launch agents",
+        "label_services_utilisateur": "User services",
+        "intitule_aucune": "{intitule}: none",
+        "intitule_compte": "{intitule}: {n}",
+        "lance_commande": "    runs: {commande}",
+        "supprimerait": "Would delete {cible}",
+        "demarrage_retire": "Autostart removed: {cible}",
+        "demarrage_deja_absent": "Autostart already absent: {cible}",
+        "demarrage_installe": "Autostart installed: {cible}",
+        "commande_label": "  command: {commande}",
+        "prendra_effet": "  It will take effect at the next login.",
+    },
+}
+
+
+def _(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
+
 
 NOM = "blink2video"
 
@@ -60,7 +123,7 @@ def commande(verbe_et_options: tuple = DEFAUT) -> list:
     programmes peuvent se permettre puisqu'ils rendent compte dans watch.log."""
     arguments = list(verbe_et_options or DEFAUT)
     if arguments[0] not in runtime.VERBES:
-        raise ValueError(f"verbe inconnu : {arguments[0]}")
+        raise ValueError(_("verbe_inconnu", verbe=arguments[0]))
     # Par le point d'entrée, et non par le programme d'un verbe : lui seul sait
     # lancer plusieurs verbes côte à côte.
     ligne = runtime.commande_composee(arguments)
@@ -80,8 +143,7 @@ def appliquer_tous(etat: str, simulation: bool, quoi: tuple) -> int:
     entrée, qui lancera les trois. L'entrée est nommée d'après le premier
     verbe, ce qui permet d'en tenir plusieurs et d'en retirer une seule."""
     if quoi and "--open-browser" in quoi:
-        print("Note : « --open-browser » ouvrira un navigateur à chaque "
-              "ouverture de session.")
+        print(_("note_open_browser"))
     if quoi:
         # Vérifie la syntaxe avant d'écrire quoi que ce soit : une entrée de
         # démarrage fautive ne se découvre qu'à l'ouverture de session
@@ -94,11 +156,11 @@ def appliquer_tous(etat: str, simulation: bool, quoi: tuple) -> int:
         # lancement à la main.
         instances = runtime.lire_instances()
         if not instances:
-            print("En cours  : non")
+            print(_("en_cours_non"))
         for fiche in instances:
             commande = " ".join(" ".join(g) for g in fiche.get("verbes") or [])
-            print(f"En cours  : {commande} "
-                  f"(PID {fiche['pid']}, depuis {fiche.get('depuis', '?')})")
+            print(_("en_cours_ligne", commande=commande, pid=fiche['pid'],
+                    depuis=fiche.get('depuis', '?')))
     return code
 
 
@@ -110,7 +172,7 @@ def appliquer(etat: str, simulation: bool = False, quoi: tuple = DEFAUT) -> int:
         return _macos(etat, simulation, quoi)
     if sys.platform.startswith("linux"):
         return _linux(etat, simulation, quoi)
-    print(f"Démarrage automatique non pris en charge sur {sys.platform}.")
+    print(_("plateforme_non_prise_en_charge", plateforme=sys.platform))
     return 1
 
 
@@ -149,7 +211,7 @@ def _raccourci(quoi: tuple = ()) -> Path:
 def _windows(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     if etat == "status":
         return _lister(sorted(_dossier_demarrage().glob(f"{NOM}*.lnk")),
-                       "Raccourcis de démarrage")
+                       _("label_raccourcis_demarrage"))
     cible = _raccourci(quoi)
     if etat == "off":
         return _retirer(cible, simulation)
@@ -158,9 +220,9 @@ def _windows(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     executable = ligne[0]
     arguments = subprocess.list2cmdline(ligne[1:])
     if simulation:
-        print(f"Créerait {cible}")
-        print(f"  cible : {executable}")
-        print(f"  args  : {arguments}")
+        print(_("creerait", cible=cible))
+        print(_("cible_label", executable=executable))
+        print(_("args_label", arguments=arguments))
         return 0
 
     # Un raccourci se crée par l'interface COM de l'explorateur, présente sur
@@ -186,7 +248,7 @@ def _windows(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
         stderr=subprocess.PIPE, text=True, errors="replace", check=False,
     )
     if resultat.returncode != 0 or not cible.exists():
-        print(f"Échec : {resultat.stderr.strip() or 'raccourci non créé'}")
+        print(_("echec_raccourci", detail=resultat.stderr.strip() or _("raccourci_non_cree")))
         return 1
     return _installe(cible, quoi)
 
@@ -202,7 +264,7 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     dossier = Path.home() / "Library/LaunchAgents"
     if etat == "status":
         return _lister(sorted(dossier.glob(f"com.nico579.{NOM}*.plist")),
-                       "Agents de lancement")
+                       _("label_agents_lancement"))
     cible = dossier / f"com.nico579.{etiquette(quoi)}.plist"
     if etat == "off":
         if not simulation:
@@ -226,7 +288,7 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
         '</dict></plist>\n'
     )
     if simulation:
-        print(f"Écrirait {cible} :\n{contenu}")
+        print(_("ecrirait", cible=cible, contenu=contenu))
         return 0
     cible.parent.mkdir(parents=True, exist_ok=True)
     cible.write_text(contenu, encoding="utf-8")
@@ -240,7 +302,7 @@ def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     dossier = Path.home() / ".config/systemd/user"
     if etat == "status":
         return _lister(sorted(dossier.glob(f"{NOM}*.service")),
-                       "Services utilisateur")
+                       _("label_services_utilisateur"))
     cible = dossier / f"{etiquette(quoi)}.service"
     if etat == "off":
         if not simulation:
@@ -263,7 +325,7 @@ def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
         "WantedBy=default.target\n"
     )
     if simulation:
-        print(f"Écrirait {cible} :\n{contenu}")
+        print(_("ecrirait", cible=cible, contenu=contenu))
         return 0
     cible.parent.mkdir(parents=True, exist_ok=True)
     cible.write_text(contenu, encoding="utf-8")
@@ -312,31 +374,31 @@ def lue(cible: Path) -> list:
 def _lister(entrees: list, intitule: str) -> int:
     """Toutes les entrées installées, avec ce que chacune lance réellement."""
     if not entrees:
-        print(f"{intitule} : aucune")
+        print(_("intitule_aucune", intitule=intitule))
         return 0
-    print(f"{intitule} : {len(entrees)}")
+    print(_("intitule_compte", intitule=intitule, n=len(entrees)))
     for cible in entrees:
         print(f"  {cible.name}")
         commande_lue = lue(cible)
         if commande_lue:
-            print(f"    lance : {' '.join(commande_lue)}")
+            print(_("lance_commande", commande=" ".join(commande_lue)))
     return 0
 
 
 def _retirer(cible: Path, simulation: bool) -> int:
     if simulation:
-        print(f"Supprimerait {cible}")
+        print(_("supprimerait", cible=cible))
         return 0
     existait = cible.exists()
     cible.unlink(missing_ok=True)
-    print(f"Démarrage automatique {'retiré' if existait else 'déjà absent'} : {cible}")
+    print(_("demarrage_retire" if existait else "demarrage_deja_absent", cible=cible))
     return 0
 
 
 def _installe(cible: Path, quoi: tuple = DEFAUT) -> int:
-    print(f"Démarrage automatique installé : {cible}")
-    print(f"  commande : {' '.join(commande(quoi))}")
-    print("  Il prendra effet à la prochaine ouverture de session.")
+    print(_("demarrage_installe", cible=cible))
+    print(_("commande_label", commande=" ".join(commande(quoi))))
+    print(_("prendra_effet"))
     return 0
 
 
