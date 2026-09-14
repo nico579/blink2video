@@ -25,6 +25,7 @@ import blink_engine
 import merge_daily
 import maj
 import autostart
+import smoketest
 
 
 class TestTraduireLibelles(unittest.TestCase):
@@ -164,6 +165,17 @@ class TestTraduireLibelles(unittest.TestCase):
         self._regler_langue("fr")
         self.assertEqual(autostart._("demarrage_deja_absent", cible="foo.lnk"),
                          "Démarrage automatique déjà absent : foo.lnk")
+
+    def test_smoketest_toutes_les_cles_existent_dans_les_deux_langues(self):
+        self.assertEqual(set(smoketest.LIBELLES["fr"]), set(smoketest.LIBELLES["en"]))
+
+    def test_smoketest_bascule_et_formate(self):
+        self._regler_langue("en")
+        self.assertEqual(smoketest._("clips_compte_detail", n=5, m=1), "5 clip(s), 1 excluded")
+        self.assertEqual(smoketest._("marque_echec"), "FAIL ")
+        self._regler_langue("fr")
+        self.assertEqual(smoketest._("clips_compte_detail", n=5, m=1), "5 clip(s) dont 1 écarté(s)")
+        self.assertEqual(smoketest._("marque_echec"), "ECHEC")
 
     def test_maj_restauration_incomplete_garde_le_message_traduit(self):
         self._regler_langue("en")

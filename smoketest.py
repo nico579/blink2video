@@ -27,6 +27,78 @@ from pathlib import Path
 
 import runtime
 
+LIBELLES = {
+    "fr": {
+        "marque_ok": "ok  ",
+        "marque_echec": "ECHEC",
+        "controle_installation_titre": "Contrôle de l'installation\n",
+        "video_titre": "Vidéo",
+        "ffmpeg_trouve": "ffmpeg trouvé",
+        "ffmpeg_incrustation": "ffmpeg sait incruster du texte",
+        "ffmpeg_incrustation_detail": "sans cela les vidéos sortiraient sans horodatage",
+        "police_trouvee": "police trouvée",
+        "clip_essai_fabrique": "clip d'essai fabriqué, entièrement noir",
+        "video_horodatee_produite": "vidéo horodatée produite",
+        "heure_dessinee": "l'heure est réellement dessinée dans l'image",
+        "pixels_allumes_detail": "{allumes} pixels allumés dans la zone du cartouche",
+        "a_regarder": "        à regarder : {chemin}",
+        "dossier_travail_conserve": "        dossier de travail conservé : {chemin}",
+        "notification_titre": "\nNotification",
+        "toast_corps": "Contrôle d'installation : ceci est un essai.",
+        "notification_envoyee": "notification envoyée",
+        "notification_envoyee_detail":
+            "elle doit apparaître à l'écran ; sinon, voir les limites du README",
+        "compte_blink_titre": "\nCompte Blink",
+        "session_enregistree": "session enregistrée",
+        "session_absente_detail":
+            "lancez « blink2video login » ; sans elle, ni téléchargement ni direct",
+        "clips_deja_recuperes": "clips déjà récupérés",
+        "clips_compte_detail": "{n} clip(s) dont {m} écarté(s)",
+        "clips_aucun_detail": "aucun ; lancez « blink2video download »",
+        "demarrage_auto_titre": "\nDémarrage automatique",
+        "indetermine": "  indéterminé : {erreur}",
+        "points_a_regarder": "{n} point(s) à regarder.",
+        "installation_operationnelle": "Installation opérationnelle.",
+    },
+    "en": {
+        "marque_ok": "ok  ",
+        "marque_echec": "FAIL ",
+        "controle_installation_titre": "Installation check\n",
+        "video_titre": "Video",
+        "ffmpeg_trouve": "ffmpeg found",
+        "ffmpeg_incrustation": "ffmpeg can burn in text",
+        "ffmpeg_incrustation_detail": "without it, videos would come out with no timestamp",
+        "police_trouvee": "font found",
+        "clip_essai_fabrique": "test clip made, entirely black",
+        "video_horodatee_produite": "timestamped video produced",
+        "heure_dessinee": "the time is actually drawn in the image",
+        "pixels_allumes_detail": "{allumes} lit pixels in the caption area",
+        "a_regarder": "        to watch: {chemin}",
+        "dossier_travail_conserve": "        working folder kept: {chemin}",
+        "notification_titre": "\nNotification",
+        "toast_corps": "Installation check: this is a test.",
+        "notification_envoyee": "notification sent",
+        "notification_envoyee_detail":
+            "it should appear on screen; if not, see the README's limits",
+        "compte_blink_titre": "\nBlink account",
+        "session_enregistree": "session saved",
+        "session_absente_detail":
+            "run « blink2video login »; without it, neither download nor live view work",
+        "clips_deja_recuperes": "clips already retrieved",
+        "clips_compte_detail": "{n} clip(s), {m} excluded",
+        "clips_aucun_detail": "none; run « blink2video download »",
+        "demarrage_auto_titre": "\nAutostart",
+        "indetermine": "  undetermined: {erreur}",
+        "points_a_regarder": "{n} point(s) to look into.",
+        "installation_operationnelle": "Installation working.",
+    },
+}
+
+
+def _(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
+
+
 runtime.bootstrap()
 
 import merge_daily as md
@@ -36,7 +108,7 @@ CONSTATS = []
 
 
 def constat(ok: bool, intitule: str, detail: str = "") -> bool:
-    marque = "ok  " if ok else "ECHEC"
+    marque = _("marque_ok") if ok else _("marque_echec")
     print(f"  {marque} {intitule}" + (f"\n        {detail}" if detail else ""))
     CONSTATS.append(ok)
     return ok
@@ -69,25 +141,25 @@ def main() -> int:
     if args.webrtc:
         return diagnostic_webrtc(args.report)
 
-    print("Contrôle de l'installation\n")
+    print(_("controle_installation_titre"))
 
-    print("Vidéo")
+    print(_("video_titre"))
     try:
         ffmpeg = md.find_ffmpeg()
-        constat(True, "ffmpeg trouvé", ffmpeg)
+        constat(True, _("ffmpeg_trouve"), ffmpeg)
     except RuntimeError as erreur:
-        constat(False, "ffmpeg trouvé", str(erreur))
+        constat(False, _("ffmpeg_trouve"), str(erreur))
         return bilan()
 
-    constat(md.has_drawtext(ffmpeg), "ffmpeg sait incruster du texte",
+    constat(md.has_drawtext(ffmpeg), _("ffmpeg_incrustation"),
             "" if md.has_drawtext(ffmpeg)
-            else "sans cela les vidéos sortiraient sans horodatage")
+            else _("ffmpeg_incrustation_detail"))
 
     try:
         police = md.find_font(None)
-        constat(True, "police trouvée", str(police))
+        constat(True, _("police_trouvee"), str(police))
     except RuntimeError as erreur:
-        constat(False, "police trouvée", str(erreur))
+        constat(False, _("police_trouvee"), str(erreur))
         return bilan()
 
     travail = Path(tempfile.mkdtemp(prefix="blink_smoketest_"))
@@ -104,7 +176,7 @@ def main() -> int:
             stderr=subprocess.PIPE, check=True,
         )
         constat(pixels_allumes(ffmpeg, source) == 0,
-                "clip d'essai fabriqué, entièrement noir")
+                _("clip_essai_fabrique"))
 
         import datetime as dt
         try:
@@ -120,50 +192,48 @@ def main() -> int:
             ffmpeg, [clip], 1280, 720, 30.0, fuseau,
             md.quote_filter_path(police), "veryfast", 23, demonstration,
         )
-        constat(ok, "vidéo horodatée produite", erreur)
+        constat(ok, _("video_horodatee_produite"), erreur)
         if ok:
             allumes = pixels_allumes(ffmpeg, demonstration)
-            constat(allumes > 200, "l'heure est réellement dessinée dans l'image",
-                    f"{allumes} pixels allumés dans la zone du cartouche")
-            print(f"        à regarder : {demonstration}")
+            constat(allumes > 200, _("heure_dessinee"),
+                    _("pixels_allumes_detail", allumes=allumes))
+            print(_("a_regarder", chemin=demonstration))
     finally:
         if args.keep:
-            print(f"        dossier de travail conservé : {travail}")
+            print(_("dossier_travail_conserve", chemin=travail))
         else:
             shutil.rmtree(travail, ignore_errors=True)
 
-    print("\nNotification")
+    print(_("notification_titre"))
     try:
         import watch
 
-        watch.toast("blink2video", "Contrôle d'installation : ceci est un essai.",
+        watch.toast("blink2video", _("toast_corps"),
                     url="http://127.0.0.1:8765/")
-        constat(True, "notification envoyée",
-                "elle doit apparaître à l'écran ; sinon, voir les limites du README")
+        constat(True, _("notification_envoyee"), _("notification_envoyee_detail"))
     except Exception as erreur:
-        constat(False, "notification envoyée", f"{type(erreur).__name__}: {erreur}")
+        constat(False, _("notification_envoyee"), f"{type(erreur).__name__}: {erreur}")
 
-    print("\nCompte Blink")
+    print(_("compte_blink_titre"))
     session = runtime.app_dir() / "blink_auth.json"
     if not session.is_file():
-        constat(False, "session enregistrée",
-                "lancez « blink2video login » ; sans elle, ni téléchargement ni direct")
+        constat(False, _("session_enregistree"), _("session_absente_detail"))
     else:
-        constat(True, "session enregistrée", str(session))
+        constat(True, _("session_enregistree"), str(session))
         registre = md.load_json(runtime.app_dir() / "Blink_Clips" / md.DOWNLOAD_STATE, {})
         clips = registre.get("clips") or {}
         ecartes = sum(1 for c in clips.values() if isinstance(c, dict) and c.get("excluded"))
-        constat(bool(clips), "clips déjà récupérés",
-                f"{len(clips)} clip(s) dont {ecartes} écarté(s)" if clips
-                else "aucun ; lancez « blink2video download »")
+        constat(bool(clips), _("clips_deja_recuperes"),
+                _("clips_compte_detail", n=len(clips), m=ecartes) if clips
+                else _("clips_aucun_detail"))
 
-    print("\nDémarrage automatique")
+    print(_("demarrage_auto_titre"))
     try:
         import autostart
 
         autostart.appliquer("status")
     except Exception as erreur:
-        print(f"  indéterminé : {erreur}")
+        print(_("indetermine", erreur=erreur))
 
     return bilan()
 
@@ -189,9 +259,9 @@ def bilan() -> int:
     echecs = CONSTATS.count(False)
     print()
     if echecs:
-        print(f"{echecs} point(s) à regarder.")
+        print(_("points_a_regarder", n=echecs))
         return 1
-    print("Installation opérationnelle.")
+    print(_("installation_operationnelle"))
     return 0
 
 
