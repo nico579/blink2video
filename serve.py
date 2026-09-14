@@ -25,6 +25,7 @@ import concurrent.futures
 import datetime as dt
 import email.utils
 import hashlib
+import hmac
 import http.server
 import ipaddress
 import json
@@ -65,6 +66,11 @@ LIBELLES = {
             "depuis le reste du réseau sur le port {port}, sans "
             "authentification. À réserver à un réseau de confiance.",
         "interruption_arret": "\nArrêt.",
+        "snapshot_commande_refusee": "Blink a refusé la commande de photo.",
+        "snapshot_non_confirme": "Blink n'a pas confirmé la photo.",
+        "snapshot_image_indisponible": "Image indisponible après la prise de vue.",
+        "webhook_camera_manquante": "Paramètre « camera » manquant.",
+        "webhook_jeton_invalide": "Jeton de webhook invalide ou manquant.",
     },
     "en": {
         "vignette_erreur": "[thumbnail] {identity}: {type}: {erreur}",
@@ -80,6 +86,11 @@ LIBELLES = {
             "from the rest of the network on port {port}, with no "
             "authentication. Only do this on a trusted network.",
         "interruption_arret": "\nStopping.",
+        "snapshot_commande_refusee": "Blink refused the picture command.",
+        "snapshot_non_confirme": "Blink did not confirm the picture.",
+        "snapshot_image_indisponible": "Image unavailable after taking the picture.",
+        "webhook_camera_manquante": "Missing «camera» parameter.",
+        "webhook_jeton_invalide": "Invalid or missing webhook token.",
     },
 }
 
@@ -107,6 +118,9 @@ BASE_DIR = runtime.app_dir()
 # Tout ce qui arrive du navigateur est confronté au registre avant d'ouvrir
 # quoi que ce soit : aucun chemin fabriqué à la main n'est servi.
 IDENTITY = re.compile(r"^[\w.\- ]+(/[\w.\- ]+)*\.mp4$")
+# Photos (issue GitHub #9) : un seul niveau (caméra/fichier.jpg), jamais
+# imbriquées comme les clips - pas de raison de l'être.
+IDENTITY_SNAPSHOT = re.compile(r"^[\w.\- ]+/[\w.\- ]+\.jpg$")
 
 # Avancement annoncé par blink2video.py et merge_daily.py, et titres de phase émis
 # par blink_engine.py (« === STOCKAGE LOCAL === », « === CLOUD DE L'ABONNEMENT === »).
@@ -302,6 +316,12 @@ safe_file = md.safe_name
 # Où sauver une copie d'un direct (WebRTC ou MSE) pendant qu'il joue, à côté
 # de Blink_Clips et consorts (runtime.py, _traces_installation_existante).
 DOSSIER_DIRECT = runtime.app_dir() / "Blink_Direct"
+
+# Photos prises à la demande (bouton, ou webhook externe - issue GitHub #9),
+# distinctes des clips de détection : une caméra désarmée le jour n'en génère
+# aucun, mais peut quand même répondre à une prise de vue explicite.
+DOSSIER_SNAPSHOTS = runtime.app_dir() / "Blink_Snapshots"
+WEBHOOK_SNAPSHOT_ROUTE = "/webhook/snapshot"
 
 
 def _chemin_enregistrement_direct(name: str) -> Path:
@@ -2170,6 +2190,113 @@ class Handler(http.server.BaseHTTPRequestHandler):
             finally:
                 MODULE_SLOT.release()
 
+    def declencher_snapshot(self, identity: str) -> Path:
+        """Prend une photo à la demande et la garde, contrairement à
+        reveiller_camera() qui ne fait que confirmer le réveil (issue GitHub
+        #9 : bouton manuel et webhook partagent cette même méthode).
+
+        La confirmation de commande (request_command_status) dit seulement
+        que Blink a bien reçu la nouvelle photo, pas que get_media() la
+        renverrait déjà : un get_media() séparé, après coup, est le seul
+        moyen fiable d'obtenir CETTE image plutôt que l'ancienne mise en
+        cache par snap_picture() lui-même avant que la caméra ait répondu."""
+        resultat = {}
+
+        def demander(blink):
+            async def run(_blink=blink):
+                from blinkpy import api
+
+                sync, camera = BLINK.find_camera(_blink, identity)
+                reponse = await camera.snap_picture()
+                if not isinstance(reponse, dict) or not reponse.get("id"):
+                    raise RuntimeError(msg("snapshot_commande_refusee"))
+                statut = await api.request_command_status(
+                    _blink, reponse.get("network_id") or camera.network_id,
+                    reponse["id"],
+                )
+                if (not isinstance(statut, dict)
+                        or statut.get("status_code") != 908
+                        or statut.get("complete") is not True):
+                    raise RuntimeError(msg("snapshot_non_confirme"))
+                media = await camera.get_media()
+                if media is None or media.status != 200:
+                    raise RuntimeError(msg("snapshot_image_indisponible"))
+                resultat["camera"] = camera_key(sync, camera.name, camera)
+                resultat["nom"] = camera.name
+                resultat["corps"] = await media.read()
+            return run()
+
+        if not MODULE_SLOT.acquire(blocking=False):
+            raise blink_engine.BusyError(_slot_occupe_message())
+        try:
+            _slot_pris("snapshot", identity)
+            with blink_engine.hub_lock("snapshot", attente=ATTENTE_HUB_MAX_SECONDS):
+                BLINK.call(demander, timeout=130)
+        finally:
+            try:
+                _slot_rendu()
+            finally:
+                MODULE_SLOT.release()
+
+        dossier = self.paths["snapshots"] / safe_file(resultat["nom"])
+        dossier.mkdir(parents=True, exist_ok=True)
+        horodatage = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
+        # Empreinte du contenu, pas un compteur : deux déclenchements dans la
+        # même seconde (double clic, webhook rapproché) écrasaient sinon
+        # silencieusement l'un des deux clichés (constaté en test).
+        empreinte = hashlib.sha256(resultat["corps"]).hexdigest()[:8]
+        cible = dossier / f"{horodatage}_{empreinte}.jpg"
+        cible.write_bytes(resultat["corps"])
+        return cible
+
+    def lister_snapshots(self) -> list:
+        """Plus récent d'abord ; pas de registre séparé, le nom de fichier
+        (horodatage UTC) suffit déjà à trier et le contenu du dossier à
+        énumérer, comme pour les vidéos assemblées."""
+        racine = self.paths["snapshots"]
+        if not racine.is_dir():
+            return []
+        entrees = []
+        for dossier_camera in racine.iterdir():
+            if not dossier_camera.is_dir():
+                continue
+            for fichier in dossier_camera.glob("*.jpg"):
+                if not fichier.is_file():
+                    continue
+                entrees.append({
+                    "camera": dossier_camera.name,
+                    "fichier": f"{dossier_camera.name}/{fichier.name}",
+                    "horodatage": fichier.stem,
+                })
+        entrees.sort(key=lambda entree: entree["horodatage"], reverse=True)
+        return entrees
+
+    def gerer_webhook_snapshot(self) -> None:
+        """Déclenche une prise de vue depuis l'extérieur (issue GitHub #9),
+        authentifié par un secret dédié plutôt que par le jeton de session ou
+        l'origine : un système tiers (smarthome) n'a ni l'un ni l'autre, et
+        ne peut d'ailleurs pas poser d'en-tête personnalisé sur une simple
+        URL de webhook - le secret voyage donc en paramètre, comme le jeton
+        de session le fait déjà pour <video>/<img> (voir jeton_valide())."""
+        requete = parse_qs(urlparse(self.path).query)
+        fourni = (requete.get("token") or [""])[0]
+        attendu = runtime.lire_jeton_webhook()
+        if not attendu or not hmac.compare_digest(fourni, attendu):
+            self.send_error(403)
+            return
+        camera = (requete.get("camera") or [""])[0].strip()
+        if not camera:
+            self.send_json({"error": msg("webhook_camera_manquante")}, 400)
+            return
+        try:
+            chemin = self.declencher_snapshot(camera)
+            relatif = chemin.relative_to(self.paths["snapshots"]).as_posix()
+            self.send_json({"ok": True, "fichier": relatif})
+        except blink_engine.BusyError as erreur:
+            self.send_json({"error": str(erreur)}, 409)
+        except Exception as erreur:
+            self.send_json({"error": f"{type(erreur).__name__}: {erreur}"}, 503)
+
     def send_camera_thumb(self, identity: str) -> None:
         """Sert la dernière vignette connue d'une caméra.
 
@@ -2911,13 +3038,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return candidate
         return None
 
+    def resolve_snapshot(self, relative: str) -> Path | None:
+        """Même garde-fou que resolve_media() (chemin bien formé, puis retombe
+        sous la racine une fois résolu), pour « caméra/fichier.jpg » : une
+        seule racine, pas de identité à vérifier contre un registre - une
+        photo prise à la demande n'en a pas."""
+        if not relative or not IDENTITY_SNAPSHOT.match(relative):
+            return None
+        root = self.paths["snapshots"]
+        candidate = (root / relative).resolve()
+        if runtime.est_relatif_a(candidate, root.resolve()) and candidate.is_file():
+            return candidate
+        return None
+
     # ------------------------------------------------------------------ routes
 
     def do_GET(self):
+        route = urlparse(self.path).path
+        if route == WEBHOOK_SNAPSHOT_ROUTE:
+            # Volontairement AVANT hote_autorise()/jeton_valide() : ce sont
+            # les gardes-fous du navigateur (même origine, même machine),
+            # sans objet pour un appel externe légitime (smarthome, issue
+            # GitHub #9). gerer_webhook_snapshot() a son propre secret,
+            # indépendant, jamais examiné par ces deux fonctions.
+            self.gerer_webhook_snapshot()
+            return
         if not self.hote_autorise():
             self.send_error(403)
             return
-        route = urlparse(self.path).path
         if route not in ("/", "/favicon.ico") and not self.jeton_valide():
             self.send_error(403)
             return
@@ -3023,7 +3171,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == "/api/reglages":
             self.send_json(
                 {**runtime.lire_reglages(), "storage_dir": runtime.lire_dossier_stockage(),
-                 "initial_setup": self.initial_setup})
+                 "initial_setup": self.initial_setup,
+                 "webhook_token": runtime.lire_jeton_webhook()})
             return
 
         if route == "/api/sourdine":
@@ -3123,6 +3272,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             self.send_media(path)
+            return
+
+        if route.startswith("/snapshot/"):
+            path = self.resolve_snapshot(unquote(route[len("/snapshot/"):]))
+            if path is None:
+                self.send_error(404)
+                return
+            self.send_media(path)
+            return
+
+        if route == "/api/snapshots":
+            self.send_json({"snapshots": self.lister_snapshots()})
             return
 
         if route == "/api/passages":
@@ -3741,6 +3902,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"error": f"{type(error).__name__}: {error}"}, 503)
             return
 
+        if route == "/api/snapshot":
+            name = str(payload.get("name", "")).strip()
+            try:
+                chemin = self.declencher_snapshot(name)
+                relatif = chemin.relative_to(self.paths["snapshots"]).as_posix()
+                self.send_json({"ok": True, "fichier": relatif})
+            except blink_engine.BusyError as error:
+                self.send_json({"error": str(error)}, 409)
+            except Exception as error:
+                self.send_json({"error": f"{type(error).__name__}: {error}"}, 503)
+            return
+
+        if route == "/api/snapshot-supprimer":
+            relatif = str(payload.get("fichier", ""))
+            chemin = self.resolve_snapshot(relatif)
+            if chemin is None:
+                self.send_error(404)
+                return
+            chemin.unlink(missing_ok=True)
+            self.send_json({"ok": True})
+            return
+
+        if route == "/api/webhook-regenerer":
+            self.send_json({"token": runtime.regenerer_jeton_webhook()})
+            return
+
         if route == "/api/direct-enregistrement":
             session_id = str(payload.get("session_id") or "")
             with DIRECT_WEBRTC_SESSION_LOCK:
@@ -4151,6 +4338,7 @@ def main() -> int:
         "weekly": args.weekly_output.resolve(),
         "monthly": args.monthly_output.resolve(),
         "direct": DOSSIER_DIRECT.resolve(),
+        "snapshots": DOSSIER_SNAPSHOTS.resolve(),
     }
     Handler.hub = args.hub
     Handler.initial_setup = args.initial_setup

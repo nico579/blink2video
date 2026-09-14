@@ -24,6 +24,7 @@ import contextlib
 import importlib.util
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -36,7 +37,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.12.26"
+VERSION = "0.12.27"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -225,6 +226,36 @@ def traduire(libelles: dict, cle: str, **valeurs) -> str:
     page (issue GitHub #6 : ces messages restaient tout en français)."""
     texte = libelles[lire_langue()][cle]
     return texte.format(**valeurs) if valeurs else texte
+
+
+JETON_WEBHOOK = "blink_webhook_token.txt"
+
+
+def lire_jeton_webhook() -> str:
+    """Secret du webhook de snapshot (issue GitHub #9), généré une seule fois.
+
+    Contrairement au jeton de session (uuid4, un par processus, jamais
+    montré), celui-ci doit survivre aux redémarrages et être copiable dans
+    un système tiers (smarthome) : il vit dans un fichier, pas en mémoire.
+    secrets.token_urlsafe plutôt qu'uuid4 : c'est l'API dédiée à un secret
+    qui doit résister à une devinette, pas seulement désigner un processus."""
+    chemin = app_dir() / JETON_WEBHOOK
+    try:
+        jeton = chemin.read_text(encoding="utf-8").strip()
+    except OSError:
+        jeton = ""
+    if jeton:
+        return jeton
+    return regenerer_jeton_webhook()
+
+
+def regenerer_jeton_webhook() -> str:
+    """Invalide l'ancien secret (tout système déjà configuré avec devra être
+    mis à jour) : sert autant à créer le premier jeton qu'à révoquer une
+    URL éventée."""
+    jeton = secrets.token_urlsafe(32)
+    _ecrire_texte_atomique(app_dir() / JETON_WEBHOOK, jeton)
+    return jeton
 
 
 SUPPRESSION_AUTO = "blink_suppression_auto.json"
