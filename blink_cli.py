@@ -135,6 +135,62 @@ LIBELLES = {
         "sync_module_ligne": "- {nom} (ID {sync_id}, réseau {network_id})",
         "usb_exige_sync_module": "\nLe stockage local exige un Sync Module ; utilisez --from cloud.",
         "erreur_hub": "\nErreur : {erreur}",
+        "personne_ecoute": "Personne n'écoute sur {adresse}.",
+        "lancez_serve":
+            "Lancez « blink2video serve », ou « blink2video autostart on » "
+            "pour que l'interface démarre avec la session.",
+        "ouverture_adresse": "Ouverture de {adresse}",
+        "rien_ne_tourne": "Rien ne tourne.",
+        "arret_instance": "Arrêt de « {commande} » (PID {pid}, depuis {depuis})",
+        "identite_pid_illisible": "  Identité du PID {pid} illisible : arrêt forcé ignoré.",
+        "pid_reattribue":
+            "  PID {pid} ne correspond plus à cette instance "
+            "(numéro réattribué à un autre logiciel) : ignoré.",
+        "toujours_en_vie": "Toujours en vie : {liste}",
+        "arrete": "Arrêté.",
+        "arret_redemarrage_en_cours": "Arrêt ou redémarrage déjà en cours ({erreur}).",
+        "session_invalide_injoignable":
+            "\nSession enregistrée invalide ou injoignable : {erreur}",
+        "aucune_session_ouverture_connexion":
+            "\nAucune session Blink valide. Ouverture de la page de connexion...",
+        "premiere_utilisation":
+            "\nPremière utilisation : vérifiez les réglages avant le téléchargement...",
+        "etape_configuration": "la fin de la configuration",
+        "etape_connexion": "la connexion",
+        "interface_arretee_avant":
+            "L'interface s'est arrêtée avant {etape} (code {code}). Abandon.",
+        "interface_ne_repond_pas": "L'interface ne répond pas sur {adresse}. Abandon.",
+        "page_configuration": "configuration",
+        "page_connexion": "connexion",
+        "page_prete": "Page de {page} prête sur {adresse} (navigateur non ouvert).",
+        "navigateur_indisponible":
+            "Navigateur indisponible : ouvrez {adresse} vous-même, "
+            "ou utilisez « blink2video login » dans un terminal.",
+        "compte_accessible": "compte accessible, {n} caméra(s)",
+        "cloud_uniquement": " (compte sans Sync Module, cloud uniquement)",
+        "connexion_reussie_resume": "\nConnexion réussie : {resume}.",
+        "reglages_initiaux_enregistres":
+            "\nRéglages initiaux enregistrés. Démarrage des téléchargements...",
+        "delai_configuration_depasse":
+            "\nDélai de configuration dépassé. Abandon, aucun téléchargement lancé.",
+        "delai_connexion_depasse":
+            "\nDélai de connexion dépassé. Abandon, rien n'est laissé actif.",
+        "start_aide_usage": "usage : blink2video start [options de serve]",
+        "start_aide_intro": "Lance la configuration recommandée :",
+        "start_aide_options": "Les options données ici vont à l'interface, --port par exemple.",
+        "start_aide_stop": "« blink2video stop » arrête l'ensemble.",
+        "demarrage_deja_en_cours": "Démarrage déjà en cours ailleurs, ouverture de l'interface...",
+        "stop_seul": "« stop » s'emploie seul : il arrête ce qui tourne déjà.",
+        "impossible_demarrer_pendant_arret": "Impossible de démarrer pendant un arrêt ({erreur}).",
+        "lance": "Lancé : {commande}",
+        "etape_verbe": "Étape : {commande}",
+        "arrete_verbe_code": "Arrêté : {verbe} (code {code})",
+        "arrete_verbe_normal": "Arrêté : {verbe} (fin normale)",
+        "interruption_clavier": "\nArrêt.",
+        "option_avant_verbe":
+            "« {option} » précède le premier verbe : les options "
+            "suivent le verbe auquel elles s'appliquent.",
+        "liste_verbes": "Verbes : {liste}",
     },
     "en": {
         "echec_connexion": "\nBlink sign-in failed.",
@@ -145,6 +201,62 @@ LIBELLES = {
         "sync_module_ligne": "- {nom} (ID {sync_id}, network {network_id})",
         "usb_exige_sync_module": "\nLocal storage needs a Sync Module; use --from cloud.",
         "erreur_hub": "\nError: {erreur}",
+        "personne_ecoute": "Nobody is listening on {adresse}.",
+        "lancez_serve":
+            "Run « blink2video serve », or « blink2video autostart on » "
+            "for the interface to start with the session.",
+        "ouverture_adresse": "Opening {adresse}",
+        "rien_ne_tourne": "Nothing is running.",
+        "arret_instance": "Stopping « {commande} » (PID {pid}, since {depuis})",
+        "identite_pid_illisible": "  PID {pid} identity unreadable: forced stop skipped.",
+        "pid_reattribue":
+            "  PID {pid} no longer matches this instance "
+            "(number reassigned to another program): skipped.",
+        "toujours_en_vie": "Still alive: {liste}",
+        "arrete": "Stopped.",
+        "arret_redemarrage_en_cours": "Stop or restart already in progress ({erreur}).",
+        "session_invalide_injoignable":
+            "\nSaved session invalid or unreachable: {erreur}",
+        "aucune_session_ouverture_connexion":
+            "\nNo valid Blink session. Opening the sign-in page...",
+        "premiere_utilisation":
+            "\nFirst use: check the settings before downloading...",
+        "etape_configuration": "the end of setup",
+        "etape_connexion": "sign-in",
+        "interface_arretee_avant":
+            "The interface stopped before {etape} (code {code}). Aborting.",
+        "interface_ne_repond_pas": "The interface is not responding on {adresse}. Aborting.",
+        "page_configuration": "setup",
+        "page_connexion": "sign-in",
+        "page_prete": "{page} page ready on {adresse} (browser not opened).",
+        "navigateur_indisponible":
+            "Browser unavailable: open {adresse} yourself, "
+            "or use « blink2video login » in a terminal.",
+        "compte_accessible": "account reachable, {n} camera(s)",
+        "cloud_uniquement": " (account with no Sync Module, cloud only)",
+        "connexion_reussie_resume": "\nSigned in: {resume}.",
+        "reglages_initiaux_enregistres":
+            "\nInitial settings saved. Starting downloads...",
+        "delai_configuration_depasse":
+            "\nSetup timed out. Aborting, no download started.",
+        "delai_connexion_depasse":
+            "\nSign-in timed out. Aborting, nothing left running.",
+        "start_aide_usage": "usage: blink2video start [serve options]",
+        "start_aide_intro": "Launches the recommended setup:",
+        "start_aide_options": "Options given here go to the interface, --port for example.",
+        "start_aide_stop": "« blink2video stop » stops everything.",
+        "demarrage_deja_en_cours": "Already starting elsewhere, opening the interface...",
+        "stop_seul": "« stop » is used alone: it stops what's already running.",
+        "impossible_demarrer_pendant_arret": "Cannot start while stopping ({erreur}).",
+        "lance": "Started: {commande}",
+        "etape_verbe": "Step: {commande}",
+        "arrete_verbe_code": "Stopped: {verbe} (code {code})",
+        "arrete_verbe_normal": "Stopped: {verbe} (normal exit)",
+        "interruption_clavier": "\nStopping.",
+        "option_avant_verbe":
+            "« {option} » comes before the first verb: options "
+            "follow the verb they apply to.",
+        "liste_verbes": "Verbs: {liste}",
     },
 }
 
@@ -254,12 +366,11 @@ def ouvrir(arguments: list = ()) -> int:
     with socket.socket() as prise:
         prise.settimeout(2)
         if prise.connect_ex(("127.0.0.1", options.port)) != 0:
-            print(f"Personne n'écoute sur {adresse}.")
-            print("Lancez « blink2video serve », ou « blink2video autostart on » "
-                  "pour que l'interface démarre avec la session.")
+            print(msg("personne_ecoute", adresse=adresse))
+            print(msg("lancez_serve"))
             return 1
 
-    print(f"Ouverture de {adresse}")
+    print(msg("ouverture_adresse", adresse=adresse))
     webbrowser.open(adresse)
     return 0
 
@@ -269,7 +380,7 @@ def _arreter_instances() -> int:
     instances = runtime.lire_instances()
     if not instances:
         runtime.effacer_arret_demande()
-        print("Rien ne tourne.")
+        print(msg("rien_ne_tourne"))
         return 0
 
     # Drapeau coopératif posé avant tout kill (revue du 27/08) : serve,
@@ -282,8 +393,8 @@ def _arreter_instances() -> int:
     restants = []
     for fiche in instances:
         commande = " ".join(" ".join(groupe) for groupe in fiche.get("verbes") or [])
-        print(f"Arrêt de « {commande or 'blink2video'} » "
-              f"(PID {fiche['pid']}, depuis {fiche.get('depuis', '?')})")
+        print(msg("arret_instance", commande=commande or "blink2video",
+                  pid=fiche['pid'], depuis=fiche.get('depuis', '?')))
         # Un numéro de processus fini par être réattribué à un logiciel sans
         # aucun rapport ; le confondre avec l'instance qu'on croit suivre a
         # déjà fait « arrêter » un service tiers et une messagerie sur la
@@ -323,7 +434,7 @@ def _arreter_instances() -> int:
             if etat is True:
                 runtime.arreter_processus(pid_ffmpeg, avec_descendance=True)
             elif etat is None:
-                print(f"  Identité du PID {pid_ffmpeg} illisible : arrêt forcé ignoré.")
+                print(msg("identite_pid_illisible", pid=pid_ffmpeg))
 
         # Délai de grâce pour les membres Python (serve/watch/download/
         # merge) : le drapeau posé plus haut leur laisse la chance de sortir
@@ -348,11 +459,10 @@ def _arreter_instances() -> int:
                 continue
             etat = etat_processus(membre)
             if etat is None:
-                print(f"  Identité du PID {membre} illisible : arrêt forcé ignoré.")
+                print(msg("identite_pid_illisible", pid=membre))
                 continue
             if not etat:
-                print(f"  PID {membre} ne correspond plus à cette instance "
-                      f"(numéro réattribué à un autre logiciel) : ignoré.")
+                print(msg("pid_reattribue", pid=membre))
                 continue
             runtime.arreter_processus(int(membre),
                                        avec_descendance=(membre != fiche["pid"]))
@@ -377,10 +487,10 @@ def _arreter_instances() -> int:
         # Conserver la demande d'arrêt : un processus lent ou momentanément
         # impossible à tuer pourra encore la voir et sortir proprement. La
         # retirer ici le faisait repartir comme si rien ne s'était passé.
-        print("Toujours en vie : " + ", ".join(restants))
+        print(msg("toujours_en_vie", liste=", ".join(restants)))
         return 1
     runtime.effacer_arret_demande()
-    print("Arrêté.")
+    print(msg("arrete"))
     return 0
 
 
@@ -404,7 +514,7 @@ def arreter(arguments: list = ()) -> int:
         with runtime.verrou_controle("stop"):
             return _arreter_instances()
     except runtime.BusyError as erreur:
-        print(f"Arrêt ou redémarrage déjà en cours ({erreur}).")
+        print(msg("arret_redemarrage_en_cours", erreur=erreur))
         return 1
 
 
@@ -559,11 +669,11 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0,
 
     connexion_requise = not bool(etat.get("authenticated"))
     if etat.get("error"):
-        print(f"\nSession enregistrée invalide ou injoignable : {etat['error']}")
+        print(msg("session_invalide_injoignable", erreur=etat['error']))
     if connexion_requise:
-        print("\nAucune session Blink valide. Ouverture de la page de connexion...")
+        print(msg("aucune_session_ouverture_connexion"))
     elif configuration_initiale:
-        print("\nPremière utilisation : vérifiez les réglages avant le téléchargement...")
+        print(msg("premiere_utilisation"))
 
     options_serveur = [*supplement]
     if configuration_initiale:
@@ -583,9 +693,8 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0,
         adresse += "?" + "&".join(parametres)
 
     def echec_processus() -> int:
-        etape = "la fin de la configuration" if configuration_initiale else "la connexion"
-        print(f"L'interface s'est arrêtée avant {etape} "
-              f"(code {processus.returncode}). Abandon.")
+        etape = msg("etape_configuration") if configuration_initiale else msg("etape_connexion")
+        print(msg("interface_arretee_avant", etape=etape, code=processus.returncode))
         return processus.returncode or 1
 
     # Propriétaire jusqu'au bout (5.16) : sur toute issue, ce serveur
@@ -603,17 +712,16 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0,
                 break
             time.sleep(0.5)
         if not pret:
-            print(f"L'interface ne répond pas sur {adresse}. Abandon.")
+            print(msg("interface_ne_repond_pas", adresse=adresse))
             return 1
 
         if os.environ.get("BLINK_NO_BROWSER") == "1":
-            page = "configuration" if configuration_initiale else "connexion"
-            print(f"Page de {page} prête sur {adresse} (navigateur non ouvert).")
+            page = msg("page_configuration") if configuration_initiale else msg("page_connexion")
+            print(msg("page_prete", page=page, adresse=adresse))
         else:
-            print(f"Ouverture de {adresse}")
+            print(msg("ouverture_adresse", adresse=adresse))
             if not webbrowser.open(adresse):
-                print(f"Navigateur indisponible : ouvrez {adresse} vous-même, "
-                      "ou utilisez « blink2video login » dans un terminal.")
+                print(msg("navigateur_indisponible", adresse=adresse))
 
         runtime.bootstrap()
         import blink_auth
@@ -627,10 +735,10 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0,
                 resultat = asyncio.run(blink_auth.preflight())
                 authentifie = bool(resultat["authenticated"])
             if authentifie and not connexion_annoncee:
-                resume = f"compte accessible, {resultat['cameras']} caméra(s)"
+                resume = msg("compte_accessible", n=resultat['cameras'])
                 if resultat["cloud_only"]:
-                    resume += " (compte sans Sync Module, cloud uniquement)"
-                print(f"\nConnexion réussie : {resume}.")
+                    resume += msg("cloud_uniquement")
+                print(msg("connexion_reussie_resume", resume=resume))
                 connexion_annoncee = True
                 if configuration_initiale:
                     # La saisie du code 2FA ne doit pas consommer le temps
@@ -644,14 +752,14 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0,
                 # lue par un navigateur lent (notamment sous Windows 7) avant
                 # que le finally ci-dessous coupe le serveur temporaire.
                 time.sleep(0.75)
-                print("\nRéglages initiaux enregistrés. Démarrage des téléchargements...")
+                print(msg("reglages_initiaux_enregistres"))
                 return 0
             time.sleep(2)
 
         if authentifie and configuration_initiale:
-            print("\nDélai de configuration dépassé. Abandon, aucun téléchargement lancé.")
+            print(msg("delai_configuration_depasse"))
         else:
-            print("\nDélai de connexion dépassé. Abandon, rien n'est laissé actif.")
+            print(msg("delai_connexion_depasse"))
         return 1
     finally:
         if processus.poll() is None:
@@ -689,14 +797,14 @@ def executer(groupes: list) -> int:
         # traitement, « start --help » lançait les boucles et ne rendait jamais
         # la main, ce que la suite de tests a montré en se bloquant dessus.
         if {"-h", "--help"} & set(groupes[0][1:]):
-            print("usage : blink2video start [options de serve]")
+            print(msg("start_aide_usage"))
             print()
-            print("Lance la configuration recommandée :")
+            print(msg("start_aide_intro"))
             print()
             print("  blink2video " + " ".join(runtime.standard()))
             print()
-            print("Les options données ici vont à l'interface, --port par exemple.")
-            print("« blink2video stop » arrête l'ensemble.")
+            print(msg("start_aide_options"))
+            print(msg("start_aide_stop"))
             return 0
         # « start » n'est pas un travail de plus : c'est le nom de la
         # composition recommandée, options comprises. Les options données après
@@ -762,7 +870,7 @@ def executer(groupes: list) -> int:
                     _proposer_raccourci_bureau()
                 return code
         except runtime.BusyError:
-            print("Démarrage déjà en cours ailleurs, ouverture de l'interface...")
+            print(msg("demarrage_deja_en_cours"))
             port = port_demande or runtime.lire_reglages()["port"]
             return ouvrir(["--port", str(port)])
 
@@ -774,7 +882,7 @@ def executer(groupes: list) -> int:
 
     if any(groupe[0] == "stop" for groupe in groupes):
         if len(groupes) > 1:
-            print("« stop » s'emploie seul : il arrête ce qui tourne déjà.")
+            print(msg("stop_seul"))
             return 2
         return arreter(groupes[0][1:])
 
@@ -790,7 +898,7 @@ def executer(groupes: list) -> int:
                     with runtime.verrou_controle("launch", attente=10):
                         runtime.inscrire_instance(groupes)
                 except runtime.BusyError as erreur:
-                    print(f"Impossible de démarrer pendant un arrêt ({erreur}).")
+                    print(msg("impossible_demarrer_pendant_arret", erreur=erreur))
                     return 1
             return deleguer(verbe, arguments)
         if _groupe_persistant(groupes[0]):
@@ -802,7 +910,7 @@ def executer(groupes: list) -> int:
                 with runtime.verrou_controle("launch", attente=10):
                     runtime.inscrire_instance(groupes)
             except runtime.BusyError as erreur:
-                print(f"Impossible de démarrer pendant un arrêt ({erreur}).")
+                print(msg("impossible_demarrer_pendant_arret", erreur=erreur))
                 return 1
         sys.argv = ["blink2video", verbe, *arguments]
         return asyncio.run(main(parse_args()))
@@ -830,16 +938,16 @@ def executer(groupes: list) -> int:
                     # groupe, ffmpeg compris, sans emporter le terminal qui a lancé
                     # l'ensemble.
                     start_new_session=(sys.platform != "win32"))))
-                print(f"Lancé : {verbe} {' '.join(arguments)}".rstrip())
+                print(msg("lance", commande=f"{verbe} {' '.join(arguments)}".rstrip()))
             runtime.inscrire_instance(groupes, [p.pid for _, p in lances])
     except runtime.BusyError as erreur:
-        print(f"Impossible de démarrer pendant un arrêt ({erreur}).")
+        print(msg("impossible_demarrer_pendant_arret", erreur=erreur))
         return 1
 
     # Les passages uniques, l'un après l'autre, dans l'ordre où ils sont cités.
     pire_ponctuel = 0
     for verbe, *arguments in ponctuels:
-        print(f"Étape : {verbe} {' '.join(arguments)}".rstrip())
+        print(msg("etape_verbe", commande=f"{verbe} {' '.join(arguments)}".rstrip()))
         resultat = runtime.lancer(
             runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()),
             stdin=subprocess.DEVNULL, check=False,
@@ -863,8 +971,8 @@ def executer(groupes: list) -> int:
                 continue
             annonces.add(rang)
             pire = max(pire, abs(code))
-            print(f"Arrêté : {verbe}"
-                  + (f" (code {code})" if code else " (fin normale)"))
+            print(msg("arrete_verbe_code", verbe=verbe, code=code) if code
+                  else msg("arrete_verbe_normal", verbe=verbe))
 
     def surveiller(sur_fin=None) -> None:
         # Purge des fiches d'instances mortes sans passage par « stop » (kill
@@ -964,7 +1072,7 @@ def executer(groupes: list) -> int:
         else:
             surveiller()
     except KeyboardInterrupt:
-        print("\nArrêt.")
+        print(msg("interruption_clavier"))
     finally:
         nettoyer_lances()
     return max(pire, pire_ponctuel)
@@ -998,9 +1106,8 @@ def route(argv: list) -> int:
     # « blink2video --loop 5 merge » se lisait jusqu'ici comme une commande
     # racine qui boucle sur rien, et tournait indéfiniment sans rien faire.
     if argv[0].startswith("-") and argv[0] not in ("-h", "--help", "--version"):
-        print(f"« {argv[0]} » précède le premier verbe : les options "
-              "suivent le verbe auquel elles s'appliquent.")
-        print(f"Verbes : {', '.join(runtime.VERBES)}")
+        print(msg("option_avant_verbe", option=argv[0]))
+        print(msg("liste_verbes", liste=", ".join(runtime.VERBES)))
         return 2
     sys.argv = ["blink2video", *argv]
     return asyncio.run(main(parse_args()))

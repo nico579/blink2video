@@ -75,6 +75,16 @@ class TestTraduireLibelles(unittest.TestCase):
             blink_cli.msg("sync_module_ligne", nom="Garage", sync_id=1, network_id=2),
             "- Garage (ID 1, réseau 2)")
 
+    def test_blink_cli_pluriel_arrete_verbe(self):
+        self._regler_langue("en")
+        self.assertEqual(blink_cli.msg("arrete_verbe_code", verbe="download", code=1),
+                         "Stopped: download (code 1)")
+        self.assertEqual(blink_cli.msg("arrete_verbe_normal", verbe="download"),
+                         "Stopped: download (normal exit)")
+        self._regler_langue("fr")
+        self.assertEqual(blink_cli.msg("arrete_verbe_normal", verbe="download"),
+                         "Arrêté : download (fin normale)")
+
     def test_blink_models_toutes_les_cles_existent_dans_les_deux_langues(self):
         self.assertEqual(set(blink_models.LIBELLES["fr"]), set(blink_models.LIBELLES["en"]))
 
