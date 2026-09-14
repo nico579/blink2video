@@ -26,6 +26,7 @@ import merge_daily
 import maj
 import autostart
 import smoketest
+import watch
 
 
 class TestTraduireLibelles(unittest.TestCase):
@@ -176,6 +177,28 @@ class TestTraduireLibelles(unittest.TestCase):
         self._regler_langue("fr")
         self.assertEqual(smoketest._("clips_compte_detail", n=5, m=1), "5 clip(s) dont 1 écarté(s)")
         self.assertEqual(smoketest._("marque_echec"), "ECHEC")
+
+    def test_watch_toutes_les_cles_existent_dans_les_deux_langues(self):
+        self.assertEqual(set(watch.MESSAGES["fr"]), set(watch.MESSAGES["en"]))
+
+    def test_watch_msg_deja_existant_continue_de_fonctionner(self):
+        # _msg() deleguait deja lui-meme a MESSAGES[lire_langue()] avant ce
+        # chantier ; verifie que le refactor vers runtime.traduire() ne casse
+        # pas les cles deja en place (notifications d'alerte reelles).
+        self._regler_langue("en")
+        self.assertEqual(watch._msg("camera_hors_ligne", nom="Garage"),
+                         'Camera "Garage" offline.')
+        self._regler_langue("fr")
+        self.assertEqual(watch._msg("camera_hors_ligne", nom="Garage"),
+                         "Caméra « Garage » hors ligne.")
+
+    def test_watch_nouvelles_cles_bascule_et_formate(self):
+        self._regler_langue("en")
+        self.assertEqual(watch._msg("alerte_ligne", ligne="Garage hors ligne."),
+                         "ALERT    Garage hors ligne.")
+        self.assertEqual(watch._msg("aucune"), "none")
+        self._regler_langue("fr")
+        self.assertEqual(watch._msg("cameras_en_sourdine"), "Caméras en sourdine :")
 
     def test_maj_restauration_incomplete_garde_le_message_traduit(self):
         self._regler_langue("en")

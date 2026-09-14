@@ -265,6 +265,14 @@ MESSAGES = {
         "titre_anomalies": "Blink : {n} anomalie(s)",
         "titre_retour": "Blink : retour à la normale",
         "hint_sourdine": "Pour ne plus être averti d'une caméra :",
+        "format_moment": "%d/%m/%Y à %H:%M",
+        "alerte_ligne": "ALERTE   {ligne}",
+        "retabli_ligne": "rétabli  {ligne}",
+        "rien_a_signaler": "Rien à signaler ({moment}).",
+        "cameras_en_sourdine": "Caméras en sourdine :",
+        "aucune": "aucune",
+        "titre_test_alerte": "Blink : test d'alerte",
+        "corps_test_alerte": "Ceci est un test. La surveillance sait vous joindre.",
     },
     "en": {
         "module_hors_ligne": 'Module "{nom}" offline.',
@@ -280,12 +288,20 @@ MESSAGES = {
         "titre_anomalies": "Blink: {n} issue(s)",
         "titre_retour": "Blink: back to normal",
         "hint_sourdine": "To stop being notified about a camera:",
+        "format_moment": "%d/%m/%Y at %H:%M",
+        "alerte_ligne": "ALERT    {ligne}",
+        "retabli_ligne": "fixed    {ligne}",
+        "rien_a_signaler": "Nothing to report ({moment}).",
+        "cameras_en_sourdine": "Muted cameras:",
+        "aucune": "none",
+        "titre_test_alerte": "Blink: alert test",
+        "corps_test_alerte": "This is a test. Monitoring can reach you.",
     },
 }
 
 
 def _msg(cle: str, **kw) -> str:
-    return MESSAGES[runtime.lire_langue()][cle].format(**kw)
+    return runtime.traduire(MESSAGES, cle, **kw)
 
 
 def _etat_camera_precedent(nom: str, etat: dict, avant: dict, cameras: dict) -> dict:
@@ -457,13 +473,13 @@ def _controler(args, timezone) -> None:
         if not args.dry_run:
             md.save_json(WATCH_STATE, current)
 
-    moment = dt.datetime.now(timezone).strftime("%d/%m/%Y à %H:%M")
+    moment = dt.datetime.now(timezone).strftime(_msg("format_moment"))
     for ligne in alerts:
-        print(f"ALERTE   {ligne}")
+        print(_msg("alerte_ligne", ligne=ligne))
     for ligne in recoveries:
-        print(f"rétabli  {ligne}")
+        print(_msg("retabli_ligne", ligne=ligne))
     if not alerts and not recoveries:
-        print(f"Rien à signaler ({moment}).")
+        print(_msg("rien_a_signaler", moment=moment))
 
     journal("; ".join(alerts + recoveries) or "rien a signaler")
     if alerts and not args.dry_run:
@@ -529,11 +545,10 @@ def main() -> int:
             ignores -= normaliser_sourdines(args.unignore, cameras)
             state["ignored"] = sorted(ignores)
             md.save_json(WATCH_STATE, state)
-        print("Caméras en sourdine :", ", ".join(state["ignored"]) or "aucune")
+        print(_msg("cameras_en_sourdine"), ", ".join(state["ignored"]) or _msg("aucune"))
 
     if args.test:
-        popup("Blink : test d'alerte",
-                 "Ceci est un test. La surveillance sait vous joindre.")
+        popup(_msg("titre_test_alerte"), _msg("corps_test_alerte"))
         return 0
 
     # Ce programme contrôle l'état, rien de plus, conformément à son nom. La
