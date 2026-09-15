@@ -148,15 +148,19 @@
                   justify-content:space-between;
                   gap:10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
   #reglages .champCadence input { width:70px; margin-bottom:0; text-align:right; }
-  /* Le fuseau ("Europe/Paris", "America/Los_Angeles"...) ne tient pas dans
-     les 70px des champs numériques voisins : élargi et aligné à gauche
-     plutôt que de forcer une largeur commune qui tronquerait sa valeur. */
-  #reglages #timezone { width:180px; text-align:left; }
+  /* Le fuseau ("Europe/Paris", "America/Los_Angeles"...) et la couleur
+     d'horodatage (#RRGGBB@0.8...) ne tiennent pas dans les 70px des champs
+     numériques voisins : élargis et alignés à gauche plutôt que de forcer
+     une largeur commune qui tronquerait leur valeur. */
+  #reglages #timezone, #reglages #fontColor { width:180px; text-align:left; }
   /* USB et Cloud sur une même ligne : deux paires label+champ, pas un
      agencement bord-à-bord comme .champCadence (qui n'en attend qu'une). */
   .champCadenceDouble { display:flex; align-items:center; flex-wrap:wrap;
                          gap:8px 10px; margin-bottom:10px; color:var(--dim); font-size:14px; }
   #reglages .champCadenceDouble input { width:60px; margin-bottom:0; text-align:right; }
+  /* "auto" (repli de la taille) et une opacité à deux décimales (0.55) ne
+     tiennent pas dans les 60px communs à usbMinutes/cloudMinutes. */
+  #reglages #fontSize, #reglages #boxOpacity { width:70px; }
   #reglages fieldset p.sub { margin:0; }
   /* Dossier de stockage : tout sur une ligne, l'aide (déplacement des clips,
      valeur vide) en infobulle plutôt qu'en paragraphe pour tenir sans

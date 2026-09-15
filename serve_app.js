@@ -98,6 +98,9 @@ const I18N = {
     "reglages.cadence": "Cadence de lecture des caméras",
     "reglages.usb": "Stockage local (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Vidéo", "reglages.timestamp": "Incruster la date et l'heure dans l'image",
+    "reglages.timestamp.style.hint": "Vide = taille automatique selon la hauteur de la vidéo. Couleur : nom (white, yellow…) ou hexadécimal, éventuellement avec une transparence (ex. white@0.8).",
+    "reglages.fontSize": "Taille de police", "reglages.fontColor": "Couleur",
+    "reglages.boxOpacity": "Opacité du bandeau",
     "reglages.timezone": "Fuseau horaire",
     "reglages.liveProtocol": "Protocole du direct",
     "reglages.liveProtocol.webrtc": "WebRTC (rapide)",
@@ -245,6 +248,9 @@ const I18N = {
     "reglages.cadence": "Camera polling interval",
     "reglages.usb": "Local storage (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Video", "reglages.timestamp": "Burn the date and time into the image",
+    "reglages.timestamp.style.hint": "Empty = size automatically scaled to the video's height. Color: a name (white, yellow…) or hex code, optionally with transparency (e.g. white@0.8).",
+    "reglages.fontSize": "Font size", "reglages.fontColor": "Color",
+    "reglages.boxOpacity": "Box opacity",
     "reglages.timezone": "Time zone",
     "reglages.liveProtocol": "Live view protocol",
     "reglages.liveProtocol.webrtc": "WebRTC (fast)",
@@ -2524,6 +2530,10 @@ function afficherFormulaireReglages(reglages) {
   portActuel = reglages.port;
   $("storageDir").value = reglages.storage_dir;
   $("timestamp").checked = reglages.timestamp;
+  $("fontSize").value = reglages.font_size ?? "";
+  $("fontColor").value = reglages.font_color;
+  $("boxOpacity").value = reglages.box_opacity;
+  appliquerDependanceTimestamp();
   $("timezone").value = reglages.timezone;
   $("liveProtocol").value = reglages.live_protocol;
   $("mergeJour").checked = reglages.merge_jour;
@@ -2631,6 +2641,16 @@ function appliquerDependanceDownloadAuto() {
 }
 $("downloadAuto").onchange = appliquerDependanceDownloadAuto;
 
+// Taille/couleur/opacité n'ont d'effet que si l'horodatage est incrusté :
+// grisées plutôt que retirées, même principe que les cadences ci-dessus.
+function appliquerDependanceTimestamp() {
+  const actif = $("timestamp").checked;
+  $("fontSize").disabled = !actif;
+  $("fontColor").disabled = !actif;
+  $("boxOpacity").disabled = !actif;
+}
+$("timestamp").onchange = appliquerDependanceTimestamp;
+
 // Séparé du reste du panneau : contrairement aux cadences, au port ou au
 // fuseau, la sourdine n'exige pas de redémarrage (watch relit son état à
 // chaque passage), donc chaque case s'applique tout de suite, comme le
@@ -2735,6 +2755,9 @@ async function envoyerFormulaireReglages({ usb, cloud, port, timezone }) {
       merge_semaine: $("mergeSemaine").checked,
       merge_mois: $("mergeMois").checked,
       download_auto: $("downloadAuto").checked,
+      font_size: $("fontSize").value.trim() ? parseInt($("fontSize").value, 10) : null,
+      font_color: $("fontColor").value.trim(),
+      box_opacity: parseFloat($("boxOpacity").value),
     }) });
   return lireJSON(reponse);
 }

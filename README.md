@@ -44,7 +44,8 @@ and the main settings.
   and from the subscription cloud, never fetching the same recording twice.
 - Camera state at a glance: battery, temperature, signal, model and firmware
   for each camera.
-- Date and time burned into the picture, so any player keeps it.
+- Date and time burned into the picture, so any player keeps it. Size,
+  color and background opacity all configurable.
 - One video per day, per ISO week and per month, for each camera.
 - Uninteresting clips discarded in one click, moved aside rather than deleted,
   and never downloaded again.
@@ -89,9 +90,10 @@ remembered between visits.
 
 Settings, behind the gear icon: automatic startup with the session, automatic
 page refresh, server port, data folder with a native folder picker, and local
-storage and cloud polling cadence. Also timestamp burned into the picture,
-time zone, the live view protocol (WebRTC or MSE), daily/weekly/monthly
-archiving toggled independently per period, per-camera alert muting,
+storage and cloud polling cadence. Also timestamp burned into the picture
+with its size, color and background opacity, time zone, the live view
+protocol (WebRTC or MSE), daily/weekly/monthly archiving toggled
+independently per period, per-camera alert muting,
 automatic deletion after download per camera, and a button to stop the
 whole thing without touching the command line.
 

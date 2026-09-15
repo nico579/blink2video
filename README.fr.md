@@ -50,7 +50,7 @@ lancement et les principaux réglages.
 - Affichage de l'état des caméras : batterie, température, signal, modèle et
   micrologiciel de chaque caméra.
 - Incrustation de la date et heure dans l'image, donc conservée par n'importe
-  quel lecteur.
+  quel lecteur. Taille, couleur et opacité du bandeau configurables.
 - Création d'une vidéo par jour, par semaine ISO et par mois, pour chaque
   caméra.
 - Possibilité d'écarter les clips sans intérêt d'un clic, mis de côté plutôt
@@ -99,8 +99,9 @@ Le filtre choisi reste mémorisé d'une visite à l'autre.
 Les réglages, derrière l'icône engrenage : démarrage automatique à
 l'ouverture de session, actualisation automatique de la page, port du
 serveur, dossier des données avec un sélecteur natif, et cadence de lecture
-du stockage local et du cloud. Aussi l'horodatage incrusté dans l'image, le
-fuseau horaire, le protocole du direct (WebRTC ou MSE), l'archivage
+du stockage local et du cloud. Aussi l'horodatage incrusté dans l'image
+avec sa taille, sa couleur et l'opacité de son bandeau, le fuseau horaire,
+le protocole du direct (WebRTC ou MSE), l'archivage
 quotidien/hebdomadaire/mensuel activable indépendamment, la mise en
 sourdine des alertes par caméra, la suppression automatique après
 téléchargement par caméra, et un bouton pour arrêter toute la surveillance

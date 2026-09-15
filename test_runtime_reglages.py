@@ -87,12 +87,14 @@ class TestsReglages(unittest.TestCase):
         runtime.ecrire_reglages(usb_minutes=7, cloud_minutes=2, port=8899, timestamp=False,
                                 timezone="America/New_York", merge_jour=True,
                                 merge_semaine=False, merge_mois=False, download_auto=False,
-                                live_protocol="mse")
+                                live_protocol="mse", font_size=40, font_color="yellow",
+                                box_opacity=0.3)
         self.assertEqual(
             runtime.lire_reglages(),
             {"usb_minutes": 7, "cloud_minutes": 2, "port": 8899, "timestamp": False,
              "timezone": "America/New_York", "merge_jour": True, "merge_semaine": False,
-             "merge_mois": False, "download_auto": False, "live_protocol": "mse"})
+             "merge_mois": False, "download_auto": False, "live_protocol": "mse",
+             "font_size": 40, "font_color": "yellow", "box_opacity": 0.3})
 
     def test_valeurs_partielles_completees_par_les_defauts(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -108,12 +110,45 @@ class TestsReglages(unittest.TestCase):
              "merge_semaine": runtime.REGLAGES_DEFAUT["merge_semaine"],
              "merge_mois": runtime.REGLAGES_DEFAUT["merge_mois"],
              "download_auto": runtime.REGLAGES_DEFAUT["download_auto"],
-             "live_protocol": runtime.REGLAGES_DEFAUT["live_protocol"]})
+             "live_protocol": runtime.REGLAGES_DEFAUT["live_protocol"],
+             "font_size": runtime.REGLAGES_DEFAUT["font_size"],
+             "font_color": runtime.REGLAGES_DEFAUT["font_color"],
+             "box_opacity": runtime.REGLAGES_DEFAUT["box_opacity"]})
 
     def test_fuseau_vide_dans_le_fichier_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text(
             '{"timezone": ""}', encoding="utf-8")
         self.assertEqual(runtime.lire_reglages()["timezone"], runtime.REGLAGES_DEFAUT["timezone"])
+
+    def test_taille_police_absente_ou_explicitement_nulle_vaut_auto(self):
+        self.assertIsNone(runtime.lire_reglages()["font_size"])
+        (self.dossier / runtime.REGLAGES).write_text(
+            '{"font_size": null}', encoding="utf-8")
+        self.assertIsNone(runtime.lire_reglages()["font_size"])
+
+    def test_taille_police_hors_plage_ou_non_numerique_retombe_sur_auto(self):
+        (self.dossier / runtime.REGLAGES).write_text('{"font_size": 999}', encoding="utf-8")
+        self.assertIsNone(runtime.lire_reglages()["font_size"])
+        (self.dossier / runtime.REGLAGES).write_text('{"font_size": 0}', encoding="utf-8")
+        self.assertIsNone(runtime.lire_reglages()["font_size"])
+        (self.dossier / runtime.REGLAGES).write_text('{"font_size": "grand"}', encoding="utf-8")
+        self.assertIsNone(runtime.lire_reglages()["font_size"])
+
+    def test_taille_police_valide_est_conservee(self):
+        (self.dossier / runtime.REGLAGES).write_text('{"font_size": 40}', encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages()["font_size"], 40)
+
+    def test_couleur_vide_retombe_sur_le_defaut(self):
+        (self.dossier / runtime.REGLAGES).write_text('{"font_color": ""}', encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages()["font_color"], runtime.REGLAGES_DEFAUT["font_color"])
+
+    def test_opacite_bandeau_hors_plage_ou_non_numerique_retombe_sur_le_defaut(self):
+        for valeur in ('{"box_opacity": 2.0}', '{"box_opacity": -0.5}',
+                      '{"box_opacity": "opaque"}'):
+            with self.subTest(valeur=valeur):
+                (self.dossier / runtime.REGLAGES).write_text(valeur, encoding="utf-8")
+                self.assertEqual(runtime.lire_reglages()["box_opacity"],
+                                 runtime.REGLAGES_DEFAUT["box_opacity"])
 
     def test_protocole_live_inconnu_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -202,6 +237,41 @@ class TestsReglages(unittest.TestCase):
         self.assertEqual(composition[-7:],
                          ("merge", "--loop", "5", "--timezone", "Europe/Paris",
                           "--no-weekly", "--no-monthly"))
+
+    def test_standard_ajoute_taille_couleur_et_opacite_quand_differentes_du_defaut(self):
+        runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
+                                timezone="Europe/Paris", merge_jour=True, merge_semaine=True,
+                                merge_mois=True, download_auto=True, live_protocol="webrtc",
+                                font_size=40, font_color="yellow", box_opacity=0.3)
+        composition = runtime.standard()
+        self.assertEqual(composition[-11:],
+                         ("merge", "--loop", "5", "--timezone", "Europe/Paris",
+                          "--font-size", "40", "--font-color", "yellow",
+                          "--box-opacity", "0.3"))
+
+    def test_standard_n_ajoute_que_l_option_de_style_ecartee_du_defaut(self):
+        # Une seule des trois change : les deux autres, restées au défaut de
+        # merge_daily, ne doivent pas apparaître non plus.
+        runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
+                                timezone="Europe/Paris", merge_jour=True, merge_semaine=True,
+                                merge_mois=True, download_auto=True, live_protocol="webrtc",
+                                font_size=40)
+        composition = runtime.standard()
+        self.assertEqual(composition[-7:],
+                         ("merge", "--loop", "5", "--timezone", "Europe/Paris",
+                          "--font-size", "40"))
+
+    def test_standard_omet_le_style_quand_l_horodatage_est_desactive(self):
+        # --no-timestamp désactive tout l'habillage : pas la peine d'y
+        # ajouter une couleur ou une opacité qui ne serviront à rien.
+        runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=False,
+                                timezone="Europe/Paris", merge_jour=True, merge_semaine=True,
+                                merge_mois=True, download_auto=True, live_protocol="webrtc",
+                                font_size=40, font_color="yellow", box_opacity=0.3)
+        composition = runtime.standard()
+        self.assertEqual(composition[-6:],
+                         ("merge", "--loop", "5", "--timezone", "Europe/Paris",
+                          "--no-timestamp"))
 
     def test_les_elements_du_bloc_serve_sont_fixes(self):
         # blink_cli.py greffe le supplément de « start » juste après ce bloc

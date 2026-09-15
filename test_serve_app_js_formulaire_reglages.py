@@ -17,6 +17,7 @@ REGLAGES = {
     "merge_jour": True, "merge_semaine": True, "merge_mois": False,
     "download_auto": True, "initial_setup": False,
     "webhook_token": "jeton-test-abc123",
+    "font_size": 40, "font_color": "yellow", "box_opacity": 0.3,
 }
 
 
@@ -30,7 +31,8 @@ class TestsFormulaireReglages(unittest.TestCase):
         debut = source.index("let portActuel = null;")
         fin = source.index('$("filtreButton").onclick', debut)
         fragments = [source[debut:fin]]
-        for nom in ("lireJSON", "appliquerDependanceMergeJour", "appliquerDependanceDownloadAuto"):
+        for nom in ("lireJSON", "appliquerDependanceMergeJour", "appliquerDependanceDownloadAuto",
+                   "appliquerDependanceTimestamp"):
             correspondance = re.search(
                 rf"^(?:async )?function {nom}\(.*?^\}}", source, re.DOTALL | re.MULTILINE,
             )
@@ -39,7 +41,7 @@ class TestsFormulaireReglages(unittest.TestCase):
             fragments.append(correspondance.group(0))
         # Conserve aussi les branchements réels des cases, pas des appels de test
         # aux fonctions internes dont le découpage peut évoluer.
-        for identifiant in ("mergeJour", "downloadAuto"):
+        for identifiant in ("mergeJour", "downloadAuto", "timestamp"):
             correspondance = re.search(
                 rf'^\$\("{identifiant}"\)\.onchange = .*?;$', source, re.MULTILINE,
             )
@@ -58,7 +60,7 @@ const ids = [
   'usbMinutes', 'cloudMinutes', 'port', 'storageDir', 'timestamp', 'timezone',
   'liveProtocol', 'mergeJour', 'mergeSemaine', 'mergeMois', 'downloadAuto',
   'initialSetupHint', 'reglagesClose', 'stopButton', 'reglages', 'reglagesButton',
-  'webhookUrl', 'webhookRegenerer',
+  'webhookUrl', 'webhookRegenerer', 'fontSize', 'fontColor', 'boxOpacity',
 ];
 class Element {
   constructor(id) {
@@ -160,6 +162,7 @@ function capturer() {
         valeurs = {
             "usbMinutes": "usb_minutes", "cloudMinutes": "cloud_minutes", "port": "port",
             "storageDir": "storage_dir", "timezone": "timezone", "liveProtocol": "live_protocol",
+            "fontSize": "font_size", "fontColor": "font_color", "boxOpacity": "box_opacity",
         }
         cases = {
             "timestamp": "timestamp", "mergeJour": "merge_jour", "mergeSemaine": "merge_semaine",
@@ -179,6 +182,21 @@ function capturer() {
                     etat["champs"]["webhookUrl"]["value"],
                     "http://localhost:1234/webhook/snapshot?camera=NOM_CAMERA&token=jeton-test-abc123",
                 )
+
+    def test_taille_de_police_absente_affiche_un_champ_vide_pas_le_mot_null(self):
+        resultat = self._executer([{"reglages": dict(REGLAGES, font_size=None)}])
+        self.assertEqual(resultat["captures"][0]["champs"]["fontSize"]["value"], "")
+
+    def test_champs_de_style_grises_quand_l_horodatage_est_decoche(self):
+        resultat = self._executer([{
+            "reglages": dict(REGLAGES, timestamp=False),
+        }], [{"type": "case", "id": "timestamp", "checked": True}])
+        premiere = resultat["captures"][0]
+        for identifiant in ("fontSize", "fontColor", "boxOpacity"):
+            self.assertTrue(premiere["champs"][identifiant]["disabled"])
+        apres_coche = resultat["apresActions"][0]
+        for identifiant in ("fontSize", "fontColor", "boxOpacity"):
+            self.assertFalse(apres_coche["champs"][identifiant]["disabled"])
 
     def test_ouverture_attend_reglages_puis_lance_listes_avant_dialogue(self):
         resultat = self._executer()

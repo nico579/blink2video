@@ -37,7 +37,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.12.28"
+VERSION = "0.12.29"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -67,7 +67,8 @@ ENTREE = "blink2video"
 REGLAGES = "blink_reglages.json"
 REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": False,
                    "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": False,
-                   "merge_mois": False, "download_auto": True, "live_protocol": "webrtc"}
+                   "merge_mois": False, "download_auto": True, "live_protocol": "webrtc",
+                   "font_size": None, "font_color": "white", "box_opacity": 0.55}
 # Remplace la variable d'environnement BLINK_DIRECT_WEBRTC (experimentale,
 # BACKLOG.md 2026-09-03) une fois WebRTC valide en usage reel : un vrai
 # reglage, pas juste une variable a poser avant de lancer le serveur. "mse"
@@ -122,6 +123,35 @@ def _booleen(valeurs: dict, champ: str, defaut: bool) -> bool:
     return valeur if isinstance(valeur, bool) else defaut
 
 
+def _entier_optionnel_borne(valeurs: dict, champ: str, defaut: int | None,
+                            minimum: int, maximum: int) -> int | None:
+    """Comme `_entier_borne`, mais `None` (absent ou explicite) est une
+    valeur valide à part entière : la taille de police auto-adaptée à la
+    hauteur de la vidéo (merge_daily.STYLE_PAR_DEFAUT), pas une erreur."""
+    brut = valeurs.get(champ, defaut)
+    if brut is None:
+        return None
+    try:
+        nombre = int(brut)
+    except (TypeError, ValueError):
+        return defaut
+    if nombre < minimum or nombre > maximum:
+        return defaut
+    return nombre
+
+
+def _flottant_borne(valeurs: dict, champ: str, defaut: float,
+                    minimum: float, maximum: float) -> float:
+    """Comme `_entier_borne`, pour un nombre à virgule (l'opacité du bandeau)."""
+    try:
+        nombre = float(valeurs.get(champ, defaut))
+    except (TypeError, ValueError):
+        return defaut
+    if nombre < minimum or nombre > maximum:
+        return defaut
+    return nombre
+
+
 def lire_reglages() -> dict:
     """Cadences USB/cloud, port, horodatage et fuseau actuels, modifiables
     depuis la page web.
@@ -153,6 +183,12 @@ def lire_reglages() -> dict:
         "download_auto": _booleen(valeurs, "download_auto", REGLAGES_DEFAUT["download_auto"]),
         "live_protocol": valeurs.get("live_protocol") if valeurs.get("live_protocol")
         in PROTOCOLES_LIVE_VALIDES else REGLAGES_DEFAUT["live_protocol"],
+        "font_size": _entier_optionnel_borne(valeurs, "font_size",
+                                             REGLAGES_DEFAUT["font_size"], 8, 500),
+        "font_color": str(valeurs.get("font_color", REGLAGES_DEFAUT["font_color"])) or
+        REGLAGES_DEFAUT["font_color"],
+        "box_opacity": _flottant_borne(valeurs, "box_opacity",
+                                       REGLAGES_DEFAUT["box_opacity"], 0.0, 1.0),
     }
 
 
@@ -177,7 +213,8 @@ def _ecrire_texte_atomique(cible: Path, contenu: str) -> None:
 def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool,
                     timezone: str, merge_jour: bool, merge_semaine: bool,
                     merge_mois: bool, download_auto: bool, live_protocol: str, *,
-                    dossier: Path | None = None) -> None:
+                    font_size: int | None = None, font_color: str = "white",
+                    box_opacity: float = 0.55, dossier: Path | None = None) -> None:
     cible = (app_dir() if dossier is None else dossier) / REGLAGES
     _ecrire_texte_atomique(cible, json.dumps({
         "usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
@@ -185,6 +222,8 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
         "timezone": str(timezone), "merge_jour": bool(merge_jour),
         "merge_semaine": bool(merge_semaine), "merge_mois": bool(merge_mois),
         "download_auto": bool(download_auto), "live_protocol": str(live_protocol),
+        "font_size": int(font_size) if font_size is not None else None,
+        "font_color": str(font_color), "box_opacity": float(box_opacity),
     }))
 
 
@@ -299,6 +338,16 @@ def options_fusion(reglages: dict) -> list:
     options = ["--timezone", reglages["timezone"]]
     if not reglages["timestamp"]:
         options.append("--no-timestamp")
+    else:
+        # Seulement quand ça s'écarte du défaut de merge_daily lui-même :
+        # une installation qui n'a jamais touché ces réglages doit lancer
+        # exactement la même ligne de commande qu'avant leur existence.
+        if reglages["font_size"] is not None:
+            options += ["--font-size", str(reglages["font_size"])]
+        if reglages["font_color"] != "white":
+            options += ["--font-color", reglages["font_color"]]
+        if reglages["box_opacity"] != 0.55:
+            options += ["--box-opacity", str(reglages["box_opacity"])]
     if not reglages["merge_semaine"]:
         options.append("--no-weekly")
     if not reglages["merge_mois"]:

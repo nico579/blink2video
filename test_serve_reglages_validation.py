@@ -22,6 +22,7 @@ DEFAUTS = {
     "timestamp": False, "timezone": "UTC", "merge_jour": True,
     "merge_semaine": True, "merge_mois": True, "download_auto": True,
     "live_protocol": "webrtc",
+    "font_size": None, "font_color": "white", "box_opacity": 0.55,
 }
 CHAMPS_BOOLEENS = (
     "timestamp", "merge_jour", "merge_semaine", "merge_mois", "download_auto")
@@ -114,6 +115,7 @@ class TestsValidationReglagesHttp(unittest.TestCase):
             "timestamp": True, "timezone": "UTC", "merge_jour": False,
             "merge_semaine": False, "merge_mois": False,
             "download_auto": True, "live_protocol": "mse",
+            "font_size": None, "font_color": "white", "box_opacity": 0.55,
         }, "archives locales")
         self.chemin.assert_called_once_with("archives locales")
 
@@ -277,6 +279,64 @@ class TestsValidationReglagesHttp(unittest.TestCase):
             with self.subTest(valeur=valeur):
                 self.assert_refuse(self.requete(self.payload(live_protocol=valeur)),
                                    f"Protocole de direct inconnu : « {texte} ».")
+
+    def test_taille_couleur_opacite_par_defaut_quand_absentes(self):
+        handler = self.requete(self.payload())
+        self.assert_enregistre(handler, DEFAUTS)
+
+    def test_normalisation_taille_couleur_opacite(self):
+        handler = self.requete(self.payload(
+            font_size="40", font_color="  yellow  ", box_opacity="0.3"))
+        self.assert_enregistre(handler, {
+            **DEFAUTS, "font_size": 40, "font_color": "yellow", "box_opacity": 0.3,
+        })
+
+    def test_taille_police_absente_nulle_ou_vide_vaut_auto(self):
+        handler = self.requete(self.payload())
+        self.assert_enregistre(handler, DEFAUTS)
+        for valeur in (None, "", "   "):
+            with self.subTest(valeur=valeur):
+                handler = self.requete(self.payload(font_size=valeur))
+                self.assert_enregistre(handler, DEFAUTS)
+
+    def test_taille_police_hors_plage_ou_invalide_refusee(self):
+        message = ("La taille de police doit être un nombre entre 8 et 500, "
+                  "ou vide pour la taille automatique.")
+        for valeur in (7, 501, 0, -1, "grande", [], {}):
+            with self.subTest(valeur=valeur):
+                self.assert_refuse(self.requete(self.payload(font_size=valeur)), message)
+
+    def test_couleur_vide_ou_blanche_retombe_sur_white(self):
+        for valeur in ("", "   "):
+            with self.subTest(valeur=valeur):
+                handler = self.requete(self.payload(font_color=valeur))
+                self.assert_enregistre(handler, DEFAUTS)
+
+    def test_couleur_invalide_refusee(self):
+        for valeur in ("red:evil", "not a color!", "white@2.0", "white@-0.1",
+                      "rouge,vert"):
+            with self.subTest(valeur=valeur):
+                self.assert_refuse(
+                    self.requete(self.payload(font_color=valeur)),
+                    f"Couleur d'horodatage invalide : « {valeur} ».")
+
+    def test_couleur_hex_et_avec_opacite_acceptees(self):
+        for valeur in ("#FF0000", "0xFF0000", "white@0.8", "yellow"):
+            with self.subTest(valeur=valeur):
+                handler = self.requete(self.payload(font_color=valeur))
+                self.assert_enregistre(handler, {**DEFAUTS, "font_color": valeur})
+
+    def test_opacite_bandeau_hors_plage_ou_invalide_refusee(self):
+        message = "L'opacité du bandeau doit être un nombre entre 0.0 et 1.0."
+        for valeur in (-0.1, 1.1, "opaque", [], {}):
+            with self.subTest(valeur=valeur):
+                self.assert_refuse(self.requete(self.payload(box_opacity=valeur)), message)
+
+    def test_opacite_bandeau_bornes_incluses_acceptees(self):
+        for valeur in (0.0, 1.0):
+            with self.subTest(valeur=valeur):
+                handler = self.requete(self.payload(box_opacity=valeur))
+                self.assert_enregistre(handler, {**DEFAUTS, "box_opacity": valeur})
 
     def test_ordre_des_refus_nombres_dossier_fuseau_puis_protocole(self):
         payload = self.payload(usb_minutes=0, storage_dir="archives",

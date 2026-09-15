@@ -49,6 +49,7 @@ globalThis.clearTimeout = (id) => { temporisations.delete(id); };
 const elements = Object.fromEntries(Object.entries({
   usbMinutes: '5', cloudMinutes: '15', port: '5000', timezone: 'Europe/Paris',
   storageDir: ' clips ', liveProtocol: 'mse',
+  fontSize: '', fontColor: 'white', boxOpacity: '0.55',
 }).map(([id, value]) => [id, {value}]));
 for (const [id, checked] of Object.entries({
   timestamp: true, mergeJour: true, mergeSemaine: false,
@@ -204,6 +205,7 @@ function instantane() {
             "storage_dir": "C:\\Mes vidéos\\", "timezone": "Europe/Paris",
             "timestamp": True, "live_protocol": "mse", "merge_jour": True,
             "merge_semaine": False, "merge_mois": True, "download_auto": False,
+            "font_size": None, "font_color": "white", "box_opacity": 0.55,
         })
         self._verifier_attente(resultat["apresPost"], 2000, 45000)
         self.assertEqual(resultat["alertes"], [])
@@ -220,6 +222,22 @@ function instantane() {
         self.assertEqual([payload[cle] for cle in (
             "timestamp", "merge_jour", "merge_semaine", "merge_mois", "download_auto",
         )], [False, False, True, False, True])
+
+    def test_taille_de_police_vide_devient_null_sinon_un_entier(self):
+        resultat = self._executer(valeurs={"fontSize": "  40  "})
+        payload = json.loads(resultat["requetes"][0]["options"]["body"])
+        self.assertEqual(payload["font_size"], 40)
+
+        resultat = self._executer(valeurs={"fontSize": "   "})
+        payload = json.loads(resultat["requetes"][0]["options"]["body"])
+        self.assertIsNone(payload["font_size"])
+
+    def test_couleur_et_opacite_transmises(self):
+        resultat = self._executer(
+            valeurs={"fontColor": "yellow", "boxOpacity": "0.3"})
+        payload = json.loads(resultat["requetes"][0]["options"]["body"])
+        self.assertEqual(payload["font_color"], "yellow")
+        self.assertEqual(payload["box_opacity"], 0.3)
 
     def test_refus_json_garde_le_formulaire_ouvert_sans_sondage(self):
         resultat = self._executer(reponse={"error": "Réglage refusé", "initial_setup": True})

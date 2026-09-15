@@ -1672,6 +1672,35 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
     if protocole not in runtime.PROTOCOLES_LIVE_VALIDES:
         raise _ReglagesInvalides(f"Protocole de direct inconnu : « {protocole} ».")
     reglages["live_protocol"] = protocole
+
+    font_size = payload.get("font_size")
+    if isinstance(font_size, str):
+        font_size = font_size.strip() or None
+    if font_size is not None:
+        try:
+            font_size = int(font_size)
+            if not 8 <= font_size <= 500:
+                raise ValueError
+        except (TypeError, ValueError) as erreur:
+            raise _ReglagesInvalides(
+                "La taille de police doit être un nombre entre 8 et 500, "
+                "ou vide pour la taille automatique.") from erreur
+    reglages["font_size"] = font_size
+
+    font_color = str(payload.get("font_color") or "white").strip() or "white"
+    if not md.COULEUR_FFMPEG_RE.match(font_color):
+        raise _ReglagesInvalides(f"Couleur d'horodatage invalide : « {font_color} ».")
+    reglages["font_color"] = font_color
+
+    try:
+        box_opacity = float(payload.get("box_opacity", 0.55))
+        if not 0.0 <= box_opacity <= 1.0:
+            raise ValueError
+    except (TypeError, ValueError) as erreur:
+        raise _ReglagesInvalides(
+            "L'opacité du bandeau doit être un nombre entre 0.0 et 1.0.") from erreur
+    reglages["box_opacity"] = box_opacity
+
     return dossier, reglages
 
 
@@ -4142,6 +4171,30 @@ __CSS__
       <input type="checkbox" id="timestamp"> <span data-i18n="reglages.timestamp">Incruster la date et l'heure
       dans l'image</span>
     </label>
+    <p class="sub tiny" data-i18n="reglages.timestamp.style.hint">
+      Vide = taille automatique selon la hauteur de la vidéo. Couleur : nom
+      (white, yellow...) ou hexadécimal, éventuellement avec une transparence
+      (ex. white@0.8).
+    </p>
+    <div class="champCadenceDouble">
+      <label for="fontSize" data-i18n="reglages.fontSize">Taille de police</label>
+      <input type="number" id="fontSize" min="8" max="500" step="1" placeholder="auto">
+      <label for="boxOpacity" data-i18n="reglages.boxOpacity">Opacité du bandeau</label>
+      <input type="number" id="boxOpacity" min="0" max="1" step="0.05">
+    </div>
+    <div class="champCadence">
+      <label for="fontColor" data-i18n="reglages.fontColor">Couleur</label>
+      <input type="text" id="fontColor" list="couleursCourantes" placeholder="white">
+    </div>
+    <datalist id="couleursCourantes">
+      <option value="white">
+      <option value="yellow">
+      <option value="black">
+      <option value="red">
+      <option value="lime">
+      <option value="cyan">
+      <option value="orange">
+    </datalist>
     <div class="champCadence">
       <label for="timezone" data-i18n="reglages.timezone">Fuseau horaire</label>
       <input type="text" id="timezone" list="fuseauxCourants" placeholder="Europe/Paris">
