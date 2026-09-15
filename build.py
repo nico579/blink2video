@@ -14,6 +14,8 @@ et roue blinkpy 0.25.9 dont seules les métadonnées sont rétroportées.
     python build.py --win7 --propre   construit le candidat Windows 7
 """
 
+from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotations "X | None" ne s'évaluent qu'à l'écriture des chaînes, jamais à l'exécution.
+
 import argparse
 import inspect
 import os

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -14,6 +16,64 @@ import build_blinkpy_win7
 import build_xr_tester
 import maj
 import runtime
+
+
+def _interpreteur_38() -> str | None:
+    """Un vrai interpréteur 3.8, si un est installé sur cette machine (jamais
+    en CI ordinaire : seul le job dédié « build Windows 7 » en installe un,
+    à des dizaines de minutes d'un push). L'avoir en local permet de
+    reproduire ici, en secondes, le TypeError qu'une annotation « X | None »
+    évaluée à l'exécution (sans `from __future__ import annotations`) ne
+    lève que sous ce job précis (revue de code du be88cb5 : build.py et
+    blink2video.spec cassaient le build Windows 7 en silence jusque-là).
+
+    Le chemin résolu par shutil.which() est réutilisé tel quel pour l'appel :
+    repasser par le seul nom (« python3.8 ») fait parfois échouer
+    subprocess.run() sous Windows (WinError 2) alors même que which() l'a
+    trouvé, la résolution de PATH de CreateProcess n'étant pas identique."""
+    executable = shutil.which("python3.8")
+    if executable is None:
+        return None
+    try:
+        resultat = subprocess.run(
+            [executable, "-c", "print('ok')"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except OSError:
+        return None
+    return executable if resultat.returncode == 0 and "ok" in resultat.stdout else None
+
+
+class Windows7Python38AnnotationsTests(unittest.TestCase):
+    """build.py et blink2video.spec tournent réellement sous 3.8 pour ce
+    profil (voir WIN7_PYTHON) : une annotation « X | None » y lève un
+    TypeError à la définition de la fonction si `from __future__ import
+    annotations` manque, jamais un SyntaxError détectable autrement qu'en
+    l'exécutant sous ce python précis."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.interpreteur = _interpreteur_38()
+        if cls.interpreteur is None:
+            raise unittest.SkipTest("aucun interpréteur Python 3.8 local")
+
+    def test_build_s_importe_sous_python_3_8(self):
+        resultat = subprocess.run(
+            [self.interpreteur, "-c", "import build"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(resultat.returncode, 0, resultat.stderr)
+
+    def test_spec_n_evalue_pas_ses_annotations_sous_python_3_8(self):
+        source = Path("blink2video.spec").read_text(encoding="utf-8")
+        debut = source.index("def _ffprobe()")
+        fin = source.index("\n\n\n", debut)
+        fragment = "from __future__ import annotations\n\n" + source[debut:fin]
+        resultat = subprocess.run(
+            [self.interpreteur, "-c", fragment],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(resultat.returncode, 0, resultat.stderr)
 
 
 class Windows7BuildTests(unittest.TestCase):
