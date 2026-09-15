@@ -104,6 +104,21 @@ jobs:
           echo "ffmpeg embarqué : $embarque"
           "$embarque" -hide_banner -filters | grep -q drawtext             || { echo "le ffmpeg embarqué ne sait pas incruster de texte"; exit 1; }
 
+      # imageio_ffmpeg ne fournit pas de build Linux avec libfreetype (voir
+      # build.py, FFMPEG_SECOURS) : le secours téléchargé à la place embarque
+      # ffprobe dans la même archive, extrait au passage. Sans lui,
+      # merge_daily.valid_mp4_complet() retombe sur une copie de flux ffmpeg
+      # avec -xerror pour valider un téléchargement, bien plus stricte et
+      # prompte à refuser un fichier pourtant exploitable (issue GitHub #10).
+      - name: Vérifier que le bundle Linux embarque aussi ffprobe
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sonde=$(find dist/blink2video -iname 'ffprobe*' -type f | head -1)
+          test -n "$sonde" || { echo "ffprobe absent du bundle Linux"; exit 1; }
+          echo "ffprobe embarqué : $sonde"
+          "$sonde" -version | head -1
+
       # Épreuve complète sur l'exécutable qui sera publié, horodatage compris.
       - name: Éprouver la chaîne vidéo depuis le bundle
         shell: bash

@@ -59,6 +59,15 @@ def _ffmpeg() -> str:
         return trouves[0]
 
 
+def _ffprobe() -> str | None:
+    # Best-effort seulement (secours Linux de build.py, voir ffmpeg_utilisable) :
+    # merge_daily._outil_validation_media() sait déjà s'en passer, en retombant
+    # sur une vérification ffmpeg plus stricte.
+    import os
+
+    return os.environ.get("BLINK_FFPROBE") or None
+
+
 def _runtime():
     import importlib.util
 
@@ -74,14 +83,16 @@ def _modules(runtime) -> list:
 
 
 FFMPEG = _ffmpeg()
+FFPROBE = _ffprobe()
 RUNTIME = _runtime()
 
 analysis = Analysis(
     ["blink2video.py"],
     pathex=["."],
-    # ffmpeg voyage à la racine du bundle : merge_daily.find_ffmpeg l'y cherche
-    # en premier, avant le PATH de la machine cible.
-    binaries=[(FFMPEG, ".")],
+    # ffmpeg (et ffprobe, quand build.py en a trouvé un) voyagent à la racine
+    # du bundle : merge_daily.find_ffmpeg/_outil_validation_media les y
+    # cherchent en premier, avant le PATH de la machine cible.
+    binaries=[(FFMPEG, ".")] + ([(FFPROBE, ".")] if FFPROBE else []),
     # Windows n'a pas de base de fuseaux horaires système : sans ces données,
     # ZoneInfo("Europe/Paris") échoue et tout l'horodatage avec.
     datas=(collect_data_files("tzdata", include_py_files=False)

@@ -110,8 +110,15 @@ def verifier_python_win7(python: Path) -> None:
         )
 
 
-def ffmpeg_utilisable(python: Path, travail: Path) -> str:
-    """Choisit le ffmpeg à embarquer, en exigeant qu'il sache écrire du texte."""
+def ffmpeg_utilisable(python: Path, travail: Path) -> tuple[str, str | None]:
+    """Choisit le ffmpeg à embarquer, en exigeant qu'il sache écrire du texte.
+
+    Renvoie aussi un ffprobe si l'occasion se présente (secours Linux
+    seulement, voir plus bas) : sans lui, merge_daily.valid_mp4_complet()
+    retombe sur une copie de flux ffmpeg avec -xerror pour valider un
+    téléchargement, bien plus stricte qu'un simple comptage de paquets
+    ffprobe et prompte à refuser un fichier pourtant exploitable (signalé
+    sur l'issue GitHub #10, uniquement sous Linux)."""
 
     def sait_ecrire(binaire: str) -> bool:
         try:
@@ -140,7 +147,8 @@ def ffmpeg_utilisable(python: Path, travail: Path) -> str:
         resultat = ""
 
     if resultat and sait_ecrire(resultat):
-        return resultat
+        # imageio_ffmpeg ne fournit jamais de ffprobe, sur aucune plateforme.
+        return resultat, None
 
     if sys.platform != "linux":
         raise SystemExit(
@@ -157,14 +165,25 @@ def ffmpeg_utilisable(python: Path, travail: Path) -> str:
     if not archive.exists():
         urllib.request.urlretrieve(FFMPEG_SECOURS, archive)
     with tarfile.open(archive) as fichier:
-        membre = next(m for m in fichier.getmembers() if m.name.endswith("/bin/ffmpeg"))
+        membres = fichier.getmembers()
+        membre = next(m for m in membres if m.name.endswith("/bin/ffmpeg"))
         membre.name = "ffmpeg"
         fichier.extract(membre, archive.parent)
+        # Le même tar contient déjà ffprobe (BtbN livre les deux ensemble) :
+        # au passage, sans repasser par le réseau.
+        membre_probe = next(
+            (m for m in membres if m.name.endswith("/bin/ffprobe")), None)
+        if membre_probe is not None:
+            membre_probe.name = "ffprobe"
+            fichier.extract(membre_probe, archive.parent)
     binaire = archive.parent / "ffmpeg"
     binaire.chmod(0o755)
     if not sait_ecrire(str(binaire)):
         raise SystemExit("La compilation de secours ne sait pas non plus écrire du texte.")
-    return str(binaire)
+    sonde = archive.parent / "ffprobe"
+    if sonde.is_file():
+        sonde.chmod(0o755)
+    return str(binaire), (str(sonde) if sonde.is_file() else None)
 
 
 def executer(commande: list, titre: str) -> None:
@@ -302,9 +321,13 @@ def main() -> int:
                   "-r", str(REQUIREMENTS)],
                  "installation des dépendances")
 
-    ffmpeg = ffmpeg_utilisable(python, travail)
+    ffmpeg, ffprobe = ffmpeg_utilisable(python, travail)
     print(f"\nffmpeg embarqué : {ffmpeg}")
     os.environ["BLINK_FFMPEG"] = ffmpeg
+    os.environ.pop("BLINK_FFPROBE", None)
+    if ffprobe:
+        print(f"ffprobe embarqué : {ffprobe}")
+        os.environ["BLINK_FFPROBE"] = ffprobe
     os.environ.pop("BLINK_BUILD_TARGET", None)
     if args.win7:
         os.environ["BLINK_BUILD_TARGET"] = "windows7"
