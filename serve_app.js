@@ -95,6 +95,10 @@ const I18N = {
     "reglages.storageDir.hint": "Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.",
     "reglages.storageDir.browse": "Parcourir…",
     "reglages.storageDir.browse.unavailable": "Sélecteur de dossier indisponible sur cette machine : saisissez le chemin directement.",
+    "reglages.accesDistant": "Accès distant par VPN maillé",
+    "reglages.accesDistant.hint": "Pour joindre cette instance directement depuis un VPN maillé (Tailscale, WireGuard), sans reverse proxy devant.",
+    "reglages.accesDistant.hint.text": "À utiliser avec la variable d'environnement BLINK_BIND réglée sur cette même adresse (voir le README, section « Reaching it remotely ») : ce réglage seul, sans elle, ne change rien à qui peut atteindre l'interface.",
+    "reglages.trustedHost": "Hôte de confiance",
     "reglages.cadence": "Cadence de lecture des caméras",
     "reglages.usb": "Stockage local (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Vidéo", "reglages.timestamp": "Incruster la date et l'heure dans l'image",
@@ -245,6 +249,10 @@ const I18N = {
     "reglages.storageDir.hint": "Does not move clips or the Blink session already present at the old location: do it yourself if you change this path. Empty = default location, next to the executable.",
     "reglages.storageDir.browse": "Browse…",
     "reglages.storageDir.browse.unavailable": "Folder picker unavailable on this machine: type the path directly.",
+    "reglages.accesDistant": "Remote access over a mesh VPN",
+    "reglages.accesDistant.hint": "To reach this instance directly from a mesh VPN (Tailscale, WireGuard), no reverse proxy in front.",
+    "reglages.accesDistant.hint.text": "Use together with the BLINK_BIND environment variable set to that same address (see the README, \"Reaching it remotely\" section): this setting alone, without it, changes nothing about who can reach the interface.",
+    "reglages.trustedHost": "Trusted host",
     "reglages.cadence": "Camera polling interval",
     "reglages.usb": "Local storage (minutes)", "reglages.cloud": "Cloud (minutes)",
     "reglages.video": "Video", "reglages.timestamp": "Burn the date and time into the image",
@@ -2529,6 +2537,7 @@ function afficherFormulaireReglages(reglages) {
   $("port").value = reglages.port;
   portActuel = reglages.port;
   $("storageDir").value = reglages.storage_dir;
+  $("trustedHost").value = reglages.trusted_host || "";
   $("timestamp").checked = reglages.timestamp;
   $("fontSize").value = reglages.font_size ?? "";
   $("fontColor").value = reglages.font_color;
@@ -2749,6 +2758,7 @@ async function envoyerFormulaireReglages({ usb, cloud, port, timezone }) {
     body: JSON.stringify({
       usb_minutes: usb, cloud_minutes: cloud, port,
       storage_dir: $("storageDir").value.trim(),
+      trusted_host: $("trustedHost").value.trim(),
       timestamp: $("timestamp").checked, timezone,
       live_protocol: $("liveProtocol").value,
       merge_jour: $("mergeJour").checked,

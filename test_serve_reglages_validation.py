@@ -23,6 +23,7 @@ DEFAUTS = {
     "merge_semaine": True, "merge_mois": True, "download_auto": True,
     "live_protocol": "webrtc",
     "font_size": None, "font_color": "white", "box_opacity": 0.55,
+    "trusted_host": "",
 }
 CHAMPS_BOOLEENS = (
     "timestamp", "merge_jour", "merge_semaine", "merge_mois", "download_auto")
@@ -116,6 +117,7 @@ class TestsValidationReglagesHttp(unittest.TestCase):
             "merge_semaine": False, "merge_mois": False,
             "download_auto": True, "live_protocol": "mse",
             "font_size": None, "font_color": "white", "box_opacity": 0.55,
+            "trusted_host": "",
         }, "archives locales")
         self.chemin.assert_called_once_with("archives locales")
 
@@ -337,6 +339,28 @@ class TestsValidationReglagesHttp(unittest.TestCase):
             with self.subTest(valeur=valeur):
                 handler = self.requete(self.payload(box_opacity=valeur))
                 self.assert_enregistre(handler, {**DEFAUTS, "box_opacity": valeur})
+
+    def test_hote_de_confiance_absent_ou_vide_vaut_desactive(self):
+        for valeur in (None, "", "   "):
+            with self.subTest(valeur=valeur):
+                payload = self.payload()
+                if valeur is not None:
+                    payload["trusted_host"] = valeur
+                handler = self.requete(payload)
+                self.assert_enregistre(handler, DEFAUTS)
+
+    def test_hote_de_confiance_valide_est_recorte(self):
+        handler = self.requete(self.payload(trusted_host="  100.101.194.5  "))
+        self.assert_enregistre(handler, {**DEFAUTS, "trusted_host": "100.101.194.5"})
+
+    def test_hote_de_confiance_avec_espace_ou_barre_refuse(self):
+        for valeur in ("100.101.194.5/etc", "http://100.101.194.5",
+                      "hote invalide", "100 .101.194.5"):
+            with self.subTest(valeur=valeur):
+                self.assert_refuse(
+                    self.requete(self.payload(trusted_host=valeur)),
+                    f"Hôte de confiance invalide : « {valeur.strip()} ». Un nom "
+                    "d'hôte ou une adresse IP seule, sans / ni espace.")
 
     def test_ordre_des_refus_nombres_dossier_fuseau_puis_protocole(self):
         payload = self.payload(usb_minutes=0, storage_dir="archives",

@@ -37,7 +37,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.12.33"
+VERSION = "0.12.34"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -68,7 +68,8 @@ REGLAGES = "blink_reglages.json"
 REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": False,
                    "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": False,
                    "merge_mois": False, "download_auto": True, "live_protocol": "webrtc",
-                   "font_size": None, "font_color": "white", "box_opacity": 0.55}
+                   "font_size": None, "font_color": "white", "box_opacity": 0.55,
+                   "trusted_host": ""}
 # Remplace la variable d'environnement BLINK_DIRECT_WEBRTC (experimentale,
 # BACKLOG.md 2026-09-03) une fois WebRTC valide en usage reel : un vrai
 # reglage, pas juste une variable a poser avant de lancer le serveur. "mse"
@@ -85,9 +86,10 @@ PROTOCOLES_LIVE_VALIDES = ("webrtc", "mse")
 # seul par défaut ; les deux autres restent un choix explicite dans les
 # réglages (signalé sur Reddit, 2026-08-26).
 # Nombre d'éléments du bloc fixe en tête de standard() : serve, --port,
-# valeur, --timezone, valeur. blink_cli.route() s'appuie sur cette longueur
-# pour greffer le supplément de « start » juste après (voir standard()).
-LONGUEUR_BLOC_SERVE = 5
+# valeur, --timezone, valeur, --trusted-host, valeur. blink_cli.route()
+# s'appuie sur cette longueur pour greffer le supplément de « start » juste
+# après (voir standard()).
+LONGUEUR_BLOC_SERVE = 7
 
 
 def _entier_borne(valeurs: dict, champ: str, defaut: int, minimum: int,
@@ -189,6 +191,8 @@ def lire_reglages() -> dict:
         REGLAGES_DEFAUT["font_color"],
         "box_opacity": _flottant_borne(valeurs, "box_opacity",
                                        REGLAGES_DEFAUT["box_opacity"], 0.0, 1.0),
+        "trusted_host": str(valeurs.get(
+            "trusted_host", REGLAGES_DEFAUT["trusted_host"])).strip(),
     }
 
 
@@ -214,7 +218,8 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
                     timezone: str, merge_jour: bool, merge_semaine: bool,
                     merge_mois: bool, download_auto: bool, live_protocol: str, *,
                     font_size: int | None = None, font_color: str = "white",
-                    box_opacity: float = 0.55, dossier: Path | None = None) -> None:
+                    box_opacity: float = 0.55, trusted_host: str = "",
+                    dossier: Path | None = None) -> None:
     cible = (app_dir() if dossier is None else dossier) / REGLAGES
     _ecrire_texte_atomique(cible, json.dumps({
         "usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
@@ -224,6 +229,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
         "download_auto": bool(download_auto), "live_protocol": str(live_protocol),
         "font_size": int(font_size) if font_size is not None else None,
         "font_color": str(font_color), "box_opacity": float(box_opacity),
+        "trusted_host": str(trusted_host).strip(),
     }))
 
 
@@ -362,11 +368,12 @@ def standard() -> tuple:
     que le réglage depuis la page web prenne effet au prochain démarrage.
 
     Les LONGUEUR_BLOC_SERVE premiers éléments (serve, --port, valeur,
-    --timezone, valeur) sont un bloc fixe : blink_cli.route() les traite
-    comme la partie « verbe » sur laquelle un supplément tapé à la main
-    (« start --port 8899 ») se greffe, afin qu'un --port ou --timezone
-    explicite l'emporte toujours sur la valeur enregistrée (argparse
-    retient la dernière occurrence d'une option)."""
+    --timezone, valeur, --trusted-host, valeur) sont un bloc fixe :
+    blink_cli.route() les traite comme la partie « verbe » sur laquelle un
+    supplément tapé à la main (« start --port 8899 ») se greffe, afin qu'un
+    --port, --timezone ou --trusted-host explicite l'emporte toujours sur la
+    valeur enregistrée (argparse retient la dernière occurrence d'une
+    option)."""
     c = lire_reglages()
     merge = []
     if c["merge_jour"]:
@@ -381,6 +388,7 @@ def standard() -> tuple:
                     "--usb-loop", str(c["usb_minutes"]),
                     "--cloud-loop", str(c["cloud_minutes"])]
     return ("serve", "--port", str(c["port"]), "--timezone", c["timezone"],
+            "--trusted-host", c["trusted_host"],
             "watch", "--loop", "10",
             *download, *merge)
 

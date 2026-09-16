@@ -17,11 +17,12 @@ import serve  # noqa: E402 - environnement isolé avant import
 
 
 class SecuriteWebTests(unittest.TestCase):
-    def handler(self, client="127.0.0.1", host="127.0.0.1"):
+    def handler(self, client="127.0.0.1", host="127.0.0.1", trusted_host=""):
         handler = serve.Handler.__new__(serve.Handler)
         handler.client_address = (client, 12345)
         handler.headers = {"Host": host}
         handler.path = "/api/status"
+        handler.trusted_host = trusted_host
         return handler
 
     def test_host_local_ne_suffit_pas_a_un_client_distant(self):
@@ -38,36 +39,35 @@ class SecuriteWebTests(unittest.TestCase):
             )
 
     def test_hote_de_confiance_sans_opt_in_reste_refuse(self):
-        with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("BLINK_TRUSTED_HOST", None)
-            self.assertFalse(
-                self.handler("100.101.194.5", "100.101.194.5").hote_autorise()
-            )
+        self.assertFalse(
+            self.handler("100.101.194.5", "100.101.194.5").hote_autorise()
+        )
 
     def test_hote_de_confiance_accepte_un_client_distant_qui_le_designe(self):
-        with mock.patch.dict(os.environ, {"BLINK_TRUSTED_HOST": "100.101.194.5"}):
-            self.assertTrue(
-                self.handler("100.101.194.5", "100.101.194.5").hote_autorise()
-            )
-            # Un autre client distant, même Host : accepté aussi, la garantie
-            # vient du réseau du tunnel, pas de quel appareil précis y est.
-            self.assertTrue(
-                self.handler("100.64.9.9", "100.101.194.5").hote_autorise()
-            )
+        self.assertTrue(
+            self.handler("100.101.194.5", "100.101.194.5",
+                        trusted_host="100.101.194.5").hote_autorise()
+        )
+        # Un autre client distant, même Host : accepté aussi, la garantie
+        # vient du réseau du tunnel, pas de quel appareil précis y est.
+        self.assertTrue(
+            self.handler("100.64.9.9", "100.101.194.5",
+                        trusted_host="100.101.194.5").hote_autorise()
+        )
 
     def test_hote_de_confiance_n_elargit_pas_a_un_host_different(self):
-        with mock.patch.dict(os.environ, {"BLINK_TRUSTED_HOST": "100.101.194.5"}):
-            self.assertFalse(
-                self.handler("100.101.194.5", "un-autre-host.example").hote_autorise()
-            )
+        self.assertFalse(
+            self.handler("100.101.194.5", "un-autre-host.example",
+                        trusted_host="100.101.194.5").hote_autorise()
+        )
 
     def test_hote_de_confiance_toujours_verifie_via_origin(self):
-        with mock.patch.dict(os.environ, {"BLINK_TRUSTED_HOST": "100.101.194.5"}):
-            handler = self.handler("100.101.194.5", "100.101.194.5")
-            handler.headers["Origin"] = "http://100.101.194.5"
-            self.assertTrue(handler.hote_autorise())
-            handler.headers["Origin"] = "http://attaquant.example"
-            self.assertFalse(handler.hote_autorise())
+        handler = self.handler("100.101.194.5", "100.101.194.5",
+                               trusted_host="100.101.194.5")
+        handler.headers["Origin"] = "http://100.101.194.5"
+        self.assertTrue(handler.hote_autorise())
+        handler.headers["Origin"] = "http://attaquant.example"
+        self.assertFalse(handler.hote_autorise())
 
     def test_jeton_est_accepte_en_entete_ou_dans_url_media(self):
         handler = self.handler()

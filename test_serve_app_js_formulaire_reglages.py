@@ -18,6 +18,7 @@ REGLAGES = {
     "download_auto": True, "initial_setup": False,
     "webhook_token": "jeton-test-abc123",
     "font_size": 40, "font_color": "yellow", "box_opacity": 0.3,
+    "trusted_host": "100.101.194.5",
 }
 
 
@@ -61,6 +62,7 @@ const ids = [
   'liveProtocol', 'mergeJour', 'mergeSemaine', 'mergeMois', 'downloadAuto',
   'initialSetupHint', 'reglagesClose', 'stopButton', 'reglages', 'reglagesButton',
   'webhookUrl', 'webhookRegenerer', 'fontSize', 'fontColor', 'boxOpacity',
+  'trustedHost',
 ];
 class Element {
   constructor(id) {
@@ -163,6 +165,7 @@ function capturer() {
             "usbMinutes": "usb_minutes", "cloudMinutes": "cloud_minutes", "port": "port",
             "storageDir": "storage_dir", "timezone": "timezone", "liveProtocol": "live_protocol",
             "fontSize": "font_size", "fontColor": "font_color", "boxOpacity": "box_opacity",
+            "trustedHost": "trusted_host",
         }
         cases = {
             "timestamp": "timestamp", "mergeJour": "merge_jour", "mergeSemaine": "merge_semaine",

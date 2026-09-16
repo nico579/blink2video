@@ -65,6 +65,11 @@ LIBELLES = {
             "Attention : BLINK_BIND={bind} - interface aussi joignable "
             "depuis le reste du réseau sur le port {port}, sans "
             "authentification. À réserver à un réseau de confiance.",
+        "attention_trusted_host":
+            "Attention : hôte de confiance réglé sur {hote} - interface "
+            "aussi joignable sous ce nom, sans authentification. À réserver "
+            "à un tunnel privé (Tailscale, WireGuard) lié à cette adresse "
+            "avec BLINK_BIND.",
         "interruption_arret": "\nArrêt.",
         "snapshot_commande_refusee": "Blink a refusé la commande de photo.",
         "snapshot_non_confirme": "Blink n'a pas confirmé la photo.",
@@ -85,6 +90,11 @@ LIBELLES = {
             "Warning: BLINK_BIND={bind} - the interface is also reachable "
             "from the rest of the network on port {port}, with no "
             "authentication. Only do this on a trusted network.",
+        "attention_trusted_host":
+            "Warning: trusted host set to {hote} - the interface is also "
+            "reachable under that name, with no authentication. Only do "
+            "this for a private tunnel (Tailscale, WireGuard) bound to that "
+            "address with BLINK_BIND.",
         "interruption_arret": "\nStopping.",
         "snapshot_commande_refusee": "Blink refused the picture command.",
         "snapshot_non_confirme": "Blink did not confirm the picture.",
@@ -1701,6 +1711,13 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
             "L'opacité du bandeau doit être un nombre entre 0.0 et 1.0.") from erreur
     reglages["box_opacity"] = box_opacity
 
+    trusted_host = str(payload.get("trusted_host") or "").strip()
+    if trusted_host and (" " in trusted_host or "/" in trusted_host):
+        raise _ReglagesInvalides(
+            f"Hôte de confiance invalide : « {trusted_host} ». Un nom "
+            "d'hôte ou une adresse IP seule, sans / ni espace.")
+    reglages["trusted_host"] = trusted_host
+
     return dossier, reglages
 
 
@@ -1713,6 +1730,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     timezone: ZoneInfo = ZoneInfo("Europe/Paris")
     hub: str | None = None
     ffmpeg: str = ""
+    trusted_host: str = ""
     # Serveur temporaire du tout premier démarrage : les réglages sont
     # enregistrés sans lancer lui-même un restart. Le parent ``start`` attend
     # leur marqueur, arrête ce serveur, puis seulement alors crée les workers.
@@ -1737,23 +1755,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         de vérifier d'où vient la requête. Un client HTTP quelconque (tests,
         `curl` local) n'envoie pas Origin : seul Host, toujours présent,
         est alors regardé."""
-        # BLINK_TRUSTED_HOST : usage prévu, un tunnel privé (Tailscale,
-        # WireGuard) auquel BLINK_BIND lie directement cette instance, sans
-        # reverse proxy devant pour réécrire Host - l'alternative la plus
-        # simple à ce montage restait jusqu'ici de toujours en installer un
-        # (voir le README, "Reaching it remotely"). Contrairement à
-        # BLINK_TRUSTED_LOOPBACK_PROXY (qui ne relâche que la provenance de
-        # la connexion ; Host doit rester 127.0.0.1), celui-ci relâche aussi
-        # Host lui-même : la garantie ne vient alors plus de la boucle
-        # locale, mais du réseau du tunnel - seuls ses appareils peuvent
-        # router un paquet vers cette adresse, chiffré au niveau protocole,
-        # avant même que cette fonction ne s'exécute. La page reste sans la
-        # moindre authentification propre, mais n'est jamais joignable par
-        # personne d'autre, exactement comme depuis la boucle locale. N'a de
-        # sens qu'avec BLINK_BIND réglé sur cette même adresse précise,
-        # jamais 0.0.0.0 (qui accepterait alors n'importe quelle interface,
-        # LAN compris, sous ce même Host).
-        hote_confiance = os.environ.get("BLINK_TRUSTED_HOST", "").strip()
+        # trusted_host (réglage web, ou --trusted-host au lancement) : usage
+        # prévu, un tunnel privé (Tailscale, WireGuard) auquel BLINK_BIND lie
+        # directement cette instance, sans reverse proxy devant pour réécrire
+        # Host - l'alternative la plus simple à ce montage restait jusqu'ici
+        # de toujours en installer un (voir le README, "Reaching it
+        # remotely"). Contrairement à BLINK_TRUSTED_LOOPBACK_PROXY (qui ne
+        # relâche que la provenance de la connexion ; Host doit rester
+        # 127.0.0.1), celui-ci relâche aussi Host lui-même : la garantie ne
+        # vient alors plus de la boucle locale, mais du réseau du tunnel -
+        # seuls ses appareils peuvent router un paquet vers cette adresse,
+        # chiffré au niveau protocole, avant même que cette fonction ne
+        # s'exécute. La page reste sans la moindre authentification propre,
+        # mais n'est jamais joignable par personne d'autre, exactement comme
+        # depuis la boucle locale. N'a de sens qu'avec BLINK_BIND réglé sur
+        # cette même adresse précise, jamais 0.0.0.0 (qui accepterait alors
+        # n'importe quelle interface, LAN compris, sous ce même Host).
+        hote_confiance = (self.trusted_host or "").strip()
         hotes_valides = self._HOTES_LOCAUX + ((hote_confiance,) if hote_confiance else ())
         hote = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         if hote not in hotes_valides:
@@ -4190,6 +4208,19 @@ __CSS__
     <button type="button" id="storageDirBrowse" data-i18n="reglages.storageDir.browse">Parcourir…</button>
   </div>
   <fieldset>
+    <legend data-i18n="reglages.accesDistant" data-i18n-title="reglages.accesDistant.hint"
+            title="Pour joindre cette instance directement depuis un VPN maillé (Tailscale, WireGuard), sans reverse proxy devant.">Accès distant par VPN maillé</legend>
+    <p class="sub tiny" data-i18n="reglages.accesDistant.hint.text">
+      À utiliser avec la variable d'environnement BLINK_BIND réglée sur cette
+      même adresse (voir le README, section « Reaching it remotely ») : ce
+      réglage seul, sans elle, ne change rien à qui peut atteindre l'interface.
+    </p>
+    <div class="champCadence">
+      <label for="trustedHost" data-i18n="reglages.trustedHost">Hôte de confiance</label>
+      <input type="text" id="trustedHost" placeholder="100.x.y.z">
+    </div>
+  </fieldset>
+  <fieldset>
     <legend data-i18n="reglages.cadence">Cadence de lecture des caméras</legend>
     <label id="downloadAutoLabel" data-i18n-title="reglages.downloadAuto.hint"
            title="Décochée, aucun clip n'est plus récupéré ni stocké : utile pour ne garder que le direct. Les cadences ci-dessous n'ont alors plus d'effet.">
@@ -4403,6 +4434,13 @@ def parse_args() -> argparse.Namespace:
         help="cache des vignettes ; jetable, refabriqué à la demande",
     )
     parser.add_argument("--port", type=runtime.port_valide, default=8765)
+    parser.add_argument(
+        "--trusted-host", default="",
+        help="nom d'hôte (ou adresse) supplémentaire accepté comme Host, en plus "
+             "de la boucle locale : pour un tunnel privé (Tailscale, WireGuard) "
+             "lié directement à cette instance avec BLINK_BIND, sans reverse "
+             "proxy devant. Réglable aussi depuis la page (Réglages)",
+    )
     parser.add_argument("--initial-setup", action="store_true",
                         help=argparse.SUPPRESS)
     parser.add_argument(
@@ -4448,6 +4486,7 @@ def main() -> int:
     }
     Handler.hub = args.hub
     Handler.initial_setup = args.initial_setup
+    Handler.trusted_host = args.trusted_host.strip()
     try:
         Handler.ffmpeg = md.find_ffmpeg()
         Handler.timezone = ZoneInfo(args.timezone)
@@ -4511,6 +4550,8 @@ def main() -> int:
         # relire la doc, qu'il vient d'ouvrir l'interface sans authentification
         # au reste du réseau.
         print(msg("attention_blink_bind", bind=bind, port=args.port))
+    if Handler.trusted_host:
+        print(msg("attention_trusted_host", hote=Handler.trusted_host))
     # Le serveur de configuration initiale ne doit créer aucun travail de
     # fond avant validation. Même la veille de version, sans rapport avec les
     # clips, attend donc le vrai démarrage pour garder ce mode strictement

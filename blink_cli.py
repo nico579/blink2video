@@ -858,11 +858,12 @@ def executer(groupes: list) -> int:
                     if code != 0:
                         return code
                 composition = runtime.standard()
-                # Le bloc fixe (serve, --port, valeur, --timezone, valeur)
-                # précède toujours le supplément : un « --port »/« --timezone »
-                # tapé à la main arrive donc après celui, déjà présent, de la
-                # configuration enregistrée, et l'emporte (argparse retient la
-                # dernière occurrence d'une option).
+                # Le bloc fixe (serve, --port, valeur, --timezone, valeur,
+                # --trusted-host, valeur) précède toujours le supplément : un
+                # « --port »/« --timezone »/« --trusted-host » tapé à la main
+                # arrive donc après celui, déjà présent, de la configuration
+                # enregistrée, et l'emporte (argparse retient la dernière
+                # occurrence d'une option).
                 n = runtime.LONGUEUR_BLOC_SERVE
                 code = executer(runtime.decouper_verbes(
                     [*composition[:n], *supplement, *composition[n:]]))

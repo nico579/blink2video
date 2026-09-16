@@ -242,11 +242,13 @@ for.) No separate authentication needed in this case: only your own devices
 on that network can reach the address at all.
 
 That also means the rewrite above isn't needed at all on a mesh VPN: bind
-blink2video directly to the tunnel address with `BLINK_BIND` and name that
-same address in `BLINK_TRUSTED_HOST` (see "Environment variables" below),
-and it accepts requests addressed there directly, no proxy in between. Only
-ever set both to that one specific address, never `0.0.0.0`, which would
-accept the same `Host` from the LAN too and defeat the point.
+blink2video directly to the tunnel address with `BLINK_BIND`, then set that
+same address as the "Trusted host" in Settings, or pass it once with
+`--trusted-host 100.x.y.z` (saved from then on, like any other setting).
+blink2video then accepts requests addressed to it directly, no proxy in
+between. Only ever trust that one specific address, and keep `BLINK_BIND`
+on it too, never `0.0.0.0`, which would accept the same `Host` from the LAN
+as well and defeat the point.
 
 </details>
 
@@ -367,11 +369,12 @@ downloaded would come back as new.
   a phone, tablet, or any other device on the LAN needs either a reverse proxy
   in front, forwarding to `127.0.0.1` with its own authentication and its
   `Host` header set accordingly, or, on a mesh VPN such as Tailscale/WireGuard,
-  binding directly to that tunnel address with `BLINK_TRUSTED_HOST` instead
-  (see "Reaching it remotely" above), the same pattern as the Docker
-  container's own opt-in. The web UI has no login of its own, so the built-in
-  server refuses any request that doesn't come from the local machine itself
-  or from that one trusted host; setting `BLINK_BIND=0.0.0.0` alone does not
+  binding directly to that tunnel address and naming it as a trusted host
+  from Settings instead (see "Reaching it remotely" above), the same pattern
+  as the Docker container's own opt-in. The web UI has no login of its own,
+  so the built-in server refuses any request that doesn't come from the
+  local machine itself or from that one trusted host; setting
+  `BLINK_BIND=0.0.0.0` alone does not
   expose it to the LAN.
 
 ## Neighbours
@@ -522,7 +525,7 @@ nobody is listening. `--port` if you moved it.
 |---|---|
 | `BLINK_HOME` | data folder, defaulting to the executable's own |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` or `none`: how the Python environment is handled |
-| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. Needed to bind it inside the official Docker container, behind a `127.0.0.1` port publication and `BLINK_TRUSTED_LOOPBACK_PROXY=1` (see the Docker section), or to bind it directly on a mesh VPN address (Tailscale, WireGuard) together with `BLINK_TRUSTED_HOST` set to that same address, the simplest way to reach it remotely without a reverse proxy (see "Reaching it remotely" above). There is no authentication on the web UI, so the server refuses any request that doesn't come from the local machine itself or from that one trusted host: setting this to `0.0.0.0` alone does not expose the UI to the LAN |
+| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. Needed to bind it inside the official Docker container, behind a `127.0.0.1` port publication and `BLINK_TRUSTED_LOOPBACK_PROXY=1` (see the Docker section), or to bind it directly on a mesh VPN address (Tailscale, WireGuard), the simplest way to reach it remotely without a reverse proxy: pair it with that same address as the "Trusted host" in Settings, or `--trusted-host` at the command line (see "Reaching it remotely" above). There is no authentication on the web UI, so the server refuses any request that doesn't come from the local machine itself or from that one trusted host: setting this to `0.0.0.0` alone does not expose the UI to the LAN |
 
 </details>
 

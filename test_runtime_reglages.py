@@ -88,13 +88,14 @@ class TestsReglages(unittest.TestCase):
                                 timezone="America/New_York", merge_jour=True,
                                 merge_semaine=False, merge_mois=False, download_auto=False,
                                 live_protocol="mse", font_size=40, font_color="yellow",
-                                box_opacity=0.3)
+                                box_opacity=0.3, trusted_host="100.101.194.5")
         self.assertEqual(
             runtime.lire_reglages(),
             {"usb_minutes": 7, "cloud_minutes": 2, "port": 8899, "timestamp": False,
              "timezone": "America/New_York", "merge_jour": True, "merge_semaine": False,
              "merge_mois": False, "download_auto": False, "live_protocol": "mse",
-             "font_size": 40, "font_color": "yellow", "box_opacity": 0.3})
+             "font_size": 40, "font_color": "yellow", "box_opacity": 0.3,
+             "trusted_host": "100.101.194.5"})
 
     def test_valeurs_partielles_completees_par_les_defauts(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -113,7 +114,8 @@ class TestsReglages(unittest.TestCase):
              "live_protocol": runtime.REGLAGES_DEFAUT["live_protocol"],
              "font_size": runtime.REGLAGES_DEFAUT["font_size"],
              "font_color": runtime.REGLAGES_DEFAUT["font_color"],
-             "box_opacity": runtime.REGLAGES_DEFAUT["box_opacity"]})
+             "box_opacity": runtime.REGLAGES_DEFAUT["box_opacity"],
+             "trusted_host": runtime.REGLAGES_DEFAUT["trusted_host"]})
 
     def test_fuseau_vide_dans_le_fichier_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -141,6 +143,14 @@ class TestsReglages(unittest.TestCase):
     def test_couleur_vide_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text('{"font_color": ""}', encoding="utf-8")
         self.assertEqual(runtime.lire_reglages()["font_color"], runtime.REGLAGES_DEFAUT["font_color"])
+
+    def test_hote_de_confiance_absent_vaut_desactive(self):
+        self.assertEqual(runtime.lire_reglages()["trusted_host"], "")
+
+    def test_hote_de_confiance_est_recorte(self):
+        (self.dossier / runtime.REGLAGES).write_text(
+            '{"trusted_host": "  100.101.194.5  "}', encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages()["trusted_host"], "100.101.194.5")
 
     def test_opacite_bandeau_hors_plage_ou_non_numerique_retombe_sur_le_defaut(self):
         for valeur in ('{"box_opacity": 2.0}', '{"box_opacity": -0.5}',
@@ -170,6 +180,7 @@ class TestsReglages(unittest.TestCase):
         self.assertEqual(
             runtime.standard(),
             ("serve", "--port", "8765", "--timezone", "Europe/Paris",
+             "--trusted-host", "",
              "watch", "--loop", "10",
              "download", "--from", "all", "--usb-loop", "10",
              "--cloud-loop", "1",
@@ -179,11 +190,13 @@ class TestsReglages(unittest.TestCase):
     def test_standard_reflete_les_reglages_enregistres(self):
         runtime.ecrire_reglages(usb_minutes=20, cloud_minutes=3, port=9090, timestamp=True,
                                 timezone="Asia/Tokyo", merge_jour=True, merge_semaine=True,
-                                merge_mois=True, download_auto=True, live_protocol="webrtc")
+                                merge_mois=True, download_auto=True, live_protocol="webrtc",
+                                trusted_host="100.101.194.5")
         composition = runtime.standard()
         self.assertEqual(
             composition,
             ("serve", "--port", "9090", "--timezone", "Asia/Tokyo",
+             "--trusted-host", "100.101.194.5",
              "watch", "--loop", "10",
              "download", "--from", "all", "--usb-loop", "20",
              "--cloud-loop", "3",
@@ -275,14 +288,26 @@ class TestsReglages(unittest.TestCase):
 
     def test_les_elements_du_bloc_serve_sont_fixes(self):
         # blink_cli.py greffe le supplément de « start » juste après ce bloc
-        # (composition[:LONGUEUR_BLOC_SERVE]) : un --port ou --timezone tapé
-        # à la main arrive donc après celui-ci et l'emporte (argparse
-        # retient la dernière occurrence).
+        # (composition[:LONGUEUR_BLOC_SERVE]) : un --port, --timezone ou
+        # --trusted-host tapé à la main arrive donc après celui-ci et
+        # l'emporte (argparse retient la dernière occurrence).
         composition = runtime.standard()
         n = runtime.LONGUEUR_BLOC_SERVE
         self.assertEqual(composition[:n],
-                         ("serve", "--port", "8765", "--timezone", "Europe/Paris"))
+                         ("serve", "--port", "8765", "--timezone", "Europe/Paris",
+                          "--trusted-host", ""))
         self.assertEqual(composition[n], "watch")
+
+    def test_hote_de_confiance_transite_par_standard(self):
+        runtime.ecrire_reglages(usb_minutes=10, cloud_minutes=1, port=8765, timestamp=True,
+                                timezone="Europe/Paris", merge_jour=True, merge_semaine=True,
+                                merge_mois=True, download_auto=True, live_protocol="webrtc",
+                                trusted_host="100.101.194.5")
+        composition = runtime.standard()
+        n = runtime.LONGUEUR_BLOC_SERVE
+        self.assertEqual(composition[:n],
+                         ("serve", "--port", "8765", "--timezone", "Europe/Paris",
+                          "--trusted-host", "100.101.194.5"))
 
     def test_un_port_explicite_dans_le_supplement_arrive_apres_le_defaut(self):
         composition = runtime.standard()

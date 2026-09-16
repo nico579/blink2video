@@ -260,11 +260,14 @@ nécessaire dans ce cas : seuls vos propres appareils sur ce réseau peuvent
 même atteindre l'adresse.
 
 Cela veut aussi dire que la réécriture ci-dessus est inutile sur un VPN
-maillé : lier blink2video directement à l'adresse du tunnel avec `BLINK_BIND`
-et nommer cette même adresse dans `BLINK_TRUSTED_HOST` (voir « Variables
-d'environnement » plus bas) suffit, sans proxy entre les deux. Ne réglez ces
-deux variables que sur cette adresse précise, jamais `0.0.0.0`, qui
-accepterait alors le même `Host` depuis le LAN aussi et annulerait l'intérêt.
+maillé : lier blink2video directement à l'adresse du tunnel avec `BLINK_BIND`,
+puis régler cette même adresse comme « Hôte de confiance » depuis les
+Réglages, ou la passer une fois avec `--trusted-host 100.x.y.z` (conservé
+ensuite comme n'importe quel réglage). blink2video accepte alors les
+requêtes qui lui sont adressées directement, sans proxy entre les deux. Ne
+faites confiance qu'à cette adresse précise, et gardez `BLINK_BIND` sur
+elle aussi, jamais `0.0.0.0`, qui accepterait alors le même `Host` depuis le
+LAN aussi et annulerait l'intérêt.
 
 </details>
 
@@ -397,12 +400,12 @@ récupérés reviendraient comme neufs.
   tablette ou tout autre appareil du LAN demande soit un reverse proxy devant,
   qui relaie vers `127.0.0.1` avec sa propre authentification et son en-tête
   `Host` réglé en conséquence, soit, sur un VPN maillé du type
-  Tailscale/WireGuard, une écoute directe sur l'adresse du tunnel avec
-  `BLINK_TRUSTED_HOST` (voir « Y accéder à distance » plus haut), le même
-  principe que l'opt-in du conteneur Docker. L'interface web n'a pas
-  d'identifiant à elle : le serveur intégré refuse donc toute requête qui ne
-  vient pas de la machine locale elle-même ni de cet hôte de confiance, et
-  régler seul `BLINK_BIND=0.0.0.0` ne l'expose pas au LAN.
+  Tailscale/WireGuard, une écoute directe sur l'adresse du tunnel déclarée
+  comme hôte de confiance depuis les Réglages (voir « Y accéder à distance »
+  plus haut), le même principe que l'opt-in du conteneur Docker. L'interface
+  web n'a pas d'identifiant à elle : le serveur intégré refuse donc toute
+  requête qui ne vient pas de la machine locale elle-même ni de cet hôte de
+  confiance, et régler seul `BLINK_BIND=0.0.0.0` ne l'expose pas au LAN.
 
 ## Voisins
 
@@ -552,7 +555,7 @@ de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
 |---|---|
 | `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
-| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. Utile pour l'utiliser à l'intérieur du conteneur Docker officiel, derrière une publication `127.0.0.1` et `BLINK_TRUSTED_LOOPBACK_PROXY=1` (voir la section Docker), ou pour l'écouter directement sur une adresse de VPN maillé (Tailscale, WireGuard) avec `BLINK_TRUSTED_HOST` réglé sur cette même adresse, la façon la plus simple d'y accéder à distance sans reverse proxy (voir « Y accéder à distance » plus haut). Le tableau de bord n'a aucune authentification : le serveur refuse donc toute requête qui ne vient pas de la machine locale elle-même ni de cet hôte de confiance, régler ceci seul à `0.0.0.0` n'expose pas l'interface au LAN |
+| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. Utile pour l'utiliser à l'intérieur du conteneur Docker officiel, derrière une publication `127.0.0.1` et `BLINK_TRUSTED_LOOPBACK_PROXY=1` (voir la section Docker), ou pour l'écouter directement sur une adresse de VPN maillé (Tailscale, WireGuard), la façon la plus simple d'y accéder à distance sans reverse proxy : associez-la à cette même adresse comme « Hôte de confiance » dans les Réglages, ou avec `--trusted-host` en ligne de commande (voir « Y accéder à distance » plus haut). Le tableau de bord n'a aucune authentification : le serveur refuse donc toute requête qui ne vient pas de la machine locale elle-même ni de cet hôte de confiance, régler ceci seul à `0.0.0.0` n'expose pas l'interface au LAN |
 
 </details>
 
