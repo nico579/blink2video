@@ -82,10 +82,26 @@ class DeclencherSnapshotTests(unittest.TestCase):
         self.assertEqual(chemin.read_bytes(), b"\xff\xd8\xff\xe0photo")
         self.assertEqual(chemin.parent.name, "Jardin")
         self.assertTrue(chemin.name.endswith(".jpg"))
-        vignette = self.thumbs / "cameras" / "Jardin.jpg"
+        cle = serve.camera_key(None, self.camera.name, self.camera)
+        vignette = self.thumbs / "cameras" / f"{serve.safe_file(cle)}.jpg"
         self.assertTrue(vignette.is_file(), "la vignette du Direct doit aussi être mise à jour")
         self.assertEqual(vignette.read_bytes(), b"\xff\xd8\xff\xe0photo")
         self.verifier_liberation()
+
+    def test_vignette_ecrite_sous_la_cle_stable_pas_l_identite_fournie(self):
+        # Le webhook (issue GitHub #9) reçoit le nom affiché de la caméra
+        # (gabarit "NOM_CAMERA" des réglages), jamais la clé opaque que la
+        # tuile du Direct utilise pour sa propre vignette (c.key côté JS) :
+        # écrire sous l'identité reçue plutôt que sous cette clé stable
+        # laisserait la tuile inchangée pour tout appel webhook (constaté en
+        # conditions réelles avec une vraie caméra, avant ce correctif).
+        self.handler.declencher_snapshot("Jardin")
+        cle = serve.camera_key(None, self.camera.name, self.camera)
+        self.assertNotEqual(cle, "Jardin", "la clé opaque doit différer du nom pour que ce test soit probant")
+        vignette_par_cle = self.thumbs / "cameras" / f"{serve.safe_file(cle)}.jpg"
+        vignette_par_nom = self.thumbs / "cameras" / "Jardin.jpg"
+        self.assertTrue(vignette_par_cle.is_file())
+        self.assertFalse(vignette_par_nom.is_file())
 
     def test_deux_photos_distinctes_produisent_deux_fichiers(self):
         # Deux vraies photos distinctes (jamais strictement les memes octets

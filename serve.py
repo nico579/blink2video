@@ -2280,8 +2280,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # jamais renouvelé sans clic sur Actualiser : une photo prise à la
         # demande a déjà l'image sous la main, autant lui éviter d'afficher
         # une vue plus vieille que ce qu'on vient tout juste de capturer
-        # (demandé sur l'issue GitHub #10).
-        self._ecrire_vignette_camera(identity, resultat["corps"])
+        # (demandé sur l'issue GitHub #10). resultat["camera"], pas
+        # `identity` : le webhook reçoit le nom affiché (voir le gabarit
+        # d'URL des réglages), mais la tuile du Direct lit sa vignette sous
+        # la clé stable (c.key côté JS) - les deux ne coïncident que par
+        # hasard pour le bouton manuel, qui envoie déjà cette clé. Un test
+        # en conditions réelles (webhook, caméra "Salon") a montré le
+        # mauvais fichier écrit avant ce correctif.
+        self._ecrire_vignette_camera(resultat["camera"], resultat["corps"])
         return cible
 
     def _ecrire_vignette_camera(self, identity: str, corps: bytes) -> None:

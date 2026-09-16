@@ -9,6 +9,7 @@ watch_config.json
 blink_reglages.json
 blink_home.txt
 blink_langue.txt
+blink_webhook_token.txt
 blink_suppression_auto.json
 .blink_raccourci_cree
 .blink_configuration_initiale_effectuee
@@ -33,6 +34,7 @@ Blink_Daily/
 Blink_Weekly/
 Blink_Monthly/
 Blink_Direct/
+Blink_Snapshots/
 .blink_thumbs/
 
 # Fiches des instances en cours, une par processus, effacees a leur mort.
