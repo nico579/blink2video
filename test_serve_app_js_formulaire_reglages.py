@@ -63,6 +63,8 @@ const ids = [
   'initialSetupHint', 'reglagesClose', 'stopButton', 'reglages', 'reglagesButton',
   'webhookUrl', 'webhookRegenerer', 'fontSize', 'fontColor', 'boxOpacity',
   'trustedHost', 'redemarrerButton',
+  'tabGeneral', 'tabVideo', 'tabAcces', 'tabAlertes',
+  'panelGeneral', 'panelVideo', 'panelAcces', 'panelAlertes',
 ];
 class Element {
   constructor(id) {
@@ -73,6 +75,17 @@ class Element {
     this.hidden = false;
     this.dataset = {};
     this.ecouteurs = {};
+    this._classes = new Set();
+    this.classList = {
+      add: (nom) => this._classes.add(nom),
+      remove: (nom) => this._classes.delete(nom),
+      contains: (nom) => this._classes.has(nom),
+      toggle: (nom, force) => {
+        const present = force === undefined ? !this._classes.has(nom) : !!force;
+        this.classList[present ? 'add' : 'remove'](nom);
+        return present;
+      },
+    };
   }
   set value(valeur) { this.valeur = String(valeur); }
   get value() { return this.valeur; }
@@ -141,6 +154,9 @@ function capturer() {
       apresActions.push({empeche});
     } else if (action.type === 'fermer') {
       $('reglagesClose').onclick();
+    } else if (action.type === 'clic') {
+      $(action.id).onclick();
+      apresActions.push(capturer());
     } else {
       throw new Error(`Action inconnue : ${action.type}`);
     }
@@ -185,6 +201,26 @@ function capturer() {
                     etat["champs"]["webhookUrl"]["value"],
                     "http://localhost:1234/webhook/snapshot?camera=NOM_CAMERA&token=jeton-test-abc123",
                 )
+
+    def test_ouverture_affiche_l_onglet_general_seul(self):
+        resultat = self._executer()
+        champs = resultat["captures"][0]["champs"]
+        self.assertFalse(champs["panelGeneral"]["hidden"])
+        for panneau in ("panelVideo", "panelAcces", "panelAlertes"):
+            self.assertTrue(champs[panneau]["hidden"])
+
+    def test_clic_sur_un_onglet_affiche_son_panneau_seul(self):
+        for onglet, panneau in (
+            ("tabVideo", "panelVideo"), ("tabAcces", "panelAcces"),
+            ("tabAlertes", "panelAlertes"), ("tabGeneral", "panelGeneral"),
+        ):
+            with self.subTest(onglet=onglet):
+                resultat = self._executer(actions=[{"type": "clic", "id": onglet}])
+                champs = resultat["apresActions"][0]["champs"]
+                self.assertFalse(champs[panneau]["hidden"])
+                autres = {"panelGeneral", "panelVideo", "panelAcces", "panelAlertes"} - {panneau}
+                for autre in autres:
+                    self.assertTrue(champs[autre]["hidden"])
 
     def test_taille_de_police_absente_affiche_un_champ_vide_pas_le_mot_null(self):
         resultat = self._executer([{"reglages": dict(REGLAGES, font_size=None)}])

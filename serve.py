@@ -4194,153 +4194,171 @@ __CSS__
     Vérifiez notamment le dossier des données et le fuseau horaire. Aucun clip
     ne sera téléchargé avant que vous ayez appliqué ces réglages.
   </p>
-  <label id="autostartLabel"
-         data-i18n-title="reglages.autostart.title"
-         title="Démarre le serveur web et le traitement des clips à l'ouverture
-                 de session, en arrière-plan — n'ouvre pas cette page toute seule">
-    <input type="checkbox" id="autostart"> <span data-i18n="reglages.autostart">Démarrage de la surveillance à
-    l'ouverture de session</span>
-  </label>
-  <label id="autoLabel" data-i18n-title="reglages.auto.title" title="Recharger la liste dès que des clips arrivent">
-    <input type="checkbox" id="auto"> <span data-i18n="reglages.auto">Actualisation automatique de la page</span>
-  </label>
-  <div class="champCadence">
-    <label for="port" data-i18n="reglages.serveur">Port du serveur</label>
-    <input type="number" id="port" min="1" max="65535" step="1">
+  <div class="tabsReglages" role="tablist">
+    <button type="button" id="tabGeneral" class="tabReglages"
+            data-i18n="reglages.tab.general">Général</button>
+    <button type="button" id="tabVideo" class="tabReglages"
+            data-i18n="reglages.tab.video">Vidéo</button>
+    <button type="button" id="tabAcces" class="tabReglages"
+            data-i18n="reglages.tab.acces">Accès et automatisation</button>
+    <button type="button" id="tabAlertes" class="tabReglages"
+            data-i18n="reglages.tab.alertes">Alertes</button>
   </div>
-  <div class="champDossier" data-i18n-title="reglages.storageDir.hint"
-       title="Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.">
-    <label for="storageDir" data-i18n="reglages.storageDir">Dossier des données</label>
-    <input type="text" id="storageDir" data-i18n-placeholder="reglages.storageDir.placeholder"
-           placeholder="C:/chemin/vers/le/dossier">
-    <button type="button" id="storageDirBrowse" data-i18n="reglages.storageDir.browse">Parcourir…</button>
+  <div id="panelGeneral" class="panelReglages">
+    <label id="autostartLabel"
+           data-i18n-title="reglages.autostart.title"
+           title="Démarre le serveur web et le traitement des clips à l'ouverture
+                   de session, en arrière-plan — n'ouvre pas cette page toute seule">
+      <input type="checkbox" id="autostart"> <span data-i18n="reglages.autostart">Démarrage de la surveillance à
+      l'ouverture de session</span>
+    </label>
+    <label id="autoLabel" data-i18n-title="reglages.auto.title" title="Recharger la liste dès que des clips arrivent">
+      <input type="checkbox" id="auto"> <span data-i18n="reglages.auto">Actualisation automatique de la page</span>
+    </label>
+    <div class="champCadence">
+      <label for="port" data-i18n="reglages.serveur">Port du serveur</label>
+      <input type="number" id="port" min="1" max="65535" step="1">
+    </div>
+    <div class="champDossier" data-i18n-title="reglages.storageDir.hint"
+         title="Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.">
+      <label for="storageDir" data-i18n="reglages.storageDir">Dossier des données</label>
+      <input type="text" id="storageDir" data-i18n-placeholder="reglages.storageDir.placeholder"
+             placeholder="C:/chemin/vers/le/dossier">
+      <button type="button" id="storageDirBrowse" data-i18n="reglages.storageDir.browse">Parcourir…</button>
+    </div>
   </div>
-  <fieldset>
-    <legend data-i18n="reglages.accesDistant" data-i18n-title="reglages.accesDistant.hint"
-            title="Pour joindre cette instance directement depuis un VPN maillé (Tailscale, WireGuard), sans reverse proxy devant.">Accès distant par VPN maillé</legend>
-    <p class="sub tiny" data-i18n="reglages.accesDistant.hint.text">
-      À utiliser avec la variable d'environnement BLINK_BIND réglée sur cette
-      même adresse (voir le README, section « Reaching it remotely ») : ce
-      réglage seul, sans elle, ne change rien à qui peut atteindre l'interface.
-    </p>
-    <div class="champCadence">
-      <label for="trustedHost" data-i18n="reglages.trustedHost">Hôte de confiance</label>
-      <input type="text" id="trustedHost" placeholder="100.x.y.z">
-    </div>
-  </fieldset>
-  <fieldset>
-    <legend data-i18n="reglages.cadence">Cadence de lecture des caméras</legend>
-    <label id="downloadAutoLabel" data-i18n-title="reglages.downloadAuto.hint"
-           title="Décochée, aucun clip n'est plus récupéré ni stocké : utile pour ne garder que le direct. Les cadences ci-dessous n'ont alors plus d'effet.">
-      <input type="checkbox" id="downloadAuto">
-      <span data-i18n="reglages.downloadAuto">Télécharger les clips automatiquement</span>
-    </label>
-    <div class="champCadenceDouble">
-      <label for="usbMinutes" data-i18n="reglages.usb">Stockage local (minutes)</label>
-      <input type="number" id="usbMinutes" min="1" step="1">
-      <label for="cloudMinutes" data-i18n="reglages.cloud">Cloud (minutes)</label>
-      <input type="number" id="cloudMinutes" min="1" step="1">
-    </div>
-  </fieldset>
-  <fieldset>
-    <legend data-i18n="reglages.video">Vidéo</legend>
-    <label id="timestampLabel">
-      <input type="checkbox" id="timestamp"> <span data-i18n="reglages.timestamp">Incruster la date et l'heure
-      dans l'image</span>
-    </label>
-    <p class="sub tiny" data-i18n="reglages.timestamp.style.hint">
-      Vide = taille automatique selon la hauteur de la vidéo. Couleur : nom
-      (white, yellow...) ou hexadécimal, éventuellement avec une transparence
-      (ex. white@0.8).
-    </p>
-    <div class="champCadenceDouble">
-      <label for="fontSize" data-i18n="reglages.fontSize">Taille de police</label>
-      <input type="number" id="fontSize" min="8" max="500" step="1" placeholder="auto">
-      <label for="boxOpacity" data-i18n="reglages.boxOpacity">Opacité du bandeau</label>
-      <input type="number" id="boxOpacity" min="0" max="1" step="0.05">
-    </div>
-    <div class="champCadence">
-      <label for="fontColor" data-i18n="reglages.fontColor">Couleur</label>
-      <input type="text" id="fontColor" list="couleursCourantes" placeholder="white">
-    </div>
-    <datalist id="couleursCourantes">
-      <option value="white">
-      <option value="yellow">
-      <option value="black">
-      <option value="red">
-      <option value="lime">
-      <option value="cyan">
-      <option value="orange">
-    </datalist>
-    <div class="champCadence">
-      <label for="timezone" data-i18n="reglages.timezone">Fuseau horaire</label>
-      <input type="text" id="timezone" list="fuseauxCourants" placeholder="Europe/Paris">
-    </div>
-    <datalist id="fuseauxCourants">
-      <option value="Europe/Paris">
-      <option value="Europe/London">
-      <option value="Europe/Brussels">
-      <option value="Europe/Madrid">
-      <option value="Europe/Berlin">
-      <option value="America/Montreal">
-      <option value="America/New_York">
-      <option value="America/Chicago">
-      <option value="America/Denver">
-      <option value="America/Los_Angeles">
-      <option value="Africa/Casablanca">
-      <option value="Africa/Abidjan">
-      <option value="Indian/Reunion">
-      <option value="Asia/Tokyo">
-      <option value="Australia/Sydney">
-      <option value="UTC">
-    </datalist>
-    <div class="champCadence">
-      <label for="liveProtocol" data-i18n="reglages.liveProtocol">Protocole du direct</label>
-      <select id="liveProtocol">
-        <option value="webrtc" data-i18n="reglages.liveProtocol.webrtc">WebRTC (rapide)</option>
-        <option value="mse" data-i18n="reglages.liveProtocol.mse">MSE (compatible)</option>
-      </select>
-    </div>
-  </fieldset>
-  <fieldset>
-    <legend data-i18n="reglages.archivage"
-            data-i18n-title="reglages.archivage.hint"
-            title="Hebdomadaire et mensuelle sont assemblées à partir de la quotidienne : décocher « Quotidienne » désactive aussi les deux autres.">Création des vidéos temporelles par caméra</legend>
-    <div class="ligneCoches">
-      <label id="mergeJourLabel">
-        <input type="checkbox" id="mergeJour"> <span data-i18n="reglages.mergeJour">Quotidienne</span>
+  <div id="panelVideo" class="panelReglages" hidden>
+    <fieldset>
+      <legend data-i18n="reglages.cadence">Cadence de lecture des caméras</legend>
+      <label id="downloadAutoLabel" data-i18n-title="reglages.downloadAuto.hint"
+             title="Décochée, aucun clip n'est plus récupéré ni stocké : utile pour ne garder que le direct. Les cadences ci-dessous n'ont alors plus d'effet.">
+        <input type="checkbox" id="downloadAuto">
+        <span data-i18n="reglages.downloadAuto">Télécharger les clips automatiquement</span>
       </label>
-      <label id="mergeSemaineLabel">
-        <input type="checkbox" id="mergeSemaine"> <span data-i18n="reglages.mergeSemaine">Hebdomadaire</span>
+      <div class="champCadenceDouble">
+        <label for="usbMinutes" data-i18n="reglages.usb">Stockage local (minutes)</label>
+        <input type="number" id="usbMinutes" min="1" step="1">
+        <label for="cloudMinutes" data-i18n="reglages.cloud">Cloud (minutes)</label>
+        <input type="number" id="cloudMinutes" min="1" step="1">
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend data-i18n="reglages.video">Vidéo</legend>
+      <label id="timestampLabel">
+        <input type="checkbox" id="timestamp"> <span data-i18n="reglages.timestamp">Incruster la date et l'heure
+        dans l'image</span>
       </label>
-      <label id="mergeMoisLabel">
-        <input type="checkbox" id="mergeMois"> <span data-i18n="reglages.mergeMois">Mensuelle</span>
-      </label>
-    </div>
-  </fieldset>
-  <fieldset>
-    <legend data-i18n="reglages.webhook" data-i18n-title="reglages.webhook.hint"
-            title="Déclenche une photo à distance (domotique, automatisation) sans ouvrir cette page.">Photo par webhook</legend>
-    <p class="sub tiny" data-i18n="reglages.webhook.hint.text">
-      Appelez cette URL en GET, en remplaçant NOM_CAMERA par le nom exact d'une
-      caméra, pour déclencher une photo à distance. Le secret fait partie de
-      l'URL : gardez-la privée.
-    </p>
-    <div class="champCadence">
-      <label for="webhookUrl" data-i18n="reglages.webhook.url">URL</label>
-      <input type="text" id="webhookUrl" readonly>
-    </div>
-    <button type="button" id="webhookRegenerer" data-i18n="reglages.webhook.regenerer">Régénérer le secret</button>
-  </fieldset>
-  <fieldset>
-    <legend data-i18n="reglages.alertes">Mise en sourdine des alertes</legend>
-    <div id="sourdineListe" class="ligneCoches sub tiny" data-i18n="sourdine.loading">Chargement…</div>
-  </fieldset>
-  <fieldset>
-    <legend data-i18n="reglages.suppressionAuto" data-i18n-title="suppressionAuto.hint"
-            title="Une fois un clip téléchargé avec succès, il est supprimé de sa source (stockage local USB/microSD ou cloud de l'abonnement selon la caméra).">Suppression automatique après téléchargement</legend>
-    <div id="suppressionAutoListe" class="ligneCoches sub tiny" data-i18n="suppressionAuto.loading">Chargement…</div>
-  </fieldset>
+      <p class="sub tiny" data-i18n="reglages.timestamp.style.hint">
+        Vide = taille automatique selon la hauteur de la vidéo. Couleur : nom
+        (white, yellow...) ou hexadécimal, éventuellement avec une transparence
+        (ex. white@0.8).
+      </p>
+      <div class="champCadenceDouble">
+        <label for="fontSize" data-i18n="reglages.fontSize">Taille de police</label>
+        <input type="number" id="fontSize" min="8" max="500" step="1" placeholder="auto">
+        <label for="boxOpacity" data-i18n="reglages.boxOpacity">Opacité du bandeau</label>
+        <input type="number" id="boxOpacity" min="0" max="1" step="0.05">
+      </div>
+      <div class="champCadence">
+        <label for="fontColor" data-i18n="reglages.fontColor">Couleur</label>
+        <input type="text" id="fontColor" list="couleursCourantes" placeholder="white">
+      </div>
+      <datalist id="couleursCourantes">
+        <option value="white">
+        <option value="yellow">
+        <option value="black">
+        <option value="red">
+        <option value="lime">
+        <option value="cyan">
+        <option value="orange">
+      </datalist>
+      <div class="champCadence">
+        <label for="timezone" data-i18n="reglages.timezone">Fuseau horaire</label>
+        <input type="text" id="timezone" list="fuseauxCourants" placeholder="Europe/Paris">
+      </div>
+      <datalist id="fuseauxCourants">
+        <option value="Europe/Paris">
+        <option value="Europe/London">
+        <option value="Europe/Brussels">
+        <option value="Europe/Madrid">
+        <option value="Europe/Berlin">
+        <option value="America/Montreal">
+        <option value="America/New_York">
+        <option value="America/Chicago">
+        <option value="America/Denver">
+        <option value="America/Los_Angeles">
+        <option value="Africa/Casablanca">
+        <option value="Africa/Abidjan">
+        <option value="Indian/Reunion">
+        <option value="Asia/Tokyo">
+        <option value="Australia/Sydney">
+        <option value="UTC">
+      </datalist>
+      <div class="champCadence">
+        <label for="liveProtocol" data-i18n="reglages.liveProtocol">Protocole du direct</label>
+        <select id="liveProtocol">
+          <option value="webrtc" data-i18n="reglages.liveProtocol.webrtc">WebRTC (rapide)</option>
+          <option value="mse" data-i18n="reglages.liveProtocol.mse">MSE (compatible)</option>
+        </select>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend data-i18n="reglages.archivage"
+              data-i18n-title="reglages.archivage.hint"
+              title="Hebdomadaire et mensuelle sont assemblées à partir de la quotidienne : décocher « Quotidienne » désactive aussi les deux autres.">Création des vidéos temporelles par caméra</legend>
+      <div class="ligneCoches">
+        <label id="mergeJourLabel">
+          <input type="checkbox" id="mergeJour"> <span data-i18n="reglages.mergeJour">Quotidienne</span>
+        </label>
+        <label id="mergeSemaineLabel">
+          <input type="checkbox" id="mergeSemaine"> <span data-i18n="reglages.mergeSemaine">Hebdomadaire</span>
+        </label>
+        <label id="mergeMoisLabel">
+          <input type="checkbox" id="mergeMois"> <span data-i18n="reglages.mergeMois">Mensuelle</span>
+        </label>
+      </div>
+    </fieldset>
+  </div>
+  <div id="panelAcces" class="panelReglages" hidden>
+    <fieldset>
+      <legend data-i18n="reglages.accesDistant" data-i18n-title="reglages.accesDistant.hint"
+              title="Pour joindre cette instance directement depuis un VPN maillé (Tailscale, WireGuard), sans reverse proxy devant.">Accès distant par VPN maillé</legend>
+      <p class="sub tiny" data-i18n="reglages.accesDistant.hint.text">
+        À utiliser avec la variable d'environnement BLINK_BIND réglée sur cette
+        même adresse (voir le README, section « Reaching it remotely ») : ce
+        réglage seul, sans elle, ne change rien à qui peut atteindre l'interface.
+      </p>
+      <div class="champCadence">
+        <label for="trustedHost" data-i18n="reglages.trustedHost">Hôte de confiance</label>
+        <input type="text" id="trustedHost" placeholder="100.x.y.z">
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend data-i18n="reglages.webhook" data-i18n-title="reglages.webhook.hint"
+              title="Déclenche une photo à distance (domotique, automatisation) sans ouvrir cette page.">Photo par webhook</legend>
+      <p class="sub tiny" data-i18n="reglages.webhook.hint.text">
+        Appelez cette URL en GET, en remplaçant NOM_CAMERA par le nom exact d'une
+        caméra, pour déclencher une photo à distance. Le secret fait partie de
+        l'URL : gardez-la privée.
+      </p>
+      <div class="champCadence">
+        <label for="webhookUrl" data-i18n="reglages.webhook.url">URL</label>
+        <input type="text" id="webhookUrl" readonly>
+      </div>
+      <button type="button" id="webhookRegenerer" data-i18n="reglages.webhook.regenerer">Régénérer le secret</button>
+    </fieldset>
+  </div>
+  <div id="panelAlertes" class="panelReglages" hidden>
+    <fieldset>
+      <legend data-i18n="reglages.alertes">Mise en sourdine des alertes</legend>
+      <div id="sourdineListe" class="ligneCoches sub tiny" data-i18n="sourdine.loading">Chargement…</div>
+    </fieldset>
+    <fieldset>
+      <legend data-i18n="reglages.suppressionAuto" data-i18n-title="suppressionAuto.hint"
+              title="Une fois un clip téléchargé avec succès, il est supprimé de sa source (stockage local USB/microSD ou cloud de l'abonnement selon la caméra).">Suppression automatique après téléchargement</legend>
+      <div id="suppressionAutoListe" class="ligneCoches sub tiny" data-i18n="suppressionAuto.loading">Chargement…</div>
+    </fieldset>
+  </div>
   <div class="row row-boutons">
     <button class="primary" id="reglagesApply" data-i18n="reglages.apply"
             data-i18n-title="reglages.hint"

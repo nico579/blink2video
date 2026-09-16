@@ -83,6 +83,8 @@ const I18N = {
     "auth.cancel": "Annuler", "auth.ok": "Se connecter", "auth.validate": "Valider",
     "auth.connecting": "Connexion en cours…", "auth.failed": "Échec de la connexion.",
     "reglages.title": "Réglages",
+    "reglages.tab.general": "Général", "reglages.tab.video": "Vidéo",
+    "reglages.tab.acces": "Accès et automatisation", "reglages.tab.alertes": "Alertes",
     "reglages.initial.hint": "Vérifiez notamment le dossier des données et le fuseau horaire. Aucun clip ne sera téléchargé avant que vous ayez appliqué ces réglages.",
     "reglages.autostart": "Démarrage de la surveillance à l'ouverture de session",
     "reglages.autostart.title": "Démarre le serveur web et le traitement des clips à l'ouverture de session, en arrière-plan — n'ouvre pas cette page toute seule",
@@ -239,6 +241,8 @@ const I18N = {
     "auth.cancel": "Cancel", "auth.ok": "Log in", "auth.validate": "Confirm",
     "auth.connecting": "Signing in…", "auth.failed": "Login failed.",
     "reglages.title": "Settings",
+    "reglages.tab.general": "General", "reglages.tab.video": "Video",
+    "reglages.tab.acces": "Access & automation", "reglages.tab.alertes": "Alerts",
     "reglages.initial.hint": "Check the data folder and time zone in particular. No clip will be downloaded until you apply these settings.",
     "reglages.autostart": "Start monitoring at login",
     "reglages.autostart.title": "Starts the web server and clip processing at login, in the background — does not open this page by itself",
@@ -2573,11 +2577,32 @@ $("webhookRegenerer").onclick = async () => {
   afficherUrlWebhook(resultat.token);
 };
 
+// Un onglet par groupe plutôt qu'une longue page à défiler : la liste des
+// noms sert à la fois à peupler tabXxx/panelXxx (voir le gabarit HTML) et à
+// éviter de répéter les quatre mêmes lignes pour bascule/ouverture.
+const ONGLETS_REGLAGES = ["General", "Video", "Acces", "Alertes"];
+
+function basculerOngletReglages(actif) {
+  for (const nom of ONGLETS_REGLAGES) {
+    const estActif = nom === actif;
+    $(`tab${nom}`).classList.toggle("active", estActif);
+    $(`panel${nom}`).hidden = !estActif;
+  }
+}
+
+for (const nom of ONGLETS_REGLAGES) {
+  $(`tab${nom}`).onclick = () => basculerOngletReglages(nom);
+}
+
 function configurerDialogueReglages(configurationInitiale) {
   $("initialSetupHint").hidden = !configurationInitiale;
   $("reglagesClose").hidden = configurationInitiale;
   $("stopButton").hidden = configurationInitiale;
   $("reglages").dataset.initialSetup = configurationInitiale ? "1" : "0";
+  // Toujours le premier onglet à l'ouverture : plus simple à retrouver qu'un
+  // dernier onglet mémorisé, pour un dialogue qui ne reste jamais affiché
+  // longtemps entre deux ouvertures.
+  basculerOngletReglages("General");
 }
 
 async function ouvrirReglages(configurationInitiale = false) {

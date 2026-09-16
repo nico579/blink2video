@@ -141,6 +141,14 @@
     flex:none; margin:3px 0 0; width:16px; height:16px;
   }
   #outLabel { margin-bottom:20px; }
+  /* Même segmented control que .langGroup/.btn-lang (en-tête), pour la même
+     idée : un groupe de choix exclusifs, pas un jeu de boutons ordinaires. */
+  .tabsReglages { display:flex; border:1px solid var(--line); border-radius:7px;
+                  overflow:hidden; margin-bottom:18px; }
+  .tabReglages { background:var(--card); color:var(--dim); border:none; border-radius:0;
+                 flex:1 1 auto; font:inherit; font-weight:600; font-size:13px;
+                 padding:8px 6px; }
+  .tabReglages.active { background:#3a5a86; color:#fff; }
   #reglages fieldset { border:1px solid var(--line); border-radius:10px;
                         padding:14px 16px 16px; margin:0 0 16px; }
   #reglages legend { padding:0 6px; font-size:13px; color:var(--dim); cursor:default; }
