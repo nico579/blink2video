@@ -234,8 +234,9 @@ The page, at `127.0.0.1:8765`, has six views:
   button, a "Wake" button that forces the camera to check in right now for
   fresher battery/temperature/thumbnail readings instead of waiting for its
   next scheduled one, and a "Snapshot" button that does the same but keeps
-  the resulting picture under Pictures instead of discarding it (both use a
-  bit of battery, can take up to two minutes on a sleeping camera).
+  the resulting picture under Pictures instead of discarding it, also
+  refreshing the tile's own thumbnail with it right away (both use a bit
+  of battery, can take up to two minutes on a sleeping camera).
 - **Clips**: newest first, with a preview and an "Écarter" button that removes a
   clip from every assembled video.
 - **Daily, Weekly, Monthly**: the assembled videos.

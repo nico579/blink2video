@@ -252,8 +252,9 @@ La page, sur `127.0.0.1:8765`, a six vues :
   manifester tout de suite pour des relevés (batterie, température,
   vignette) plus frais plutôt que d'attendre son prochain passage prévu, et
   un bouton « Photo » qui fait la même chose mais conserve la photo obtenue
-  dans Photos au lieu de la jeter (les deux consomment un peu de batterie,
-  jusqu'à deux minutes sur une caméra endormie).
+  dans Photos au lieu de la jeter, et rafraîchit du même coup la vignette
+  de la tuile (les deux consomment un peu de batterie, jusqu'à deux minutes
+  sur une caméra endormie).
 - **Clips** : du plus récent au plus ancien, avec un aperçu et un bouton
   « Écarter » qui retire un clip de toutes les vidéos assemblées.
 - **Journalières, Hebdomadaires, Mensuelles** : les vidéos assemblées.

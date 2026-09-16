@@ -27,8 +27,10 @@ class DeclencherSnapshotTests(unittest.TestCase):
     def setUp(self):
         self.handler = serve.Handler.__new__(serve.Handler)
         self.snapshots = Path(tempfile.mkdtemp(prefix="blink-snapshots-"))
+        self.thumbs = Path(tempfile.mkdtemp(prefix="blink-thumbs-"))
         self.addCleanup(lambda: __import__("shutil").rmtree(self.snapshots, ignore_errors=True))
-        self.handler.paths = {"snapshots": self.snapshots}
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.thumbs, ignore_errors=True))
+        self.handler.paths = {"snapshots": self.snapshots, "thumbs": self.thumbs}
         self.slot = threading.BoundedSemaphore(1)
         self.info = {}
         self.blink = object()
@@ -80,6 +82,9 @@ class DeclencherSnapshotTests(unittest.TestCase):
         self.assertEqual(chemin.read_bytes(), b"\xff\xd8\xff\xe0photo")
         self.assertEqual(chemin.parent.name, "Jardin")
         self.assertTrue(chemin.name.endswith(".jpg"))
+        vignette = self.thumbs / "cameras" / "Jardin.jpg"
+        self.assertTrue(vignette.is_file(), "la vignette du Direct doit aussi être mise à jour")
+        self.assertEqual(vignette.read_bytes(), b"\xff\xd8\xff\xe0photo")
         self.verifier_liberation()
 
     def test_deux_photos_distinctes_produisent_deux_fichiers(self):
@@ -141,6 +146,8 @@ class DeclencherSnapshotTests(unittest.TestCase):
                 self.verifier_liberation()
         self.assertFalse(any(self.snapshots.rglob("*.jpg")),
                          "aucun fichier ne doit exister sans image recuperee")
+        self.assertFalse(any(self.thumbs.rglob("*.jpg")),
+                         "la vignette du Direct ne doit pas non plus changer sans image")
 
     def test_exception_reseau_rend_les_deux_verrous(self):
         self.camera.snap_picture.side_effect = OSError("reseau coupe")

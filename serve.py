@@ -2276,7 +2276,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         empreinte = hashlib.sha256(resultat["corps"]).hexdigest()[:8]
         cible = dossier / f"{horodatage}_{empreinte}.jpg"
         cible.write_bytes(resultat["corps"])
+        # La vignette du Direct (send_camera_thumb) vient d'un cache distinct,
+        # jamais renouvelé sans clic sur Actualiser : une photo prise à la
+        # demande a déjà l'image sous la main, autant lui éviter d'afficher
+        # une vue plus vieille que ce qu'on vient tout juste de capturer
+        # (demandé sur l'issue GitHub #10).
+        self._ecrire_vignette_camera(identity, resultat["corps"])
         return cible
+
+    def _ecrire_vignette_camera(self, identity: str, corps: bytes) -> None:
+        """Même remplacement atomique que send_camera_thumb, réutilisable
+        pour republier une image déjà en main sans repasser par Blink."""
+        cache = self.paths["thumbs"] / "cameras" / f"{safe_file(identity)}.jpg"
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        attente = cache.with_suffix(".tmp.jpg")
+        attente.write_bytes(corps)
+        attente.replace(cache)
 
     def lister_snapshots(self) -> list:
         """Plus récent d'abord ; pas de registre séparé, le nom de fichier
@@ -2357,10 +2372,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             if body:
-                cached.parent.mkdir(parents=True, exist_ok=True)
-                pending = cached.with_suffix(".tmp.jpg")
-                pending.write_bytes(body)
-                pending.replace(cached)
+                self._ecrire_vignette_camera(identity, body)
 
         body = cached.read_bytes()
         self.send_response(200)
