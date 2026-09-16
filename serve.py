@@ -1737,24 +1737,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
         de vérifier d'où vient la requête. Un client HTTP quelconque (tests,
         `curl` local) n'envoie pas Origin : seul Host, toujours présent,
         est alors regardé."""
+        # BLINK_TRUSTED_HOST : usage prévu, un tunnel privé (Tailscale,
+        # WireGuard) auquel BLINK_BIND lie directement cette instance, sans
+        # reverse proxy devant pour réécrire Host - l'alternative la plus
+        # simple à ce montage restait jusqu'ici de toujours en installer un
+        # (voir le README, "Reaching it remotely"). Contrairement à
+        # BLINK_TRUSTED_LOOPBACK_PROXY (qui ne relâche que la provenance de
+        # la connexion ; Host doit rester 127.0.0.1), celui-ci relâche aussi
+        # Host lui-même : la garantie ne vient alors plus de la boucle
+        # locale, mais du réseau du tunnel - seuls ses appareils peuvent
+        # router un paquet vers cette adresse, chiffré au niveau protocole,
+        # avant même que cette fonction ne s'exécute. La page reste sans la
+        # moindre authentification propre, mais n'est jamais joignable par
+        # personne d'autre, exactement comme depuis la boucle locale. N'a de
+        # sens qu'avec BLINK_BIND réglé sur cette même adresse précise,
+        # jamais 0.0.0.0 (qui accepterait alors n'importe quelle interface,
+        # LAN compris, sous ce même Host).
+        hote_confiance = os.environ.get("BLINK_TRUSTED_HOST", "").strip()
+        hotes_valides = self._HOTES_LOCAUX + ((hote_confiance,) if hote_confiance else ())
         hote = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
-        if hote not in self._HOTES_LOCAUX:
+        if hote not in hotes_valides:
             return False
         # Host est fourni par le client et se forge avec curl : il ne constitue
-        # pas une frontière réseau. Hors conteneur, seule une vraie adresse
-        # cliente de boucle locale est admise. Le compose officiel passe par le
-        # pont Docker ; son opt-in explicite reste sûr tant que le port hôte est
-        # publié sur 127.0.0.1, comme dans docker-compose.yml.
+        # pas une frontière réseau à lui seul. Hors conteneur ou tunnel de
+        # confiance, seule une vraie adresse cliente de boucle locale est
+        # admise. Le compose officiel passe par le pont Docker ; son opt-in
+        # explicite reste sûr tant que le port hôte est publié sur 127.0.0.1,
+        # comme dans docker-compose.yml.
         client = str(getattr(self, "client_address", ("127.0.0.1", 0))[0])
         try:
             boucle_locale = ipaddress.ip_address(client).is_loopback
         except ValueError:
             boucle_locale = False
         proxy_local = os.environ.get("BLINK_TRUSTED_LOOPBACK_PROXY") == "1"
-        if not boucle_locale and not proxy_local:
+        tunnel_direct = bool(hote_confiance) and hote == hote_confiance
+        if not boucle_locale and not proxy_local and not tunnel_direct:
             return False
         origine = self.headers.get("Origin")
-        if origine and urlparse(origine).hostname not in self._HOTES_LOCAUX:
+        if origine and urlparse(origine).hostname not in hotes_valides:
             return False
         return True
 

@@ -241,6 +241,31 @@ Mettez votre propre authentification (mot de passe HTTP basique, certificat
 client, liste d'accès) devant l'un ou l'autre : c'est le proxy qui est
 joignable depuis le réseau, blink2video lui-même n'en a toujours aucune.
 
+Avec un VPN maillé (Tailscale, WireGuard) plutôt qu'un nom de domaine public,
+la même réécriture s'applique toujours : la vérification ne regarde que
+l'en-tête `Host`, jamais la façon dont la connexion est arrivée.
+
+```
+http://100.x.y.z:9765 {
+  reverse_proxy 127.0.0.1:8765 {
+    header_up Host 127.0.0.1
+  }
+}
+```
+
+(`100.x.y.z` est l'adresse Tailscale de cette machine, donnée par
+`tailscale ip` ; le `http://` explicite évite que Caddy ne provisionne un
+certificat que personne n'a demandé.) Aucune authentification séparée n'est
+nécessaire dans ce cas : seuls vos propres appareils sur ce réseau peuvent
+même atteindre l'adresse.
+
+Cela veut aussi dire que la réécriture ci-dessus est inutile sur un VPN
+maillé : lier blink2video directement à l'adresse du tunnel avec `BLINK_BIND`
+et nommer cette même adresse dans `BLINK_TRUSTED_HOST` (voir « Variables
+d'environnement » plus bas) suffit, sans proxy entre les deux. Ne réglez ces
+deux variables que sur cette adresse précise, jamais `0.0.0.0`, qui
+accepterait alors le même `Host` depuis le LAN aussi et annulerait l'intérêt.
+
 </details>
 
 ## L'interface
@@ -369,14 +394,15 @@ récupérés reviendraient comme neufs.
   vidéo ont besoin d'un processus en arrière-plan et de ffmpeg, que ni l'un ni
   l'autre système mobile n'autorise à tourner en tâche de fond. L'interface web
   elle-même n'est qu'une page, en revanche : y accéder depuis un téléphone, une
-  tablette ou tout autre appareil du LAN demande un reverse proxy (ou un tunnel
-  du type Tailscale/WireGuard) sur la même machine, qui relaie vers
-  `127.0.0.1` avec sa propre authentification devant et son en-tête `Host`
-  réglé en conséquence (voir « Y accéder à distance » plus haut), le même
-  principe que le conteneur Docker. L'interface web n'a pas d'identifiant à
-  elle : le serveur intégré refuse donc toute requête qui ne vient pas de la
-  machine locale elle-même, et régler seul `BLINK_BIND=0.0.0.0` ne l'expose
-  pas au LAN.
+  tablette ou tout autre appareil du LAN demande soit un reverse proxy devant,
+  qui relaie vers `127.0.0.1` avec sa propre authentification et son en-tête
+  `Host` réglé en conséquence, soit, sur un VPN maillé du type
+  Tailscale/WireGuard, une écoute directe sur l'adresse du tunnel avec
+  `BLINK_TRUSTED_HOST` (voir « Y accéder à distance » plus haut), le même
+  principe que l'opt-in du conteneur Docker. L'interface web n'a pas
+  d'identifiant à elle : le serveur intégré refuse donc toute requête qui ne
+  vient pas de la machine locale elle-même ni de cet hôte de confiance, et
+  régler seul `BLINK_BIND=0.0.0.0` ne l'expose pas au LAN.
 
 ## Voisins
 
@@ -526,7 +552,7 @@ de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
 |---|---|
 | `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
-| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. Utile uniquement pour l'utiliser à l'intérieur du conteneur Docker officiel, derrière une publication `127.0.0.1` et `BLINK_TRUSTED_LOOPBACK_PROXY=1` (voir la section Docker). Le tableau de bord n'a aucune authentification : le serveur refuse donc toute requête qui ne vient pas de la machine locale elle-même, régler ceci seul à `0.0.0.0` n'expose pas l'interface au LAN, il faut un reverse proxy ou un tunnel avec sa propre authentification devant pour ça |
+| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. Utile pour l'utiliser à l'intérieur du conteneur Docker officiel, derrière une publication `127.0.0.1` et `BLINK_TRUSTED_LOOPBACK_PROXY=1` (voir la section Docker), ou pour l'écouter directement sur une adresse de VPN maillé (Tailscale, WireGuard) avec `BLINK_TRUSTED_HOST` réglé sur cette même adresse, la façon la plus simple d'y accéder à distance sans reverse proxy (voir « Y accéder à distance » plus haut). Le tableau de bord n'a aucune authentification : le serveur refuse donc toute requête qui ne vient pas de la machine locale elle-même ni de cet hôte de confiance, régler ceci seul à `0.0.0.0` n'expose pas l'interface au LAN |
 
 </details>
 

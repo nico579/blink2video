@@ -224,6 +224,30 @@ Put your own authentication (basic auth, a client certificate, an access
 list) in front of either, the proxy is what's reachable from the network,
 blink2video itself still has none.
 
+With a mesh VPN (Tailscale, WireGuard) instead of a public domain, the same
+rewrite still applies, the check only ever looks at the `Host` header, never
+at how the connection got there:
+
+```
+http://100.x.y.z:9765 {
+  reverse_proxy 127.0.0.1:8765 {
+    header_up Host 127.0.0.1
+  }
+}
+```
+
+(`100.x.y.z` is this machine's Tailscale address, from `tailscale ip`; the
+explicit `http://` keeps Caddy from provisioning a certificate nobody asked
+for.) No separate authentication needed in this case: only your own devices
+on that network can reach the address at all.
+
+That also means the rewrite above isn't needed at all on a mesh VPN: bind
+blink2video directly to the tunnel address with `BLINK_BIND` and name that
+same address in `BLINK_TRUSTED_HOST` (see "Environment variables" below),
+and it accepts requests addressed there directly, no proxy in between. Only
+ever set both to that one specific address, never `0.0.0.0`, which would
+accept the same `Host` from the LAN too and defeat the point.
+
 </details>
 
 ## The interface
@@ -340,13 +364,15 @@ downloaded would come back as new.
 - No iOS or Android build: continuous downloading and video assembly need a
   background process and ffmpeg, which neither mobile OS allows to run in the
   background. The web interface itself is just a page though: reaching it from
-  a phone, tablet, or any other device on the LAN needs a reverse proxy (or a
-  tunnel such as Tailscale/WireGuard) on the same machine, forwarding to
-  `127.0.0.1` with its own authentication in front and its `Host` header set
-  accordingly (see "Reaching it remotely" above), the same pattern as the
-  Docker container. The web UI has no login of its own, so the built-in
-  server refuses any request that doesn't come from the local machine itself;
-  setting `BLINK_BIND=0.0.0.0` alone does not expose it to the LAN.
+  a phone, tablet, or any other device on the LAN needs either a reverse proxy
+  in front, forwarding to `127.0.0.1` with its own authentication and its
+  `Host` header set accordingly, or, on a mesh VPN such as Tailscale/WireGuard,
+  binding directly to that tunnel address with `BLINK_TRUSTED_HOST` instead
+  (see "Reaching it remotely" above), the same pattern as the Docker
+  container's own opt-in. The web UI has no login of its own, so the built-in
+  server refuses any request that doesn't come from the local machine itself
+  or from that one trusted host; setting `BLINK_BIND=0.0.0.0` alone does not
+  expose it to the LAN.
 
 ## Neighbours
 
@@ -496,7 +522,7 @@ nobody is listening. `--port` if you moved it.
 |---|---|
 | `BLINK_HOME` | data folder, defaulting to the executable's own |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` or `none`: how the Python environment is handled |
-| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. Only needed to bind it inside the official Docker container, behind a `127.0.0.1` port publication and `BLINK_TRUSTED_LOOPBACK_PROXY=1` (see the Docker section). There is no authentication on the web UI, so the server refuses any request that doesn't come from the local machine itself: setting this to `0.0.0.0` alone does not expose the UI to the LAN, a reverse proxy or tunnel with its own authentication is needed in front for that |
+| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. Needed to bind it inside the official Docker container, behind a `127.0.0.1` port publication and `BLINK_TRUSTED_LOOPBACK_PROXY=1` (see the Docker section), or to bind it directly on a mesh VPN address (Tailscale, WireGuard) together with `BLINK_TRUSTED_HOST` set to that same address, the simplest way to reach it remotely without a reverse proxy (see "Reaching it remotely" above). There is no authentication on the web UI, so the server refuses any request that doesn't come from the local machine itself or from that one trusted host: setting this to `0.0.0.0` alone does not expose the UI to the LAN |
 
 </details>
 
