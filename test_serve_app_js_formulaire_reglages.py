@@ -62,7 +62,7 @@ const ids = [
   'liveProtocol', 'mergeJour', 'mergeSemaine', 'mergeMois', 'downloadAuto',
   'initialSetupHint', 'reglagesClose', 'stopButton', 'reglages', 'reglagesButton',
   'webhookUrl', 'webhookRegenerer', 'fontSize', 'fontColor', 'boxOpacity',
-  'trustedHost',
+  'trustedHost', 'redemarrerButton',
 ];
 class Element {
   constructor(id) {

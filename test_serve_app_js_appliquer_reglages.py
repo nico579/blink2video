@@ -59,6 +59,7 @@ for (const [id, checked] of Object.entries({
 for (const [id, value] of Object.entries(params.valeurs || {})) elements[id].value = value;
 for (const [id, checked] of Object.entries(params.coches || {})) elements[id].checked = checked;
 elements.reglagesApply = {disabled: false, textContent: 'reglages.apply'};
+elements.redemarrerButton = {disabled: false, textContent: 'reglages.restart'};
 elements.reglages = {close: () => { fermetures += 1; }};
 elements.phase = {textContent: 'prêt'};
 elements.bar = {
@@ -90,7 +91,7 @@ const attentePost = new Promise((resolve) => { libererPost = resolve; });
 const statuts = [...(params.statuts || [])];
 globalThis.fetch = async (url, options) => {
   requetes.push({url, options: options || null});
-  if (url === '/api/reglages') {
+  if (url === '/api/reglages' || url === '/api/redemarrer') {
     await attentePost;
     if (params.post === 'reseau') throw new TypeError('Connexion interrompue');
     return {json: async () => {
@@ -108,7 +109,8 @@ globalThis.fetch = async (url, options) => {
 };
 function instantane() {
   return {
-    bouton: {...elements.reglagesApply}, fermetures, rechargements,
+    bouton: {...elements.reglagesApply},
+    boutonRedemarrer: {...elements.redemarrerButton}, fermetures, rechargements,
     phase: elements.phase.textContent,
     barre: {value: elements.bar.value, indetermine: elements.bar.indetermine},
     travail: classes.has('on'), refreshBloque: elements.refresh.disabled,
@@ -119,7 +121,7 @@ function instantane() {
 }
 """ + self.source + r"""
 (async () => {
-  const application = $('reglagesApply').onclick();
+  const application = $(params.bouton || 'reglagesApply').onclick();
   const pendantPost = instantane();
   libererPost();
   await application;
@@ -249,6 +251,32 @@ function instantane() {
         resultat = self._executer(valeurs={"trustedHost": "   "})
         payload = json.loads(resultat["requetes"][0]["options"]["body"])
         self.assertEqual(payload["trusted_host"], "")
+
+    def test_bouton_redemarrer_poste_sans_reglages_et_attend_larret(self):
+        resultat = self._executer(bouton="redemarrerButton")
+        post, = resultat["requetes"]
+        self.assertEqual(post["url"], "/api/redemarrer")
+        self.assertEqual(post["options"]["method"], "POST")
+        self.assertEqual(post["options"]["body"], "{}")
+        self.assertEqual(resultat["pendantPost"]["boutonRedemarrer"], {
+            "disabled": True, "textContent": "reglages.restarting",
+        })
+        self._verifier_attente(resultat["apresPost"], 2000, 45000)
+        self.assertEqual(resultat["apresPost"]["boutonRedemarrer"], {
+            "disabled": False, "textContent": "reglages.restart",
+        })
+        self.assertEqual(resultat["alertes"], [])
+
+    def test_bouton_redemarrer_refuse_garde_le_formulaire_ouvert(self):
+        resultat = self._executer(
+            bouton="redemarrerButton", reponse={"error": "Redémarrage refusé"})
+        self.assertEqual(resultat["alertes"], ["Redémarrage refusé"])
+        self.assertEqual(resultat["delais"], [])
+        self.assertEqual(resultat["apresPost"]["fermetures"], 0)
+        self.assertEqual(resultat["apresPost"]["boutonRedemarrer"], {
+            "disabled": False, "textContent": "reglages.restart",
+        })
+        self.assertFalse(resultat["apresPost"]["travail"])
 
     def test_refus_json_garde_le_formulaire_ouvert_sans_sondage(self):
         resultat = self._executer(reponse={"error": "Réglage refusé", "initial_setup": True})

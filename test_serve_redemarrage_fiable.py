@@ -45,6 +45,21 @@ class TestsRelaisRedemarrage(unittest.TestCase):
         self.assertEqual(self.reponses[0][0], 500)
         self.assertIn("error", self.reponses[0][1])
 
+    def test_api_redemarrer_relaie_un_restart_simple_sans_toucher_aux_reglages(self):
+        # Bouton dédié (pas Appliquer) : un restart tout court, sans passer
+        # par _preparer_reglages_web ni ecrire_dossier_stockage.
+        handler = object.__new__(serve.Handler)
+        handler.path = "/api/redemarrer"
+        handler.headers = {"Content-Length": "2"}
+        handler.rfile = io.BytesIO(b"{}")
+        handler.hote_autorise = lambda: True
+        handler.jeton_valide = lambda: True
+        handler.repondre_puis_redemarrer = mock.Mock()
+        with mock.patch.object(serve.runtime, "ecrire_dossier_stockage") as stockage:
+            handler.do_POST()
+        handler.repondre_puis_redemarrer.assert_called_once_with(["restart"])
+        stockage.assert_not_called()
+
 
 class TestsModeConfigurationInitiale(unittest.TestCase):
     def test_actualisation_manuelle_ne_peut_pas_telecharger_avant_validation(self):

@@ -4095,6 +4095,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.repondre_puis_redemarrer(["restart", "--sans-relance"])
             return
 
+        if route == "/api/redemarrer":
+            # Même appel que la fin de _post_reglages(), sans passer par la
+            # validation ni l'enregistrement : un redémarrage tout court,
+            # pour reprendre un code fraîchement modifié ou sortir d'un état
+            # bloqué, sans avoir à retoucher un réglage pour l'obtenir.
+            self.repondre_puis_redemarrer(["restart"])
+            return
+
         if route == "/api/lang":
             runtime.ecrire_langue(str(payload.get("lang", "")))
             self.send_json({"ok": True})
@@ -4337,6 +4345,9 @@ __CSS__
     <button class="primary" id="reglagesApply" data-i18n="reglages.apply"
             data-i18n-title="reglages.hint"
             title="Les réglages ne prennent effet qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le port redirige cette page vers la nouvelle adresse.">Appliquer</button>
+    <button id="redemarrerButton" data-i18n="reglages.restart"
+            data-i18n-title="reglages.restart.hint"
+            title="Redémarre sans rien changer aux réglages, par exemple pour reprendre une mise à jour déjà en place.">Redémarrer</button>
     <button id="stopButton" data-i18n="reglages.stop">Arrêter la surveillance des caméras</button>
     <button id="reglagesClose" data-i18n="reglages.close">Fermer</button>
   </div>

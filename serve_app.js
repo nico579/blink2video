@@ -125,6 +125,8 @@ const I18N = {
     "reglages.webhook.regenerer.confirm": "Régénérer invalidera l'URL actuelle : toute automatisation existante devra être mise à jour avec la nouvelle. Continuer ?",
     "reglages.hint": "Les réglages ne prennent effet qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le port redirige cette page vers la nouvelle adresse.",
     "reglages.apply": "Appliquer", "reglages.restarting": "Redémarrage…",
+    "reglages.restart": "Redémarrer",
+    "reglages.restart.hint": "Redémarre sans rien changer aux réglages, par exemple pour reprendre une mise à jour déjà en place.",
     "reglages.restarting.settings": "Redémarrage avec les nouveaux réglages…",
     "reglages.portchange": "Port changé : redirection vers {url} dès l'arrêt confirmé…",
     "reglages.stop": "Arrêter la surveillance des caméras", "reglages.close": "Fermer",
@@ -279,6 +281,8 @@ const I18N = {
     "reglages.webhook.regenerer.confirm": "Regenerating will invalidate the current URL: any existing automation will need the new one. Continue?",
     "reglages.hint": "Settings only take effect on restart: \u201cApply\u201d saves and restarts. Changing the port redirects this page to the new address.",
     "reglages.apply": "Apply", "reglages.restarting": "Restarting…",
+    "reglages.restart": "Restart",
+    "reglages.restart.hint": "Restarts without changing any setting, for example to pick up an update already in place.",
     "reglages.restarting.settings": "Restarting with the new settings…",
     "reglages.portchange": "Port changed: redirecting to {url} once the shutdown is confirmed…",
     "reglages.stop": "Stop camera monitoring", "reglages.close": "Close",
@@ -2883,6 +2887,29 @@ function attendreRedemarrageReglages() {
     }
   }, 45000);
 }
+
+$("redemarrerButton").onclick = async () => {
+  const bouton = $("redemarrerButton");
+  bouton.disabled = true;
+  bouton.textContent = t("reglages.restarting");
+  try {
+    const reponse = await fetch("/api/redemarrer", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: "{}" });
+    const resultat = await lireJSON(reponse);
+    if (resultat.error) {
+      alert(resultat.error);
+      return;
+    }
+  } catch (erreur) {
+    // Comme pour Appliquer : le redémarrage peut couper la réponse avant
+    // qu'elle n'arrive, le sondage ci-dessous prend le relais.
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = t("reglages.restart");
+  }
+  $("reglages").close();
+  attendreRedemarrageReglages();
+};
 
 $("stopButton").onclick = async () => {
   const bouton = $("stopButton");
