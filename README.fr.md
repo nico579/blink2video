@@ -218,12 +218,20 @@ port d'un routeur) ne peut pas faire cette réécriture : il ne voit jamais les
 en-têtes HTTP, donc aucune configuration ne le fera atteindre ce serveur ; il
 faut toujours un reverse proxy qui comprend le HTTP.
 
+Le navigateur envoie aussi un en-tête `Origin` dès qu'il fait plus que
+charger la page (enregistrer un réglage, arrêter la surveillance, mettre une
+alerte en sourdine...), et le serveur le vérifie de la même façon. Un proxy
+qui ne réécrit que `Host` laisse `Origin` à l'adresse réellement utilisée par
+le navigateur : la page elle-même s'affiche très bien, mais chacune de ces
+actions se fait quand même refuser. Les deux en-têtes doivent être réécrits.
+
 Caddy :
 
 ```
 mondomaine.exemple {
   reverse_proxy 127.0.0.1:8765 {
     header_up Host 127.0.0.1
+    header_up -Origin
   }
 }
 ```
@@ -234,6 +242,7 @@ nginx :
 location / {
     proxy_pass http://127.0.0.1:8765;
     proxy_set_header Host 127.0.0.1;
+    proxy_set_header Origin "";
 }
 ```
 
@@ -249,6 +258,7 @@ l'en-tête `Host`, jamais la façon dont la connexion est arrivée.
 http://100.x.y.z:9765 {
   reverse_proxy 127.0.0.1:8765 {
     header_up Host 127.0.0.1
+    header_up -Origin
   }
 }
 ```

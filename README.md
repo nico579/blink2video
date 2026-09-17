@@ -201,12 +201,20 @@ forwarding) can't do that rewriting at all, it never gets to see HTTP
 headers, so it cannot reach this server no matter how it's configured; the
 fix always needs an HTTP-aware reverse proxy.
 
+The browser also sends an `Origin` header on anything beyond a plain page
+load (saving a setting, stopping the monitoring, muting an alert...), and
+the server checks that one too, the same way. A proxy that only rewrites
+`Host` leaves `Origin` at the address the browser actually used, so the page
+itself loads fine but every one of those actions still gets refused. Both
+headers need rewriting.
+
 Caddy:
 
 ```
 your.domain.example {
   reverse_proxy 127.0.0.1:8765 {
     header_up Host 127.0.0.1
+    header_up -Origin
   }
 }
 ```
@@ -217,6 +225,7 @@ nginx:
 location / {
     proxy_pass http://127.0.0.1:8765;
     proxy_set_header Host 127.0.0.1;
+    proxy_set_header Origin "";
 }
 ```
 
@@ -232,6 +241,7 @@ at how the connection got there:
 http://100.x.y.z:9765 {
   reverse_proxy 127.0.0.1:8765 {
     header_up Host 127.0.0.1
+    header_up -Origin
   }
 }
 ```
