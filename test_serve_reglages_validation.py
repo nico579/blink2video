@@ -379,7 +379,12 @@ class TestsValidationReglagesHttp(unittest.TestCase):
 
     def test_webhook_notif_url_sans_schema_http_refusee(self):
         for valeur in ("ftp://exemple.invalid/notif", "exemple.invalid/notif",
-                      "non une url"):
+                      "non une url",
+                      # urlparse lève ValueError sur celle-ci (IPv6 mal fermé)
+                      # plutôt que de rendre un schéma vide comme les autres :
+                      # doit rester un refus propre, pas une exception non
+                      # rattrapée qui remonterait jusqu'à do_POST.
+                      "http://[invalid"):
             with self.subTest(valeur=valeur):
                 self.assert_refuse(
                     self.requete(self.payload(webhook_notif_url=valeur)),

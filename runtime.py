@@ -38,7 +38,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.12.38"
+VERSION = "0.12.39"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -1578,14 +1578,20 @@ def notifier_nouveau_media(camera: str, chemin: Path, type_media: str) -> None:
     url = lire_reglages().get("webhook_notif_url", "")
     if not url:
         return
-    charge = json.dumps(
-        {"camera": camera, "chemin": str(chemin), "type": type_media}).encode("utf-8")
-    requete = urllib.request.Request(
-        url, data=charge, headers={"Content-Type": "application/json"}, method="POST")
     try:
+        charge = json.dumps(
+            {"camera": camera, "chemin": str(chemin), "type": type_media}).encode("utf-8")
+        requete = urllib.request.Request(
+            url, data=charge, headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(requete, timeout=10):
             pass
     except Exception:
+        # Volontairement large (voir docstring) : construire la requête peut
+        # lever pour une URL syntaxiquement acceptée par le validateur des
+        # réglages (schéma correct) mais malformée plus loin (hôte absent,
+        # caractère interdit) - un bug trouvé en audit avant tout incident
+        # réel, la première version ne protégeait que l'appel réseau
+        # lui-même, pas la construction de la requête juste avant.
         pass
 
 

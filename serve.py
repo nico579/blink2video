@@ -1719,10 +1719,21 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
     reglages["trusted_host"] = trusted_host
 
     webhook_notif_url = str(payload.get("webhook_notif_url") or "").strip()
-    if webhook_notif_url and urlparse(webhook_notif_url).scheme not in ("http", "https"):
-        raise _ReglagesInvalides(
-            f"URL de notification invalide : « {webhook_notif_url} ». Une "
-            "adresse http:// ou https:// complète, ou vide pour désactiver.")
+    if webhook_notif_url:
+        try:
+            schema_valide = urlparse(webhook_notif_url).scheme in ("http", "https")
+        except ValueError:
+            # urlparse lève sur certaines formes manifestement invalides
+            # (IPv6 mal fermé, ex. « http://[abc ») plutôt que de rendre un
+            # schéma vide comme pour le reste des URL mal formées - un cas
+            # trouvé en se demandant si cette même levée touchait aussi
+            # hote_autorise() (Origin), qui appelle urlparse de la même
+            # façon sans plus de protection qu'ici avant ce correctif.
+            schema_valide = False
+        if not schema_valide:
+            raise _ReglagesInvalides(
+                f"URL de notification invalide : « {webhook_notif_url} ». Une "
+                "adresse http:// ou https:// complète, ou vide pour désactiver.")
     reglages["webhook_notif_url"] = webhook_notif_url
 
     return dossier, reglages
@@ -1799,8 +1810,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not boucle_locale and not proxy_local and not tunnel_direct:
             return False
         origine = self.headers.get("Origin")
-        if origine and urlparse(origine).hostname not in hotes_valides:
-            return False
+        if origine:
+            # Même repli fermé que boucle_locale ci-dessus (ValueError sur
+            # une adresse illisible) : urlparse lève sur certaines formes
+            # manifestement invalides (IPv6 mal fermé, ex. « http://[abc »)
+            # au lieu de rendre un hostname vide comme le reste des Origin
+            # mal formées. Trouvé en auditant la même levée sur l'URL de
+            # webhook sortant (issue #11) : un client qui forge cet en-tête
+            # faisait planter la requête (exception non rattrapée jusqu'à
+            # do_GET/do_POST) plutôt que de se la voir simplement refuser.
+            try:
+                origine_hote = urlparse(origine).hostname
+            except ValueError:
+                origine_hote = None
+            if origine_hote not in hotes_valides:
+                return False
         return True
 
     def jeton_valide(self) -> bool:

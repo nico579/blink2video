@@ -69,6 +69,16 @@ class SecuriteWebTests(unittest.TestCase):
         handler.headers["Origin"] = "http://attaquant.example"
         self.assertFalse(handler.hote_autorise())
 
+    def test_origin_malformee_refusee_sans_lever(self):
+        # urlparse lève ValueError sur certaines formes manifestement
+        # invalides (IPv6 mal fermé) plutôt que de rendre un hostname vide :
+        # confirmé en direct contre une vraie instance (curl avec cet en-tête
+        # provoquait une exception non rattrapée jusqu'à do_GET, connexion
+        # coupée au lieu d'un 403 propre).
+        handler = self.handler()
+        handler.headers["Origin"] = "http://[invalid"
+        self.assertFalse(handler.hote_autorise())
+
     def test_jeton_est_accepte_en_entete_ou_dans_url_media(self):
         handler = self.handler()
         handler.headers["X-Blink-Token"] = serve.TOKEN

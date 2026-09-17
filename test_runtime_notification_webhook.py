@@ -58,6 +58,16 @@ class TestsNotifierNouveauMedia(unittest.TestCase):
         requete, = urlopen.call_args.args
         self.assertEqual(json.loads(requete.data.decode("utf-8"))["type"], "snapshot")
 
+    def test_echec_construction_requete_absorbe_sans_lever(self):
+        # Régression : la première version ne protégeait que l'appel réseau,
+        # pas la construction de la requête juste avant (urllib.request.Request
+        # peut lever pour une URL syntaxiquement valide selon le validateur
+        # des réglages mais malformée plus loin, ex. IPv6 mal fermé).
+        self.regler_url("https://exemple.invalid/notif")
+        with mock.patch("runtime.urllib.request.Request",
+                        side_effect=ValueError("URL malformee")):
+            runtime.notifier_nouveau_media("Jardin", Path("clip.mp4"), "clip")
+
     def test_echec_reseau_absorbe_sans_lever(self):
         self.regler_url("https://exemple.invalid/notif")
         with mock.patch("runtime.urllib.request.urlopen",
