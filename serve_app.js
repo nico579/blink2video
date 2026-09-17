@@ -2,6 +2,7 @@
 // toute requête qui modifie quelque chose. Fait une fois ici, avant tout
 // autre script, pour qu'aucun fetch() plus bas n'ait à s'en soucier.
 const BLINK_TOKEN = "__TOKEN__";
+const BLINK_PID = "__PID__";
 const _fetchNatif = window.fetch;
 window.fetch = (entree, options) => {
   options = options || {};
@@ -66,6 +67,7 @@ const I18N = {
     "view.pictures": "Photos",
     "filter.allcameras": "toutes caméras",
     "btn.refresh": "↻ Actualiser", "btn.reglages": "⚙ Réglages…", "btn.reglages.title": "Réglages",
+    "entete.pid": "PID serveur {pid}",
     "update.installing": "Installer {version}",
     "update.title": "Version {version} publiée. Le téléchargement, l'arrêt et la relance sont automatiques.",
     "update.updating": "Mise à jour…",
@@ -224,6 +226,7 @@ const I18N = {
     "view.pictures": "Pictures",
     "filter.allcameras": "all cameras",
     "btn.refresh": "↻ Refresh", "btn.reglages": "⚙ Settings…", "btn.reglages.title": "Settings",
+    "entete.pid": "Server PID {pid}",
     "update.installing": "Install {version}",
     "update.title": "Version {version} published. Download, stop and restart are automatic.",
     "update.updating": "Updating…",
@@ -403,6 +406,9 @@ function applyI18n() {
 function setLang(code, persist) {
   _lang = code === "en" ? "en" : "fr";
   applyI18n();
+  // Valeur dynamique (PID du process), donc rendue ici plutôt que par
+  // data-i18n, qui ne sait interpoler aucun paramètre dans sa traduction.
+  $("pidServeur").textContent = tf("entete.pid", { pid: BLINK_PID });
   // Le bouton « afficher/masquer » le mot de passe suit son propre état
   // (masqué ou non), qu'applyI18n ne connaît pas : ré-appliqué ici plutôt
   // que par data-i18n, qui écraserait « Masquer » par « Afficher » si le

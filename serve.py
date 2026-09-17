@@ -4124,7 +4124,7 @@ __CSS__
 </head>
 <body>
 <header>
-  <h1>blink2video<span class="v">__VERSION__ (__PID__)</span></h1>
+  <h1>blink2video<span class="v">__VERSION__ (<span id="pidServeur"></span>)</span></h1>
   <select id="view">
     <option value="live" data-i18n="view.live">Directs Vues</option>
     <option value="direct" data-i18n="view.direct">Directs Enregistrements</option>
