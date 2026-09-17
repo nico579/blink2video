@@ -542,6 +542,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                     blink_registre.save_download_state(output, state)
                     downloaded += 1
                     resultat = "downloaded"
+                    runtime.notifier_nouveau_media(clip.name, target, "clip")
                     if _suppression_auto_autorisee(sync, clip):
                         if await clip.delete_video(blink):
                             print(msg("cloud_supprime_auto"))
@@ -910,6 +911,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                             state, plan.sync, plan.nom, clip, output, target,
                         )
                         blink_registre.save_download_state(output, state)
+                        runtime.notifier_nouveau_media(clip.name, target, "clip")
                         if _suppression_auto_autorisee(plan.sync, clip):
                             # La copie locale est déjà valide et inscrite. Une
                             # panne de l'API de suppression ne doit ni annuler

@@ -43,6 +43,10 @@ lancement et les principaux réglages.
 - Photo à la demande, un clic depuis la vignette du direct ou déclenchée à
   distance via une URL webhook (domotique, bouton connecté) : conservée dans
   Photos, consultable et supprimable depuis la page.
+- Webhook sortant facultatif (Réglages) : un simple POST HTTP avec le nom de
+  la caméra et le chemin du fichier, envoyé une fois qu'un clip ou une photo
+  a vraiment fini d'être écrit, pour n'importe quel outil de domotique qui
+  sait déjà en recevoir un.
 - Téléchargement incrémental des clips de détection de mouvement depuis le
   stockage local du module (clé USB du Sync Module 2 ou carte microSD du XR) et
   depuis le cloud de l'abonnement, sans jamais rapatrier deux
@@ -324,6 +328,24 @@ au reste du tableau de bord, cette seule route est volontairement joignable
 depuis tout le réseau, puisqu'un hub domotique tourne rarement sur
 `127.0.0.1` : gardez-la quand même hors d'internet, un appelant limité au
 réseau local est l'usage prévu.
+
+</details>
+
+<details>
+<summary>Webhook de notification, en détail</summary>
+
+Le sens inverse de celui ci-dessus, et sans rapport avec lui : un `POST`
+avec un petit corps JSON (`{"camera": "...", "chemin": "...", "type":
+"clip"}` ou `"snapshot"`) vers une URL réglée dans Réglages, une fois qu'un
+clip ou une photo a vraiment fini d'être téléchargé ou enregistré, jamais en
+cours de route. URL vide (par défaut) désactive complètement la fonction.
+
+Au mieux, sans nouvelle tentative : une notification manquée, une URL mal
+tapée, ou le point d'arrivée momentanément indisponible n'interrompent ni ne
+font échouer le téléchargement qu'elle rapporte. Un simple POST HTTP est le
+choix volontaire, puisque c'est ce que Home Assistant, Node-RED, n8n et
+compagnie savent déjà recevoir, sans broker MQTT ni écouteur UDP maison à
+écrire de votre côté.
 
 </details>
 

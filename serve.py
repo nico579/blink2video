@@ -1718,6 +1718,13 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
             "d'hôte ou une adresse IP seule, sans / ni espace.")
     reglages["trusted_host"] = trusted_host
 
+    webhook_notif_url = str(payload.get("webhook_notif_url") or "").strip()
+    if webhook_notif_url and urlparse(webhook_notif_url).scheme not in ("http", "https"):
+        raise _ReglagesInvalides(
+            f"URL de notification invalide : « {webhook_notif_url} ». Une "
+            "adresse http:// ou https:// complète, ou vide pour désactiver.")
+    reglages["webhook_notif_url"] = webhook_notif_url
+
     return dossier, reglages
 
 
@@ -2314,6 +2321,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         empreinte = hashlib.sha256(resultat["corps"]).hexdigest()[:8]
         cible = dossier / f"{horodatage}_{empreinte}.jpg"
         cible.write_bytes(resultat["corps"])
+        runtime.notifier_nouveau_media(resultat["nom"], cible, "snapshot")
         # La vignette du Direct (send_camera_thumb) vient d'un cache distinct,
         # jamais renouvelé sans clic sur Actualiser : une photo prise à la
         # demande a déjà l'image sous la main, autant lui éviter d'afficher
@@ -4346,6 +4354,20 @@ __CSS__
         <input type="text" id="webhookUrl" readonly>
       </div>
       <button type="button" id="webhookRegenerer" data-i18n="reglages.webhook.regenerer">Régénérer le secret</button>
+    </fieldset>
+    <fieldset>
+      <legend data-i18n="reglages.webhookNotif" data-i18n-title="reglages.webhookNotif.hint"
+              title="Appelle cette URL en POST à chaque nouveau clip ou photo, une fois le fichier bien écrit sur disque.">Notification par webhook</legend>
+      <p class="sub tiny" data-i18n="reglages.webhookNotif.hint.text">
+        Envoie un POST JSON (caméra, chemin, type) à l'URL ci-dessous chaque
+        fois qu'un clip ou une photo est prêt. Au mieux, sans nouvelle
+        tentative : une notification manquée n'interrompt jamais le
+        téléchargement.
+      </p>
+      <div class="champCadence">
+        <label for="webhookNotifUrl" data-i18n="reglages.webhookNotifUrl">URL de notification</label>
+        <input type="text" id="webhookNotifUrl" placeholder="https://...">
+      </div>
     </fieldset>
   </div>
   <div id="panelAlertes" class="panelReglages" hidden>

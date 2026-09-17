@@ -50,7 +50,7 @@ const elements = Object.fromEntries(Object.entries({
   usbMinutes: '5', cloudMinutes: '15', port: '5000', timezone: 'Europe/Paris',
   storageDir: ' clips ', liveProtocol: 'mse',
   fontSize: '', fontColor: 'white', boxOpacity: '0.55',
-  trustedHost: '100.101.194.5',
+  trustedHost: '100.101.194.5', webhookNotifUrl: 'https://exemple.invalid/notif',
 }).map(([id, value]) => [id, {value}]));
 for (const [id, checked] of Object.entries({
   timestamp: true, mergeJour: true, mergeSemaine: false,
@@ -210,6 +210,7 @@ function instantane() {
             "merge_semaine": False, "merge_mois": True, "download_auto": False,
             "font_size": None, "font_color": "white", "box_opacity": 0.55,
             "trusted_host": "100.101.194.5",
+            "webhook_notif_url": "https://exemple.invalid/notif",
         })
         self._verifier_attente(resultat["apresPost"], 2000, 45000)
         self.assertEqual(resultat["alertes"], [])
@@ -251,6 +252,16 @@ function instantane() {
         resultat = self._executer(valeurs={"trustedHost": "   "})
         payload = json.loads(resultat["requetes"][0]["options"]["body"])
         self.assertEqual(payload["trusted_host"], "")
+
+    def test_webhook_notification_transmis_et_recorte(self):
+        resultat = self._executer(
+            valeurs={"webhookNotifUrl": "  https://exemple.invalid/notif  "})
+        payload = json.loads(resultat["requetes"][0]["options"]["body"])
+        self.assertEqual(payload["webhook_notif_url"], "https://exemple.invalid/notif")
+
+        resultat = self._executer(valeurs={"webhookNotifUrl": "   "})
+        payload = json.loads(resultat["requetes"][0]["options"]["body"])
+        self.assertEqual(payload["webhook_notif_url"], "")
 
     def test_bouton_redemarrer_poste_sans_reglages_et_attend_larret(self):
         resultat = self._executer(bouton="redemarrerButton")

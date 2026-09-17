@@ -127,6 +127,10 @@ const I18N = {
     "reglages.webhook.url": "URL",
     "reglages.webhook.regenerer": "Régénérer le secret",
     "reglages.webhook.regenerer.confirm": "Régénérer invalidera l'URL actuelle : toute automatisation existante devra être mise à jour avec la nouvelle. Continuer ?",
+    "reglages.webhookNotif": "Notification par webhook",
+    "reglages.webhookNotif.hint": "Appelle cette URL en POST à chaque nouveau clip ou photo, une fois le fichier bien écrit sur disque.",
+    "reglages.webhookNotif.hint.text": "Envoie un POST JSON (caméra, chemin, type) à l'URL ci-dessous chaque fois qu'un clip ou une photo est prêt. Au mieux, sans nouvelle tentative : une notification manquée n'interrompt jamais le téléchargement.",
+    "reglages.webhookNotifUrl": "URL de notification",
     "reglages.hint": "Les réglages ne prennent effet qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le port redirige cette page vers la nouvelle adresse.",
     "reglages.apply": "Appliquer", "reglages.restarting": "Redémarrage…",
     "reglages.restart": "Redémarrer",
@@ -286,6 +290,10 @@ const I18N = {
     "reglages.webhook.url": "URL",
     "reglages.webhook.regenerer": "Regenerate the secret",
     "reglages.webhook.regenerer.confirm": "Regenerating will invalidate the current URL: any existing automation will need the new one. Continue?",
+    "reglages.webhookNotif": "Webhook notification",
+    "reglages.webhookNotif.hint": "Calls this URL with POST on every new clip or picture, once the file is actually done writing to disk.",
+    "reglages.webhookNotif.hint.text": "Sends a JSON POST (camera, path, type) to the URL below every time a clip or picture is ready. Best-effort, no retry: a missed notification never holds up downloading.",
+    "reglages.webhookNotifUrl": "Notification URL",
     "reglages.hint": "Settings only take effect on restart: \u201cApply\u201d saves and restarts. Changing the port redirects this page to the new address.",
     "reglages.apply": "Apply", "reglages.restarting": "Restarting…",
     "reglages.restart": "Restart",
@@ -2552,6 +2560,7 @@ function afficherFormulaireReglages(reglages) {
   portActuel = reglages.port;
   $("storageDir").value = reglages.storage_dir;
   $("trustedHost").value = reglages.trusted_host || "";
+  $("webhookNotifUrl").value = reglages.webhook_notif_url || "";
   $("timestamp").checked = reglages.timestamp;
   $("fontSize").value = reglages.font_size ?? "";
   $("fontColor").value = reglages.font_color;
@@ -2794,6 +2803,7 @@ async function envoyerFormulaireReglages({ usb, cloud, port, timezone }) {
       usb_minutes: usb, cloud_minutes: cloud, port,
       storage_dir: $("storageDir").value.trim(),
       trusted_host: $("trustedHost").value.trim(),
+      webhook_notif_url: $("webhookNotifUrl").value.trim(),
       timestamp: $("timestamp").checked, timezone,
       live_protocol: $("liveProtocol").value,
       merge_jour: $("mergeJour").checked,

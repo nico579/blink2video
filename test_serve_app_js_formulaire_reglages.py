@@ -19,6 +19,7 @@ REGLAGES = {
     "webhook_token": "jeton-test-abc123",
     "font_size": 40, "font_color": "yellow", "box_opacity": 0.3,
     "trusted_host": "100.101.194.5",
+    "webhook_notif_url": "https://exemple.invalid/notif",
 }
 
 
@@ -62,7 +63,7 @@ const ids = [
   'liveProtocol', 'mergeJour', 'mergeSemaine', 'mergeMois', 'downloadAuto',
   'initialSetupHint', 'reglagesClose', 'stopButton', 'reglages', 'reglagesButton',
   'webhookUrl', 'webhookRegenerer', 'fontSize', 'fontColor', 'boxOpacity',
-  'trustedHost', 'redemarrerButton',
+  'trustedHost', 'webhookNotifUrl', 'redemarrerButton',
   'tabGeneral', 'tabVideo', 'tabAcces', 'tabAlertes',
   'panelGeneral', 'panelVideo', 'panelAcces', 'panelAlertes',
 ];
@@ -181,7 +182,7 @@ function capturer() {
             "usbMinutes": "usb_minutes", "cloudMinutes": "cloud_minutes", "port": "port",
             "storageDir": "storage_dir", "timezone": "timezone", "liveProtocol": "live_protocol",
             "fontSize": "font_size", "fontColor": "font_color", "boxOpacity": "box_opacity",
-            "trustedHost": "trusted_host",
+            "trustedHost": "trusted_host", "webhookNotifUrl": "webhook_notif_url",
         }
         cases = {
             "timestamp": "timestamp", "mergeJour": "merge_jour", "mergeSemaine": "merge_semaine",

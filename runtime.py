@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 from typing import NamedTuple
 
@@ -37,7 +38,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.12.37"
+VERSION = "0.12.38"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -69,7 +70,7 @@ REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timesta
                    "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": False,
                    "merge_mois": False, "download_auto": True, "live_protocol": "webrtc",
                    "font_size": None, "font_color": "white", "box_opacity": 0.55,
-                   "trusted_host": ""}
+                   "trusted_host": "", "webhook_notif_url": ""}
 # Remplace la variable d'environnement BLINK_DIRECT_WEBRTC (experimentale,
 # BACKLOG.md 2026-09-03) une fois WebRTC valide en usage reel : un vrai
 # reglage, pas juste une variable a poser avant de lancer le serveur. "mse"
@@ -193,6 +194,8 @@ def lire_reglages() -> dict:
                                        REGLAGES_DEFAUT["box_opacity"], 0.0, 1.0),
         "trusted_host": str(valeurs.get(
             "trusted_host", REGLAGES_DEFAUT["trusted_host"])).strip(),
+        "webhook_notif_url": str(valeurs.get(
+            "webhook_notif_url", REGLAGES_DEFAUT["webhook_notif_url"])).strip(),
     }
 
 
@@ -219,6 +222,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
                     merge_mois: bool, download_auto: bool, live_protocol: str, *,
                     font_size: int | None = None, font_color: str = "white",
                     box_opacity: float = 0.55, trusted_host: str = "",
+                    webhook_notif_url: str = "",
                     dossier: Path | None = None) -> None:
     cible = (app_dir() if dossier is None else dossier) / REGLAGES
     _ecrire_texte_atomique(cible, json.dumps({
@@ -230,6 +234,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
         "font_size": int(font_size) if font_size is not None else None,
         "font_color": str(font_color), "box_opacity": float(box_opacity),
         "trusted_host": str(trusted_host).strip(),
+        "webhook_notif_url": str(webhook_notif_url).strip(),
     }))
 
 
@@ -1554,6 +1559,34 @@ def toast(titre: str, corps: str, url: str = "") -> None:
         stderr=subprocess.DEVNULL, check=False, timeout=20,
     )
 
+
+def notifier_nouveau_media(camera: str, chemin: Path, type_media: str) -> None:
+    """Webhook sortant (issue GitHub #11) : un POST JSON par clip ou photo
+    prêt, une fois le fichier réellement écrit, jamais avant.
+
+    Synchrone comme toast() ci-dessus, appelée telle quelle depuis le
+    téléchargement (async, mais un clip à la fois, jamais en parallèle) et
+    depuis serve.py (déjà synchrone) : un bref POST ne pèse rien face au
+    téléchargement qui vient de prendre plusieurs secondes, pas de quoi
+    justifier une passerelle vers l'event loop pour cette seule notification.
+
+    Au mieux, sans nouvelle tentative, et n'importe quelle défaillance
+    absorbée ici plutôt que remontée : une URL mal configurée, un serveur
+    distant en panne ou une simple coupure réseau ne doivent jamais faire
+    échouer le téléchargement qui vient pourtant de réussir, ni empêcher le
+    fichier suivant d'être traité."""
+    url = lire_reglages().get("webhook_notif_url", "")
+    if not url:
+        return
+    charge = json.dumps(
+        {"camera": camera, "chemin": str(chemin), "type": type_media}).encode("utf-8")
+    requete = urllib.request.Request(
+        url, data=charge, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(requete, timeout=10):
+            pass
+    except Exception:
+        pass
 
 
 class BusyError(RuntimeError):

@@ -39,6 +39,9 @@ and the main settings.
 - On-demand camera snapshot, one click from the Live tile or triggered
   remotely through a webhook URL (home automation, a smart button): saved
   under Pictures, browsable and deletable from the page.
+- Optional outbound webhook (Settings): a plain HTTP POST with the camera
+  name and file path, sent once a clip or picture has actually finished
+  writing, for any home-automation tool that already accepts one.
 - Incremental download of motion-detection clips from the module's local storage
   (Sync Module 2 USB stick or Sync Module XR microSD card)
   and from the subscription cloud, never fetching the same recording twice.
@@ -300,6 +303,23 @@ whoever has it can trigger a photo on any camera by name. Unlike the rest of
 the dashboard, this one route is reachable from anywhere on the network on
 purpose, since a smart-home hub is rarely running on `127.0.0.1`; keep it off
 the public internet all the same, a LAN-only caller is the intended use.
+
+</details>
+
+<details>
+<summary>Webhook notification, in detail</summary>
+
+The opposite direction from the one above, and unrelated to it: `POST` a
+small JSON body (`{"camera": "...", "chemin": "...", "type": "clip"}` or
+`"snapshot"`) to a URL you set under Settings, once a clip or picture has
+actually finished downloading or saving, never mid-transfer. Empty URL
+(the default) disables it entirely.
+
+Best-effort, no retry: a dropped notification, a typo'd URL, or the
+receiving endpoint being briefly down never holds up or fails the download
+it's reporting on. A plain HTTP POST is the target on purpose, since that's
+what Home Assistant, Node-RED, n8n and similar tools already know how to
+receive, no MQTT broker or custom UDP listener needed on your end.
 
 </details>
 

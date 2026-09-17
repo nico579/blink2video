@@ -88,14 +88,16 @@ class TestsReglages(unittest.TestCase):
                                 timezone="America/New_York", merge_jour=True,
                                 merge_semaine=False, merge_mois=False, download_auto=False,
                                 live_protocol="mse", font_size=40, font_color="yellow",
-                                box_opacity=0.3, trusted_host="100.101.194.5")
+                                box_opacity=0.3, trusted_host="100.101.194.5",
+                                webhook_notif_url="https://exemple.invalid/notif")
         self.assertEqual(
             runtime.lire_reglages(),
             {"usb_minutes": 7, "cloud_minutes": 2, "port": 8899, "timestamp": False,
              "timezone": "America/New_York", "merge_jour": True, "merge_semaine": False,
              "merge_mois": False, "download_auto": False, "live_protocol": "mse",
              "font_size": 40, "font_color": "yellow", "box_opacity": 0.3,
-             "trusted_host": "100.101.194.5"})
+             "trusted_host": "100.101.194.5",
+             "webhook_notif_url": "https://exemple.invalid/notif"})
 
     def test_valeurs_partielles_completees_par_les_defauts(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -115,7 +117,8 @@ class TestsReglages(unittest.TestCase):
              "font_size": runtime.REGLAGES_DEFAUT["font_size"],
              "font_color": runtime.REGLAGES_DEFAUT["font_color"],
              "box_opacity": runtime.REGLAGES_DEFAUT["box_opacity"],
-             "trusted_host": runtime.REGLAGES_DEFAUT["trusted_host"]})
+             "trusted_host": runtime.REGLAGES_DEFAUT["trusted_host"],
+             "webhook_notif_url": runtime.REGLAGES_DEFAUT["webhook_notif_url"]})
 
     def test_fuseau_vide_dans_le_fichier_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -151,6 +154,15 @@ class TestsReglages(unittest.TestCase):
         (self.dossier / runtime.REGLAGES).write_text(
             '{"trusted_host": "  100.101.194.5  "}', encoding="utf-8")
         self.assertEqual(runtime.lire_reglages()["trusted_host"], "100.101.194.5")
+
+    def test_webhook_notif_url_absente_vaut_desactive(self):
+        self.assertEqual(runtime.lire_reglages()["webhook_notif_url"], "")
+
+    def test_webhook_notif_url_est_recortee(self):
+        (self.dossier / runtime.REGLAGES).write_text(
+            '{"webhook_notif_url": "  https://exemple.invalid/notif  "}', encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages()["webhook_notif_url"],
+                         "https://exemple.invalid/notif")
 
     def test_opacite_bandeau_hors_plage_ou_non_numerique_retombe_sur_le_defaut(self):
         for valeur in ('{"box_opacity": 2.0}', '{"box_opacity": -0.5}',

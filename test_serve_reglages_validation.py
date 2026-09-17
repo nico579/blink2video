@@ -23,7 +23,7 @@ DEFAUTS = {
     "merge_semaine": True, "merge_mois": True, "download_auto": True,
     "live_protocol": "webrtc",
     "font_size": None, "font_color": "white", "box_opacity": 0.55,
-    "trusted_host": "",
+    "trusted_host": "", "webhook_notif_url": "",
 }
 CHAMPS_BOOLEENS = (
     "timestamp", "merge_jour", "merge_semaine", "merge_mois", "download_auto")
@@ -117,7 +117,7 @@ class TestsValidationReglagesHttp(unittest.TestCase):
             "merge_semaine": False, "merge_mois": False,
             "download_auto": True, "live_protocol": "mse",
             "font_size": None, "font_color": "white", "box_opacity": 0.55,
-            "trusted_host": "",
+            "trusted_host": "", "webhook_notif_url": "",
         }, "archives locales")
         self.chemin.assert_called_once_with("archives locales")
 
@@ -361,6 +361,30 @@ class TestsValidationReglagesHttp(unittest.TestCase):
                     self.requete(self.payload(trusted_host=valeur)),
                     f"Hôte de confiance invalide : « {valeur.strip()} ». Un nom "
                     "d'hôte ou une adresse IP seule, sans / ni espace.")
+
+    def test_webhook_notif_url_absent_ou_vide_vaut_desactive(self):
+        for valeur in (None, "", "   "):
+            with self.subTest(valeur=valeur):
+                payload = self.payload()
+                if valeur is not None:
+                    payload["webhook_notif_url"] = valeur
+                handler = self.requete(payload)
+                self.assert_enregistre(handler, DEFAUTS)
+
+    def test_webhook_notif_url_valide_est_recortee(self):
+        handler = self.requete(
+            self.payload(webhook_notif_url="  https://exemple.invalid/notif  "))
+        self.assert_enregistre(
+            handler, {**DEFAUTS, "webhook_notif_url": "https://exemple.invalid/notif"})
+
+    def test_webhook_notif_url_sans_schema_http_refusee(self):
+        for valeur in ("ftp://exemple.invalid/notif", "exemple.invalid/notif",
+                      "non une url"):
+            with self.subTest(valeur=valeur):
+                self.assert_refuse(
+                    self.requete(self.payload(webhook_notif_url=valeur)),
+                    f"URL de notification invalide : « {valeur} ». Une "
+                    "adresse http:// ou https:// complète, ou vide pour désactiver.")
 
     def test_ordre_des_refus_nombres_dossier_fuseau_puis_protocole(self):
         payload = self.payload(usb_minutes=0, storage_dir="archives",
