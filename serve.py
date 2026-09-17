@@ -4124,7 +4124,7 @@ __CSS__
 </head>
 <body>
 <header>
-  <h1>blink2video<span class="v">__VERSION__</span></h1>
+  <h1>blink2video<span class="v">__VERSION__ (__PID__)</span></h1>
   <select id="view">
     <option value="live" data-i18n="view.live">Directs Vues</option>
     <option value="direct" data-i18n="view.direct">Directs Enregistrements</option>
@@ -4431,6 +4431,13 @@ PAGE = PAGE.replace(
 # impossible d'en faire une f-string. Une substitution unique au chargement
 # suffit, et laisse le gabarit lisible.
 PAGE = PAGE.replace("__VERSION__", runtime.VERSION)
+# Le PID à côté de la version distingue en un coup d'œil un onglet resté
+# ouvert sur l'ancien processus de celui qui vient de repartir après un
+# redémarrage : les deux affichent la même page tant que l'onglet ne
+# recharge pas, mais pas le même PID (constaté en réel, session du
+# 2026-09-16 : plusieurs redémarrages sans trace nulle part de ce qui avait
+# effectivement tourné).
+PAGE = PAGE.replace("__PID__", str(os.getpid()))
 
 # Un jeton par processus (28.60/28.59), pas par requête : engendré une seule
 # fois ici, au chargement du module, comme VERSION ci-dessus. uuid4 plutôt que
