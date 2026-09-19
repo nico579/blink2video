@@ -4388,7 +4388,7 @@ __CSS__
         tentative : une notification manquée n'interrompt jamais le
         téléchargement.
       </p>
-      <div class="champCadence">
+      <div class="champDossier">
         <label for="webhookNotifUrl" data-i18n="reglages.webhookNotifUrl">URL de notification</label>
         <input type="text" id="webhookNotifUrl" placeholder="https://...">
       </div>
