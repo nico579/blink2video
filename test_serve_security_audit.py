@@ -43,6 +43,22 @@ class SecuriteWebTests(unittest.TestCase):
             self.handler("100.101.194.5", "100.101.194.5").hote_autorise()
         )
 
+    def test_refus_journalise_la_raison_dans_serve_erreurs_log(self):
+        # Issue #10 : un trusted_host mal renseigné ne laissait qu'un 403
+        # générique côté navigateur, sans rien d'exploitable pour diagnostiquer
+        # à distance. hote_autorise() doit tracer pourquoi, dans le même
+        # fichier que handle_error.
+        import runtime as rt
+        journal = rt.app_dir() / "serve_erreurs.log"
+        journal.unlink(missing_ok=True)
+        self.assertFalse(
+            self.handler("100.101.194.5", "100.101.194.5").hote_autorise()
+        )
+        self.assertTrue(journal.exists())
+        contenu = journal.read_text(encoding="utf-8")
+        self.assertIn("100.101.194.5", contenu)
+        self.assertIn("accès refusé", contenu)
+
     def test_hote_de_confiance_accepte_un_client_distant_qui_le_designe(self):
         self.assertTrue(
             self.handler("100.101.194.5", "100.101.194.5",

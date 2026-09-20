@@ -1763,6 +1763,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     _HOTES_LOCAUX = ("127.0.0.1", "localhost", "::1")
 
+    def _journaliser_acces_refuse(self, raison: str) -> None:
+        """Trace un 403 de hote_autorise() dans serve_erreurs.log (même
+        fichier que handle_error, même tolérance à l'échec d'écriture).
+
+        Sans ceci, un trusted_host mal renseigné (casse, port oublié dans le
+        champ, MagicDNS Tailscale au lieu de l'IP...) ne laisse aucune trace
+        exploitable : juste un 403 générique côté navigateur. Issue #10,
+        BLINK_BIND + trusted_host donnant toujours 403 sans qu'on ait pu
+        savoir laquelle des trois conditions (Host, boucle locale/tunnel,
+        Origin) avait échoué."""
+        try:
+            with (runtime.app_dir() / "serve_erreurs.log").open(
+                    "a", encoding="utf-8") as journal:
+                journal.write(
+                    f"\n--- {dt.datetime.now().isoformat()} accès refusé ---\n"
+                    f"raison: {raison}\n"
+                    f"Host reçu: {self.headers.get('Host')!r}\n"
+                    f"Origin reçu: {self.headers.get('Origin')!r}\n"
+                    f"IP cliente: {getattr(self, 'client_address', ('?', 0))[0]}\n"
+                    f"trusted_host configuré: {self.trusted_host!r}\n")
+        except OSError:
+            pass
+
     def hote_autorise(self) -> bool:
         """Faux si Host (ou Origin, quand le navigateur l'envoie) ne désigne
         pas cette machine.
@@ -1793,6 +1816,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         hotes_valides = self._HOTES_LOCAUX + ((hote_confiance,) if hote_confiance else ())
         hote = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         if hote not in hotes_valides:
+            self._journaliser_acces_refuse(f"Host {hote!r} absent de {hotes_valides!r}")
             return False
         # Host est fourni par le client et se forge avec curl : il ne constitue
         # pas une frontière réseau à lui seul. Hors conteneur ou tunnel de
@@ -1808,6 +1832,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         proxy_local = os.environ.get("BLINK_TRUSTED_LOOPBACK_PROXY") == "1"
         tunnel_direct = bool(hote_confiance) and hote == hote_confiance
         if not boucle_locale and not proxy_local and not tunnel_direct:
+            self._journaliser_acces_refuse(
+                f"ni boucle locale (IP cliente {client!r}), ni "
+                f"BLINK_TRUSTED_LOOPBACK_PROXY, ni tunnel_direct "
+                f"(Host {hote!r} != trusted_host {hote_confiance!r})")
             return False
         origine = self.headers.get("Origin")
         if origine:
@@ -1824,6 +1852,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except ValueError:
                 origine_hote = None
             if origine_hote not in hotes_valides:
+                self._journaliser_acces_refuse(
+                    f"Origin {origine!r} (hostname {origine_hote!r}) "
+                    f"absent de {hotes_valides!r}")
                 return False
         return True
 
