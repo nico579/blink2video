@@ -3171,7 +3171,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # ------------------------------------------------------------------ routes
 
     def do_GET(self):
-        route = urlparse(self.path).path
+        # try/except : self.path vient tel quel de la ligne de requête,
+        # sous contrôle total du client. urlparse lève sur certaines formes
+        # manifestement invalides (IPv6 mal fermé, ex. « //[abc ») - même
+        # piège déjà audité et corrigé pour l'Origin dans hote_autorise() et
+        # pour l'URL de webhook sortant. Sur les Python récents (3.9+, voir
+        # gh-87389) un chemin "//..." est déjà normalisé avant d'atteindre
+        # urlparse et ce cas ne se présente plus ; le build Windows 7
+        # (Python 3.8.10 épinglé) n'a pas ce correctif stdlib, d'où le
+        # filet ici plutôt que de compter dessus.
+        try:
+            route = urlparse(self.path).path
+        except ValueError:
+            self.send_error(400)
+            return
         if route == WEBHOOK_SNAPSHOT_ROUTE:
             # Volontairement AVANT hote_autorise()/jeton_valide() : ce sont
             # les gardes-fous du navigateur (même origine, même machine),
@@ -3943,7 +3956,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not self.hote_autorise() or not self.jeton_valide():
             self.send_error(403)
             return
-        route = urlparse(self.path).path
+        # Même filet que do_GET : après hote_autorise()/jeton_valide() ici,
+        # donc seulement atteignable par un client déjà de confiance, mais
+        # une requête malformée ne doit pas non plus planter la sienne.
+        try:
+            route = urlparse(self.path).path
+        except ValueError:
+            self.send_error(400)
+            return
         length = int(self.headers.get("Content-Length") or 0)
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
