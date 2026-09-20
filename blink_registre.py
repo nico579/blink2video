@@ -64,9 +64,13 @@ def load_download_state(output: Path) -> dict:
             entree.setdefault("device_id", "")
             entree.setdefault("remote_id", "")
             entree.setdefault("sync_id", str(cle).split(":", 1)[0])
+            # .strip() : même raison que dans state_key() plus bas (nom USB
+            # avec espace parasite sans device_id). N'affecte que les vieilles
+            # entrées v1 sans camera_identity du tout : setdefault ne touche
+            # jamais une entrée qui en a déjà un, migrée ou non.
             camera_identite = (
                 f"device:{entree['device_id']}" if entree["device_id"]
-                else f"name:{str(entree.get('camera') or 'camera').casefold()}"
+                else f"name:{str(entree.get('camera') or 'camera').strip().casefold()}"
             )
             entree.setdefault("camera_identity", camera_identite)
             empreinte = json.dumps(
@@ -220,7 +224,13 @@ def state_key(sync, clip, source: str = "usb") -> str:
     original est le repli documenté ; un renommage de caméra USB ne peut donc
     pas être reconnu avec certitude."""
     created = clip_datetime_utc(clip).isoformat()
-    camera = _identifiant_camera(clip) or f"name:{str(clip.name).casefold()}"
+    # .strip() avant .casefold() : cohérent avec camera_setting_key ci-dessous
+    # et CloudClip.__init__ (blink_models.py). Un objet USB blinkpy 0.25 sans
+    # device_id peut renvoyer un nom avec un espace parasite en tête/fin (vu
+    # en réel sur le registre de production, 38 clips "jardin " isolés du
+    # reste de l'historique de la même caméra entre le 07 et le 11/08) ; sans
+    # ce trim, cet espace crée une identité de corrélation séparée.
+    camera = _identifiant_camera(clip) or f"name:{str(clip.name).strip().casefold()}"
     identite = json.dumps(
         [
             source,
@@ -292,9 +302,12 @@ def remember_download(state: dict, sync, hub_name: str, clip, output: Path,
         "device_id": _identifiant_camera(clip),
         "remote_id": str(getattr(clip, "id", "")),
         "sync_id": str(getattr(sync, "sync_id", "")),
+        # .strip() : même raison que dans state_key() (nom USB avec espace
+        # parasite sans device_id) - écrit à chaque nouveau téléchargement,
+        # le site le plus important à protéger des trois de ce fichier.
         "camera_identity": (
             f"device:{_identifiant_camera(clip)}" if _identifiant_camera(clip)
-            else f"name:{str(clip.name).casefold()}"
+            else f"name:{str(clip.name).strip().casefold()}"
         ),
     }
     entree = state["clips"][state_key(sync, clip, source)]

@@ -590,7 +590,10 @@ def _meme_camera(gauche, droite, sync_gauche=None, sync_droite=None) -> bool:
     # blinkpy 0.25 n'expose ni device_id ni network_id sur certains objets USB.
     # Dans ce seul cas, le nom API original (jamais le nom de chemin assaini)
     # reste le meilleur signal disponible pour rapprocher USB et cloud.
-    return str(gauche.name).casefold() == str(droite.name).casefold()
+    # .strip() : un objet USB peut porter un espace parasite en tête/fin
+    # (CloudClip.__init__ le fait déjà pour son propre côté) - sans lui, cet
+    # espace suffit à faire échouer l'appariement USB/cloud d'un même clip.
+    return str(gauche.name).strip().casefold() == str(droite.name).strip().casefold()
 
 
 def _apparier_evenements(locaux: list, distants: list, tolerance: int = 2, *,
@@ -750,7 +753,12 @@ def filter_clips(clips: list, camera: str | None, since_days: int | None) -> lis
     """Applique les filtres demandés, puis trie du plus ancien au plus récent."""
     selected = clips
     if camera:
-        selected = [clip for clip in selected if clip.name.casefold() == camera.casefold()]
+        # .strip() des deux côtés : un nom USB peut porter un espace
+        # parasite (voir _meme_camera juste au-dessus) - sans lui,
+        # --camera "jardin" raterait un clip dont le nom source est
+        # "jardin " (espace final), silencieusement.
+        cible = camera.strip().casefold()
+        selected = [clip for clip in selected if clip.name.strip().casefold() == cible]
     if since_days is not None:
         cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=since_days)
         selected = [clip for clip in selected if clip_datetime_utc(clip) >= cutoff]
