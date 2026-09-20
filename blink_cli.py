@@ -448,9 +448,13 @@ def _arreter_instances() -> int:
         # juste après, avant le kill effectif ; un pid réattribué pendant ce
         # délai de grâce (fenêtre de quelques secondes, cas rarissime) fait
         # au pire attendre le délai complet pour rien, jamais tuer à tort.
-        limite = time.time() + 15
+        # monotonic, pas time.time() : une correction NTP/DST pendant
+        # l'attente ne doit pas raccourcir ni rallonger ce délai de grâce
+        # de 15 s (même correctif que verrou() dans runtime.py, trouvé au
+        # même audit).
+        limite = time.monotonic() + 15
         pids_python = list(membres)
-        while time.time() < limite and any(
+        while time.monotonic() < limite and any(
                 runtime.processus_vivant(int(m)) for m in pids_python):
             time.sleep(1)
 
@@ -931,15 +935,30 @@ def executer(groupes: list) -> int:
         # surveillance, qui peut durer des jours.
         with runtime.verrou_controle("launch", attente=10):
             runtime.inscrire_instance(groupes)
-            for verbe, *arguments in persistant:
-                lances.append((verbe, runtime.demarrer(
-                    runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()),
-                    creationflags=runtime.flags_enfant(),
-                    # Sa propre session hors Windows : « stop » peut alors tuer son
-                    # groupe, ffmpeg compris, sans emporter le terminal qui a lancé
-                    # l'ensemble.
-                    start_new_session=(sys.platform != "win32"))))
-                print(msg("lance", commande=f"{verbe} {' '.join(arguments)}".rstrip()))
+            try:
+                for verbe, *arguments in persistant:
+                    lances.append((verbe, runtime.demarrer(
+                        runtime.self_command(verbe, *arguments), cwd=str(runtime.app_dir()),
+                        creationflags=runtime.flags_enfant(),
+                        # Sa propre session hors Windows : « stop » peut alors tuer son
+                        # groupe, ffmpeg compris, sans emporter le terminal qui a lancé
+                        # l'ensemble.
+                        start_new_session=(sys.platform != "win32"))))
+                    print(msg("lance", commande=f"{verbe} {' '.join(arguments)}".rstrip()))
+            except Exception:
+                # Un verbe de la composition a échoué à démarrer (ex. OSError) :
+                # ceux déjà lancés avant lui ne doivent jamais devenir des
+                # orphelins invisibles pour stop. inscrire_instance(groupes,
+                # [...]) n'est atteint qu'après la boucle complète - sans ce
+                # rollback, la fiche déjà écrite juste au-dessus (sans enfants)
+                # ne référence que ce process superviseur, qui va lui-même se
+                # terminer sous peu à cause de cette même exception, laissant
+                # le premier enfant tourner indéfiniment sans que stop ne le
+                # voie (trouvé en auditant ce fichier, vérifié par exécution
+                # réelle : mock du 2e Popen en échec).
+                for _, p in lances:
+                    runtime.arreter_processus(p.pid, avec_descendance=True)
+                raise
             runtime.inscrire_instance(groupes, [p.pid for _, p in lances])
     except runtime.BusyError as erreur:
         print(msg("impossible_demarrer_pendant_arret", erreur=erreur))

@@ -1653,9 +1653,16 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
 
     Un seul garde-fou reste appliqué contre une marque oubliée après un
     plantage : on ignore celle dont le processus n'existe plus. `stale_after`
-    ne vole en revanche jamais le verrou d'un processus vivant sur le seul
-    critère de son âge (B-05) : un passage de téléchargement peut légitimement
-    dépasser dix minutes sur un gros clip, et un âge à lui seul ne prouve rien.
+    n'est PLUS lu du tout par cette fonction (trouvé en auditant ce fichier :
+    paramètre fantôme, jamais consulté dans le corps ci-dessous) - il ne vole
+    donc jamais le verrou d'un processus vivant sur le seul critère de son âge
+    (B-05, un passage de téléchargement peut légitimement dépasser dix
+    minutes sur un gros clip, et un âge à lui seul ne prouve rien), pour la
+    raison la plus radicale possible : l'âge n'entre plus en jeu, seule
+    compte l'identité du processus (voir plus bas). Conservé dans la
+    signature pour ne pas casser les appelants existants, qui continuent de
+    documenter une durée réfléchie à cet endroit (7200 s pour l'assemblage,
+    600 s par défaut...) même si elle ne change plus rien ici.
 
     Le cas d'un PID recyclé par un processus non lié pendant que le vrai
     propriétaire est mort - longtemps documenté comme non couvert ici, et
@@ -1677,7 +1684,14 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
     dossier_verrou.mkdir(parents=True, exist_ok=True)
     fichier = dossier_verrou / f".blink_{nom}.lock"
     jeton = uuid.uuid4().hex
-    limite = time.time() + max(attente, 0)
+    # monotonic, pas time.time() : une correction NTP/DST pendant l'attente
+    # ne doit pas raccourcir ni rallonger le délai promis par `attente` (même
+    # correctif déjà appliqué à verrou_controle() plus bas dans ce fichier,
+    # et à nettoyer_lances() dans blink_cli.py - juste pas encore ici).
+    # "at" ci-dessous reste time.time() à dessein : c'est un horodatage réel
+    # à comparer à d'autres time.time() (age = time.time() - presente["at"]),
+    # pas un délai à mesurer.
+    limite = time.monotonic() + max(attente, 0)
     contenu = json.dumps(
         {"owner": owner, "pid": os.getpid(), "jeton": jeton, "at": time.time(),
          "identite": identite_processus(os.getpid())}
@@ -1705,7 +1719,7 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
                 # corrompue (écriture interrompue, disque en cause) tournait
                 # sinon en boucle active, sans jamais lever BusyError ni
                 # rendre la main (revue de code du 0eab463, bug #3).
-                if time.time() >= limite:
+                if time.monotonic() >= limite:
                     raise BusyError(f"verrou illisible ou corrompu : {fichier}")
                 time.sleep(0.05)
                 continue
@@ -1751,7 +1765,7 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
                 # Un autre processus est dans cette même section (ou, très
                 # rarement, y est mort avant son finally) : `limite` reste le
                 # seul garde-fou contre une attente indéfinie, même ici.
-                if time.time() >= limite:
+                if time.monotonic() >= limite:
                     raise BusyError(f"purge du verrou déjà en cours pour "
                                     f"« {presente.get('owner')} »")
                 time.sleep(0.05)
@@ -1764,7 +1778,7 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
                 _supprimer_verrou(purge)
             continue
 
-        if time.time() >= limite:
+        if time.monotonic() >= limite:
             age = time.time() - float(presente.get("at") or 0)
             raise BusyError(f"déjà réservé par « {presente.get('owner')} » "
                             f"(pid {presente.get('pid')}) depuis {int(age)} s")
