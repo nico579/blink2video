@@ -71,6 +71,30 @@ class SecuriteWebTests(unittest.TestCase):
                         trusted_host="100.101.194.5").hote_autorise()
         )
 
+    def test_hote_de_confiance_cidr_accepte_toute_adresse_du_sous_reseau(self):
+        # Issue #10 : client Windows en DHCP, pas d'adresse fixe a mettre
+        # dans un champ IP unique - un sous-reseau entier plutot qu'une IP.
+        for ip in ("192.168.1.1", "192.168.1.254"):
+            with self.subTest(ip=ip):
+                self.assertTrue(
+                    self.handler(ip, ip, trusted_host="192.168.1.0/24").hote_autorise()
+                )
+
+    def test_hote_de_confiance_cidr_refuse_hors_du_sous_reseau(self):
+        self.assertFalse(
+            self.handler("192.168.2.5", "192.168.2.5",
+                        trusted_host="192.168.1.0/24").hote_autorise()
+        )
+
+    def test_hote_de_confiance_cidr_malforme_refuse_sans_lever(self):
+        # trusted_host est un reglage persiste : une valeur corrompue sur
+        # disque (edition manuelle du fichier de reglages, vieux format)
+        # ne doit jamais faire planter la verification, seulement l'echouer.
+        self.assertFalse(
+            self.handler("192.168.1.1", "192.168.1.1",
+                        trusted_host="not/a/cidr").hote_autorise()
+        )
+
     def test_hote_de_confiance_n_elargit_pas_a_un_host_different(self):
         self.assertFalse(
             self.handler("100.101.194.5", "un-autre-host.example",

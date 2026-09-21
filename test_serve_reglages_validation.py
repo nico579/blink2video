@@ -353,14 +353,33 @@ class TestsValidationReglagesHttp(unittest.TestCase):
         handler = self.requete(self.payload(trusted_host="  100.101.194.5  "))
         self.assert_enregistre(handler, {**DEFAUTS, "trusted_host": "100.101.194.5"})
 
-    def test_hote_de_confiance_avec_espace_ou_barre_refuse(self):
-        for valeur in ("100.101.194.5/etc", "http://100.101.194.5",
-                      "hote invalide", "100 .101.194.5"):
+    def test_hote_de_confiance_avec_espace_refuse(self):
+        for valeur in ("hote invalide", "100 .101.194.5"):
             with self.subTest(valeur=valeur):
                 self.assert_refuse(
                     self.requete(self.payload(trusted_host=valeur)),
                     f"Hôte de confiance invalide : « {valeur.strip()} ». Un nom "
-                    "d'hôte ou une adresse IP seule, sans / ni espace.")
+                    "d'hôte, une adresse IP, ou un sous-réseau CIDR "
+                    "(192.168.1.0/24), sans espace.")
+
+    def test_hote_de_confiance_avec_barre_mais_pas_un_cidr_refuse(self):
+        for valeur in ("100.101.194.5/etc", "http://100.101.194.5"):
+            with self.subTest(valeur=valeur):
+                self.assert_refuse(
+                    self.requete(self.payload(trusted_host=valeur)),
+                    f"Sous-réseau invalide : « {valeur.strip()} ». Format "
+                    "attendu : 192.168.1.0/24.")
+
+    def test_hote_de_confiance_cidr_valide_est_accepte(self):
+        # Issue #10 : un client Windows en DHCP n'a pas d'adresse fixe a
+        # mettre dans un champ IP unique - accepter un sous-reseau entier.
+        # strict=False cote hote_autorise() tolere aussi l'IP d'une machine
+        # du reseau (192.168.1.5/24) plutot que l'adresse reseau elle-meme,
+        # mais la valeur est enregistree telle quelle, sans normalisation.
+        for valeur in ("192.168.1.0/24", "192.168.1.5/24"):
+            with self.subTest(valeur=valeur):
+                handler = self.requete(self.payload(trusted_host=valeur))
+                self.assert_enregistre(handler, {**DEFAUTS, "trusted_host": valeur})
 
     def test_webhook_notif_url_absent_ou_vide_vaut_desactive(self):
         for valeur in (None, "", "   "):

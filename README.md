@@ -263,6 +263,13 @@ between. Only ever trust that one specific address, and keep `BLINK_BIND`
 on it too, never `0.0.0.0`, which would accept the same `Host` from the LAN
 as well and defeat the point.
 
+Trusted host also accepts a whole subnet in CIDR notation, e.g.
+`192.168.1.0/24`, for a client without a fixed address (a Windows machine on
+DHCP, say) rather than one specific VPN peer. This is a different, wider
+guarantee: any device already on that subnet gets the same unauthenticated
+access, not just the one machine a VPN tunnel would let through. Reasonable
+on a trusted home LAN, never on anything you don't fully control.
+
 </details>
 
 ## The interface

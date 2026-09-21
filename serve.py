@@ -1712,10 +1712,18 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
     reglages["box_opacity"] = box_opacity
 
     trusted_host = str(payload.get("trusted_host") or "").strip()
-    if trusted_host and (" " in trusted_host or "/" in trusted_host):
+    if trusted_host and " " in trusted_host:
         raise _ReglagesInvalides(
             f"Hôte de confiance invalide : « {trusted_host} ». Un nom "
-            "d'hôte ou une adresse IP seule, sans / ni espace.")
+            "d'hôte, une adresse IP, ou un sous-réseau CIDR (192.168.1.0/24), "
+            "sans espace.")
+    if trusted_host and "/" in trusted_host:
+        try:
+            ipaddress.ip_network(trusted_host, strict=False)
+        except ValueError as erreur:
+            raise _ReglagesInvalides(
+                f"Sous-réseau invalide : « {trusted_host} ». Format attendu : "
+                "192.168.1.0/24.") from erreur
     reglages["trusted_host"] = trusted_host
 
     webhook_notif_url = str(payload.get("webhook_notif_url") or "").strip()
@@ -1786,6 +1794,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except OSError:
             pass
 
+    @staticmethod
+    def _hote_correspond(hote: str, hote_confiance: str) -> bool:
+        """Vrai si `hote` (Host ou Origin, déjà réduit au hostname) est
+        couvert par `hote_confiance`.
+
+        `hote_confiance` est soit une IP/nom d'hôte exact (comparaison de
+        chaîne, comme avant), soit un sous-réseau CIDR (192.168.1.0/24,
+        issue #10 : un client Windows en DHCP n'a pas d'adresse fixe à
+        mettre dans un champ IP unique). ip_network(..., strict=False)
+        tolère aussi qu'on y colle l'adresse d'une machine du réseau plutôt
+        que l'adresse réseau elle-même (192.168.1.5/24), erreur de saisie
+        probable et sans ambiguïté sur l'intention. Jamais de ValueError
+        remontée : un hote ou un CIDR mal formé se traite comme "pas de
+        correspondance", pas comme une erreur serveur."""
+        if not hote_confiance:
+            return False
+        if "/" in hote_confiance:
+            try:
+                return ipaddress.ip_address(hote) in ipaddress.ip_network(hote_confiance, strict=False)
+            except ValueError:
+                return False
+        return hote == hote_confiance
+
     def hote_autorise(self) -> bool:
         """Faux si Host (ou Origin, quand le navigateur l'envoie) ne désigne
         pas cette machine.
@@ -1812,11 +1843,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # depuis la boucle locale. N'a de sens qu'avec BLINK_BIND réglé sur
         # cette même adresse précise, jamais 0.0.0.0 (qui accepterait alors
         # n'importe quelle interface, LAN compris, sous ce même Host).
+        #
+        # Sous-réseau CIDR (192.168.1.0/24 plutôt qu'une IP unique) : la
+        # garantie change de nature, elle ne vient plus de "seul ce tunnel
+        # chiffré peut router un paquet ici" mais de "seul ce réseau local
+        # peut" - tout appareil qui y est déjà, y compris un invité ou un
+        # objet connecté compromis, gagne alors le même accès sans
+        # authentification. Un choix a assumer sciemment pour un LAN
+        # domestique de confiance, jamais pour un tunnel qui doit rester
+        # aussi étroit qu'une seule machine.
         hote_confiance = (self.trusted_host or "").strip()
-        hotes_valides = self._HOTES_LOCAUX + ((hote_confiance,) if hote_confiance else ())
         hote = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
-        if hote not in hotes_valides:
-            self._journaliser_acces_refuse(f"Host {hote!r} absent de {hotes_valides!r}")
+        hote_est_local = hote in self._HOTES_LOCAUX
+        hote_est_confiance = self._hote_correspond(hote, hote_confiance)
+        if not hote_est_local and not hote_est_confiance:
+            self._journaliser_acces_refuse(
+                f"Host {hote!r} ni local, ni couvert par trusted_host {hote_confiance!r}")
             return False
         # Host est fourni par le client et se forge avec curl : il ne constitue
         # pas une frontière réseau à lui seul. Hors conteneur ou tunnel de
@@ -1830,12 +1872,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             boucle_locale = False
         proxy_local = os.environ.get("BLINK_TRUSTED_LOOPBACK_PROXY") == "1"
-        tunnel_direct = bool(hote_confiance) and hote == hote_confiance
-        if not boucle_locale and not proxy_local and not tunnel_direct:
+        if not boucle_locale and not proxy_local and not hote_est_confiance:
             self._journaliser_acces_refuse(
                 f"ni boucle locale (IP cliente {client!r}), ni "
-                f"BLINK_TRUSTED_LOOPBACK_PROXY, ni tunnel_direct "
-                f"(Host {hote!r} != trusted_host {hote_confiance!r})")
+                f"BLINK_TRUSTED_LOOPBACK_PROXY, ni trusted_host "
+                f"(Host {hote!r}, trusted_host {hote_confiance!r})")
             return False
         origine = self.headers.get("Origin")
         if origine:
@@ -1851,10 +1892,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 origine_hote = urlparse(origine).hostname
             except ValueError:
                 origine_hote = None
-            if origine_hote not in hotes_valides:
+            origine_ok = origine_hote is not None and (
+                origine_hote in self._HOTES_LOCAUX
+                or self._hote_correspond(origine_hote, hote_confiance)
+            )
+            if not origine_ok:
                 self._journaliser_acces_refuse(
                     f"Origin {origine!r} (hostname {origine_hote!r}) "
-                    f"absent de {hotes_valides!r}")
+                    f"ni local, ni couvert par trusted_host {hote_confiance!r}")
                 return False
         return True
 

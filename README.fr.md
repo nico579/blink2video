@@ -283,6 +283,15 @@ faites confiance qu'à cette adresse précise, et gardez `BLINK_BIND` sur
 elle aussi, jamais `0.0.0.0`, qui accepterait alors le même `Host` depuis le
 LAN aussi et annulerait l'intérêt.
 
+L'hôte de confiance accepte aussi tout un sous-réseau en notation CIDR, par
+exemple `192.168.1.0/24`, pour un client sans adresse fixe (une machine
+Windows en DHCP, par exemple) plutôt qu'un seul pair VPN précis. C'est une
+garantie différente, plus large : n'importe quel appareil déjà sur ce
+sous-réseau obtient le même accès sans authentification, pas seulement
+l'unique machine qu'un tunnel VPN laisserait passer. Raisonnable sur un LAN
+domestique de confiance, jamais sur un réseau que vous ne maîtrisez pas
+entièrement.
+
 </details>
 
 ## L'interface
