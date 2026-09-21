@@ -3995,7 +3995,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             self.send_error(400)
             return
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self.send_error(400)
+            return
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
         except json.JSONDecodeError:
