@@ -4415,7 +4415,7 @@ __CSS__
         même adresse (voir le README, section « Reaching it remotely ») : ce
         réglage seul, sans elle, ne change rien à qui peut atteindre l'interface.
       </p>
-      <div class="champCadence">
+      <div class="champDossier">
         <label for="trustedHost" data-i18n="reglages.trustedHost">Hôte de confiance</label>
         <input type="text" id="trustedHost" placeholder="100.x.y.z">
       </div>
@@ -4428,7 +4428,7 @@ __CSS__
         caméra, pour déclencher une photo à distance. Le secret fait partie de
         l'URL : gardez-la privée.
       </p>
-      <div class="champCadence">
+      <div class="champDossier">
         <label for="webhookUrl" data-i18n="reglages.webhook.url">URL</label>
         <input type="text" id="webhookUrl" readonly>
       </div>
