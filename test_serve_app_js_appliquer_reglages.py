@@ -51,6 +51,7 @@ const elements = Object.fromEntries(Object.entries({
   storageDir: ' clips ', liveProtocol: 'mse',
   fontSize: '', fontColor: 'white', boxOpacity: '0.55',
   trustedHost: '100.101.194.5', webhookNotifUrl: 'https://exemple.invalid/notif',
+  liveAutoStopSeconds: '0',
 }).map(([id, value]) => [id, {value}]));
 for (const [id, checked] of Object.entries({
   timestamp: true, mergeJour: true, mergeSemaine: false,
@@ -211,6 +212,7 @@ function instantane() {
             "font_size": None, "font_color": "white", "box_opacity": 0.55,
             "trusted_host": "100.101.194.5",
             "webhook_notif_url": "https://exemple.invalid/notif",
+            "live_auto_stop_seconds": 0,
         })
         self._verifier_attente(resultat["apresPost"], 2000, 45000)
         self.assertEqual(resultat["alertes"], [])
@@ -227,6 +229,11 @@ function instantane() {
         self.assertEqual([payload[cle] for cle in (
             "timestamp", "merge_jour", "merge_semaine", "merge_mois", "download_auto",
         )], [False, False, True, False, True])
+
+    def test_arret_auto_direct_transmis_en_nombre(self):
+        resultat = self._executer(valeurs={"liveAutoStopSeconds": "300"})
+        payload = json.loads(resultat["requetes"][0]["options"]["body"])
+        self.assertEqual(payload["live_auto_stop_seconds"], 300)
 
     def test_taille_de_police_vide_devient_null_sinon_un_entier(self):
         resultat = self._executer(valeurs={"fontSize": "  40  "})

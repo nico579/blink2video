@@ -38,7 +38,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.12.44"
+VERSION = "0.13.0"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -70,7 +70,8 @@ REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timesta
                    "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": False,
                    "merge_mois": False, "download_auto": True, "live_protocol": "webrtc",
                    "font_size": None, "font_color": "white", "box_opacity": 0.55,
-                   "trusted_host": "", "webhook_notif_url": ""}
+                   "trusted_host": "", "webhook_notif_url": "",
+                   "live_auto_stop_seconds": 0}
 # Remplace la variable d'environnement BLINK_DIRECT_WEBRTC (experimentale,
 # BACKLOG.md 2026-09-03) une fois WebRTC valide en usage reel : un vrai
 # reglage, pas juste une variable a poser avant de lancer le serveur. "mse"
@@ -196,6 +197,9 @@ def lire_reglages() -> dict:
             "trusted_host", REGLAGES_DEFAUT["trusted_host"])).strip(),
         "webhook_notif_url": str(valeurs.get(
             "webhook_notif_url", REGLAGES_DEFAUT["webhook_notif_url"])).strip(),
+        "live_auto_stop_seconds": _entier_borne(
+            valeurs, "live_auto_stop_seconds",
+            REGLAGES_DEFAUT["live_auto_stop_seconds"], 0, 86400),
     }
 
 
@@ -223,6 +227,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
                     font_size: int | None = None, font_color: str = "white",
                     box_opacity: float = 0.55, trusted_host: str = "",
                     webhook_notif_url: str = "",
+                    live_auto_stop_seconds: int = 0,
                     dossier: Path | None = None) -> None:
     cible = (app_dir() if dossier is None else dossier) / REGLAGES
     _ecrire_texte_atomique(cible, json.dumps({
@@ -235,6 +240,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
         "font_color": str(font_color), "box_opacity": float(box_opacity),
         "trusted_host": str(trusted_host).strip(),
         "webhook_notif_url": str(webhook_notif_url).strip(),
+        "live_auto_stop_seconds": int(live_auto_stop_seconds),
     }))
 
 

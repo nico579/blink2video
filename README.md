@@ -270,6 +270,13 @@ guarantee: any device already on that subnet gets the same unauthenticated
 access, not just the one machine a VPN tunnel would let through. Reasonable
 on a trusted home LAN, never on anything you don't fully control.
 
+Setting a single exact trusted host (an IP or hostname, not a CIDR subnet)
+also allows embedding the page in an `<iframe>` from that address, e.g. a
+home automation dashboard like ioBroker. Without it, the page always refuses
+to be framed at all (`Content-Security-Policy: frame-ancestors 'none'`),
+the standard defense against clickjacking. A CIDR subnet never unlocks
+this, there's no way to name "any host on this subnet" in that policy.
+
 </details>
 
 ## The interface

@@ -113,6 +113,8 @@ const I18N = {
     "reglages.liveProtocol": "Protocole du direct",
     "reglages.liveProtocol.webrtc": "WebRTC (rapide)",
     "reglages.liveProtocol.mse": "MSE (compatible)",
+    "reglages.liveAutoStop": "Arrêt auto du direct (s)",
+    "reglages.liveAutoStop.hint": "Arrête le direct tout seul après ce délai. Utile pour une caméra sur batterie qu'on oublierait de couper. Vide ou 0 = jamais, comme avant.",
     "reglages.archivage": "Création des vidéos temporelles par caméra",
     "reglages.downloadAuto": "Télécharger les clips automatiquement",
     "reglages.downloadAuto.hint": "Décochée, aucun clip n'est plus récupéré ni stocké : utile pour ne garder que le direct. Les cadences ci-dessous n'ont alors plus d'effet.",
@@ -202,6 +204,8 @@ const I18N = {
     "range.custom.hint": "Ou une plage précise, à l'heure près :",
     "filtre.button": "🔍 Filtre", "filtre.button.title": "Filtrer",
     "filtre.title": "Filtre", "filtre.camera": "Caméra",
+    "filtre.groupBy": "Grouper par", "filtre.groupBy.camera": "Caméra",
+    "filtre.groupBy.day": "Jour",
     "range.from": "Du", "range.to": "au", "range.apply": "Filtrer",
     "videos.count": "{n} vidéo(s) · {duree} au total",
     "videos.none": "Aucune vidéo assemblée. Lancez une actualisation.",
@@ -276,6 +280,8 @@ const I18N = {
     "reglages.liveProtocol": "Live view protocol",
     "reglages.liveProtocol.webrtc": "WebRTC (fast)",
     "reglages.liveProtocol.mse": "MSE (compatible)",
+    "reglages.liveAutoStop": "Auto-stop live view (s)",
+    "reglages.liveAutoStop.hint": "Stops the live view on its own after this delay. Useful for a battery-powered camera you'd forget to turn off. Empty or 0 = never, same as before.",
     "reglages.archivage": "Per-camera time-based video creation",
     "reglages.downloadAuto": "Download clips automatically",
     "reglages.downloadAuto.hint": "Unchecked, no clip is fetched or stored anymore: useful to keep only the live view. The cadences below then have no effect.",
@@ -365,6 +371,8 @@ const I18N = {
     "range.custom.hint": "Or a precise range, down to the hour:",
     "filtre.button": "🔍 Filter", "filtre.button.title": "Filter",
     "filtre.title": "Filter", "filtre.camera": "Camera",
+    "filtre.groupBy": "Group by", "filtre.groupBy.camera": "Camera",
+    "filtre.groupBy.day": "Day",
     "range.from": "From", "range.to": "to", "range.apply": "Filter",
     "videos.count": "{n} video(s) · {duree} total",
     "videos.none": "No assembled video. Run a refresh.",
@@ -542,6 +550,11 @@ function render() {
   // lisent toujours pas.
   $("filtreButton").hidden = kind === "live";
   $("periodeSection").hidden = !carteClips;
+  // Grouper par jour n'a de sens que pour les journalieres : hebdomadaires
+  // et mensuelles n'ont qu'un seul fichier par semaine/mois et par camera,
+  // regrouper par jour n'y changerait rien (issue #14 : "week and month
+  // makes no sense" pour ce mode, dixit le rapporteur).
+  $("groupBySection").hidden = kind !== "daily";
   $("filtreResume").textContent = carteClips ? resumeFiltre() : "";
   // Le décompte n'a de sens que pour clips/direct ; renderClips() le repose
   // à chaque rendu, mais quitter cette vue doit l'effacer, pas le laisser
@@ -960,6 +973,8 @@ function stopWatch(name, beacon = false) {
   // flux ci-dessous ne doit jamais en dépendre.
   const box = $("live-" + cssId(name));
   if (box) box.innerHTML = repos(name, t("watch.live"));
+  const autoStopTimer = LIVE_AUTO_STOP_TIMER[name];
+  if (autoStopTimer) { clearTimeout(autoStopTimer); delete LIVE_AUTO_STOP_TIMER[name]; }
   const pending = LIVE_PENDING[name];
   if (pending) { pending.abort(); delete LIVE_PENDING[name]; }
   const controller = MSE_ABORT[name];
@@ -1374,6 +1389,7 @@ const WEBRTC_PC = {};
 const WEBRTC_ABORT = {};
 const WEBRTC_SESSION = {};
 const LIVE_PENDING = {};
+const LIVE_AUTO_STOP_TIMER = {};
 const WEBRTC_MAX_ECHECS = 5;
 const WEBRTC_DELAI_RECONNEXION_MS = 3000;
 const WEBRTC_DELAI_MODULE_OCCUPE_MS = 10000;
@@ -1420,6 +1436,10 @@ async function watchLive(name) {
   for (const autre of nomsDirectsActifs()) stopWatch(autre);
   const controller = new AbortController();
   LIVE_PENDING[name] = controller;
+  const autoStopSeconds = Number(system && system.live_auto_stop_seconds) || 0;
+  if (autoStopSeconds > 0) {
+    LIVE_AUTO_STOP_TIMER[name] = setTimeout(() => stopWatch(name), autoStopSeconds * 1000);
+  }
   const t0 = performance.now();
   let budgetEcoule = false;
   const idBudget = setTimeout(() => {
@@ -1986,11 +2006,28 @@ function renderVideos(kind) {
     $("list").innerHTML = `<p class="empty">${t("videos.none")}</p>`;
     return;
   }
-  const cameras = [...new Set(items.map((v) => v.camera))];
-  $("list").innerHTML = cameras.map((camera) => `
-    <h2>${h(camera)}</h2>
+  // Grouper par jour (issue #14) : toutes les cameras d'une meme
+  // journaliere ensemble, sans avoir a rouvrir chaque camera pour
+  // comparer un meme jour. label d'une journaliere est deja AAAA-MM-JJ
+  // (nom_fichier = f"{day}_{camera}.mp4", merge_daily.py) : le tri
+  // alphabetique EST le tri chronologique, pas besoin de le reparser.
+  // N'a de sens que pour "daily" (render() cache le selecteur sinon) :
+  // hebdomadaires/mensuelles n'ont qu'un seul fichier par periode et par
+  // camera, un groupement par "jour" n'y changerait rien.
+  const parJour = kind === "daily" && $("groupBy").value === "day";
+  const cles = parJour
+    ? [...new Set(items.map((v) => v.label))].sort().reverse()
+    : [...new Set(items.map((v) => v.camera))];
+  const correspond = parJour
+    ? (v, cle) => v.label === cle
+    : (v, cle) => v.camera === cle;
+  const titre = parJour ? (cle) => dateLocale(cle) : (cle) => cle;
+  $("list").innerHTML = cles.map((cle) => `
+    <h2>${h(titre(cle))}</h2>
     <div class="grid wide">
-      ${items.filter((v) => v.camera === camera).map(videoCard).join("")}
+      ${items.filter((v) => correspond(v, cle))
+        .sort((a, b) => parJour ? a.camera.localeCompare(b.camera) : 0)
+        .map((v) => videoCard(v, parJour)).join("")}
     </div>
   `).join("");
 }
@@ -2001,6 +2038,15 @@ function dateSnapshot(horodatage) {
   const m = horodatage.match(/^(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})Z_/);
   if (!m) return horodatage;
   return new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}Z`).toLocaleString();
+}
+
+// label d'une journaliere est AAAA-MM-JJ (voir renderVideos) : sans heure,
+// interpreter en UTC minuit puis reformater en date locale evite qu'un
+// fuseau a l'ouest de UTC ne fasse glisser l'affichage sur la veille.
+function dateLocale(jour) {
+  const m = jour.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return jour;
+  return new Date(`${jour}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC" });
 }
 
 function renderPictures() {
@@ -2032,16 +2078,19 @@ function pictureCard(s) {
   </div>`;
 }
 
-function videoCard(v) {
+function videoCard(v, parJour = false) {
   const url = `${v.kind}/${encodeURI(v.path)}`;
   const media = avecJeton(`/media/${url}`);
   const poster = avecJeton(`/thumb/${url}`);
+  // Groupe par jour (issue #14) : le h2 porte deja la date, repeter le
+  // meme label sur chaque carte n'apprendrait rien - la camera, elle,
+  // n'apparait plus nulle part ailleurs dans ce mode.
   return `<div class="card">
     <video preload="none" controls playsinline
            poster="${h(poster)}" src="${h(media)}"></video>
     <div class="meta">
       <div>
-        <div class="time">${h(v.label)}</div>
+        <div class="time">${h(parJour ? v.camera : v.label)}</div>
         <div class="sub">${h(duration(v.duration))}</div>
       </div>
       <a class="act" href="${h(media)}" download>${h(t("videos.download"))}</a>
@@ -2561,6 +2610,7 @@ function afficherFormulaireReglages(reglages) {
   $("storageDir").value = reglages.storage_dir;
   $("trustedHost").value = reglages.trusted_host || "";
   $("webhookNotifUrl").value = reglages.webhook_notif_url || "";
+  $("liveAutoStopSeconds").value = reglages.live_auto_stop_seconds || "";
   $("timestamp").checked = reglages.timestamp;
   $("fontSize").value = reglages.font_size ?? "";
   $("fontColor").value = reglages.font_color;
@@ -2804,6 +2854,7 @@ async function envoyerFormulaireReglages({ usb, cloud, port, timezone }) {
       storage_dir: $("storageDir").value.trim(),
       trusted_host: $("trustedHost").value.trim(),
       webhook_notif_url: $("webhookNotifUrl").value.trim(),
+      live_auto_stop_seconds: Number($("liveAutoStopSeconds").value) || 0,
       timestamp: $("timestamp").checked, timezone,
       live_protocol: $("liveProtocol").value,
       merge_jour: $("mergeJour").checked,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.server
 import os
 import tempfile
 import unittest
@@ -143,6 +144,37 @@ class SecuriteWebTests(unittest.TestCase):
         self.assertNotIn("onchange=", serve.PAGE)
         self.assertIn(f'<script nonce="{serve.SCRIPT_NONCE}">', serve.PAGE)
         self.assertIn("const h =", serve.PAGE)
+
+    def _frame_ancestors(self, trusted_host: str) -> str:
+        handler = self.handler(trusted_host=trusted_host)
+        handler.send_header = mock.Mock()
+        with mock.patch.object(http.server.BaseHTTPRequestHandler, "end_headers"):
+            handler.end_headers()
+        (nom, valeur), = (
+            appel.args for appel in handler.send_header.call_args_list
+            if appel.args[0] == "Content-Security-Policy"
+        )
+        return next(
+            directive for directive in valeur.split("; ")
+            if directive.startswith("frame-ancestors")
+        )
+
+    def test_frame_ancestors_none_sans_hote_de_confiance(self):
+        self.assertEqual(self._frame_ancestors(""), "frame-ancestors 'none'")
+
+    def test_frame_ancestors_autorise_l_hote_de_confiance_exact(self):
+        # Issue #12 : embarquer la page dans un tableau de bord domotique
+        # (ioBroker en iframe). Sur le meme hote que trusted_host puisque
+        # c'est deja la garantie de securite en place pour l'acces direct.
+        self.assertEqual(
+            self._frame_ancestors("192.168.201.253"),
+            "frame-ancestors 'self' 192.168.201.253")
+
+    def test_frame_ancestors_reste_none_pour_un_sous_reseau_cidr(self):
+        # frame-ancestors n'a pas de syntaxe pour un sous-reseau : accepter
+        # un CIDR ici donnerait une fausse impression de protection.
+        self.assertEqual(
+            self._frame_ancestors("192.168.1.0/24"), "frame-ancestors 'none'")
 
 
 class IdentiteCameraTests(unittest.TestCase):

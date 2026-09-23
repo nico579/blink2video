@@ -1744,6 +1744,16 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
                 "adresse http:// ou https:// complète, ou vide pour désactiver.")
     reglages["webhook_notif_url"] = webhook_notif_url
 
+    try:
+        live_auto_stop_seconds = int(payload.get("live_auto_stop_seconds", 0) or 0)
+        if not 0 <= live_auto_stop_seconds <= 86400:
+            raise ValueError
+    except (TypeError, ValueError) as erreur:
+        raise _ReglagesInvalides(
+            "L'arrêt automatique du direct doit être un nombre de secondes "
+            "entre 0 (désactivé) et 86400 (24h).") from erreur
+    reglages["live_auto_stop_seconds"] = live_auto_stop_seconds
+
     return dossier, reglages
 
 
@@ -1921,16 +1931,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return any(value == TOKEN for value in valeurs)
 
     def end_headers(self) -> None:
-        # cadre 'none' : même une page de ce site ne doit pas pouvoir
+        # 'none' par défaut : même une page de ce site ne doit pas pouvoir
         # s'afficher dans un <iframe>, dernier rempart contre le
         # détournement de clic (cliquer sur un bouton qu'on croit ailleurs).
+        # Assoupli à trusted_host (issue #12 : embarquer la page dans un
+        # tableau de bord domotique type ioBroker) - seulement quand c'est
+        # un hôte/IP exact, jamais un sous-réseau CIDR : frame-ancestors n'a
+        # pas de syntaxe pour un sous-réseau, et l'accepter en silence
+        # laisserait croire à une protection qui n'opère pas.
+        hote_confiance = (self.trusted_host or "").strip()
+        frame_ancestors = "'none'"
+        if hote_confiance and "/" not in hote_confiance:
+            frame_ancestors = f"'self' {hote_confiance}"
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; "
             f"script-src 'nonce-{SCRIPT_NONCE}'; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
             "media-src 'self' blob:; connect-src 'self'; object-src 'none'; "
-            "base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+            f"base-uri 'none'; form-action 'self'; frame-ancestors {frame_ancestors}",
         )
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -2299,6 +2318,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         state = BLINK.call(read, timeout=60)
         remember_cameras(self.paths, state.get("systems") or [])
         state["webrtc"] = WEBRTC_ACTIF
+        # Relu a chaque appel, contrairement a WEBRTC_ACTIF (fige a l'import
+        # du process) : un changement depuis les Reglages redemarre deja le
+        # serveur, mais watchLive() lit ce champ pendant un direct deja en
+        # cours, bien apres ce redemarrage-la.
+        state["live_auto_stop_seconds"] = runtime.lire_reglages()["live_auto_stop_seconds"]
         return state
 
     def set_armed(self, scope: str, identity: str, armed: bool) -> None:
@@ -2486,8 +2510,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         try:
             chemin = self.declencher_snapshot(camera)
-            relatif = chemin.relative_to(self.paths["snapshots"]).as_posix()
-            self.send_json({"ok": True, "fichier": relatif})
+            # "chemin", pas "fichier" : meme cle et meme forme (chemin
+            # absolu complet) que le webhook sortant (notifier_nouveau_media),
+            # pour qu'un meme script cote domotique lise les deux de la
+            # meme facon (issue #16 : la reponse ne donnait avant que le
+            # chemin relatif sous Pictures/, sous une cle differente).
+            self.send_json({"ok": True, "chemin": str(chemin)})
         except blink_engine.BusyError as erreur:
             self.send_json({"error": str(erreur)}, 409)
         except Exception as erreur:
@@ -4433,6 +4461,11 @@ __CSS__
           <option value="mse" data-i18n="reglages.liveProtocol.mse">MSE (compatible)</option>
         </select>
       </div>
+      <div class="champCadence" data-i18n-title="reglages.liveAutoStop.hint"
+           title="Arrête le direct tout seul après ce délai. Utile pour une caméra sur batterie qu'on oublierait de couper. Vide ou 0 = jamais, comme avant.">
+        <label for="liveAutoStopSeconds" data-i18n="reglages.liveAutoStop">Arrêt auto du direct (s)</label>
+        <input type="number" id="liveAutoStopSeconds" min="0" max="86400" placeholder="0">
+      </div>
     </fieldset>
     <fieldset>
       <legend data-i18n="reglages.archivage"
@@ -4522,6 +4555,13 @@ __CSS__
   <div class="champCadence">
     <label for="camera" data-i18n="filtre.camera">Caméra</label>
     <select id="camera"></select>
+  </div>
+  <div class="champCadence" id="groupBySection" hidden>
+    <label for="groupBy" data-i18n="filtre.groupBy">Grouper par</label>
+    <select id="groupBy">
+      <option value="camera" data-i18n="filtre.groupBy.camera">Caméra</option>
+      <option value="day" data-i18n="filtre.groupBy.day">Jour</option>
+    </select>
   </div>
   <label id="outLabel">
     <input type="checkbox" id="showOut"> <span data-i18n="reglages.showOut">Voir les clips écartés</span>

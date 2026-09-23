@@ -24,6 +24,7 @@ DEFAUTS = {
     "live_protocol": "webrtc",
     "font_size": None, "font_color": "white", "box_opacity": 0.55,
     "trusted_host": "", "webhook_notif_url": "",
+    "live_auto_stop_seconds": 0,
 }
 CHAMPS_BOOLEENS = (
     "timestamp", "merge_jour", "merge_semaine", "merge_mois", "download_auto")
@@ -118,6 +119,7 @@ class TestsValidationReglagesHttp(unittest.TestCase):
             "download_auto": True, "live_protocol": "mse",
             "font_size": None, "font_color": "white", "box_opacity": 0.55,
             "trusted_host": "", "webhook_notif_url": "",
+            "live_auto_stop_seconds": 0,
         }, "archives locales")
         self.chemin.assert_called_once_with("archives locales")
 
@@ -409,6 +411,33 @@ class TestsValidationReglagesHttp(unittest.TestCase):
                     self.requete(self.payload(webhook_notif_url=valeur)),
                     f"URL de notification invalide : « {valeur} ». Une "
                     "adresse http:// ou https:// complète, ou vide pour désactiver.")
+
+    def test_arret_auto_direct_absent_vaut_desactive(self):
+        for valeur in (None, "", 0):
+            with self.subTest(valeur=valeur):
+                payload = self.payload()
+                if valeur is not None:
+                    payload["live_auto_stop_seconds"] = valeur
+                handler = self.requete(payload)
+                self.assert_enregistre(handler, DEFAUTS)
+
+    def test_arret_auto_direct_valide_est_converti_en_entier(self):
+        handler = self.requete(self.payload(live_auto_stop_seconds="120"))
+        self.assert_enregistre(handler, {**DEFAUTS, "live_auto_stop_seconds": 120})
+
+    def test_arret_auto_direct_hors_plage_ou_invalide_refuse(self):
+        message = ("L'arrêt automatique du direct doit être un nombre de secondes "
+                   "entre 0 (désactivé) et 86400 (24h).")
+        for valeur in (-1, 86401, "beaucoup"):
+            with self.subTest(valeur=valeur):
+                self.assert_refuse(
+                    self.requete(self.payload(live_auto_stop_seconds=valeur)), message)
+
+    def test_arret_auto_direct_bornes_incluses_acceptees(self):
+        for valeur in (0, 86400):
+            with self.subTest(valeur=valeur):
+                handler = self.requete(self.payload(live_auto_stop_seconds=valeur))
+                self.assert_enregistre(handler, {**DEFAUTS, "live_auto_stop_seconds": valeur})
 
     def test_ordre_des_refus_nombres_dossier_fuseau_puis_protocole(self):
         payload = self.payload(usb_minutes=0, storage_dir="archives",

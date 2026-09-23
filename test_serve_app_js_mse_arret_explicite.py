@@ -45,6 +45,7 @@ function repos(name, libelle) {{ return `repos:${{name}}:${{libelle}}`; }}
 function t(cle) {{ return cle; }}
 
 const LIVE_PENDING = {{}};
+const LIVE_AUTO_STOP_TIMER = {{}};
 const MSE_ABORT = {{}};
 const MSE_SESSION = {{}};
 const WEBRTC_ABORT = {{}};
