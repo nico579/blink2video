@@ -727,11 +727,20 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0,
     import webbrowser
 
     delai = float(os.environ.get("BLINK_ONBOARDING_TIMEOUT", delai))
+    # Même bloc fixe que la composition complète (runtime.standard() : port,
+    # fuseau et hôte de confiance enregistrés), suivi du supplément tapé à la
+    # main, qui l'emporte (argparse retient la dernière occurrence). Sans lui,
+    # le serveur temporaire partait sur le 8765 codé en dur de serve.py alors
+    # que l'utilisateur avait choisi un autre port dans les réglages - souvent
+    # précisément parce que 8765 était pris : session expirée + port
+    # personnalisé = connexion impossible (audit du 2026-09-24).
+    options_serveur = [*runtime.standard()[1:runtime.LONGUEUR_BLOC_SERVE],
+                       *supplement]
     # Le parseur minimal commun comprend les deux formes argparse,
     # ``--port 9000`` et ``--port=9000``. Une seconde extraction manuelle
     # vivait auparavant ici : la forme avec ``=`` lançait bien serve sur le
     # port demandé, mais l'onboarding sondait et ouvrait encore 8765.
-    port = _port_demande(supplement) or 8765
+    port = _port_demande(options_serveur)
 
     connexion_requise = not bool(etat.get("authenticated"))
     if etat.get("error"):
@@ -741,7 +750,6 @@ def accueillir(etat: dict, supplement: list, delai: float = 600.0,
     elif configuration_initiale:
         print(msg("premiere_utilisation"))
 
-    options_serveur = [*supplement]
     if configuration_initiale:
         options_serveur.append("--initial-setup")
     processus = runtime.demarrer(

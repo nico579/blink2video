@@ -621,6 +621,15 @@ class TestsDefautsSynchrones(BacASable):
             [["watch", "--loop"], ["download"]],
         )
 
+    def test_I11_hote_de_confiance_nomme_comme_un_verbe_reste_une_valeur(self):
+        """runtime.standard() écrit toujours --trusted-host : une valeur
+        « watch » ne doit pas ouvrir un groupe et priver serve de sa valeur."""
+        self.assertEqual(
+            runtime.decouper_verbes(
+                ["serve", "--trusted-host", "watch", "watch", "--loop", "10"]),
+            [["serve", "--trusted-host", "watch"], ["watch", "--loop", "10"]],
+        )
+
     def test_I11_loop_suivi_d_un_nombre_reste_sa_valeur(self):
         """Non-régression : --loop 10 continue de fonctionner normalement."""
         self.assertEqual(

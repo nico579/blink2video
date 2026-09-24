@@ -467,12 +467,18 @@ def load_json(path: Path, default: dict) -> dict:
 
 
 def save_json(path: Path, value: dict) -> None:
+    """Remplace ``path`` atomiquement.
+
+    Temporaire propre à chaque appel, comme runtime._ecrire_texte_atomique :
+    un nom fixe (``path.with_suffix(".tmp")``) était partagé par tous les
+    écrivains. serve.py tourne sur un ThreadingHTTPServer et la page charge
+    /api/clips et /api/videos en parallèle, qui réécrivent tous deux
+    ASSEMBLED_DURATIONS : le second ``replace`` trouvait le temporaire déjà
+    consommé par le premier (FileNotFoundError, reproduit 197 fois sur 600
+    écritures concurrentes, audit du 2026-09-24)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(value, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    temporary.replace(path)
+    runtime._ecrire_texte_atomique(
+        path, json.dumps(value, indent=2, ensure_ascii=False))
 
 
 def find_ffmpeg() -> str:

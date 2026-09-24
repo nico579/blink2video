@@ -2153,6 +2153,11 @@ _OPTIONS_VALEUR_UNIQUE = frozenset((
     "--input", "--weekly-output", "--monthly-output", "--normalized-output",
     "--excluded-output", "--timezone", "--date", "--font", "--preset",
     "--crf", "--thumbs", "--usb-loop", "--cloud-loop",
+    # Écrit par standard() dans chaque « start » : un hôte de confiance
+    # nommé comme un verbe (« watch », « list »...) ouvrait sinon un nouveau
+    # groupe, et serve refusait de démarrer faute de valeur (audit du
+    # 2026-09-24).
+    "--trusted-host",
 ))
 # Options « nargs=+ » : consomment tous les mots qui suivent tant qu'aucun
 # ne ressemble à une option (« watch --ignore serve jardin » cible deux
