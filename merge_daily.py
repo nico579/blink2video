@@ -466,6 +466,12 @@ def load_json(path: Path, default: dict) -> dict:
         return default
 
 
+# Un verrou par fichier pour les écrivains d'un même processus (les threads
+# de serve.py) : voir save_json().
+_VERROUS_SAVE_JSON: dict = {}
+_VERROU_SAVE_JSON = threading.Lock()
+
+
 def save_json(path: Path, value: dict) -> None:
     """Remplace ``path`` atomiquement.
 
@@ -475,10 +481,27 @@ def save_json(path: Path, value: dict) -> None:
     /api/clips et /api/videos en parallèle, qui réécrivent tous deux
     ASSEMBLED_DURATIONS : le second ``replace`` trouvait le temporaire déjà
     consommé par le premier (FileNotFoundError, reproduit 197 fois sur 600
-    écritures concurrentes, audit du 2026-09-24)."""
+    écritures concurrentes, audit du 2026-09-24).
+
+    Sous Windows, remplacer un fichier qu'un autre écrivain remplace, ou
+    qu'un lecteur tient ouvert, au même instant échoue en PermissionError
+    (« Access is denied », 162 fois sur 600 en CI) : les écrivains d'un même
+    processus passent donc l'un après l'autre, et une lecture concurrente
+    (autre thread, autre processus, antivirus) est absorbée par quelques
+    nouvelles tentatives rapprochées, comme runtime._supprimer_verrou."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    runtime._ecrire_texte_atomique(
-        path, json.dumps(value, indent=2, ensure_ascii=False))
+    contenu = json.dumps(value, indent=2, ensure_ascii=False)
+    with _VERROU_SAVE_JSON:
+        verrou = _VERROUS_SAVE_JSON.setdefault(os.path.abspath(path), threading.Lock())
+    with verrou:
+        for tentative in range(10):
+            try:
+                runtime._ecrire_texte_atomique(path, contenu)
+                return
+            except PermissionError:
+                if tentative == 9:
+                    raise
+                time.sleep(0.05)
 
 
 def find_ffmpeg() -> str:
