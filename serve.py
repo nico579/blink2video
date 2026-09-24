@@ -2000,9 +2000,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # même si les réglages sont validés à l'écriture : un fichier de
         # réglages modifié à la main n'y passe pas, et un « ; » ajouterait
         # une directive à cet en-tête.
+        # « :* » obligatoire : sans port, une source CSP ne vaut que pour le
+        # port par défaut (80), et un tableau de bord servi sur 8081/8082
+        # (ioBroker) était refusé, vérifié dans Chrome. Tout port de l'hôte,
+        # comme hote_autorise() qui ignore déjà le port. Pas d'entrée IPv6 :
+        # la syntaxe CSP n'a pas de forme pour une adresse IPv6 littérale.
         exacts = [entree for entree in _entrees_confiance(self.trusted_host)
-                  if "/" not in entree and _ENTREE_CONFIANCE_RE.match(entree)]
-        frame_ancestors = ("'self' " + " ".join(exacts)) if exacts else "'none'"
+                  if "/" not in entree and ":" not in entree
+                  and _ENTREE_CONFIANCE_RE.match(entree)]
+        frame_ancestors = ("'self' " + " ".join(f"{entree}:*" for entree in exacts)
+                           if exacts else "'none'")
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; "

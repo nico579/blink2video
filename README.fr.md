@@ -292,14 +292,16 @@ l'unique machine qu'un tunnel VPN laisserait passer. Raisonnable sur un LAN
 domestique de confiance, jamais sur un réseau que vous ne maîtrisez pas
 entièrement.
 
-Un hôte de confiance exact (une IP ou un nom, pas un sous-réseau CIDR)
-permet aussi d'intégrer la page dans une `<iframe>` depuis cette adresse,
-par exemple un tableau de bord domotique comme ioBroker. Sans lui, la page
-refuse toujours d'être encadrée
+Un hôte de confiance exact (une adresse IPv4 ou un nom, pas un sous-réseau
+CIDR) permet aussi d'intégrer la page dans une `<iframe>` depuis cet hôte,
+quel que soit le port de la page qui l'intègre, par exemple un tableau de
+bord domotique comme ioBroker sur 8081 ou 8082. Sans lui, la page refuse
+toujours d'être encadrée
 (`Content-Security-Policy: frame-ancestors 'none'`), la défense standard
 contre le détournement de clic. Un sous-réseau CIDR ne débloque jamais
 cela : il n'y a aucun moyen de désigner « n'importe quel hôte de ce
-sous-réseau » dans cette politique.
+sous-réseau » dans cette politique. Une adresse IPv6 non plus, cette
+politique ne sait pas l'écrire : passez par un nom.
 
 L'hôte de confiance accepte plusieurs valeurs, séparées par des virgules,
 pour combiner ces cas : `192.168.1.10, 192.168.1.0/24, mon-pc` autorise le

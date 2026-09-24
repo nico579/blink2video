@@ -270,12 +270,14 @@ guarantee: any device already on that subnet gets the same unauthenticated
 access, not just the one machine a VPN tunnel would let through. Reasonable
 on a trusted home LAN, never on anything you don't fully control.
 
-An exact trusted host (an IP or hostname, not a CIDR subnet) also allows
-embedding the page in an `<iframe>` from that address, e.g. a home
-automation dashboard like ioBroker. Without one, the page always refuses to
-be framed at all (`Content-Security-Policy: frame-ancestors 'none'`), the
-standard defense against clickjacking. A CIDR subnet never unlocks this,
-there's no way to name "any host on this subnet" in that policy.
+An exact trusted host (an IPv4 address or hostname, not a CIDR subnet) also
+allows embedding the page in an `<iframe>` from that host, whatever port
+the embedding page is served on, e.g. a home automation dashboard like
+ioBroker on 8081 or 8082. Without one, the page always refuses to be framed
+at all (`Content-Security-Policy: frame-ancestors 'none'`), the standard
+defense against clickjacking. A CIDR subnet never unlocks this, there's no
+way to name "any host on this subnet" in that policy, and neither does an
+IPv6 address, which that policy can't express either: use a hostname.
 
 Trusted host takes several values, comma-separated, to combine these cases:
 `192.168.1.10, 192.168.1.0/24, my-pc` lets the dashboard at `192.168.1.10`

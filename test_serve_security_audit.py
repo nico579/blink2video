@@ -168,7 +168,21 @@ class SecuriteWebTests(unittest.TestCase):
         # c'est deja la garantie de securite en place pour l'acces direct.
         self.assertEqual(
             self._frame_ancestors("192.168.201.253"),
-            "frame-ancestors 'self' 192.168.201.253")
+            "frame-ancestors 'self' 192.168.201.253:*")
+
+    def test_frame_ancestors_accepte_tout_port_de_l_hote_de_confiance(self):
+        # Sans port, une source CSP ne vaut que pour le port par defaut (80) :
+        # ioBroker sert son tableau de bord sur 8081/8082, l'iframe etait
+        # refusee (verifie dans Chrome, parent sur un autre port que 80).
+        self.assertTrue(self._frame_ancestors("iobroker").endswith(" iobroker:*"))
+
+    def test_frame_ancestors_ignore_une_entree_ipv6(self):
+        # La syntaxe CSP n'a pas de forme pour une IPv6 litterale : l'emettre
+        # donnerait une source invalide, ignoree par le navigateur.
+        self.assertEqual(self._frame_ancestors("fe80::1"), "frame-ancestors 'none'")
+        self.assertEqual(
+            self._frame_ancestors("fe80::1,192.168.1.10"),
+            "frame-ancestors 'self' 192.168.1.10:*")
 
     def test_frame_ancestors_reste_none_pour_un_sous_reseau_cidr(self):
         # frame-ancestors n'a pas de syntaxe pour un sous-reseau : accepter
@@ -200,14 +214,14 @@ class SecuriteWebTests(unittest.TestCase):
     def test_frame_ancestors_liste_ne_garde_que_les_entrees_exactes(self):
         self.assertEqual(
             self._frame_ancestors("192.168.1.10,192.168.201.0/24,server"),
-            "frame-ancestors 'self' 192.168.1.10 server")
+            "frame-ancestors 'self' 192.168.1.10:* server:*")
 
     def test_frame_ancestors_ignore_une_entree_invalide_d_un_reglage_edite_a_la_main(self):
         # La page de reglages refuse deja ce « ; », mais un fichier de reglages
         # modifie a la main n'y passe pas : il ne doit rien ajouter a l'en-tete.
         self.assertEqual(
             self._frame_ancestors("iobroker;script-src,192.168.1.10"),
-            "frame-ancestors 'self' 192.168.1.10")
+            "frame-ancestors 'self' 192.168.1.10:*")
 
 
 class IdentiteCameraTests(unittest.TestCase):
