@@ -176,6 +176,39 @@ class SecuriteWebTests(unittest.TestCase):
         self.assertEqual(
             self._frame_ancestors("192.168.1.0/24"), "frame-ancestors 'none'")
 
+    # Issue #13 : trusted_host en liste, pour meler iframe et acces direct.
+
+    def test_liste_accepte_chacune_de_ses_entrees(self):
+        liste = "192.168.1.10,192.168.201.0/24,server"
+        for client, host in (("192.168.1.10", "192.168.1.10"),
+                             ("192.168.201.134", "192.168.201.134"),
+                             ("192.168.201.134", "server")):
+            with self.subTest(host=host):
+                self.assertTrue(
+                    self.handler(client, host, trusted_host=liste).hote_autorise())
+
+    def test_liste_n_elargit_pas_hors_de_ses_entrees(self):
+        # Un nom n'est jamais couvert par un sous-reseau : le navigateur envoie
+        # le nom tape comme Host, pas l'IP qu'il designe.
+        liste = "192.168.1.10,192.168.201.0/24"
+        for client, host in (("192.168.2.5", "192.168.2.5"),
+                             ("192.168.201.134", "server")):
+            with self.subTest(host=host):
+                self.assertFalse(
+                    self.handler(client, host, trusted_host=liste).hote_autorise())
+
+    def test_frame_ancestors_liste_ne_garde_que_les_entrees_exactes(self):
+        self.assertEqual(
+            self._frame_ancestors("192.168.1.10,192.168.201.0/24,server"),
+            "frame-ancestors 'self' 192.168.1.10 server")
+
+    def test_frame_ancestors_ignore_une_entree_invalide_d_un_reglage_edite_a_la_main(self):
+        # La page de reglages refuse deja ce « ; », mais un fichier de reglages
+        # modifie a la main n'y passe pas : il ne doit rien ajouter a l'en-tete.
+        self.assertEqual(
+            self._frame_ancestors("iobroker;script-src,192.168.1.10"),
+            "frame-ancestors 'self' 192.168.1.10")
+
 
 class IdentiteCameraTests(unittest.TestCase):
     def test_deux_cameras_homonymes_de_reseaux_distincts_ont_deux_cles(self):

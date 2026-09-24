@@ -292,14 +292,23 @@ l'unique machine qu'un tunnel VPN laisserait passer. Raisonnable sur un LAN
 domestique de confiance, jamais sur un réseau que vous ne maîtrisez pas
 entièrement.
 
-Régler un hôte de confiance unique et exact (une IP ou un nom, pas un
-sous-réseau CIDR) permet aussi d'intégrer la page dans une `<iframe>` depuis
-cette adresse, par exemple un tableau de bord domotique comme ioBroker. Sans
-cela, la page refuse toujours d'être encadrée
+Un hôte de confiance exact (une IP ou un nom, pas un sous-réseau CIDR)
+permet aussi d'intégrer la page dans une `<iframe>` depuis cette adresse,
+par exemple un tableau de bord domotique comme ioBroker. Sans lui, la page
+refuse toujours d'être encadrée
 (`Content-Security-Policy: frame-ancestors 'none'`), la défense standard
 contre le détournement de clic. Un sous-réseau CIDR ne débloque jamais
 cela : il n'y a aucun moyen de désigner « n'importe quel hôte de ce
 sous-réseau » dans cette politique.
+
+L'hôte de confiance accepte plusieurs valeurs, séparées par des virgules,
+pour combiner ces cas : `192.168.1.10, 192.168.1.0/24, mon-pc` autorise le
+tableau de bord situé en `192.168.1.10` à intégrer la page, et accepte
+l'accès direct depuis tout le sous-réseau et par le nom `mon-pc`. Chaque
+entrée doit correspondre à ce que le navigateur envoie réellement comme
+`Host` : un nom tapé dans la barre d'adresse arrive tel quel, jamais sous la
+forme de l'IP qu'il désigne, donc aucune entrée de sous-réseau ne le
+couvre : ajoutez aussi le nom.
 
 </details>
 
@@ -314,10 +323,16 @@ La page, sur `127.0.0.1:8765`, a six vues :
   un bouton « Photo » qui fait la même chose mais conserve la photo obtenue
   dans Photos au lieu de la jeter, et rafraîchit du même coup la vignette
   de la tuile (les deux consomment un peu de batterie, jusqu'à deux minutes
-  sur une caméra endormie).
+  sur une caméra endormie). Un direct s'arrête tout seul : dès que l'onglet
+  est fermé ou rechargé, au bout de 5 minutes au plus dans tous les cas (un
+  plafond côté serveur, quoi que fasse le navigateur), ou plus tôt si
+  « Arrêt auto du direct » est réglé dans les Réglages.
 - **Clips** : du plus récent au plus ancien, avec un aperçu et un bouton
   « Écarter » qui retire un clip de toutes les vidéos assemblées.
-- **Journalières, Hebdomadaires, Mensuelles** : les vidéos assemblées.
+- **Journalières, Hebdomadaires, Mensuelles** : les vidéos assemblées. Les
+  journalières peuvent aussi être groupées par jour plutôt que par caméra
+  (Filtre, « Grouper par »), pour voir ensemble les vidéos de toutes les
+  caméras à une même date.
 - **Photos** : les photos prises à la demande, de la plus récente à la plus
   ancienne, avec un bouton de suppression. Alimentée par le bouton « Photo »
   du Direct, ou à distance via une URL webhook pensée pour la domotique ou un
@@ -454,7 +469,7 @@ récupérés reviendraient comme neufs.
   comme hôte de confiance depuis les Réglages (voir « Y accéder à distance »
   plus haut), le même principe que l'opt-in du conteneur Docker. L'interface
   web n'a pas d'identifiant à elle : le serveur intégré refuse donc toute
-  requête qui ne vient pas de la machine locale elle-même ni de cet hôte de
+  requête qui ne vient pas de la machine locale elle-même ni d'un hôte de
   confiance, et régler seul `BLINK_BIND=0.0.0.0` ne l'expose pas au LAN.
 
 ## Voisins
@@ -605,7 +620,7 @@ de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
 |---|---|
 | `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
-| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. Utile pour l'utiliser à l'intérieur du conteneur Docker officiel, derrière une publication `127.0.0.1` et `BLINK_TRUSTED_LOOPBACK_PROXY=1` (voir la section Docker), ou pour l'écouter directement sur une adresse de VPN maillé (Tailscale, WireGuard), la façon la plus simple d'y accéder à distance sans reverse proxy : associez-la à cette même adresse comme « Hôte de confiance » dans les Réglages, ou avec `--trusted-host` en ligne de commande (voir « Y accéder à distance » plus haut). Le tableau de bord n'a aucune authentification : le serveur refuse donc toute requête qui ne vient pas de la machine locale elle-même ni de cet hôte de confiance, régler ceci seul à `0.0.0.0` n'expose pas l'interface au LAN |
+| `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. Utile pour l'utiliser à l'intérieur du conteneur Docker officiel, derrière une publication `127.0.0.1` et `BLINK_TRUSTED_LOOPBACK_PROXY=1` (voir la section Docker), ou pour l'écouter directement sur une adresse de VPN maillé (Tailscale, WireGuard), la façon la plus simple d'y accéder à distance sans reverse proxy : associez-la à cette même adresse comme « Hôte de confiance » dans les Réglages, ou avec `--trusted-host` en ligne de commande (voir « Y accéder à distance » plus haut). Le tableau de bord n'a aucune authentification : le serveur refuse donc toute requête qui ne vient pas de la machine locale elle-même ni d'un hôte de confiance, régler ceci seul à `0.0.0.0` n'expose pas l'interface au LAN |
 
 </details>
 

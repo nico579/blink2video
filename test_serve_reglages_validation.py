@@ -355,14 +355,38 @@ class TestsValidationReglagesHttp(unittest.TestCase):
         handler = self.requete(self.payload(trusted_host="  100.101.194.5  "))
         self.assert_enregistre(handler, {**DEFAUTS, "trusted_host": "100.101.194.5"})
 
+    def _message_hote_invalide(self, entree):
+        return (f"Hôte de confiance invalide : « {entree} ». Un ou plusieurs "
+                "noms d'hôte, adresses IP ou sous-réseaux CIDR (192.168.1.0/24), "
+                "séparés par des virgules.")
+
     def test_hote_de_confiance_avec_espace_refuse(self):
         for valeur in ("hote invalide", "100 .101.194.5"):
             with self.subTest(valeur=valeur):
                 self.assert_refuse(
                     self.requete(self.payload(trusted_host=valeur)),
-                    f"Hôte de confiance invalide : « {valeur.strip()} ». Un nom "
-                    "d'hôte, une adresse IP, ou un sous-réseau CIDR "
-                    "(192.168.1.0/24), sans espace.")
+                    self._message_hote_invalide(valeur.strip()))
+
+    def test_hote_de_confiance_caractere_interdit_refuse(self):
+        # Chaque entrée finit aussi dans l'en-tête CSP (frame-ancestors) : un
+        # « ; » y ouvrirait une directive de plus.
+        for valeur in ("hote;script-src", "hote'x", "hôte"):
+            with self.subTest(valeur=valeur):
+                self.assert_refuse(
+                    self.requete(self.payload(trusted_host=valeur)),
+                    self._message_hote_invalide(valeur))
+
+    def test_hote_de_confiance_liste_normalisee_sans_espaces_ni_vides(self):
+        # Issue #13 : plusieurs noms, adresses ou sous-réseaux à la fois.
+        handler = self.requete(self.payload(
+            trusted_host=" 192.168.1.10 , 192.168.1.0/24,,mon_pc, "))
+        self.assert_enregistre(
+            handler, {**DEFAUTS, "trusted_host": "192.168.1.10,192.168.1.0/24,mon_pc"})
+
+    def test_hote_de_confiance_liste_refusee_sur_la_premiere_entree_invalide(self):
+        self.assert_refuse(
+            self.requete(self.payload(trusted_host="192.168.1.10, 10.0.0.0/99")),
+            "Sous-réseau invalide : « 10.0.0.0/99 ». Format attendu : 192.168.1.0/24.")
 
     def test_hote_de_confiance_avec_barre_mais_pas_un_cidr_refuse(self):
         for valeur in ("100.101.194.5/etc", "http://100.101.194.5"):

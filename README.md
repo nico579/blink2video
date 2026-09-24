@@ -270,12 +270,19 @@ guarantee: any device already on that subnet gets the same unauthenticated
 access, not just the one machine a VPN tunnel would let through. Reasonable
 on a trusted home LAN, never on anything you don't fully control.
 
-Setting a single exact trusted host (an IP or hostname, not a CIDR subnet)
-also allows embedding the page in an `<iframe>` from that address, e.g. a
-home automation dashboard like ioBroker. Without it, the page always refuses
-to be framed at all (`Content-Security-Policy: frame-ancestors 'none'`),
-the standard defense against clickjacking. A CIDR subnet never unlocks
-this, there's no way to name "any host on this subnet" in that policy.
+An exact trusted host (an IP or hostname, not a CIDR subnet) also allows
+embedding the page in an `<iframe>` from that address, e.g. a home
+automation dashboard like ioBroker. Without one, the page always refuses to
+be framed at all (`Content-Security-Policy: frame-ancestors 'none'`), the
+standard defense against clickjacking. A CIDR subnet never unlocks this,
+there's no way to name "any host on this subnet" in that policy.
+
+Trusted host takes several values, comma-separated, to combine these cases:
+`192.168.1.10, 192.168.1.0/24, my-pc` lets the dashboard at `192.168.1.10`
+embed the page, and accepts direct access from the whole subnet and through
+the name `my-pc`. Each entry must match what the browser actually sends as
+`Host`: a name typed in the address bar arrives as that name, never as the
+IP it resolves to, so no subnet entry covers it: list the name too.
 
 </details>
 
@@ -289,10 +296,15 @@ The page, at `127.0.0.1:8765`, has six views:
   next scheduled one, and a "Snapshot" button that does the same but keeps
   the resulting picture under Pictures instead of discarding it, also
   refreshing the tile's own thumbnail with it right away (both use a bit
-  of battery, can take up to two minutes on a sleeping camera).
+  of battery, can take up to two minutes on a sleeping camera). A live
+  view stops on its own: as soon as you close or reload the tab, after
+  5 minutes at most in any case (a server-side cap, whatever the browser
+  does), or earlier if you set "Auto-stop live view" in Settings.
 - **Clips**: newest first, with a preview and an "Écarter" button that removes a
   clip from every assembled video.
-- **Daily, Weekly, Monthly**: the assembled videos.
+- **Daily, Weekly, Monthly**: the assembled videos. Daily can also be grouped
+  by day instead of by camera (Filter, "Group by"), to see every camera's
+  video for the same date together.
 - **Pictures**: on-demand snapshots, newest first, with a delete button.
   Filled by the Live tile's "Snapshot" button, or remotely through a webhook
   URL meant for home automation or a physical smart button (Settings,
@@ -417,7 +429,7 @@ downloaded would come back as new.
   from Settings instead (see "Reaching it remotely" above), the same pattern
   as the Docker container's own opt-in. The web UI has no login of its own,
   so the built-in server refuses any request that doesn't come from the
-  local machine itself or from that one trusted host; setting
+  local machine itself or from a trusted host; setting
   `BLINK_BIND=0.0.0.0` alone does not
   expose it to the LAN.
 
@@ -569,7 +581,7 @@ nobody is listening. `--port` if you moved it.
 |---|---|
 | `BLINK_HOME` | data folder, defaulting to the executable's own |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` or `none`: how the Python environment is handled |
-| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. Needed to bind it inside the official Docker container, behind a `127.0.0.1` port publication and `BLINK_TRUSTED_LOOPBACK_PROXY=1` (see the Docker section), or to bind it directly on a mesh VPN address (Tailscale, WireGuard), the simplest way to reach it remotely without a reverse proxy: pair it with that same address as the "Trusted host" in Settings, or `--trusted-host` at the command line (see "Reaching it remotely" above). There is no authentication on the web UI, so the server refuses any request that doesn't come from the local machine itself or from that one trusted host: setting this to `0.0.0.0` alone does not expose the UI to the LAN |
+| `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. Needed to bind it inside the official Docker container, behind a `127.0.0.1` port publication and `BLINK_TRUSTED_LOOPBACK_PROXY=1` (see the Docker section), or to bind it directly on a mesh VPN address (Tailscale, WireGuard), the simplest way to reach it remotely without a reverse proxy: pair it with that same address as the "Trusted host" in Settings, or `--trusted-host` at the command line (see "Reaching it remotely" above). There is no authentication on the web UI, so the server refuses any request that doesn't come from the local machine itself or from a trusted host: setting this to `0.0.0.0` alone does not expose the UI to the LAN |
 
 </details>
 

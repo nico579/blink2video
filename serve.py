@@ -59,11 +59,11 @@ LIBELLES = {
         "aide_hub": "nom du Sync Module Blink ; tous les modules si omis",
         "aide_thumbs": "cache des vignettes ; jetable, refabriqué à la demande",
         "aide_trusted_host":
-            "nom d'hôte, adresse ou sous-réseau CIDR supplémentaire accepté "
-            "comme Host, en plus de la boucle locale : pour un tunnel privé "
-            "(Tailscale, WireGuard) lié directement à cette instance avec "
-            "BLINK_BIND, sans reverse proxy devant. Réglable aussi depuis la "
-            "page (Réglages)",
+            "noms d'hôte, adresses ou sous-réseaux CIDR supplémentaires, "
+            "séparés par des virgules, acceptés comme Host en plus de la boucle "
+            "locale : pour un tunnel privé (Tailscale, WireGuard) ou un LAN de "
+            "confiance lié directement à cette instance avec BLINK_BIND, sans "
+            "reverse proxy devant. Réglable aussi depuis la page (Réglages)",
         "aide_open_browser": "ouvrir la page dans le navigateur au démarrage",
         "vignette_erreur": "[vignette] {identity} : {type}: {erreur}",
         "ecarter_lot_erreur": "Écarter (lot) : {erreur}",
@@ -94,10 +94,11 @@ LIBELLES = {
         "aide_hub": "Blink Sync Module name; all modules if omitted",
         "aide_thumbs": "thumbnail cache; disposable, rebuilt on demand",
         "aide_trusted_host":
-            "extra hostname, address or CIDR subnet accepted as Host, besides "
-            "loopback: for a private tunnel (Tailscale, WireGuard) bound "
-            "directly to this instance with BLINK_BIND, no reverse proxy in "
-            "front. Also settable from the page (Settings)",
+            "extra hostnames, addresses or CIDR subnets, comma-separated, "
+            "accepted as Host besides loopback: for a private tunnel "
+            "(Tailscale, WireGuard) or a trusted LAN bound directly to this "
+            "instance with BLINK_BIND, no reverse proxy in front. Also "
+            "settable from the page (Settings)",
         "aide_open_browser": "open the page in the browser at startup",
         "vignette_erreur": "[thumbnail] {identity}: {type}: {erreur}",
         "ecarter_lot_erreur": "Exclude (batch): {erreur}",
@@ -1644,6 +1645,44 @@ class _ReglagesInvalides(ValueError):
     """Refus de formulaire destiné à une réponse HTTP 400."""
 
 
+# Ce qu'un nom d'hôte (y compris NetBIOS, d'où « _ »), une IPv4/IPv6 ou un
+# sous-réseau CIDR peut contenir, et rien d'autre : chaque entrée finit aussi
+# dans l'en-tête CSP (frame-ancestors, voir end_headers), où un « ; » ouvrirait
+# une directive de plus.
+_ENTREE_CONFIANCE_RE = re.compile(r"^[A-Za-z0-9._\-:\[\]/]+$")
+
+
+def _entrees_confiance(valeur: str) -> list:
+    """Entrées de trusted_host : une liste séparée par des virgules (issue
+    #13), chacune un nom d'hôte exact, une IP ou un sous-réseau CIDR. Une
+    valeur unique, la seule forme possible avant, reste une liste d'un."""
+    return [entree.strip() for entree in (valeur or "").split(",") if entree.strip()]
+
+
+def normaliser_hotes_confiance(valeur: str) -> str:
+    """Valide trusted_host et le rend sous forme canonique (« a,b »), ou lève
+    ValueError avec un message affichable. Appliqué à l'enregistrement depuis
+    la page de réglages, jamais au démarrage : un réglage accepté par une
+    version antérieure et refusé par celle-ci empêcherait sinon le serveur de
+    démarrer après mise à jour. À l'usage, hote_autorise() et end_headers()
+    ignorent de toute façon les entrées invalides (refus par défaut)."""
+    entrees = _entrees_confiance(valeur)
+    for entree in entrees:
+        if not _ENTREE_CONFIANCE_RE.match(entree):
+            raise ValueError(
+                f"Hôte de confiance invalide : « {entree} ». Un ou plusieurs "
+                "noms d'hôte, adresses IP ou sous-réseaux CIDR (192.168.1.0/24), "
+                "séparés par des virgules.")
+        if "/" in entree:
+            try:
+                ipaddress.ip_network(entree, strict=False)
+            except ValueError as erreur:
+                raise ValueError(
+                    f"Sous-réseau invalide : « {entree} ». Format attendu : "
+                    "192.168.1.0/24.") from erreur
+    return ",".join(entrees)
+
+
 def _verifier_dossier_reglages(dossier: str) -> None:
     """Éprouve l'écriture sans changer le dossier de stockage actif."""
     if not dossier:
@@ -1732,20 +1771,11 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
             "L'opacité du bandeau doit être un nombre entre 0.0 et 1.0.") from erreur
     reglages["box_opacity"] = box_opacity
 
-    trusted_host = str(payload.get("trusted_host") or "").strip()
-    if trusted_host and " " in trusted_host:
-        raise _ReglagesInvalides(
-            f"Hôte de confiance invalide : « {trusted_host} ». Un nom "
-            "d'hôte, une adresse IP, ou un sous-réseau CIDR (192.168.1.0/24), "
-            "sans espace.")
-    if trusted_host and "/" in trusted_host:
-        try:
-            ipaddress.ip_network(trusted_host, strict=False)
-        except ValueError as erreur:
-            raise _ReglagesInvalides(
-                f"Sous-réseau invalide : « {trusted_host} ». Format attendu : "
-                "192.168.1.0/24.") from erreur
-    reglages["trusted_host"] = trusted_host
+    try:
+        reglages["trusted_host"] = normaliser_hotes_confiance(
+            str(payload.get("trusted_host") or ""))
+    except ValueError as erreur:
+        raise _ReglagesInvalides(str(erreur)) from erreur
 
     webhook_notif_url = str(payload.get("webhook_notif_url") or "").strip()
     if webhook_notif_url:
@@ -1832,25 +1862,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
     @staticmethod
     def _hote_correspond(hote: str, hote_confiance: str) -> bool:
         """Vrai si `hote` (Host ou Origin, déjà réduit au hostname) est
-        couvert par `hote_confiance`.
+        couvert par l'une des entrées de `hote_confiance`.
 
-        `hote_confiance` est soit une IP/nom d'hôte exact (comparaison de
-        chaîne, comme avant), soit un sous-réseau CIDR (192.168.1.0/24,
-        issue #10 : un client Windows en DHCP n'a pas d'adresse fixe à
-        mettre dans un champ IP unique). ip_network(..., strict=False)
+        Chaque entrée (liste séparée par des virgules, issue #13 : un seul
+        nom ou un seul sous-réseau ne suffisait pas pour mêler accès direct
+        et iframe) est soit une IP/nom d'hôte exact (comparaison de chaîne),
+        soit un sous-réseau CIDR (192.168.1.0/24, issue #10 : un client
+        Windows en DHCP n'a pas d'adresse fixe). ip_network(..., strict=False)
         tolère aussi qu'on y colle l'adresse d'une machine du réseau plutôt
         que l'adresse réseau elle-même (192.168.1.5/24), erreur de saisie
         probable et sans ambiguïté sur l'intention. Jamais de ValueError
         remontée : un hote ou un CIDR mal formé se traite comme "pas de
         correspondance", pas comme une erreur serveur."""
-        if not hote_confiance:
-            return False
-        if "/" in hote_confiance:
-            try:
-                return ipaddress.ip_address(hote) in ipaddress.ip_network(hote_confiance, strict=False)
-            except ValueError:
-                return False
-        return hote == hote_confiance
+        for entree in _entrees_confiance(hote_confiance):
+            if "/" in entree:
+                try:
+                    if ipaddress.ip_address(hote) in ipaddress.ip_network(entree, strict=False):
+                        return True
+                except ValueError:
+                    continue
+            elif hote == entree:
+                return True
+        return False
 
     def hote_autorise(self) -> bool:
         """Faux si Host (ou Origin, quand le navigateur l'envoie) ne désigne
@@ -1959,15 +1992,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # 'none' par défaut : même une page de ce site ne doit pas pouvoir
         # s'afficher dans un <iframe>, dernier rempart contre le
         # détournement de clic (cliquer sur un bouton qu'on croit ailleurs).
-        # Assoupli à trusted_host (issue #12 : embarquer la page dans un
-        # tableau de bord domotique type ioBroker) - seulement quand c'est
-        # un hôte/IP exact, jamais un sous-réseau CIDR : frame-ancestors n'a
+        # Assoupli aux entrées de trusted_host (issue #12 : embarquer la page
+        # dans un tableau de bord domotique type ioBroker) - seulement les
+        # hôtes/IP exacts, jamais un sous-réseau CIDR : frame-ancestors n'a
         # pas de syntaxe pour un sous-réseau, et l'accepter en silence
-        # laisserait croire à une protection qui n'opère pas.
-        hote_confiance = (self.trusted_host or "").strip()
-        frame_ancestors = "'none'"
-        if hote_confiance and "/" not in hote_confiance:
-            frame_ancestors = f"'self' {hote_confiance}"
+        # laisserait croire à une protection qui n'opère pas. Refiltré ici
+        # même si les réglages sont validés à l'écriture : un fichier de
+        # réglages modifié à la main n'y passe pas, et un « ; » ajouterait
+        # une directive à cet en-tête.
+        exacts = [entree for entree in _entrees_confiance(self.trusted_host)
+                  if "/" not in entree and _ENTREE_CONFIANCE_RE.match(entree)]
+        frame_ancestors = ("'self' " + " ".join(exacts)) if exacts else "'none'"
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; "
@@ -4514,13 +4549,17 @@ __CSS__
       <legend data-i18n="reglages.accesDistant" data-i18n-title="reglages.accesDistant.hint"
               title="Pour joindre cette instance directement depuis un VPN maillé (Tailscale, WireGuard), sans reverse proxy devant.">Accès distant par VPN maillé</legend>
       <p class="sub tiny" data-i18n="reglages.accesDistant.hint.text">
-        À utiliser avec la variable d'environnement BLINK_BIND réglée sur cette
-        même adresse (voir le README, section « Reaching it remotely ») : ce
-        réglage seul, sans elle, ne change rien à qui peut atteindre l'interface.
+        À utiliser avec la variable d'environnement BLINK_BIND réglée sur
+        l'adresse d'écoute (voir le README, section « Reaching it remotely ») :
+        ce réglage seul, sans elle, ne change rien à qui peut atteindre
+        l'interface. Plusieurs valeurs possibles, séparées par des virgules :
+        noms d'hôte, adresses IP ou sous-réseaux (192.168.1.0/24). Seuls les noms
+        et adresses exacts autorisent aussi l'intégration de la page dans une
+        iframe.
       </p>
       <div class="champDossier">
         <label for="trustedHost" data-i18n="reglages.trustedHost">Hôte de confiance</label>
-        <input type="text" id="trustedHost" placeholder="100.x.y.z">
+        <input type="text" id="trustedHost" placeholder="100.x.y.z, 192.168.1.0/24, mon-pc">
       </div>
     </fieldset>
     <fieldset>
