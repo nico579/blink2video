@@ -14,8 +14,10 @@ from __future__ import annotations
 import os
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("BLINK_BOOTSTRAP", "none")
 
@@ -54,6 +56,67 @@ class TestsSaveJsonConcurrent(unittest.TestCase):
         # Aucun temporaire laissé derrière, quel que soit son nom.
         self.assertEqual(sorted(p.name for p in self.dossier.iterdir()),
                          ["assembled_durations.json"])
+
+    def test_semantique_windows_simulee_sans_exception(self):
+        """Sous Windows, os.replace échoue (« Access is denied ») si la même
+        cible est remplacée au même instant par un autre écrivain : simulé
+        ici pour éprouver ce cas sur tous les systèmes, pas seulement en CI
+        Windows (162 échecs sur 600 écritures avant correction)."""
+        original = Path.replace
+        en_cours = set()
+        garde = threading.Lock()
+
+        def replace_facon_windows(source, cible):
+            cle = os.fspath(cible)
+            with garde:
+                if cle in en_cours:
+                    raise PermissionError(13, "Access is denied")
+                en_cours.add(cle)
+            try:
+                time.sleep(0.001)
+                return original(source, cible)
+            finally:
+                with garde:
+                    en_cours.discard(cle)
+
+        erreurs = []
+        depart = threading.Barrier(4)
+
+        def ecrire():
+            depart.wait()
+            for _ in range(50):
+                try:
+                    md.save_json(self.cible, {"a": 1})
+                except Exception as erreur:  # noqa: BLE001 - tout échec compte
+                    erreurs.append(erreur)
+
+        with mock.patch.object(Path, "replace", replace_facon_windows):
+            fils = [threading.Thread(target=ecrire) for _ in range(4)]
+            for fil in fils:
+                fil.start()
+            for fil in fils:
+                fil.join()
+        self.assertEqual(erreurs, [])
+        self.assertEqual(md.load_json(self.cible, None), {"a": 1})
+
+    def test_refus_windows_transitoire_reessaye(self):
+        # Sous Windows, un lecteur qui tient la cible ouverte fait échouer
+        # os.replace en PermissionError le temps de sa lecture.
+        refus = PermissionError(13, "Access is denied")
+        with mock.patch.object(md.runtime, "_ecrire_texte_atomique",
+                               side_effect=[refus, refus, None]) as ecrire, \
+                mock.patch.object(md.time, "sleep") as dormir:
+            md.save_json(self.cible, {"a": 1})
+        self.assertEqual(ecrire.call_count, 3)
+        self.assertEqual(dormir.call_count, 2)
+
+    def test_refus_persistant_finit_par_remonter(self):
+        with mock.patch.object(md.runtime, "_ecrire_texte_atomique",
+                               side_effect=PermissionError(13, "Access is denied")) as ecrire, \
+                mock.patch.object(md.time, "sleep"):
+            with self.assertRaises(PermissionError):
+                md.save_json(self.cible, {"a": 1})
+        self.assertEqual(ecrire.call_count, 10)
 
     def test_cree_le_dossier_parent(self):
         cible = self.dossier / "sous" / "dossier" / "etat.json"
