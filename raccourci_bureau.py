@@ -24,6 +24,39 @@ from pathlib import Path
 import autostart
 import runtime
 
+LIBELLES = {
+    "fr": {
+        "plateforme_non_prise_en_charge":
+            "Raccourci de bureau non pris en charge sur {plateforme}.",
+        "creerait": "Créerait {cible}",
+        "creerait_script": "Créerait {cible} :\n{script}",
+        "ecrirait": "Écrirait {cible} :\n{contenu}",
+        "cible_label": "  cible : {executable}",
+        "args_label": "  args  : {arguments}",
+        "echec": "Échec : {detail}",
+        "raccourci_non_cree": "raccourci non créé",
+        "raccourci_cree": "Raccourci créé : {cible}",
+        "description": "Ouvrir blink2video",
+    },
+    "en": {
+        "plateforme_non_prise_en_charge":
+            "Desktop shortcut not supported on {plateforme}.",
+        "creerait": "Would create {cible}",
+        "creerait_script": "Would create {cible}:\n{script}",
+        "ecrirait": "Would write {cible}:\n{contenu}",
+        "cible_label": "  target: {executable}",
+        "args_label": "  args  : {arguments}",
+        "echec": "Failed: {detail}",
+        "raccourci_non_cree": "shortcut not created",
+        "raccourci_cree": "Shortcut created: {cible}",
+        "description": "Open blink2video",
+    },
+}
+
+
+def _(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
+
 
 def _ligne() -> list:
     # autostart.commande() fait exactement ce qu'il faut : self_command, puis
@@ -46,7 +79,7 @@ def creer(simulation: bool = False) -> int:
         return _macos(simulation)
     if sys.platform.startswith("linux"):
         return _linux(simulation)
-    print(f"Raccourci de bureau non pris en charge sur {sys.platform}.")
+    print(_("plateforme_non_prise_en_charge", plateforme=sys.platform))
     return 1
 
 
@@ -71,9 +104,9 @@ def _windows(simulation: bool) -> int:
     ligne = _ligne()
     executable, arguments = ligne[0], subprocess.list2cmdline(ligne[1:])
     if simulation:
-        print(f"Créerait {cible}")
-        print(f"  cible : {executable}")
-        print(f"  args  : {arguments}")
+        print(_("creerait", cible=cible))
+        print(_("cible_label", executable=executable))
+        print(_("args_label", arguments=arguments))
         return 0
 
     # Même mécanisme que autostart.py : l'interface COM de l'explorateur,
@@ -88,13 +121,14 @@ def _windows(simulation: bool) -> int:
         "$s.TargetPath = {executable}; $s.Arguments = {arguments};"
         "$s.WorkingDirectory = {dossier}; $s.IconLocation = {icone};"
         "$s.WindowStyle = 7;"
-        "$s.Description = 'Ouvrir blink2video'; $s.Save()"
+        "$s.Description = {description}; $s.Save()"
     ).format(
         cible=_chaine_ps(str(cible)),
         executable=_chaine_ps(executable),
         arguments=_chaine_ps(arguments),
         dossier=_chaine_ps(str(runtime.app_dir())),
         icone=_chaine_ps(str(_icone())),
+        description=_chaine_ps(_("description")),
     )
     resultat = runtime.lancer(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
@@ -102,9 +136,9 @@ def _windows(simulation: bool) -> int:
         stderr=subprocess.PIPE, text=True, errors="replace", check=False,
     )
     if resultat.returncode != 0 or not cible.exists():
-        print(f"Échec : {resultat.stderr.strip() or 'raccourci non créé'}")
+        print(_("echec", detail=resultat.stderr.strip() or _("raccourci_non_cree")))
         return 1
-    print(f"Raccourci créé : {cible}")
+    print(_("raccourci_cree", cible=cible))
     return 0
 
 
@@ -125,7 +159,7 @@ def _macos(simulation: bool) -> int:
         " ".join(shlex.quote(a) for a in _ligne()))
     script = "do shell script " + runtime._applescript(commande_shell)
     if simulation:
-        print(f"Créerait {cible} :\n{script}")
+        print(_("creerait_script", cible=cible, script=script))
         return 0
     if cible.exists():
         shutil.rmtree(cible)
@@ -135,9 +169,9 @@ def _macos(simulation: bool) -> int:
         stderr=subprocess.PIPE, text=True, errors="replace", check=False,
     )
     if resultat.returncode != 0 or not cible.exists():
-        print(f"Échec : {resultat.stderr.strip() or 'raccourci non créé'}")
+        print(_("echec", detail=resultat.stderr.strip() or _("raccourci_non_cree")))
         return 1
-    print(f"Raccourci créé : {cible}")
+    print(_("raccourci_cree", cible=cible))
     return 0
 
 
@@ -157,7 +191,7 @@ def _linux(simulation: bool) -> int:
         "Terminal=true\n"
     )
     if simulation:
-        print(f"Écrirait {cible} :\n{contenu}")
+        print(_("ecrirait", cible=cible, contenu=contenu))
         return 0
     cible.write_text(contenu, encoding="utf-8")
     cible.chmod(0o755)
@@ -166,5 +200,5 @@ def _linux(simulation: bool) -> int:
     # connaissent pas cet attribut, d'où l'échec ignoré plutôt que remonté.
     runtime.lancer(["gio", "set", str(cible), "metadata::trusted", "yes"],
                    check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"Raccourci créé : {cible}")
+    print(_("raccourci_cree", cible=cible))
     return 0

@@ -28,15 +28,15 @@ import time  # noqa: F401
 
 import runtime
 
-from blink_cli import route
+from blink_cli import msg, route
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(route(sys.argv[1:]))
     except ValueError as erreur:
-        print(f"{erreur}. Verbes : {', '.join(runtime.VERBES)}")
+        print(f"{erreur}. " + msg("liste_verbes", liste=", ".join(runtime.VERBES)))
         raise SystemExit(2)
     except (KeyboardInterrupt, EOFError):
-        print("\nConnexion annulée.")
+        print(msg("connexion_annulee"))
         raise SystemExit(130)

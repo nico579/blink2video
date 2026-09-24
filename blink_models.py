@@ -52,6 +52,8 @@ LIBELLES = {
             "  ! [données] Manifeste cloud ignoré : racine JSON inattendue.",
         "cloud_entrees_invalides":
             "  ! [données] {invalides} entrée(s) cloud invalide(s) ignorée(s).",
+        "registre_entrees_invalides":
+            "  ! [données] {ignores} entrée(s) de registre invalide(s) ignorée(s).",
         "resume_volume": "  {n} clip(s), volume annoncé : environ {volume}",
         "resume_periode": "  Période : {debut} -> {fin}",
         "resume_cameras": "  Caméra(s) : {cameras}",
@@ -97,6 +99,8 @@ LIBELLES = {
             "  ! [data] Cloud manifest ignored: unexpected JSON root.",
         "cloud_entrees_invalides":
             "  ! [data] {invalides} invalid cloud entrie(s) ignored.",
+        "registre_entrees_invalides":
+            "  ! [data] {ignores} invalid registry entrie(s) ignored.",
         "resume_volume": "  {n} clip(s), reported size: about {volume}",
         "resume_periode": "  Period: {debut} -> {fin}",
         "resume_cameras": "  Camera(s): {cameras}",

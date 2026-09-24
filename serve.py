@@ -53,6 +53,18 @@ import runtime
 
 LIBELLES = {
     "fr": {
+        "aide_desc":
+            "Interface locale pour visionner les clips Blink, en écarter et en "
+            "reprendre.",
+        "aide_hub": "nom du Sync Module Blink ; tous les modules si omis",
+        "aide_thumbs": "cache des vignettes ; jetable, refabriqué à la demande",
+        "aide_trusted_host":
+            "nom d'hôte, adresse ou sous-réseau CIDR supplémentaire accepté "
+            "comme Host, en plus de la boucle locale : pour un tunnel privé "
+            "(Tailscale, WireGuard) lié directement à cette instance avec "
+            "BLINK_BIND, sans reverse proxy devant. Réglable aussi depuis la "
+            "page (Réglages)",
+        "aide_open_browser": "ouvrir la page dans le navigateur au démarrage",
         "vignette_erreur": "[vignette] {identity} : {type}: {erreur}",
         "ecarter_lot_erreur": "Écarter (lot) : {erreur}",
         "erreur_generique": "Erreur : {erreur}",
@@ -78,6 +90,15 @@ LIBELLES = {
         "webhook_jeton_invalide": "Jeton de webhook invalide ou manquant.",
     },
     "en": {
+        "aide_desc": "Local interface to watch Blink clips, discard some and bring them back.",
+        "aide_hub": "Blink Sync Module name; all modules if omitted",
+        "aide_thumbs": "thumbnail cache; disposable, rebuilt on demand",
+        "aide_trusted_host":
+            "extra hostname, address or CIDR subnet accepted as Host, besides "
+            "loopback: for a private tunnel (Tailscale, WireGuard) bound "
+            "directly to this instance with BLINK_BIND, no reverse proxy in "
+            "front. Also settable from the page (Settings)",
+        "aide_open_browser": "open the page in the browser at startup",
         "vignette_erreur": "[thumbnail] {identity}: {type}: {erreur}",
         "ecarter_lot_erreur": "Exclude (batch): {erreur}",
         "erreur_generique": "Error: {erreur}",
@@ -1744,14 +1765,18 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
                 "adresse http:// ou https:// complète, ou vide pour désactiver.")
     reglages["webhook_notif_url"] = webhook_notif_url
 
+    # Plafonné à LIVE_MAX_SECONDS : le serveur coupe de toute façon chaque
+    # direct à ce délai, une valeur au-delà serait inopérante (bornée à 24 h
+    # en 0.13.0, corrigé en constatant ce plafond pour l'issue #15).
     try:
         live_auto_stop_seconds = int(payload.get("live_auto_stop_seconds", 0) or 0)
-        if not 0 <= live_auto_stop_seconds <= 86400:
+        if not 0 <= live_auto_stop_seconds <= LIVE_MAX_SECONDS:
             raise ValueError
     except (TypeError, ValueError) as erreur:
         raise _ReglagesInvalides(
             "L'arrêt automatique du direct doit être un nombre de secondes "
-            "entre 0 (désactivé) et 86400 (24h).") from erreur
+            f"entre 0 (désactivé) et {LIVE_MAX_SECONDS} (le plafond de tout "
+            "direct).") from erreur
     reglages["live_auto_stop_seconds"] = live_auto_stop_seconds
 
     return dossier, reglages
@@ -4462,9 +4487,9 @@ __CSS__
         </select>
       </div>
       <div class="champCadence" data-i18n-title="reglages.liveAutoStop.hint"
-           title="Arrête le direct tout seul après ce délai. Utile pour une caméra sur batterie qu'on oublierait de couper. Vide ou 0 = jamais, comme avant.">
+           title="Arrête le direct tout seul après ce délai, jusqu'à 300 s. Au-delà, tout direct s'arrête de toute façon au bout de 5 minutes. Vide ou 0 = ce plafond de 5 minutes seul.">
         <label for="liveAutoStopSeconds" data-i18n="reglages.liveAutoStop">Arrêt auto du direct (s)</label>
-        <input type="number" id="liveAutoStopSeconds" min="0" max="86400" placeholder="0">
+        <input type="number" id="liveAutoStopSeconds" min="0" max="300" placeholder="0">
       </div>
     </fieldset>
     <fieldset>
@@ -4638,8 +4663,7 @@ PAGE = PAGE.replace("__SCRIPT_NONCE__", SCRIPT_NONCE)
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="blink2video serve",
-        description="Interface locale pour visionner les clips Blink, en écarter "
-                    "et en reprendre."
+        description=msg("aide_desc"),
     )
     parser.add_argument("--input", type=Path, default=md.DEFAULT_INPUT)
     parser.add_argument("--output", type=Path, default=md.DEFAULT_OUTPUT)
@@ -4648,29 +4672,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--normalized-output", type=Path, default=md.DEFAULT_NORMALIZED)
     parser.add_argument("--excluded-output", type=Path, default=md.DEFAULT_EXCLUDED)
     parser.add_argument("--timezone", default="Europe/Paris")
-    parser.add_argument(
-        "--hub", help="nom du Sync Module Blink ; tous les modules si omis",
-    )
+    parser.add_argument("--hub", help=msg("aide_hub"))
     parser.add_argument(
         "--thumbs", type=Path, default=BASE_DIR / ".blink_thumbs",
-        help="cache des vignettes ; jetable, refabriqué à la demande",
+        help=msg("aide_thumbs"),
     )
     parser.add_argument("--port", type=runtime.port_valide, default=8765)
-    parser.add_argument(
-        "--trusted-host", default="",
-        help="nom d'hôte (ou adresse) supplémentaire accepté comme Host, en plus "
-             "de la boucle locale : pour un tunnel privé (Tailscale, WireGuard) "
-             "lié directement à cette instance avec BLINK_BIND, sans reverse "
-             "proxy devant. Réglable aussi depuis la page (Réglages)",
-    )
+    parser.add_argument("--trusted-host", default="", help=msg("aide_trusted_host"))
     parser.add_argument("--initial-setup", action="store_true",
                         help=argparse.SUPPRESS)
     parser.add_argument(
         # Un serveur n'ouvre pas de fenêtre de lui-même : c'est l'usage, et
         # celui-ci passe l'essentiel de sa vie lancé au démarrage de session, où
         # surgir dans le navigateur serait déplacé. On le demande donc.
-        "--open-browser", action="store_true",
-        help="ouvrir la page dans le navigateur au démarrage"
+        "--open-browser", action="store_true", help=msg("aide_open_browser"),
     )
     return parser.parse_args()
 

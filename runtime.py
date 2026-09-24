@@ -38,7 +38,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.13.0"
+VERSION = "0.13.1"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -197,9 +197,11 @@ def lire_reglages() -> dict:
             "trusted_host", REGLAGES_DEFAUT["trusted_host"])).strip(),
         "webhook_notif_url": str(valeurs.get(
             "webhook_notif_url", REGLAGES_DEFAUT["webhook_notif_url"])).strip(),
+        # 300 = LIVE_MAX_SECONDS (serve.py), le plafond dur qui coupe de
+        # toute façon chaque direct : au-delà, le réglage serait inopérant.
         "live_auto_stop_seconds": _entier_borne(
             valeurs, "live_auto_stop_seconds",
-            REGLAGES_DEFAUT["live_auto_stop_seconds"], 0, 86400),
+            REGLAGES_DEFAUT["live_auto_stop_seconds"], 0, 300),
     }
 
 
@@ -282,6 +284,37 @@ def traduire(libelles: dict, cle: str, **valeurs) -> str:
     page (issue GitHub #6 : ces messages restaient tout en français)."""
     texte = libelles[lire_langue()][cle]
     return texte.format(**valeurs) if valeurs else texte
+
+
+# Messages que runtime.py imprime lui-même (bootstrap, boucle --loop).
+# Sûr dès le bootstrap, avant toute dépendance installée : lire_langue()
+# n'utilise que la stdlib et retombe sur « fr » si rien n'est encore écrit.
+_LIBELLES_RUNTIME = {
+    "fr": {
+        "dependances_absentes": "Dépendances absentes : {liste}",
+        "creation_venv": "Création de l'environnement isolé dans {dossier}...",
+        "relance_venv": "Relance dans {dossier}...",
+        "installation": "Installation de : {liste}",
+        "repetition": "Répétition toutes les {minutes} min. Ctrl+C pour arrêter.",
+        "tour_interrompu": "Tour interrompu par une erreur, nouvel essai au prochain : {erreur}",
+        "arret": "\nArrêt.",
+        "aide_loop": "répéter toutes les N minutes au lieu d'agir une fois (défaut 10)",
+    },
+    "en": {
+        "dependances_absentes": "Missing dependencies: {liste}",
+        "creation_venv": "Creating the isolated environment in {dossier}...",
+        "relance_venv": "Relaunching in {dossier}...",
+        "installation": "Installing: {liste}",
+        "repetition": "Repeating every {minutes} min. Ctrl+C to stop.",
+        "tour_interrompu": "Run interrupted by an error, retrying next time: {erreur}",
+        "arret": "\nStopped.",
+        "aide_loop": "repeat every N minutes instead of running once (default 10)",
+    },
+}
+
+
+def _msg(cle: str, **valeurs) -> str:
+    return traduire(_LIBELLES_RUNTIME, cle, **valeurs)
 
 
 JETON_WEBHOOK = "blink_webhook_token.txt"
@@ -530,7 +563,7 @@ def bootstrap() -> None:
 
     if mode == "none":
         if manquantes:
-            print("Dépendances absentes : " + ", ".join(manquantes))
+            print(_msg("dependances_absentes", liste=", ".join(manquantes)))
             print(f"  pip install {' '.join(manquantes)}")
             sys.exit(1)
         return
@@ -554,13 +587,13 @@ def bootstrap() -> None:
         return  # l'environnement courant suffit, inutile d'en créer un
 
     if not python.exists():
-        print(f"Création de l'environnement isolé dans {venv_dir}...")
+        print(_msg("creation_venv", dossier=venv_dir))
         subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
 
     if not _venv_a_jour(python):
         _installer(str(python), list(DEPENDANCES.values()))
 
-    print(f"Relance dans {venv_dir}...")
+    print(_msg("relance_venv", dossier=venv_dir))
     os.execve(str(python), [str(python), *sys.argv],
               dict(os.environ, BLINK_BOOTSTRAP_DONE="1"))
 
@@ -583,7 +616,7 @@ def _venv_a_jour(python: Path) -> bool:
 
 
 def _installer(python: str, paquets: list) -> None:
-    print("Installation de : " + ", ".join(paquets))
+    print(_msg("installation", liste=", ".join(paquets)))
     subprocess.run([python, "-m", "pip", "install", "--quiet", *paquets], check=True)
 
 
@@ -2224,7 +2257,7 @@ def ajouter_boucle(parser) -> None:
     parser.add_argument(
         "--loop", type=cadence_positive, nargs="?", const=10, default=None,
         metavar="MINUTES",
-        help="répéter toutes les N minutes au lieu d'agir une fois (défaut 10)",
+        help=_msg("aide_loop"),
     )
 
 
@@ -2244,7 +2277,7 @@ def repeter(travail, minutes, journal=None) -> int:
 
     if not minutes:
         return int(travail() or 0)
-    print(f"Répétition toutes les {minutes} min. Ctrl+C pour arrêter.")
+    print(_msg("repetition", minutes=minutes))
     if journal:
         journal(f"repetition toutes les {minutes} min")
     periode = minutes * 60
@@ -2254,10 +2287,11 @@ def repeter(travail, minutes, journal=None) -> int:
             try:
                 travail()
             except Exception as erreur:
-                message = f"tour interrompu par une erreur, on reessaie au prochain : {erreur}"
-                print(message)
+                # Console traduite, journal (fichier de diagnostic) figé dans
+                # sa forme technique habituelle comme ses autres entrées ici.
+                print(_msg("tour_interrompu", erreur=erreur))
                 if journal:
-                    journal(message)
+                    journal(f"tour interrompu par une erreur, on reessaie au prochain : {erreur}")
             # Sommeil scindé en tranches courtes : sans ça, un arrêt demandé
             # pendant l'attente entre deux tours ne serait vu qu'à l'échéance
             # complète (jusqu'à `minutes` d'attente), pas dans la seconde
@@ -2270,7 +2304,7 @@ def repeter(travail, minutes, journal=None) -> int:
     except KeyboardInterrupt:
         if journal:
             journal("arret de la repetition")
-        print("\nArrêt.")
+        print(_msg("arret"))
     else:
         if journal:
             journal("arret demande, sortie propre")

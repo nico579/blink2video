@@ -426,15 +426,18 @@ class TestsValidationReglagesHttp(unittest.TestCase):
         self.assert_enregistre(handler, {**DEFAUTS, "live_auto_stop_seconds": 120})
 
     def test_arret_auto_direct_hors_plage_ou_invalide_refuse(self):
+        # Au-delà de LIVE_MAX_SECONDS le réglage serait inopérant : le serveur
+        # coupe de toute façon chaque direct à ce plafond (issue #15).
         message = ("L'arrêt automatique du direct doit être un nombre de secondes "
-                   "entre 0 (désactivé) et 86400 (24h).")
-        for valeur in (-1, 86401, "beaucoup"):
+                   f"entre 0 (désactivé) et {serve.LIVE_MAX_SECONDS} (le plafond "
+                   "de tout direct).")
+        for valeur in (-1, serve.LIVE_MAX_SECONDS + 1, 86400, "beaucoup"):
             with self.subTest(valeur=valeur):
                 self.assert_refuse(
                     self.requete(self.payload(live_auto_stop_seconds=valeur)), message)
 
     def test_arret_auto_direct_bornes_incluses_acceptees(self):
-        for valeur in (0, 86400):
+        for valeur in (0, serve.LIVE_MAX_SECONDS):
             with self.subTest(valeur=valeur):
                 handler = self.requete(self.payload(live_auto_stop_seconds=valeur))
                 self.assert_enregistre(handler, {**DEFAUTS, "live_auto_stop_seconds": valeur})

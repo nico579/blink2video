@@ -12,10 +12,14 @@ ailleurs (`for _, p in lances`, etc.)."""
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import runtime
 import blink_auth
@@ -28,6 +32,7 @@ import autostart
 import smoketest
 import watch
 import serve
+import raccourci_bureau
 
 
 class TestTraduireLibelles(unittest.TestCase):
@@ -224,6 +229,40 @@ class TestTraduireLibelles(unittest.TestCase):
             self.assertEqual(
                 str(erreur),
                 "Previous update not finalized: backups and preparation kept.")
+
+    # Issue #16 : raccourci_bureau.py (jumeau d'autostart.py) et les messages
+    # propres à runtime.py (bootstrap, --loop) étaient restés hors traduction.
+
+    def test_raccourci_bureau_toutes_les_cles_existent_dans_les_deux_langues(self):
+        self.assertEqual(set(raccourci_bureau.LIBELLES["fr"]),
+                         set(raccourci_bureau.LIBELLES["en"]))
+
+    def test_raccourci_bureau_bascule_et_formate(self):
+        self._regler_langue("en")
+        self.assertEqual(raccourci_bureau._("raccourci_cree", cible="X"),
+                         "Shortcut created: X")
+
+    def test_runtime_toutes_les_cles_existent_dans_les_deux_langues(self):
+        self.assertEqual(set(runtime._LIBELLES_RUNTIME["fr"]),
+                         set(runtime._LIBELLES_RUNTIME["en"]))
+
+    def test_runtime_bascule_et_formate(self):
+        self._regler_langue("en")
+        self.assertEqual(runtime._msg("repetition", minutes=5),
+                         "Repeating every 5 min. Ctrl+C to stop.")
+
+    def test_aide_principale_liste_les_verbes_dans_la_langue_de_la_page(self):
+        # parse_args() lisait toujours Verbe.fr : l'aide principale restait en
+        # français même en anglais, alors que Verbe.en existait déjà.
+        self._regler_langue("en")
+        sortie = io.StringIO()
+        with mock.patch.object(sys, "argv", ["blink2video", "--help"]), \
+                contextlib.redirect_stdout(sortie), self.assertRaises(SystemExit):
+            blink_cli.parse_args()
+        aide = sortie.getvalue()
+        self.assertIn(runtime.VERBES["login"].en, aide)
+        self.assertNotIn(runtime.VERBES["login"].fr, aide)
+        self.assertIn("Getting started:", aide)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,9 @@ import blink_registre
 def parse_args() -> argparse.Namespace:
     programme = Path(sys.argv[0]).stem or "blink2video"
     version = runtime.version_affichee()
+    # Verbe.fr/.en existaient déjà mais seul .fr était lu ici : l'aide
+    # principale restait en français quelle que soit la langue (issue #16).
+    langue = runtime.lire_langue()
     parser = argparse.ArgumentParser(
         prog=programme,
         # Les verbes vont dans la description, pas dans un groupe d'arguments :
@@ -36,24 +39,23 @@ def parse_args() -> argparse.Namespace:
         # pollueraient la ligne d'usage et fausseraient l'analyse.
         description=(
             f"blink2video {version}\n\n"
-            "Gestion des caméras Blink depuis un ordinateur : direct, "
-            "armement, archive horodatée.\n\nVerbes :\n"
-            + "".join(f"  {nom:11} {verbe.fr}\n"
+            + msg("aide_description") + "\n\n" + msg("aide_verbes_titre") + "\n"
+            + "".join(f"  {nom:11} {getattr(verbe, langue)}\n"
                       for nom, verbe in runtime.VERBES.items())
-            + "\n  <verbe> --help donne les options de chacun."
+            + "\n  " + msg("aide_verbe_help")
         ),
         # Les exemples suivent l'ordre dans lequel on rencontre les verbes :
         # se connecter, regarder ce qu'il y a, récupérer, assembler, visionner,
         # puis automatiser. C'est un parcours, pas un catalogue.
-        epilog="Premiers pas :\n" + "\n".join(
-            f"  {programme} {commande:<20} {intention}"
-            for commande, intention in (
-                ("login", "se connecter une fois"),
-                ("list", "voir ce que contient le module"),
-                ("download", "récupérer les clips"),
-                ("merge", "assembler les vidéos"),
-                ("serve", "ouvrir l'interface"),
-                ("autostart on", "surveiller à chaque session"),
+        epilog=msg("aide_premiers_pas") + "\n" + "\n".join(
+            f"  {programme} {commande:<20} {msg(cle)}"
+            for commande, cle in (
+                ("login", "aide_pas_login"),
+                ("list", "aide_pas_list"),
+                ("download", "aide_pas_download"),
+                ("merge", "aide_pas_merge"),
+                ("serve", "aide_pas_serve"),
+                ("autostart on", "aide_pas_autostart"),
             )
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -74,29 +76,28 @@ def parse_args() -> argparse.Namespace:
         # premiers n'existent pas.
         help=argparse.SUPPRESS,
     )
-    parser.add_argument("--hub", help="nom du Sync Module à utiliser")
-    parser.add_argument("--camera", help="ne garder que cette caméra")
+    parser.add_argument("--hub", help=msg("aide_hub"))
+    parser.add_argument("--camera", help=msg("aide_camera"))
     parser.add_argument(
         "--since",
         type=runtime.jours_non_negatifs,
-        metavar="JOURS",
-        help="ne garder que les clips des N derniers jours",
+        metavar=msg("aide_metavar_jours"),
+        help=msg("aide_since"),
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=blink_registre.OUTPUT,
-        help=f"dossier de destination (défaut : {blink_registre.OUTPUT})",
+        help=msg("aide_output", defaut=blink_registre.OUTPUT),
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="forcer le retéléchargement des clips visibles, même déjà acquis",
+        help=msg("aide_overwrite"),
     )
     parser.add_argument(
         "--from", dest="source", choices=("usb", "cloud", "all"), default="all",
-        help="où chercher les clips : « usb » la clé du module, « cloud » celui "
-             "de l'abonnement, « all » les deux (défaut)",
+        help=msg("aide_from"),
     )
     # Une boucle propre au verbe : le cloud se sonde à la minute sans rien
     # réveiller, là où le manifeste local mobilise le module et se contente de dix
@@ -118,15 +119,45 @@ def parse_args() -> argparse.Namespace:
         raise SystemExit(0)
     cadences_sources = (args.usb_loop is not None, args.cloud_loop is not None)
     if any(cadences_sources) and not all(cadences_sources):
-        parser.error("--usb-loop et --cloud-loop s'emploient ensemble")
+        parser.error(msg("erreur_cadences_ensemble"))
     if all(cadences_sources) and (
             args.command != "download" or args.source != "all" or args.loop is not None):
-        parser.error("les cadences USB/cloud exigent « download --from all » sans --loop")
+        parser.error(msg("erreur_cadences_exigent"))
     return args
 
 
 LIBELLES = {
     "fr": {
+        "aide_description":
+            "Gestion des caméras Blink depuis un ordinateur : direct, "
+            "armement, archive horodatée.",
+        "aide_verbes_titre": "Verbes :",
+        "aide_verbe_help": "<verbe> --help donne les options de chacun.",
+        "aide_premiers_pas": "Premiers pas :",
+        "aide_pas_login": "se connecter une fois",
+        "aide_pas_list": "voir ce que contient le module",
+        "aide_pas_download": "récupérer les clips",
+        "aide_pas_merge": "assembler les vidéos",
+        "aide_pas_serve": "ouvrir l'interface",
+        "aide_pas_autostart": "surveiller à chaque session",
+        "aide_hub": "nom du Sync Module à utiliser",
+        "aide_camera": "ne garder que cette caméra",
+        "aide_since": "ne garder que les clips des N derniers jours",
+        "aide_metavar_jours": "JOURS",
+        "aide_output": "dossier de destination (défaut : {defaut})",
+        "aide_overwrite": "forcer le retéléchargement des clips visibles, même déjà acquis",
+        "aide_from":
+            "où chercher les clips : « usb » la clé du module, « cloud » celui "
+            "de l'abonnement, « all » les deux (défaut)",
+        "erreur_cadences_ensemble": "--usb-loop et --cloud-loop s'emploient ensemble",
+        "erreur_cadences_exigent":
+            "les cadences USB/cloud exigent « download --from all » sans --loop",
+        "aide_desc_open": "Ouvre l'interface dans le navigateur, et dit si personne n'écoute.",
+        "aide_port_open": "port de l'interface (défaut : le port configuré)",
+        "aide_desc_stop":
+            "Arrête les instances en cours, y compris celle du démarrage automatique.",
+        "aide_desc_restart": "Arrête l'instance en cours, puis relance « start » à neuf.",
+        "aide_sans_relance": "s'arrêter sans relancer ensuite",
         "echec_connexion": "\nÉchec de la connexion Blink.",
         "connexion_reussie": "\nConnexion Blink réussie.",
         "session_sauvegardee": "Session sauvegardée dans : {chemin}",
@@ -191,8 +222,38 @@ LIBELLES = {
             "« {option} » précède le premier verbe : les options "
             "suivent le verbe auquel elles s'appliquent.",
         "liste_verbes": "Verbes : {liste}",
+        "connexion_annulee": "\nConnexion annulée.",
     },
     "en": {
+        "aide_description":
+            "Manage Blink cameras from a computer: live view, arming, "
+            "timestamped archive.",
+        "aide_verbes_titre": "Verbs:",
+        "aide_verbe_help": "<verb> --help shows the options of each.",
+        "aide_premiers_pas": "Getting started:",
+        "aide_pas_login": "sign in once",
+        "aide_pas_list": "see what the Sync Module holds",
+        "aide_pas_download": "fetch the clips",
+        "aide_pas_merge": "assemble the videos",
+        "aide_pas_serve": "open the interface",
+        "aide_pas_autostart": "monitor at every login",
+        "aide_hub": "name of the Sync Module to use",
+        "aide_camera": "keep only this camera",
+        "aide_since": "keep only clips from the last N days",
+        "aide_metavar_jours": "DAYS",
+        "aide_output": "destination folder (default: {defaut})",
+        "aide_overwrite": "force re-downloading visible clips, even ones already fetched",
+        "aide_from":
+            "where to look for clips: « usb » the Sync Module's USB drive, "
+            "« cloud » the subscription's cloud, « all » both (default)",
+        "erreur_cadences_ensemble": "--usb-loop and --cloud-loop go together",
+        "erreur_cadences_exigent":
+            "USB/cloud intervals require « download --from all » without --loop",
+        "aide_desc_open": "Opens the interface in the browser, and says if nothing is listening.",
+        "aide_port_open": "interface port (default: the configured port)",
+        "aide_desc_stop": "Stops the running instances, including the autostart one.",
+        "aide_desc_restart": "Stops the running instance, then relaunches « start » fresh.",
+        "aide_sans_relance": "stop without relaunching afterwards",
         "echec_connexion": "\nBlink sign-in failed.",
         "connexion_reussie": "\nSigned in to Blink.",
         "session_sauvegardee": "Session saved to: {chemin}",
@@ -257,6 +318,7 @@ LIBELLES = {
             "« {option} » comes before the first verb: options "
             "follow the verb they apply to.",
         "liste_verbes": "Verbs: {liste}",
+        "connexion_annulee": "\nLogin cancelled.",
     },
 }
 
@@ -352,14 +414,14 @@ def ouvrir(arguments: list = ()) -> int:
 
     parseur = argparse.ArgumentParser(
         prog="blink2video open",
-        description=ouvrir.__doc__.splitlines()[0],
+        description=msg("aide_desc_open"),
     )
     # Le port configuré, pas 8765 en dur : sans ça, « open » sans argument
     # ouvrait toujours 8765 même après un changement de port dans les
     # réglages (revue du 27/08, bug 5).
     parseur.add_argument("--port", type=runtime.port_valide,
                          default=runtime.lire_reglages()["port"],
-                         help="port de l'interface (défaut : le port configuré)")
+                         help=msg("aide_port_open"))
     options = parseur.parse_args(list(arguments))
     adresse = f"http://127.0.0.1:{options.port}/"
 
@@ -512,7 +574,7 @@ def arreter(arguments: list = ()) -> int:
     # l'instance réelle de la machine.
     argparse.ArgumentParser(
         prog="blink2video stop",
-        description=arreter.__doc__.splitlines()[0],
+        description=msg("aide_desc_stop"),
     ).parse_args(list(arguments))
     try:
         with runtime.verrou_controle("stop"):
@@ -541,12 +603,12 @@ def redemarrer(arguments: list = ()) -> int:
     détaché, lui échappe."""
     parser = argparse.ArgumentParser(
         prog="blink2video restart",
-        description=redemarrer.__doc__.splitlines()[0],
+        description=msg("aide_desc_restart"),
     )
     parser.add_argument("--finaliser", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--delai", type=float, default=0.0, help=argparse.SUPPRESS)
     parser.add_argument("--sans-relance", action="store_true",
-                        help="s'arrêter sans relancer ensuite")
+                        help=msg("aide_sans_relance"))
     args = parser.parse_args(list(arguments))
     installe = runtime.app_dir()
 

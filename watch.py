@@ -252,6 +252,13 @@ def last_clip_per_camera(timezone, cameras=None) -> dict:
 # pas dans la locale système.
 MESSAGES = {
     "fr": {
+        "aide_desc": "Surveille l'installation Blink et signale les anomalies.",
+        "aide_dry_run": "afficher les alertes sans enregistrer l'état observé",
+        "aide_test": "déclencher une notification de vérification et s'arrêter",
+        "aide_port":
+            "option conservée pour compatibilité ; watch ne démarre plus l'interface",
+        "aide_ignore": "mettre des caméras en sourdine : plus aucune alerte à leur sujet",
+        "aide_unignore": "lever la sourdine",
         "module_hors_ligne": "Module « {nom} » hors ligne.",
         "module_retour": "Module « {nom} » de nouveau en ligne.",
         "camera_hors_ligne": "Caméra « {nom} » hors ligne.",
@@ -275,6 +282,12 @@ MESSAGES = {
         "corps_test_alerte": "Ceci est un test. La surveillance sait vous joindre.",
     },
     "en": {
+        "aide_desc": "Monitors the Blink installation and reports anomalies.",
+        "aide_dry_run": "show alerts without saving the observed state",
+        "aide_test": "send a test notification and exit",
+        "aide_port": "kept for compatibility; watch no longer starts the interface",
+        "aide_ignore": "mute cameras: no more alerts about them",
+        "aide_unignore": "unmute",
         "module_hors_ligne": 'Module "{nom}" offline.',
         "module_retour": 'Module "{nom}" back online.',
         "camera_hors_ligne": 'Camera "{nom}" offline.',
@@ -494,29 +507,20 @@ def _controler(args, timezone) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="blink2video watch",
-        description="Surveille l'installation Blink et signale les anomalies."
+        description=_msg("aide_desc"),
     )
     parser.add_argument("--timezone", default="Europe/Paris")
     runtime.ajouter_boucle(parser)
+    parser.add_argument("--dry-run", action="store_true", help=_msg("aide_dry_run"))
+    parser.add_argument("--test", action="store_true", help=_msg("aide_test"))
     parser.add_argument(
-        "--dry-run", action="store_true",
-        help="afficher les alertes sans enregistrer l'état observé",
+        "--port", type=runtime.port_valide, default=8765, help=_msg("aide_port"),
     )
     parser.add_argument(
-        "--test", action="store_true",
-        help="déclencher une notification de vérification et s'arrêter",
+        "--ignore", metavar="CAMERA", nargs="+", default=[], help=_msg("aide_ignore"),
     )
     parser.add_argument(
-        "--port", type=runtime.port_valide, default=8765,
-        help="option conservée pour compatibilité ; watch ne démarre plus l'interface",
-    )
-    parser.add_argument(
-        "--ignore", metavar="CAMERA", nargs="+", default=[],
-        help="mettre des caméras en sourdine : plus aucune alerte à leur sujet",
-    )
-    parser.add_argument(
-        "--unignore", metavar="CAMERA", nargs="+", default=[],
-        help="lever la sourdine",
+        "--unignore", metavar="CAMERA", nargs="+", default=[], help=_msg("aide_unignore"),
     )
     return parser.parse_args()
 

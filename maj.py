@@ -42,6 +42,8 @@ import runtime
 
 LIBELLES = {
     "fr": {
+        "aide_desc": "Installer la dernière version publiée.",
+        "aide_check": "dire s'il existe une version plus récente, sans rien installer",
         "message_windows7":
             "Mise à jour automatique désactivée pour l'édition Windows 7 "
             "legacy : une archive Windows standard réinstallerait Python 3.12 "
@@ -139,6 +141,8 @@ LIBELLES = {
         "version_disponible": "Version {version} disponible (vous avez {actuelle}) : {page}",
     },
     "en": {
+        "aide_desc": "Install the latest published release.",
+        "aide_check": "say whether a newer release exists, without installing anything",
         "message_windows7":
             "Automatic updates disabled for the legacy Windows 7 "
             "edition: a standard Windows archive would reinstall Python 3.12 "
@@ -1243,9 +1247,8 @@ def installer(force: bool = False) -> int:
 def main() -> int:
     analyseur = argparse.ArgumentParser(
         prog="blink2video update",
-        description="Installer la dernière version publiée.")
-    analyseur.add_argument("--check", action="store_true",
-                           help="dire s'il existe une version plus récente, sans rien installer")
+        description=msg("aide_desc"))
+    analyseur.add_argument("--check", action="store_true", help=msg("aide_check"))
     analyseur.add_argument("--finaliser", metavar="DOSSIER",
                            help=argparse.SUPPRESS)  # usage interne
     arguments = analyseur.parse_args()

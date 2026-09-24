@@ -23,6 +23,7 @@ from blink_models import (
     _identifiant_reseau,
     _meme_camera,
     clip_datetime_utc,
+    msg,
 )
 
 OUTPUT = runtime.app_dir() / "Blink_Clips"
@@ -83,7 +84,7 @@ def load_download_state(output: Path) -> dict:
             )
             valides[cle] = entree
         if ignores:
-            print(f"  ! [données] {ignores} entrée(s) de registre invalide(s) ignorée(s).")
+            print(msg("registre_entrees_invalides", ignores=ignores))
         state["clips"] = valides
         state["version"] = 2
         return state

@@ -29,6 +29,11 @@ import runtime
 
 LIBELLES = {
     "fr": {
+        "aide_desc": "Vérifie qu'une installation fonctionne réellement, chez l'utilisateur.",
+        "aide_keep": "conserver le dossier de travail au lieu de l'effacer",
+        "aide_webrtc": "diagnostic WebRTC local seul, sans caméra ni notification",
+        "aide_report": "écrire le résultat WebRTC dans ce fichier JSON",
+        "erreur_report_sans_webrtc": "--report exige --webrtc",
         "marque_ok": "ok  ",
         "marque_echec": "ECHEC",
         "controle_installation_titre": "Contrôle de l'installation\n",
@@ -61,6 +66,11 @@ LIBELLES = {
         "installation_operationnelle": "Installation opérationnelle.",
     },
     "en": {
+        "aide_desc": "Checks that an installation actually works, on the user's machine.",
+        "aide_keep": "keep the working folder instead of deleting it",
+        "aide_webrtc": "local WebRTC diagnostic only, no camera or notification",
+        "aide_report": "write the WebRTC result to this JSON file",
+        "erreur_report_sans_webrtc": "--report requires --webrtc",
         "marque_ok": "ok  ",
         "marque_echec": "FAIL ",
         "controle_installation_titre": "Installation check\n",
@@ -127,17 +137,14 @@ def pixels_allumes(ffmpeg: str, video: Path) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--keep", action="store_true",
-                        help="conserver le dossier de travail au lieu de l'effacer")
+    parser = argparse.ArgumentParser(description=_("aide_desc"))
+    parser.add_argument("--keep", action="store_true", help=_("aide_keep"))
     parser.add_argument("--timezone", default="Europe/Paris")
-    parser.add_argument("--webrtc", action="store_true",
-                        help="diagnostic WebRTC local seul, sans caméra ni notification")
-    parser.add_argument("--report", type=Path,
-                        help="écrire le résultat WebRTC dans ce fichier JSON")
+    parser.add_argument("--webrtc", action="store_true", help=_("aide_webrtc"))
+    parser.add_argument("--report", type=Path, help=_("aide_report"))
     args = parser.parse_args()
     if args.report and not args.webrtc:
-        parser.error("--report exige --webrtc")
+        parser.error(_("erreur_report_sans_webrtc"))
     if args.webrtc:
         return diagnostic_webrtc(args.report)
 

@@ -25,6 +25,17 @@ import runtime
 
 LIBELLES = {
     "fr": {
+        "aide_desc": "Démarrage de la surveillance avec la session.",
+        "aide_exemples":
+            "Exemples : blink2video autostart on | blink2video autostart status | "
+            "blink2video autostart off --dry-run",
+        "aide_etat": "on installe, off retire, status renseigne (défaut)",
+        "aide_metavar_verbe": "VERBE",
+        "aide_quoi":
+            "ce qu'il faut lancer à l'ouverture de session, avec ses options. "
+            "Défaut : « watch --loop », qui surveille, alerte, rapatrie, "
+            "assemble et sert l'interface",
+        "aide_dry_run": "montrer ce qui serait fait sans rien modifier",
         "verbe_inconnu": "verbe inconnu : {verbe}",
         "note_open_browser":
             "Note : « --open-browser » ouvrira un navigateur à chaque "
@@ -53,6 +64,16 @@ LIBELLES = {
         "prendra_effet": "  Il prendra effet à la prochaine ouverture de session.",
     },
     "en": {
+        "aide_desc": "Start monitoring along with the login session.",
+        "aide_exemples":
+            "Examples: blink2video autostart on | blink2video autostart status | "
+            "blink2video autostart off --dry-run",
+        "aide_etat": "on installs, off removes, status reports (default)",
+        "aide_metavar_verbe": "VERB",
+        "aide_quoi":
+            "what to run at login, with its options. Default: « watch --loop », "
+            "which monitors, alerts, fetches, assembles and serves the interface",
+        "aide_dry_run": "show what would be done without changing anything",
         "verbe_inconnu": "unknown verb: {verbe}",
         "note_open_browser":
             "Note: « --open-browser » will open a browser every "
@@ -405,24 +426,18 @@ def _installe(cible: Path, quoi: tuple = DEFAUT) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="blink2video autostart",
-        description="Démarrage de la surveillance avec la session.",
-        epilog="Exemples : blink2video autostart on | blink2video autostart status | "
-               "blink2video autostart off --dry-run",
+        description=_("aide_desc"),
+        epilog=_("aide_exemples"),
     )
     parser.add_argument("etat", choices=("on", "off", "status"), nargs="?",
-                        default="status",
-                        help="on installe, off retire, status renseigne (défaut)")
+                        default="status", help=_("aide_etat"))
     # nargs="*" plus parse_known_args : les options inconnues d'ici, comme
     # « --port 8899 », rejoignent le verbe, tandis que --dry-run reste compris
     # où qu'il soit placé. REMAINDER avalait --dry-run avec le reste, et une
     # simulation installait pour de bon.
-    parser.add_argument("quoi", nargs="*", metavar="VERBE",
-                        help="ce qu'il faut lancer à l'ouverture de session, "
-                             "avec ses options. Défaut : « watch --loop », qui "
-                             "surveille, alerte, rapatrie, assemble et sert "
-                             "l'interface")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="montrer ce qui serait fait sans rien modifier")
+    parser.add_argument("quoi", nargs="*", metavar=_("aide_metavar_verbe"),
+                        help=_("aide_quoi"))
+    parser.add_argument("--dry-run", action="store_true", help=_("aide_dry_run"))
     args, restant = parser.parse_known_args()
     quoi = tuple(args.quoi) + tuple(restant)
     try:

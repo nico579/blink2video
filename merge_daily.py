@@ -43,6 +43,39 @@ import runtime
 
 LIBELLES = {
     "fr": {
+        "aide_desc":
+            "Fusion incrémentale des clips Blink par caméra : une vidéo par "
+            "jour, puis agrégats par semaine ISO et par mois.",
+        "aide_normalized":
+            "stock des clips normalisés et horodatés, dont toutes les vidéos "
+            "assemblées sont issues",
+        "aide_no_weekly": "ne pas (re)construire les agrégats hebdomadaires",
+        "aide_no_monthly": "ne pas (re)construire les agrégats mensuels",
+        "aide_no_timestamp": "ne pas incruster la date et l'heure dans l'image",
+        "aide_excluded_output": "dossier où sont mis de côté les clips écartés",
+        "aide_exclude":
+            "écarter des clips (chemin sous Blink_Clips, Blink_Normalized ou "
+            "Blink_Excluded) : le brut part dans Blink_Excluded, le segment "
+            "est effacé, le clip n'est plus retéléchargé ni assemblé",
+        "aide_include":
+            "annuler une exclusion : le brut revient de Blink_Excluded et le "
+            "clip est re-normalisé",
+        "aide_date": "limiter à une date locale YYYY-MM-DD",
+        "aide_camera": "limiter à une caméra",
+        "aide_force": "reconstruire même si rien n'a changé",
+        "aide_font": "chemin vers une police .ttf pour l'horodatage incrusté",
+        "aide_font_size":
+            "taille en pixels de l'horodatage incrusté, 8 à 500 "
+            "(défaut : proportionnelle à la hauteur de la vidéo)",
+        "aide_font_color":
+            "couleur de l'horodatage incrusté : nom (white, yellow...) ou "
+            "hexadécimal (#RRGGBB, 0xRRGGBB), éventuellement @opacité "
+            "(ex. white@0.8), défaut white",
+        "aide_box_opacity":
+            "opacité du bandeau derrière l'horodatage, 0.0 (invisible) à "
+            "1.0 (opaque), défaut 0.55",
+        "aide_preset": "preset libx264 (ultrafast..veryslow), défaut veryfast",
+        "aide_crf": "qualité libx264 (0-51, plus bas = meilleure qualité), défaut 21",
         "registre_inconnu": "  Inconnu du registre, ignoré : {identity}",
         "clip_exclu": "  Exclu : {identity}",
         "clip_reintegre": "  Réintégré : {identity}",
@@ -111,6 +144,39 @@ LIBELLES = {
         "opacite_invalide": "Opacité invalide : {valeur!r} (0.0 à 1.0).",
     },
     "en": {
+        "aide_desc":
+            "Incremental merge of Blink clips per camera: one video per day, "
+            "then ISO-week and monthly aggregates.",
+        "aide_normalized":
+            "store of normalized, timestamped clips all assembled videos are "
+            "built from",
+        "aide_no_weekly": "do not (re)build the weekly aggregates",
+        "aide_no_monthly": "do not (re)build the monthly aggregates",
+        "aide_no_timestamp": "do not burn the date and time into the image",
+        "aide_excluded_output": "folder where discarded clips are set aside",
+        "aide_exclude":
+            "discard clips (path under Blink_Clips, Blink_Normalized or "
+            "Blink_Excluded): the raw file moves to Blink_Excluded, the segment "
+            "is deleted, the clip is no longer re-downloaded or assembled",
+        "aide_include":
+            "undo a discard: the raw file comes back from Blink_Excluded and "
+            "the clip is re-normalized",
+        "aide_date": "limit to one local date YYYY-MM-DD",
+        "aide_camera": "limit to one camera",
+        "aide_force": "rebuild even if nothing changed",
+        "aide_font": "path to a .ttf font for the burned-in timestamp",
+        "aide_font_size":
+            "burned-in timestamp size in pixels, 8 to 500 "
+            "(default: proportional to the video's height)",
+        "aide_font_color":
+            "burned-in timestamp color: a name (white, yellow...) or hex "
+            "(#RRGGBB, 0xRRGGBB), optionally @opacity (e.g. white@0.8), "
+            "default white",
+        "aide_box_opacity":
+            "opacity of the box behind the timestamp, 0.0 (invisible) to "
+            "1.0 (opaque), default 0.55",
+        "aide_preset": "libx264 preset (ultrafast..veryslow), default veryfast",
+        "aide_crf": "libx264 quality (0-51, lower = better quality), default 21",
         "registre_inconnu": "  Unknown to the registry, ignored: {identity}",
         "clip_exclu": "  Excluded: {identity}",
         "clip_reintegre": "  Reinstated: {identity}",
@@ -1650,8 +1716,7 @@ def _opacite_valide(valeur: str) -> float:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="blink2video merge",
-        description="Fusion incrémentale des clips Blink par caméra : une vidéo "
-                    "par jour, puis agrégats par semaine ISO et par mois."
+        description=msg("aide_desc"),
     )
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -1659,70 +1724,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--monthly-output", type=Path, default=DEFAULT_MONTHLY)
     parser.add_argument(
         "--normalized-output", type=Path, default=DEFAULT_NORMALIZED,
-        help="stock des clips normalisés et horodatés, dont toutes les vidéos "
-             "assemblées sont issues",
+        help=msg("aide_normalized"),
     )
-    parser.add_argument(
-        "--no-weekly", action="store_true",
-        help="ne pas (re)construire les agrégats hebdomadaires",
-    )
-    parser.add_argument(
-        "--no-monthly", action="store_true",
-        help="ne pas (re)construire les agrégats mensuels",
-    )
-    parser.add_argument(
-        "--no-timestamp", action="store_true",
-        help="ne pas incruster la date et l'heure dans l'image",
-    )
+    parser.add_argument("--no-weekly", action="store_true", help=msg("aide_no_weekly"))
+    parser.add_argument("--no-monthly", action="store_true", help=msg("aide_no_monthly"))
+    parser.add_argument("--no-timestamp", action="store_true", help=msg("aide_no_timestamp"))
     parser.add_argument(
         "--excluded-output", type=Path, default=DEFAULT_EXCLUDED,
-        help="dossier où sont mis de côté les clips écartés",
+        help=msg("aide_excluded_output"),
     )
     parser.add_argument(
-        "--exclude", nargs="+", metavar="CLIP", default=[],
-        help="écarter des clips (chemin sous Blink_Clips, Blink_Normalized ou "
-             "Blink_Excluded) : le brut part dans Blink_Excluded, le segment "
-             "est effacé, le clip n'est plus retéléchargé ni assemblé",
+        "--exclude", nargs="+", metavar="CLIP", default=[], help=msg("aide_exclude"),
     )
     parser.add_argument(
-        "--include", nargs="+", metavar="CLIP", default=[],
-        help="annuler une exclusion : le brut revient de Blink_Excluded et le clip est re-normalisé",
+        "--include", nargs="+", metavar="CLIP", default=[], help=msg("aide_include"),
     )
     parser.add_argument("--timezone", default="Europe/Paris")
     runtime.ajouter_boucle(parser)
-    parser.add_argument("--date", help="limiter à une date locale YYYY-MM-DD")
-    parser.add_argument("--camera", help="limiter à une caméra")
-    parser.add_argument(
-        "--force", action="store_true", help="reconstruire même si rien n'a changé"
-    )
-    parser.add_argument(
-        "--font", type=Path, default=None,
-        help="chemin vers une police .ttf pour l'horodatage incrusté",
-    )
+    parser.add_argument("--date", help=msg("aide_date"))
+    parser.add_argument("--camera", help=msg("aide_camera"))
+    parser.add_argument("--force", action="store_true", help=msg("aide_force"))
+    parser.add_argument("--font", type=Path, default=None, help=msg("aide_font"))
     parser.add_argument(
         "--font-size", type=_taille_police_valide, default=None,
-        help="taille en pixels de l'horodatage incrusté, 8 à 500 "
-             "(défaut : proportionnelle à la hauteur de la vidéo)",
+        help=msg("aide_font_size"),
     )
     parser.add_argument(
         "--font-color", type=_couleur_ffmpeg_valide, default="white",
-        help="couleur de l'horodatage incrusté : nom (white, yellow...) ou "
-             "hexadécimal (#RRGGBB, 0xRRGGBB), éventuellement @opacité "
-             "(ex. white@0.8), défaut white",
+        help=msg("aide_font_color"),
     )
     parser.add_argument(
         "--box-opacity", type=_opacite_valide, default=0.55,
-        help="opacité du bandeau derrière l'horodatage, 0.0 (invisible) à "
-             "1.0 (opaque), défaut 0.55",
+        help=msg("aide_box_opacity"),
     )
-    parser.add_argument(
-        "--preset", default="veryfast",
-        help="preset libx264 (ultrafast..veryslow), défaut veryfast",
-    )
-    parser.add_argument(
-        "--crf", type=int, default=21,
-        help="qualité libx264 (0-51, plus bas = meilleure qualité), défaut 21",
-    )
+    parser.add_argument("--preset", default="veryfast", help=msg("aide_preset"))
+    parser.add_argument("--crf", type=int, default=21, help=msg("aide_crf"))
     return parser.parse_args()
 
 
