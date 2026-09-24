@@ -6,6 +6,7 @@ Ces tests ne lancent aucun vrai processus et n'ouvrent aucun navigateur.
 from __future__ import annotations
 
 import contextlib
+import io
 import os
 import unittest
 from types import SimpleNamespace
@@ -97,6 +98,54 @@ class TestsOnboardingPort(unittest.TestCase):
 
         self.assertEqual(code, 0)
         port_ouvert.assert_called_once_with(55432)
+
+    def _accueillir_avec_reglages(self, reglages: dict, supplement: list):
+        processus = SimpleNamespace(pid=4242, poll=mock.Mock(return_value=None))
+        with mock.patch.object(
+            blink_cli.runtime, "lire_reglages", return_value=reglages,
+        ), mock.patch.object(
+            blink_cli.runtime, "demarrer", return_value=processus,
+        ) as demarrer, mock.patch.object(
+            blink_cli.runtime, "self_command",
+            side_effect=lambda *arguments: list(arguments),
+        ), mock.patch.object(
+            blink_cli.runtime, "arreter_processus",
+        ), mock.patch.object(
+            blink_cli.runtime, "bootstrap",
+        ), mock.patch.object(
+            blink_cli, "_port_ouvert", return_value=True,
+        ) as port_ouvert, mock.patch.dict(
+            os.environ, {"BLINK_NO_BROWSER": "1"}, clear=False,
+        ), contextlib.redirect_stdout(io.StringIO()) as sortie:
+            code = blink_cli.accueillir(
+                {"authenticated": True, "error": None}, supplement, delai=5)
+        return code, demarrer.call_args[0][0], port_ouvert, sortie.getvalue()
+
+    def test_port_des_reglages_utilise_sans_port_explicite(self):
+        """Session expirée + port personnalisé : le serveur temporaire ne
+        doit pas retomber sur le 8765 codé en dur de serve.py."""
+        reglages = dict(blink_cli.runtime.REGLAGES_DEFAUT, port=9123,
+                        timezone="America/New_York", trusted_host="100.64.0.7")
+        code, commande, port_ouvert, sortie = self._accueillir_avec_reglages(
+            reglages, [])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(commande, [
+            "serve", "--port", "9123", "--timezone", "America/New_York",
+            "--trusted-host", "100.64.0.7",
+        ])
+        port_ouvert.assert_called_once_with(9123)
+        self.assertIn("http://127.0.0.1:9123/", sortie)
+
+    def test_port_explicite_l_emporte_sur_les_reglages(self):
+        reglages = dict(blink_cli.runtime.REGLAGES_DEFAUT, port=9123)
+        code, commande, port_ouvert, _ = self._accueillir_avec_reglages(
+            reglages, ["--port", "9555"])
+
+        self.assertEqual(code, 0)
+        # Le supplément suit le bloc fixe : argparse retient sa valeur.
+        self.assertEqual(commande[-2:], ["--port", "9555"])
+        port_ouvert.assert_called_once_with(9555)
 
 
 if __name__ == "__main__":

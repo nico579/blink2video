@@ -216,6 +216,26 @@ class TestsSuppressionSelectionBlink(unittest.TestCase):
         self.manifeste.assert_awaited_once_with(self.modules["1"])
         self.sauve.assert_called_once_with(self.paths["input"], self.etat)
 
+    def test_manifeste_renumerote_ne_marque_pas_un_clip_encore_present(self):
+        """Le Sync Module renumérote ses clips lors d'une réindexation : un
+        ancien numéro absent du manifeste ne prouve pas l'absence du clip.
+        Le marquer masquait définitivement sa case « Supprimer »."""
+        une_heure = dt.timedelta(hours=1)
+        cible = self.entree("cible_7_abcdef123456")
+        self.entree("renumerote_8_abcdef123456",
+                    created_at=(INSTANT + une_heure).isoformat())
+        self.entree("vraiment-absent", remote_id="9",
+                    created_at=(INSTANT + 2 * une_heure).isoformat())
+        supprime = self.clip(7)
+        toujours_la = self.clip(108, secondes=3600)
+        self.manifestes["1"] = [supprime, toujours_la]
+        self.assertEqual(self.supprimer([cible]), {cible: "supprime"})
+        supprime.delete_video.assert_awaited_once_with(self.blink)
+        toujours_la.delete_video.assert_not_awaited()
+        marques = {cle for cle, entree in self.etat["clips"].items()
+                   if entree.get("source_deleted")}
+        self.assertEqual(marques, {"cible_7_abcdef123456", "vraiment-absent"})
+
     def test_slot_occupe_ne_prend_pas_verrou_et_ne_libere_pas_autrui(self):
         cible = self.entree("cible")
         inconnu = "inconnu.mp4"

@@ -376,6 +376,16 @@ class TestsValidationReglagesHttp(unittest.TestCase):
                     self.requete(self.payload(trusted_host=valeur)),
                     self._message_hote_invalide(valeur))
 
+    def test_hote_de_confiance_commencant_par_un_tiret_refuse(self):
+        # argparse lirait « --trusted-host -x » comme une option sans valeur :
+        # enregistré tel quel, serve refusait de démarrer au lancement suivant.
+        for valeur in ("-x", "--loop", "192.168.1.10,-mon_pc"):
+            with self.subTest(valeur=valeur):
+                entree = valeur.split(",")[-1]
+                self.assert_refuse(
+                    self.requete(self.payload(trusted_host=valeur)),
+                    self._message_hote_invalide(entree))
+
     def test_hote_de_confiance_liste_normalisee_sans_espaces_ni_vides(self):
         # Issue #13 : plusieurs noms, adresses ou sous-réseaux à la fois.
         handler = self.requete(self.payload(

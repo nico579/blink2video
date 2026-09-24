@@ -124,6 +124,31 @@ class TestsRoutagePost(unittest.TestCase):
                 handler.send_error.assert_not_called()
                 self.assert_aucun_traitement(handler)
 
+    def test_json_valide_mais_pas_un_objet_refuse_avant_traitement(self):
+        for route in ROUTES:
+            for corps in (b"[]", b"42", b'"texte"', b"null", b"true"):
+                with self.subTest(route=route, corps=corps):
+                    handler = self.handler(route, corps)
+                    handler.do_POST()
+                    handler.send_json.assert_called_once_with(
+                        {"error": "corps JSON : objet attendu"}, 400)
+                    handler.send_error.assert_not_called()
+                    self.assert_aucun_traitement(handler)
+
+    def test_octets_non_utf8_refuses_comme_json_illisible(self):
+        handler = self.handler("/api/reglages", b'{"camera":"\xff\xfe"}')
+        handler.do_POST()
+        handler.send_json.assert_called_once_with({"error": "corps JSON illisible"}, 400)
+        self.assert_aucun_traitement(handler)
+
+    def test_longueur_negative_refusee_sans_lecture_bloquante(self):
+        handler = self.handler("/api/reglages", b"{}")
+        handler.headers["Content-Length"] = "-1"
+        handler.do_POST()
+        handler.send_error.assert_called_once_with(400)
+        handler.rfile.read.assert_not_called()
+        self.assert_aucun_traitement(handler)
+
     def test_chaque_route_transmet_uniquement_son_payload(self):
         payload = {"camera": "Entrée [réseau 1, appareil 2]", "actif": False,
                    "reglages": {"port": 8765}, "liste": [1, None, True]}

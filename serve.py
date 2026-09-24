@@ -446,17 +446,44 @@ def suppression_auto_keys() -> set:
     }
 
 
-def known_identities(paths: dict) -> set:
+# (clé du fichier registre, identités) de la dernière lecture : voir
+# known_identities(). Un tuple remplacé d'un bloc, jamais muté, suffit entre
+# les threads du serveur.
+_IDENTITES_CONNUES: tuple = (None, frozenset())
+
+
+def known_identities(paths: dict) -> frozenset:
     """Chemins de clips que le registre reconnaît, sans rien mesurer.
 
     Séparé de collect() à dessein : la validation d'une requête média passe par
     ici et doit rester instantanée, alors que l'inventaire complet peut avoir à
-    lancer ffmpeg."""
-    return {
+    lancer ffmpeg.
+
+    Mémorisé tant que le fichier du registre ne change pas : chaque vignette
+    et chaque requête Range d'un lecteur vidéo passent par ici, et relire le
+    JSON complet à chaque fois coûtait ~27 ms par requête pour 10 000 clips
+    (5,4 Mo, mesuré sur une machine rapide ; bien davantage sous Windows 7),
+    soit plusieurs secondes de CPU pour une seule page de vignettes (audit du
+    2026-09-24). Le registre n'est jamais réécrit en place (remplacement
+    atomique) : inode, taille ou date changent donc à chaque écriture."""
+    global _IDENTITES_CONNUES
+    registre = paths["input"] / md.DOWNLOAD_STATE
+    try:
+        etat = registre.stat()
+        cle = (os.fspath(registre), etat.st_mtime_ns, etat.st_size, etat.st_ino)
+    except OSError:
+        cle = None
+    memorise = _IDENTITES_CONNUES
+    if cle is not None and memorise[0] == cle:
+        return memorise[1]
+    identites = frozenset(
         entry["path"]
         for entry in read_entries(paths).values()
         if isinstance(entry, dict) and entry.get("path")
-    }
+    )
+    if cle is not None:
+        _IDENTITES_CONNUES = (cle, identites)
+    return identites
 
 
 CAMERA_FACTS = "cameras.json"
@@ -1668,7 +1695,10 @@ def normaliser_hotes_confiance(valeur: str) -> str:
     ignorent de toute façon les entrées invalides (refus par défaut)."""
     entrees = _entrees_confiance(valeur)
     for entree in entrees:
-        if not _ENTREE_CONFIANCE_RE.match(entree):
+        # Un « - » initial n'appartient à aucun nom d'hôte ni adresse, et
+        # argparse lirait « --trusted-host -x » comme une option sans valeur :
+        # serve refuserait alors de démarrer au lancement suivant.
+        if not _ENTREE_CONFIANCE_RE.match(entree) or entree.startswith("-"):
             raise ValueError(
                 f"Hôte de confiance invalide : « {entree} ». Un ou plusieurs "
                 "noms d'hôte, adresses IP ou sous-réseaux CIDR (192.168.1.0/24), "
@@ -3990,6 +4020,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if str(cible.entree.get("source") or "usb") != "cloud"
         })
         ids_presents_par_module = {}
+        evenements_presents_par_module = {}
 
         slot_pris = False
         try:
@@ -4002,7 +4033,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with blink_engine.hub_lock("suppression manuelle"):
                 BLINK.call(
                     lambda blink: self._supprimer_clips_blink(
-                        blink, cibles, resultats, ids_presents_par_module),
+                        blink, cibles, resultats, ids_presents_par_module,
+                        evenements_presents_par_module),
                     timeout=30 + 90 * max(1, nb_cameras_usb),
                 )
         except Exception as erreur:
@@ -4013,11 +4045,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _slot_rendu()
                 MODULE_SLOT.release()
 
-        self._marquer_sources_supprimees(resultats, ids_presents_par_module)
+        self._marquer_sources_supprimees(
+            resultats, ids_presents_par_module, evenements_presents_par_module)
 
     async def _supprimer_clips_blink(self, blink, cibles: list[_CibleSuppressionBlink],
-                                   resultats: dict, ids_presents_par_module: dict) -> None:
-        """Exécute les appels distants, avec un seul manifeste par Sync Module."""
+                                   resultats: dict, ids_presents_par_module: dict,
+                                   evenements_presents_par_module: dict | None = None,
+                                   ) -> None:
+        """Exécute les appels distants, avec un seul manifeste par Sync Module.
+
+        ``evenements_presents_par_module`` reçoit, par module, les couples
+        (caméra, instant) encore présents sur son stockage : ceux du manifeste
+        lu, moins ceux que ce lot vient de supprimer avec succès."""
+        if evenements_presents_par_module is None:
+            evenements_presents_par_module = {}
         manifestes = {}
         for cible in cibles:
             entree = cible.entree
@@ -4035,10 +4076,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
                 sync = BLINK.find_sync_module(blink, entree)
                 cle_module = id(sync)
+                cle_sync = str(getattr(sync, "sync_id", ""))
                 if cle_module not in manifestes:
                     manifestes[cle_module] = await blink_models.read_local_manifest(sync)
-                    ids_presents_par_module[str(getattr(sync, "sync_id", ""))] = {
+                    ids_presents_par_module[cle_sync] = {
                         str(clip.id) for clip in manifestes[cle_module]}
+                    evenements = {}
+                    for clip in manifestes[cle_module]:
+                        try:
+                            evenements[id(clip)] = (
+                                str(clip.name).strip().casefold(),
+                                blink_models.clip_datetime_utc(clip))
+                        except (AttributeError, TypeError, ValueError):
+                            continue
+                    evenements_presents_par_module[cle_sync] = evenements
 
                 # Les numéros USB peuvent être réattribués après réindexation.
                 # Retrouver le clip par caméra/date ; une ambiguïté interdit
@@ -4058,14 +4109,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 elif len(candidats) > 1:
                     resultats[cible.identite] = "ambigu"
                 else:
-                    resultats[cible.identite] = (
-                        "supprime" if await candidats[0].delete_video(blink) else "echec")
+                    supprime = await candidats[0].delete_video(blink)
+                    if supprime:
+                        evenements_presents_par_module.get(cle_sync, {}).pop(
+                            id(candidats[0]), None)
+                    resultats[cible.identite] = "supprime" if supprime else "echec"
             except Exception as erreur:
                 resultats[cible.identite] = f"echec: {type(erreur).__name__}"
 
+    @staticmethod
+    def _evenement_encore_present(entree: dict, evenements) -> bool:
+        """Vrai si le manifeste montre encore ce clip par caméra et instant.
+
+        Même rapprochement que la suppression elle-même (caméra, ±2 s) : le
+        numéro USB seul ne prouve pas une absence, le Sync Module le
+        renumérote lors d'une réindexation."""
+        if not evenements:
+            return False
+        camera = str(entree.get("camera") or "").strip().casefold()
+        try:
+            attendu = md.parse_created_at(str(entree.get("created_at") or ""))
+        except (TypeError, ValueError):
+            return False
+        return any(
+            nom == camera and abs((instant - attendu).total_seconds()) <= 2
+            for nom, instant in list(evenements.values())
+        )
+
     def _marquer_sources_supprimees(self, resultats: dict,
-                                   ids_presents_par_module: dict) -> None:
+                                   ids_presents_par_module: dict,
+                                   evenements_presents_par_module: dict | None = None,
+                                   ) -> None:
         """Mémorise les absences constatées pour éviter de redemander une suppression."""
+        evenements_presents_par_module = evenements_presents_par_module or {}
         marques = {identite for identite, statut in resultats.items()
                    if statut in ("supprime", "deja_absent")}
         if not marques and not ids_presents_par_module:
@@ -4080,14 +4156,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 continue
             # La lecture du manifeste renseigne aussi les autres clips USB du
             # même module, sans requête réseau supplémentaire.
-            ids_presents = ids_presents_par_module.get(str(entree.get("sync_id") or ""))
+            cle_sync = str(entree.get("sync_id") or "")
+            ids_presents = ids_presents_par_module.get(cle_sync)
             if ids_presents is None or str(entree.get("source") or "usb") != "usb":
                 continue
             correspondance = re.search(
                 r"_(\d+)_[0-9a-f]{12}\.mp4$", str(entree.get("path") or ""))
             id_connu = correspondance.group(1) if correspondance else str(
                 entree.get("remote_id") or "")
-            if id_connu and id_connu not in ids_presents:
+            # Absent par son numéro ET par caméra/instant : un numéro absent
+            # seul marquait à tort tout clip encore présent mais renuméroté,
+            # ce qui masquait définitivement sa case « Supprimer » dans la
+            # galerie (audit du 2026-09-24). Un faux négatif reste bénin : la
+            # prochaine demande répond « deja_absent » et marque alors.
+            if (id_connu and id_connu not in ids_presents
+                    and not self._evenement_encore_present(
+                        entree, evenements_presents_par_module.get(cle_sync))):
                 entree["source_deleted"] = True
         blink_registre.save_download_state(self.paths["input"], etat)
 
@@ -4140,10 +4224,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             self.send_error(400)
             return
+        if length < 0:
+            # rfile.read(-1) lirait jusqu'à la fermeture de la connexion,
+            # qu'une connexion HTTP/1.1 persistante ne ferme jamais d'elle-même :
+            # le thread de la requête restait bloqué (audit du 2026-09-24).
+            self.send_error(400)
+            return
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
-        except json.JSONDecodeError:
+        except ValueError:  # JSONDecodeError, ou UnicodeDecodeError (octets non UTF-8)
             self.send_json({"error": "corps JSON illisible"}, 400)
+            return
+        if not isinstance(payload, dict):
+            # Toutes les routes lisent payload.get(...) : une liste ou un
+            # nombre JSON valides levaient AttributeError, sans réponse propre.
+            self.send_json({"error": "corps JSON : objet attendu"}, 400)
             return
 
         if route.startswith("/live-webrtc/"):
