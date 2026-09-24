@@ -528,6 +528,11 @@ def _chemin_direct_confine(racine: Path, identity: str) -> Path:
     return chemin
 
 
+# Sérialise la lecture-modification-écriture de DIRECT_EXCLUSION entre les
+# threads du serveur : voir Handler._appliquer_selection_directs().
+_VERROU_EXCLUSION_DIRECTE = threading.Lock()
+
+
 def _lire_exclusion_directe(paths: dict) -> set:
     # {"excluded": [...]}, pas une liste nue : md.load_json/save_json (déjà
     # utilisés pour CAMERA_FACTS, ASSEMBLED_DURATIONS...) exigent un objet
@@ -4179,33 +4184,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                     chemins_directs: dict, resultats: dict) -> None:
         """Modifie uniquement les fichiers directs et leurs exclusions locales."""
         # Aucun registre de clips, appel Blink ou réassemblage pour ces fichiers.
-        exclusion_directe = _lire_exclusion_directe(self.paths)
-        exclusion_directe |= set(selection.exclure)
-        exclusion_directe -= set(selection.inclure)
-        for identite in selection.supprimer:
-            try:
-                chemin = _chemin_direct_confine(racine_direct, identite)
-                if chemin != chemins_directs[identite]:
-                    raise ValueError("Chemin de vidéo modifié pendant la sélection")
-                chemin.unlink()
-                resultats[identite] = "supprime"
-                exclusion_directe.discard(identite)
-            except FileNotFoundError:
-                resultats[identite] = "deja_absent"
-            except (OSError, ValueError) as erreur:
-                resultats[identite] = f"echec: {type(erreur).__name__}"
-                continue
-            # Nettoyage cosmétique des deux parents, seulement s'ils sont vides.
-            # Ne jamais remonter à la racine du stockage des directs ou au-delà.
-            for dossier in (chemin.parent, chemin.parent.parent):
-                if (dossier == racine_direct.resolve()
-                        or not runtime.est_relatif_a(dossier, racine_direct.resolve())):
-                    break
+        # Lecture-modification-écriture sous verrou : deux sélections
+        # simultanées (double-clic, deux onglets) relisaient la même liste et
+        # la dernière écriture effaçait l'autre (39 exclusions perdues sur 40
+        # lancées ensemble, mesuré le 2026-09-24).
+        with _VERROU_EXCLUSION_DIRECTE:
+            exclusion_directe = _lire_exclusion_directe(self.paths)
+            exclusion_directe |= set(selection.exclure)
+            exclusion_directe -= set(selection.inclure)
+            for identite in selection.supprimer:
                 try:
-                    dossier.rmdir()
-                except OSError:
-                    break
-        _ecrire_exclusion_directe(self.paths, exclusion_directe)
+                    chemin = _chemin_direct_confine(racine_direct, identite)
+                    if chemin != chemins_directs[identite]:
+                        raise ValueError("Chemin de vidéo modifié pendant la sélection")
+                    chemin.unlink()
+                    resultats[identite] = "supprime"
+                    exclusion_directe.discard(identite)
+                except FileNotFoundError:
+                    resultats[identite] = "deja_absent"
+                except (OSError, ValueError) as erreur:
+                    resultats[identite] = f"echec: {type(erreur).__name__}"
+                    continue
+                # Nettoyage cosmétique des deux parents, seulement s'ils sont
+                # vides. Ne jamais remonter à la racine du stockage des directs
+                # ou au-delà.
+                for dossier in (chemin.parent, chemin.parent.parent):
+                    if (dossier == racine_direct.resolve()
+                            or not runtime.est_relatif_a(dossier, racine_direct.resolve())):
+                        break
+                    try:
+                        dossier.rmdir()
+                    except OSError:
+                        break
+            _ecrire_exclusion_directe(self.paths, exclusion_directe)
 
     def do_POST(self):
         if not self.hote_autorise() or not self.jeton_valide():

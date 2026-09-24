@@ -456,20 +456,39 @@ def valid_mp4_complet(path: Path) -> bool:
     return True
 
 
-def load_json(path: Path, default: dict) -> dict:
-    if not path.exists():
-        return default
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-        return value if isinstance(value, dict) else default
-    except (OSError, json.JSONDecodeError):
-        return default
-
-
-# Un verrou par fichier pour les écrivains d'un même processus (les threads
-# de serve.py) : voir save_json().
+# Un verrou par fichier pour les lecteurs ET les écrivains d'un même processus
+# (les threads de serve.py) : voir load_json() et save_json().
 _VERROUS_SAVE_JSON: dict = {}
 _VERROU_SAVE_JSON = threading.Lock()
+
+
+def _verrou_fichier(path: Path) -> threading.Lock:
+    with _VERROU_SAVE_JSON:
+        return _VERROUS_SAVE_JSON.setdefault(os.path.abspath(path), threading.Lock())
+
+
+def load_json(path: Path, default: dict) -> dict:
+    """Lit un objet JSON, ou ``default`` s'il est absent ou illisible.
+
+    Sous Windows, une lecture qui croise un remplacement du fichier échoue en
+    PermissionError (4 lectures sur 70 969 sous forte concurrence, mesuré le
+    2026-09-24) : rendre alors ``default`` faisait réécrire un contenu vidé à
+    toute lecture-modification-écriture. Même verrou par fichier que
+    save_json() entre les threads d'un processus, et nouvelles tentatives
+    rapprochées face à un autre processus (antivirus, indexeur)."""
+    with _verrou_fichier(path):
+        for tentative in range(10):
+            try:
+                if not path.exists():
+                    return default
+                value = json.loads(path.read_text(encoding="utf-8"))
+                return value if isinstance(value, dict) else default
+            except PermissionError:
+                if tentative == 9:
+                    return default
+                time.sleep(0.05)
+            except (OSError, json.JSONDecodeError):
+                return default
 
 
 def save_json(path: Path, value: dict) -> None:
@@ -491,9 +510,7 @@ def save_json(path: Path, value: dict) -> None:
     nouvelles tentatives rapprochées, comme runtime._supprimer_verrou."""
     path.parent.mkdir(parents=True, exist_ok=True)
     contenu = json.dumps(value, indent=2, ensure_ascii=False)
-    with _VERROU_SAVE_JSON:
-        verrou = _VERROUS_SAVE_JSON.setdefault(os.path.abspath(path), threading.Lock())
-    with verrou:
+    with _verrou_fichier(path):
         for tentative in range(10):
             try:
                 runtime._ecrire_texte_atomique(path, contenu)

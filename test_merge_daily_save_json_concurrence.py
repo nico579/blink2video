@@ -124,5 +124,62 @@ class TestsSaveJsonConcurrent(unittest.TestCase):
         self.assertEqual(md.load_json(cible, {}), {"a": 1})
 
 
+class TestsLoadJsonConcurrent(unittest.TestCase):
+    """load_json() rendait son défaut sur un refus Windows passager : toute
+    lecture-modification-écriture réécrivait alors un contenu vidé (mesuré :
+    4 lectures sur 70 969 sous forte concurrence, 2026-09-24)."""
+
+    def setUp(self):
+        dossier = tempfile.TemporaryDirectory(prefix="blink-load-json-")
+        self.addCleanup(dossier.cleanup)
+        self.cible = Path(dossier.name) / "direct_exclusion.json"
+        md.save_json(self.cible, {"a": 1})
+
+    def test_refus_windows_transitoire_en_lecture_reessaye(self):
+        original = Path.read_text
+        refus = iter([PermissionError(13, "Access is denied")] * 2)
+
+        def lire(chemin, *args, **kwargs):
+            erreur = next(refus, None)
+            if erreur is not None:
+                raise erreur
+            return original(chemin, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", lire), \
+                mock.patch.object(md.time, "sleep") as dormir:
+            self.assertEqual(md.load_json(self.cible, {}), {"a": 1})
+        self.assertEqual(dormir.call_count, 2)
+
+    def test_lecture_pendant_un_remplacement_attend_au_lieu_de_rendre_le_defaut(self):
+        """Sémantique Windows simulée partout : lire une cible en cours de
+        remplacement échoue. Le remplacement dure 0,2 s et la lecture part
+        exactement pendant : elle doit rendre la nouvelle valeur."""
+        lire_original, remplacer_original = Path.read_text, Path.replace
+        en_cours = threading.Event()
+
+        def lire(chemin, *args, **kwargs):
+            if en_cours.is_set():
+                raise PermissionError(13, "Access is denied")
+            return lire_original(chemin, *args, **kwargs)
+
+        def remplacer(source, cible):
+            en_cours.set()
+            try:
+                time.sleep(0.2)
+                return remplacer_original(source, cible)
+            finally:
+                en_cours.clear()
+
+        with mock.patch.object(Path, "read_text", lire), \
+                mock.patch.object(Path, "replace", remplacer):
+            ecrivain = threading.Thread(
+                target=md.save_json, args=(self.cible, {"a": 2}))
+            ecrivain.start()
+            self.assertTrue(en_cours.wait(5))
+            lu = md.load_json(self.cible, {})
+            ecrivain.join()
+        self.assertEqual(lu, {"a": 2})
+
+
 if __name__ == "__main__":
     unittest.main()
