@@ -839,6 +839,22 @@ Conçu et architecturé par Nicolas Martin ([@nico579](https://github.com/nico57
 Code développé avec l'assistance de Claude (Anthropic) comme outil de
 développement.
 
+blink2video doit aussi beaucoup aux personnes qui s'en servent et prennent le
+temps de dire ce qui pourrait aller mieux. Les idées et les retours de
+[@MarkusKress](https://github.com/MarkusKress), qui le fait tourner sans écran
+sur un serveur Linux, ont façonné une bonne part de ce qu'il est aujourd'hui :
+les photos à la demande et le webhook qui les déclenche, l'avis de chaque
+nouveau clip ou photo, l'usage derrière un proxy inverse ou dans un tableau de
+bord, l'horodatage incrusté dans la vidéo, l'arrêt automatique du direct et le
+regroupement par jour, une interface et une ligne de commande entièrement en
+anglais, la mise à jour et le démarrage automatique sous Linux (voir
+[les issues ouvertes par @MarkusKress](https://github.com/nico579/blink2video/issues?q=author%3AMarkusKress)).
+[Joel Farthing](https://github.com/joelfarthing) a signé la première
+contribution de code venue de l'extérieur : les vignettes du direct et les
+photos relues dans l'état courant de Blink
+([#24](https://github.com/nico579/blink2video/issues/24),
+[#25](https://github.com/nico579/blink2video/pull/25)).
+
 [blinkpy](https://github.com/fronzbot/blinkpy) fournit l'accès à l'API Blink, y
 compris le protocole `immis` sans lequel le direct serait hors de portée, et
 [ffmpeg](https://ffmpeg.org/) fait tout le travail vidéo. Les notes de

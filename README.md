@@ -788,6 +788,20 @@ only one with libfreetype.
 Designed and architected by Nicolas Martin ([@nico579](https://github.com/nico579)).
 Code developed with the assistance of Claude (Anthropic) as a development tool.
 
+blink2video also owes a great deal to the people who use it and take the time
+to say what could be better. The ideas and reports of
+[@MarkusKress](https://github.com/MarkusKress), who runs it headless on a Linux
+server, shaped much of what it is today: on-demand snapshots and the webhook
+that triggers them, a notice for each new clip or photo, use behind a reverse
+proxy or inside a dashboard, the timestamp burned into the video, the automatic
+end of live view and the grouping by day, an interface and command line fully in
+English, and the updater and login autostart on Linux (see
+[the issues opened by @MarkusKress](https://github.com/nico579/blink2video/issues?q=author%3AMarkusKress)).
+[Joel Farthing](https://github.com/joelfarthing) wrote the first outside code
+contribution: live view thumbnails and snapshots read from Blink's current state
+([#24](https://github.com/nico579/blink2video/issues/24),
+[#25](https://github.com/nico579/blink2video/pull/25)).
+
 [blinkpy](https://github.com/fronzbot/blinkpy) provides access to the Blink API,
 including the `immis` protocol without which live view would be out of reach, and
 [ffmpeg](https://ffmpeg.org/) does all the video work. The notes in
