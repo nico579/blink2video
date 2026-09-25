@@ -65,7 +65,7 @@ only this legacy build envelope is separate.
 1. Install 64-bit Windows 7 SP1 with 2 CPUs, 4 GB RAM and NAT networking, then
    take a clean snapshot.
 2. Install the required Microsoft updates, at least KB2533623. If an UCRT error
-   remains, install KB2999226 and the official Visual C++ 2015–2019 x64
+   remains, install KB2999226 and the official Visual C++ 2015-2019 x64
    redistributable, then reboot.
 3. Do not install Python in the VM: the test must prove that the bundle is
    self-contained.
@@ -136,8 +136,8 @@ The server preserves Blink's H.264 High stream. When the browser does not
 offer High directly but advertises a **High 4:4:4 Predictive** decoder,
 negotiation can select that decoder: this neither converts the video to
 4:4:4 nor installs a codec. The server also preserves negotiated RTP
-payload type identifiers in the 35–63 range (41 in this test), instead of
-replacing them with 112. The 64–95 range remains excluded to avoid RTCP
+payload type identifiers in the 35-63 range (41 in this test), instead of
+replacing them with 112. The 64-95 range remains excluded to avoid RTCP
 conflicts, as required by
 [RFC 5761, section 4](https://www.rfc-editor.org/rfc/rfc5761.html#section-4).
 

@@ -69,7 +69,7 @@ legacy est distincte.
    un snapshot propre.
 2. Installer les mises à jour Microsoft nécessaires, au minimum KB2533623. Si
    une erreur UCRT apparaît, installer aussi KB2999226 et le redistribuable
-   Visual C++ 2015–2019 x64 officiel, puis redémarrer.
+   Visual C++ 2015-2019 x64 officiel, puis redémarrer.
 3. Ne pas installer Python dans la VM : le test doit prouver que le bundle est
    réellement autonome.
 4. Copier puis extraire l'archive dans `C:\blink7` (ne pas l'exécuter depuis le
@@ -144,8 +144,8 @@ Le serveur conserve le flux H.264 High émis par Blink. Quand le navigateur
 ne propose pas directement High mais annonce un décodeur **High 4:4:4
 Predictive**, la négociation peut sélectionner ce décodeur : cela ne
 transforme pas la vidéo en 4:4:4 et n'installe aucun codec. Le serveur conserve
-également les identifiants de charge utile RTP négociés dans la plage 35–63
-(41 dans cet essai), au lieu de les remplacer par 112. La plage 64–95 reste
+également les identifiants de charge utile RTP négociés dans la plage 35-63
+(41 dans cet essai), au lieu de les remplacer par 112. La plage 64-95 reste
 exclue pour éviter les conflits avec RTCP, conformément à la
 [RFC 5761, section 4](https://www.rfc-editor.org/rfc/rfc5761.html#section-4).
 

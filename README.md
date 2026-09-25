@@ -24,8 +24,8 @@ the Blink account session, so anyone with access to this machine can open it.
 
 [![Watch the blink2video walkthrough: Blink on your PC, live view and archives](https://i.ytimg.com/vi/6rNqLI9K8Tc/hqdefault.jpg)](https://www.youtube.com/watch?v=6rNqLI9K8Tc)
 
-**[Watch the English walkthrough on YouTube](https://www.youtube.com/watch?v=6rNqLI9K8Tc)**
-— 3 min 10 s, with captions and no voice-over. See why blink2video exists,
+**[Watch the English walkthrough on YouTube](https://www.youtube.com/watch?v=6rNqLI9K8Tc)**:
+3 min 10 s, with captions and no voice-over. See why blink2video exists,
 explore live view and archives, then follow Windows installation, first launch
 and the main settings.
 [Version française](https://www.youtube.com/watch?v=V2E4m_SLgb4).
@@ -120,7 +120,7 @@ on real cameras; keep MSE with Firefox ESR 115. See the
 
 **2. Run it.** Double-click the executable (or `./blink2video` from a terminal).
 No arguments needed: with no valid session yet, a browser tab opens by itself on
-a sign-in page — your address, your password, then the code Blink sends. Only a
+a sign-in page: your address, your password, then the code Blink sends. Only a
 session token is kept, never the password. On the very first run, the Settings
 panel then opens automatically. Check the videos folder and time zone in
 particular, then click “Apply”: no clip is downloaded before that confirmation.

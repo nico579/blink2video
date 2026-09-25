@@ -27,8 +27,8 @@ cette machine peut donc l'ouvrir.
 
 [![Voir la présentation de blink2video : Blink sur votre PC, direct et archives](https://i.ytimg.com/vi/V2E4m_SLgb4/hqdefault.jpg)](https://www.youtube.com/watch?v=V2E4m_SLgb4)
 
-**[Voir la présentation française sur YouTube](https://www.youtube.com/watch?v=V2E4m_SLgb4)**
-— 3 min 10 s, avec sous-titres et sans voix off. Découvrez pourquoi blink2video
+**[Voir la présentation française sur YouTube](https://www.youtube.com/watch?v=V2E4m_SLgb4)** :
+3 min 10 s, avec sous-titres et sans voix off. Découvrez pourquoi blink2video
 existe, le direct et les archives, puis l'installation sous Windows, le premier
 lancement et les principaux réglages.
 [English version](https://www.youtube.com/watch?v=6rNqLI9K8Tc).
@@ -132,7 +132,7 @@ sur les caméras réelles ; conserver MSE avec Firefox ESR 115. Voir le
 
 **2. Le lancer.** Double-clic sur l'exécutable (ou `./blink2video` depuis un
 terminal). Aucun argument nécessaire : sans session valide, un onglet s'ouvre
-tout seul sur une page de connexion — votre adresse, votre mot de passe, puis
+tout seul sur une page de connexion : votre adresse, votre mot de passe, puis
 le code que Blink envoie. Seul un jeton de session est conservé, jamais le mot
 de passe.
 Lors de la toute première utilisation, le panneau Réglages s'ouvre ensuite
