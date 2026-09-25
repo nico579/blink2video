@@ -655,6 +655,19 @@ blink2video autostart on watch --loop 30    # register the alerts only, instead
 you would have typed it without the prefix. No administrator rights are needed,
 and `--dry-run` shows what would happen.
 
+On Linux, that entry is a systemd *user* service: it lives with that user's
+session, starting when they log in and stopping when they leave. On a server
+with a dedicated account that nobody logs into, enable lingering once, and the
+service starts at boot instead:
+
+```bash
+sudo loginctl enable-linger blink2video     # the account that runs it
+```
+
+No system-wide unit is needed for that, and nothing has to run as root. An
+account opened with `su` or `sudo` works too: `autostart on` finds its systemd
+instance by itself, and says so when there is none yet.
+
 <details>
 <summary>Doing it yourself, without <code>autostart</code></summary>
 
