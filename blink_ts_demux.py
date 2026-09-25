@@ -230,3 +230,21 @@ def type_nal(nal_avec_start_code: bytes) -> int:
     """nal_unit_type (5 bits bas) du premier octet apres le start code."""
     i = 3 if nal_avec_start_code[2] == 1 else 4
     return nal_avec_start_code[i] & 0x1F
+
+
+def debut_unite_acces(nal_avec_start_code: bytes) -> bool:
+    """Vrai si cette NAL ouvre forcément une nouvelle unité d'accès quand
+    l'unité en cours contient déjà une tranche (ITU-T H.264 §7.4.1.2.3).
+
+    SEI, SPS, PPS, AUD et types 14 à 18 précèdent toujours la première
+    tranche de leur image. Une tranche (types 1 et 5) ouvre une nouvelle
+    image si first_mb_in_slice vaut 0, codé ue(v) par le seul bit « 1 » :
+    premier bit après l'en-tête NAL. Les tranches suivantes d'une même
+    image (first_mb_in_slice > 0) commencent par un bit 0."""
+    i = 3 if nal_avec_start_code[2] == 1 else 4
+    type_ = nal_avec_start_code[i] & 0x1F
+    if type_ in (6, 7, 8, 9) or 14 <= type_ <= 18:
+        return True
+    if type_ in (1, 5):
+        return len(nal_avec_start_code) > i + 1 and bool(nal_avec_start_code[i + 1] & 0x80)
+    return False
