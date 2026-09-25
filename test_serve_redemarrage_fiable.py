@@ -10,7 +10,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import serve
+# Lancé seul, ce fichier écrivait sinon dans le vrai dossier d'état (jeton
+# de webhook créé par GET /api/reglages).
+_TEST_HOME = tempfile.TemporaryDirectory(prefix="blink-redemarrage-")
+os.environ["BLINK_HOME"] = _TEST_HOME.name
+
+import serve  # noqa: E402 - environnement isolé avant import
 
 
 class TestsRelaisRedemarrage(unittest.TestCase):
@@ -92,22 +97,30 @@ class TestsModeConfigurationInitiale(unittest.TestCase):
 
 
 class TestsReglagesTransactionnels(unittest.TestCase):
+    """Le dossier choisi dans la page est celui des sorties, enregistré avec
+    les autres réglages dans le dossier d'état, qui lui ne bouge pas."""
+
     def setUp(self) -> None:
         self.temporaire = tempfile.TemporaryDirectory(prefix="blink-reglages-http-")
-        self.ancre = Path(self.temporaire.name).resolve()
-        self.stockage = self.ancre / "stockage"
-        self.patch_ancre = mock.patch.object(serve.runtime, "_dossier_ancre",
-                                             return_value=self.ancre)
-        self.patch_ancre.start()
-        self.patch_env = mock.patch.dict(os.environ, {}, clear=False)
-        self.patch_env.start()
+        self.addCleanup(self.temporaire.cleanup)
+        racine = Path(self.temporaire.name).resolve()
+        self.etat = racine / "etat"
+        self.stockage = racine / "stockage"
+        self.defaut = racine / "Documents" / serve.runtime.ENTREE
+        (racine / "programme").mkdir()
+        for correctif in (
+                mock.patch.object(serve.runtime, "_dossier_ancre",
+                                  return_value=racine / "programme"),
+                mock.patch.object(serve.runtime, "_dossier_etat_standard",
+                                  return_value=self.etat),
+                mock.patch.object(serve.runtime, "_ETATS_CREES", set()),
+                mock.patch("platformdirs.user_documents_dir",
+                           return_value=str(racine / "Documents")),
+                mock.patch.dict(os.environ, {}, clear=False)):
+            correctif.start()
+            self.addCleanup(correctif.stop)
         os.environ.pop("BLINK_HOME", None)
         os.environ.pop("BLINK_CONTROL_HOME", None)
-
-    def tearDown(self) -> None:
-        self.patch_env.stop()
-        self.patch_ancre.stop()
-        self.temporaire.cleanup()
 
     def handler(self, payload: dict):
         contenu = json.dumps(payload).encode("utf-8")
@@ -128,26 +141,30 @@ class TestsReglagesTransactionnels(unittest.TestCase):
             "download_auto": True,
         }
 
-    def test_ecrit_les_reglages_avant_la_bascule_et_le_redemarrage(self):
+    def reglages(self) -> bytes:
+        return (self.etat / serve.runtime.REGLAGES).read_bytes()
+
+    def test_ecrit_les_reglages_et_le_dossier_puis_redemarre(self):
         ordre = []
         handler = self.handler(self.payload())
         handler.send_json = lambda *args, **kwargs: ordre.append("reponse")
         handler.repondre_puis_redemarrer = lambda *args: ordre.append("restart")
         ecrire = serve.runtime.ecrire_reglages
 
-        def ecrire_destination(**kwargs):
-            self.assertEqual(serve.runtime.app_dir(), self.ancre)
-            self.assertEqual(kwargs["dossier"], self.stockage)
+        def ecrire_avec_le_dossier(**kwargs):
+            self.assertNotIn("dossier", kwargs)
+            self.assertEqual(kwargs["dossier_sorties"], str(self.stockage))
             ordre.append("reglages")
             ecrire(**kwargs)
 
         with mock.patch.object(serve.runtime, "ecrire_reglages",
-                               side_effect=ecrire_destination):
+                               side_effect=ecrire_avec_le_dossier):
             handler.do_POST()
         self.assertEqual(ordre, ["reglages", "restart"])
-        self.assertEqual(serve.runtime.app_dir(), self.stockage)
+        self.assertEqual(serve.runtime.app_dir(), self.etat)
+        self.assertEqual(serve.runtime.dossier_sorties(), self.stockage)
+        self.assertTrue(self.stockage.is_dir())
         self.assertEqual(serve.runtime.lire_reglages()["port"], 8765)
-        self.assertFalse((self.ancre / serve.runtime.REGLAGES).exists())
 
     def test_echec_de_bascule_repond_en_erreur_sans_redemarrer(self):
         handler = self.handler(self.payload())
@@ -155,7 +172,7 @@ class TestsReglagesTransactionnels(unittest.TestCase):
         handler.send_json = lambda payload, status=200: reponses.append((status, payload))
         handler.repondre_puis_redemarrer = mock.Mock()
         with mock.patch.object(serve.runtime, "ecrire_dossier_stockage",
-                               side_effect=OSError("pointeur verrouillé")), \
+                               side_effect=OSError("réglages verrouillés")), \
              mock.patch.object(serve.runtime, "ecrire_reglages") as ecrire_reglages:
             handler.do_POST()
         self.assertEqual(reponses[0][0], 500)
@@ -187,14 +204,13 @@ class TestsReglagesTransactionnels(unittest.TestCase):
         handler.repondre_puis_redemarrer = mock.Mock()
         marquer = serve.runtime.marquer_configuration_initiale
 
-        def marquer_destination():
-            self.assertEqual(serve.runtime.app_dir(), self.stockage)
-            self.assertTrue((self.stockage / serve.runtime.REGLAGES).is_file())
+        def marquer_apres_les_reglages():
+            self.assertEqual(serve.runtime.dossier_sorties(), self.stockage)
             ordre.append("marqueur")
             marquer()
 
         with mock.patch.object(serve.runtime, "marquer_configuration_initiale",
-                               side_effect=marquer_destination):
+                               side_effect=marquer_apres_les_reglages):
             handler.do_POST()
         self.assertEqual(ordre[0], "marqueur")
         self.assertEqual(ordre[1][0], "reponse")
@@ -209,44 +225,21 @@ class TestsReglagesTransactionnels(unittest.TestCase):
         handler.send_json = lambda payload, status=200: reponses.append((status, payload))
         handler.repondre_puis_redemarrer = mock.Mock()
         with mock.patch.object(serve.runtime, "marquer_configuration_initiale",
-                               side_effect=OSError("ancre non inscriptible")):
+                               side_effect=OSError("état non inscriptible")):
             handler.do_POST()
         self.assertEqual(reponses[0][0], 500)
         self.assertIn("error", reponses[0][1])
         handler.repondre_puis_redemarrer.assert_not_called()
-        self.assertEqual(serve.runtime.app_dir(), self.ancre)
-        self.assertFalse((self.ancre / serve.runtime.POINTEUR_STOCKAGE).exists())
+        # Aucun réglage n'existait : il n'en reste aucun.
+        self.assertFalse((self.etat / serve.runtime.REGLAGES).exists())
+        self.assertEqual(serve.runtime.dossier_sorties(), self.defaut)
         self.assertFalse(serve.runtime.configuration_initiale_effectuee())
 
-    def test_echec_des_reglages_ne_publie_pas_la_destination(self):
-        ancien_reglage = b'{"port": 9999}'
-        (self.ancre / serve.runtime.REGLAGES).write_bytes(ancien_reglage)
+    def test_echec_des_reglages_ne_change_rien(self):
+        serve.runtime.app_dir()
+        anciens = b'{"port": 9999}'
+        (self.etat / serve.runtime.REGLAGES).write_bytes(anciens)
         handler = self.handler(self.payload())
-        reponses = []
-        handler.send_json = lambda payload, status=200: reponses.append((status, payload))
-        handler.repondre_puis_redemarrer = mock.Mock()
-
-        def refuser_destination(**kwargs):
-            self.assertEqual(kwargs["dossier"], self.stockage)
-            self.assertEqual(serve.runtime.app_dir(), self.ancre)
-            raise PermissionError("réglages verrouillés")
-
-        with mock.patch.object(serve.runtime, "ecrire_reglages",
-                               side_effect=refuser_destination):
-            handler.do_POST()
-        self.assertEqual(reponses[0][0], 500)
-        self.assertEqual(serve.runtime.app_dir(), self.ancre)
-        self.assertFalse((self.ancre / serve.runtime.POINTEUR_STOCKAGE).exists())
-        self.assertEqual((self.ancre / serve.runtime.REGLAGES).read_bytes(), ancien_reglage)
-        handler.repondre_puis_redemarrer.assert_not_called()
-
-    def test_echec_des_reglages_au_retour_conserve_le_pointeur(self):
-        serve.runtime.ecrire_dossier_stockage(str(self.stockage))
-        pointeur = self.ancre / serve.runtime.POINTEUR_STOCKAGE
-        ancien_pointeur = pointeur.read_bytes()
-        valeurs = self.payload()
-        valeurs["storage_dir"] = ""
-        handler = self.handler(valeurs)
         reponses = []
         handler.send_json = lambda payload, status=200: reponses.append((status, payload))
         handler.repondre_puis_redemarrer = mock.Mock()
@@ -254,40 +247,12 @@ class TestsReglagesTransactionnels(unittest.TestCase):
                                side_effect=PermissionError("réglages verrouillés")):
             handler.do_POST()
         self.assertEqual(reponses[0][0], 500)
-        self.assertEqual(serve.runtime.app_dir(), self.stockage)
-        self.assertEqual(pointeur.read_bytes(), ancien_pointeur)
+        self.assertEqual(self.reglages(), anciens)
         handler.repondre_puis_redemarrer.assert_not_called()
 
-    def test_echec_du_commit_ne_modifie_pas_les_reglages_actifs(self):
-        anciens = b'{"port": 9999}'
-        (self.ancre / serve.runtime.REGLAGES).write_bytes(anciens)
-        pointeur = self.ancre / serve.runtime.POINTEUR_STOCKAGE
-        remplacer = Path.replace
-
-        def refuser_pointeur(source, cible):
-            if cible == pointeur:
-                raise PermissionError("pointeur verrouillé")
-            return remplacer(source, cible)
-
-        handler = self.handler(self.payload())
-        reponses = []
-        handler.send_json = lambda payload, status=200: reponses.append((status, payload))
-        handler.repondre_puis_redemarrer = mock.Mock()
-        with mock.patch.object(Path, "replace", refuser_pointeur):
-            handler.do_POST()
-        self.assertEqual(reponses[0][0], 500)
-        self.assertEqual(serve.runtime.app_dir(), self.ancre)
-        self.assertFalse(pointeur.exists())
-        self.assertEqual((self.ancre / serve.runtime.REGLAGES).read_bytes(), anciens)
-        self.assertEqual(json.loads(
-            (self.stockage / serve.runtime.REGLAGES).read_text(encoding="utf-8"))["port"],
-            8765)
-        handler.repondre_puis_redemarrer.assert_not_called()
-
-    def test_echec_du_marqueur_restaure_le_pointeur_existant(self):
+    def test_echec_du_marqueur_restaure_les_reglages_existants(self):
         serve.runtime.ecrire_dossier_stockage(str(self.stockage))
-        pointeur = self.ancre / serve.runtime.POINTEUR_STOCKAGE
-        ancien_pointeur = pointeur.read_bytes()
+        anciens = self.reglages()
         valeurs = self.payload()
         valeurs["storage_dir"] = ""
         handler = self.handler(valeurs)
@@ -299,13 +264,13 @@ class TestsReglagesTransactionnels(unittest.TestCase):
                                side_effect=PermissionError("marqueur verrouillé")):
             handler.do_POST()
         self.assertEqual(reponses[0][0], 500)
-        self.assertEqual(serve.runtime.app_dir(), self.stockage)
-        self.assertEqual(pointeur.read_bytes(), ancien_pointeur)
+        self.assertEqual(self.reglages(), anciens)
+        self.assertEqual(serve.runtime.dossier_sorties(), self.stockage)
         self.assertFalse(serve.runtime.configuration_initiale_effectuee())
         handler.repondre_puis_redemarrer.assert_not_called()
 
     def test_blink_home_ecrit_dans_la_racine_forcee(self):
-        force = self.ancre / "force"
+        force = self.etat.parent / "force"
         force.mkdir()
         handler = self.handler(self.payload())
         handler.send_json = mock.Mock()
@@ -314,8 +279,8 @@ class TestsReglagesTransactionnels(unittest.TestCase):
             handler.do_POST()
             self.assertEqual(serve.runtime.app_dir(), force)
             self.assertTrue((force / serve.runtime.REGLAGES).is_file())
-            self.assertFalse((self.stockage / serve.runtime.REGLAGES).exists())
-        self.assertEqual(serve.runtime.app_dir(), self.stockage)
+            self.assertEqual(serve.runtime.dossier_sorties(), self.stockage)
+        self.assertFalse((self.etat / serve.runtime.REGLAGES).exists())
         handler.repondre_puis_redemarrer.assert_called_once()
 
 

@@ -102,7 +102,7 @@ Le filtre choisi reste mémorisé d'une visite à l'autre.
 
 Les réglages, derrière l'icône engrenage : démarrage automatique à
 l'ouverture de session, actualisation automatique de la page, port du
-serveur, dossier des données avec un sélecteur natif, et cadence de lecture
+serveur, dossier des vidéos avec un sélecteur natif, et cadence de lecture
 du stockage local et du cloud. Aussi l'horodatage incrusté dans l'image
 avec sa taille, sa couleur et l'opacité de son bandeau, le fuseau horaire,
 le protocole du direct (WebRTC ou MSE), l'archivage
@@ -136,11 +136,11 @@ tout seul sur une page de connexion — votre adresse, votre mot de passe, puis
 le code que Blink envoie. Seul un jeton de session est conservé, jamais le mot
 de passe.
 Lors de la toute première utilisation, le panneau Réglages s'ouvre ensuite
-automatiquement. Vérifiez notamment le dossier des données et le fuseau puis
+automatiquement. Vérifiez notamment le dossier des vidéos et le fuseau puis
 cliquez sur « Appliquer » : aucun clip n'est téléchargé avant cette validation.
 La surveillance, le rapatriement des clips et l'assemblage démarrent alors,
 chacun à son rythme, et les clips apparaissent au fur et à mesure. Ce parcours
-n'est pas répété lorsque le dossier des données est changé.
+n'est pas répété lorsque le dossier des vidéos est changé.
 
 Si l'onglet ne s'est pas ouvert, ou que vous l'avez fermé, `blink2video open`
 le rouvre.
@@ -412,7 +412,17 @@ Blink_Direct/      enregistrements du direct, sauvés à la demande
 Blink_Snapshots/   photos à la demande, une par clic Snapshot ou appel webhook
 ```
 
-À côté de l'exécutable, ou dans le dossier désigné par `BLINK_HOME`.
+Dans `Documents/blink2video` par défaut, ou dans le dossier des vidéos choisi
+dans les Réglages. Les réglages, la session Blink et les journaux vivent à
+part, dans le dossier de données d'application du système
+(`%LOCALAPPDATA%\blink2video` sous Windows,
+`~/Library/Application Support/blink2video` sous macOS,
+`~/.local/share/blink2video` sous Linux) : une mise à jour ou une
+réinstallation n'y touche jamais, et les versions sources et exécutable les
+partagent. `BLINK_HOME` réunit tout dans un dossier de votre choix. Depuis une
+version 0.13 ou antérieure, le premier lancement y recopie les réglages et la
+session, et les vidéos restent où elles sont : le dossier des vidéos pointe
+vers elles.
 
 <details>
 <summary>Comment ça marche</summary>
@@ -620,7 +630,7 @@ de travail, `--timezone` choisit le fuseau de la vidéo de démonstration.
 
 | Variable | Effet |
 |---|---|
-| `BLINK_HOME` | dossier des données, à défaut celui de l'exécutable |
+| `BLINK_HOME` | un seul dossier pour tout : réglages, session et vidéos, sauf si un autre dossier des vidéos est choisi dans les Réglages. À défaut, le dossier de données d'application du système et `Documents/blink2video` |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` ou `none` : gestion de l'environnement Python |
 | `BLINK_BIND` | adresse d'écoute interne de `serve`, à défaut `127.0.0.1`. Utile pour l'utiliser à l'intérieur du conteneur Docker officiel, derrière une publication `127.0.0.1` et `BLINK_TRUSTED_LOOPBACK_PROXY=1` (voir la section Docker), ou pour l'écouter directement sur une adresse de VPN maillé (Tailscale, WireGuard), la façon la plus simple d'y accéder à distance sans reverse proxy : associez-la à cette même adresse comme « Hôte de confiance » dans les Réglages, ou avec `--trusted-host` en ligne de commande (voir « Y accéder à distance » plus haut). Le tableau de bord n'a aucune authentification : le serveur refuse donc toute requête qui ne vient pas de la machine locale elle-même ni d'un hôte de confiance, régler ceci seul à `0.0.0.0` n'expose pas l'interface au LAN |
 

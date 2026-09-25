@@ -170,7 +170,7 @@ def main() -> int:
         return bilan()
 
     travail = Path(tempfile.mkdtemp(prefix="blink_smoketest_"))
-    demonstration = runtime.app_dir() / "smoketest.mp4"
+    demonstration = runtime.dossier_sorties() / "smoketest.mp4"
     try:
         # Un clip noir : tout pixel allumé dans le bas de l'image ne pourra
         # venir que de l'horodatage, ce qui rend la preuve indiscutable.
@@ -227,7 +227,7 @@ def main() -> int:
         constat(False, _("session_enregistree"), _("session_absente_detail"))
     else:
         constat(True, _("session_enregistree"), str(session))
-        registre = md.load_json(runtime.app_dir() / "Blink_Clips" / md.DOWNLOAD_STATE, {})
+        registre = md.load_json(md.DEFAULT_INPUT / md.DOWNLOAD_STATE, {})
         clips = registre.get("clips") or {}
         ecartes = sum(1 for c in clips.values() if isinstance(c, dict) and c.get("excluded"))
         constat(bool(clips), _("clips_deja_recuperes"),

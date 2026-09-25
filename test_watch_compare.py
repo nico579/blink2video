@@ -28,9 +28,10 @@ class TestsDerniereActivite(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.base = Path(self.tmp.name)
-        self.patch = mock.patch.object(watch, "BASE_DIR", self.base)
-        self.patch.start()
-        self.addCleanup(self.patch.stop)
+        for correctif in (mock.patch.object(watch, "BASE_DIR", self.base),
+                          mock.patch.object(watch, "CLIPS", self.base / "Blink_Clips")):
+            correctif.start()
+            self.addCleanup(correctif.stop)
 
     def _ecrire_registre(self, clips: dict) -> None:
         chemin = self.base / "Blink_Clips" / md.DOWNLOAD_STATE

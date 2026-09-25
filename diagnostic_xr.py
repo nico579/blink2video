@@ -297,7 +297,7 @@ def report_path() -> Path:
     """Place le fichier à côté du testeur, là où l'utilisateur le retrouvera."""
     if runtime.frozen():
         return Path(sys.executable).resolve().parent / REPORT_NAME
-    return runtime.app_dir() / REPORT_NAME
+    return runtime.dossier_sorties() / REPORT_NAME
 
 
 def write_report(path: Path, content: str) -> None:

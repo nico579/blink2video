@@ -29,6 +29,8 @@ class TestIdentitesSurveillance(unittest.TestCase):
         self.patches = contextlib.ExitStack()
         self.addCleanup(self.patches.close)
         self.patches.enter_context(mock.patch.object(watch, "BASE_DIR", self.base))
+        self.patches.enter_context(
+            mock.patch.object(watch, "CLIPS", self.base / "Blink_Clips"))
         self.patches.enter_context(mock.patch.object(runtime, "lire_langue", return_value="fr"))
         self.blink = SimpleNamespace(
             refresh=mock.AsyncMock(),

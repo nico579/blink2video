@@ -34,6 +34,12 @@ class TestSuppressionAutoTransactions(unittest.TestCase):
         os.environ.pop("BLINK_HOME", None)
         self.patches.enter_context(
             mock.patch.object(runtime, "_dossier_ancre", return_value=self.ancre))
+        # Jamais le vrai dossier d'état ni le vrai dossier Documents.
+        self.patches.enter_context(
+            mock.patch.object(runtime, "_dossier_etat_standard", return_value=self.ancre))
+        self.patches.enter_context(mock.patch.object(runtime, "_ETATS_CREES", set()))
+        self.patches.enter_context(mock.patch(
+            "platformdirs.user_documents_dir", return_value=str(self.ancre / "Documents")))
         self.patches.enter_context(
             mock.patch.object(runtime, "_dossier_controle", return_value=self.ancre))
         self.patches.enter_context(
@@ -163,70 +169,49 @@ class TestSuppressionAutoTransactions(unittest.TestCase):
         with runtime.verrou_configuration(owner="verification", attente=0):
             pass
 
-    def test_aller_retour_stockage_conserve_langue_et_desactivation(self):
+    def test_changer_les_sorties_conserve_langue_et_desactivation(self):
+        """Depuis 0.14, les préférences restent dans le dossier d'état : un
+        aller-retour du dossier des sorties ne les copie ni ne les perd."""
         runtime.ecrire_suppression_auto({self.cle_salon})
         runtime.ecrire_langue("en")
         autre = self.ancre / "autre"
         runtime.ecrire_dossier_stockage(str(autre))
-        self.assertEqual(runtime.app_dir(), autre)
+        self.assertEqual(runtime.app_dir(), self.ancre)
+        self.assertEqual(runtime.dossier_sorties(), autre)
         self.assertEqual(runtime.lire_suppression_auto(), {self.cle_salon})
         self.assertEqual(runtime.lire_langue(), "en")
 
         runtime.ecrire_suppression_auto(set())
         runtime.ecrire_langue("fr")
         runtime.ecrire_dossier_stockage("")
-        self.assertEqual(runtime.app_dir(), self.ancre)
         self.assertEqual(runtime.lire_suppression_auto(), set())
         self.assertEqual(runtime.lire_langue(), "fr")
+        self.assertFalse((autre / runtime.SUPPRESSION_AUTO).exists())
 
-    def test_preferences_absentes_n_adoptent_pas_les_anciens_choix_cibles(self):
+    def test_preferences_d_un_dossier_de_sorties_jamais_adoptees(self):
+        # D'anciennes autorisations de suppression laissées dans un dossier
+        # (celui d'une version ≤ 0.13, par exemple) ne s'appliquent pas
+        # parce qu'il devient celui des sorties.
         autre = self.ancre / "autre"
         autre.mkdir()
         (autre / runtime.SUPPRESSION_AUTO).write_text(
             json.dumps([self.cle_salon]), encoding="utf-8")
         (autre / runtime.LANGUE).write_text("en", encoding="utf-8")
-        self.assertFalse((self.ancre / runtime.SUPPRESSION_AUTO).exists())
-        self.assertFalse((self.ancre / runtime.LANGUE).exists())
         runtime.ecrire_dossier_stockage(str(autre))
         self.assertEqual(runtime.lire_suppression_auto(), set())
         self.assertEqual(runtime.lire_langue(), "fr")
 
-    def verifier_echec_copie(self, retour):
-        remplacer = Path.replace
-        for nom in (runtime.SUPPRESSION_AUTO, runtime.LANGUE):
-            with self.subTest(preference=nom, retour=retour):
-                runtime.ecrire_suppression_auto({self.cle_salon})
-                runtime.ecrire_langue("en")
-                autre = self.ancre / "autre"
-                if retour:
-                    runtime.ecrire_dossier_stockage(str(autre))
-                origine = runtime.app_dir()
-                destination = self.ancre if retour else autre
-                pointeur = self.ancre / runtime.POINTEUR_STOCKAGE
-                avant = pointeur.read_bytes() if pointeur.exists() else None
-
-                def refuser_preference(source, cible):
-                    if Path(cible) == destination / nom:
-                        raise OSError("copie de préférence refusée")
-                    return remplacer(source, cible)
-
-                with mock.patch.object(Path, "replace", autospec=True,
-                                       side_effect=refuser_preference):
-                    with self.assertRaisesRegex(OSError, "préférence refusée"):
-                        runtime.ecrire_dossier_stockage("" if retour else str(autre))
-                self.assertEqual(runtime.app_dir(), origine)
-                self.assertEqual(pointeur.read_bytes() if pointeur.exists() else None, avant)
-                self.assertEqual(runtime.lire_suppression_auto(), {self.cle_salon})
-                self.assertEqual(runtime.lire_langue(), "en")
-                self.assertEqual(list(destination.glob("*.tmp")), [])
-                if retour:
-                    runtime.ecrire_dossier_stockage("")
-
-    def test_echec_copie_preference_ne_change_pas_le_stockage(self):
-        self.verifier_echec_copie(retour=False)
-
-    def test_echec_copie_preference_au_retour_garde_le_stockage_courant(self):
-        self.verifier_echec_copie(retour=True)
+    def test_echec_d_enregistrement_ne_change_ni_sorties_ni_preferences(self):
+        runtime.ecrire_suppression_auto({self.cle_salon})
+        runtime.ecrire_langue("en")
+        avant = runtime.dossier_sorties()
+        with mock.patch.object(runtime, "ecrire_reglages",
+                               side_effect=OSError("réglages refusés")):
+            with self.assertRaisesRegex(OSError, "réglages refusés"):
+                runtime.ecrire_dossier_stockage(str(self.ancre / "autre"))
+        self.assertEqual(runtime.dossier_sorties(), avant)
+        self.assertEqual(runtime.lire_suppression_auto(), {self.cle_salon})
+        self.assertEqual(runtime.lire_langue(), "en")
 
 
 if __name__ == "__main__":

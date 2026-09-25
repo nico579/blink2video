@@ -28,7 +28,14 @@ import time  # noqa: F401
 
 import runtime
 
-from blink_cli import msg, route
+if __name__ == "__main__":
+    # Avant blink_cli : ses modules tirent des constantes du dossier d'état
+    # et de celui des sorties dès leur import. Reprend, une fois, l'état
+    # d'une version ≤ 0.13. Au lancement seulement : un test qui importe ce
+    # module ne doit jamais toucher au vrai dossier d'état.
+    runtime.preparer_etat()
+
+from blink_cli import msg, route  # noqa: E402
 
 
 if __name__ == "__main__":

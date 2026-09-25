@@ -346,13 +346,13 @@ LIVE_MSE_ARRET_POLL_SECONDS = 1.0
 safe_file = md.safe_name
 
 # Où sauver une copie d'un direct (WebRTC ou MSE) pendant qu'il joue, à côté
-# de Blink_Clips et consorts (runtime.py, _traces_installation_existante).
-DOSSIER_DIRECT = runtime.app_dir() / "Blink_Direct"
+# de Blink_Clips et consorts (runtime.DOSSIERS_SORTIES).
+DOSSIER_DIRECT = runtime.dossier_sorties() / "Blink_Direct"
 
 # Photos prises à la demande (bouton, ou webhook externe - issue GitHub #9),
 # distinctes des clips de détection : une caméra désarmée le jour n'en génère
 # aucun, mais peut quand même répondre à une prise de vue explicite.
-DOSSIER_SNAPSHOTS = runtime.app_dir() / "Blink_Snapshots"
+DOSSIER_SNAPSHOTS = runtime.dossier_sorties() / "Blink_Snapshots"
 WEBHOOK_SNAPSHOT_ROUTE = "/webhook/snapshot"
 
 
@@ -4553,8 +4553,8 @@ __CSS__
       <input type="number" id="port" min="1" max="65535" step="1">
     </div>
     <div class="champDossier" data-i18n-title="reglages.storageDir.hint"
-         title="Ne déplace pas les clips ni la session Blink déjà présents à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, celui de l'exécutable.">
-      <label for="storageDir" data-i18n="reglages.storageDir">Dossier des données</label>
+         title="Clips, vidéos assemblées, directs et captures. Ne déplace pas ceux déjà enregistrés à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, Documents/blink2video.">
+      <label for="storageDir" data-i18n="reglages.storageDir">Dossier des vidéos</label>
       <input type="text" id="storageDir" data-i18n-placeholder="reglages.storageDir.placeholder"
              placeholder="C:/chemin/vers/le/dossier">
       <button type="button" id="storageDirBrowse" data-i18n="reglages.storageDir.browse">Parcourir…</button>
@@ -4825,8 +4825,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--excluded-output", type=Path, default=md.DEFAULT_EXCLUDED)
     parser.add_argument("--timezone", default="Europe/Paris")
     parser.add_argument("--hub", help=msg("aide_hub"))
+    # Avec les sorties : les vignettes et les exclusions de directs
+    # (DIRECT_EXCLUSION) décrivent ces vidéos-là, et les suivent.
     parser.add_argument(
-        "--thumbs", type=Path, default=BASE_DIR / ".blink_thumbs",
+        "--thumbs", type=Path, default=runtime.dossier_sorties() / ".blink_thumbs",
         help=msg("aide_thumbs"),
     )
     parser.add_argument("--port", type=runtime.port_valide, default=8765)

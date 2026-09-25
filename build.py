@@ -351,8 +351,9 @@ def main() -> int:
     print(f"\nBundle construit : {sortie}")
     print(f"  exécutable : {executable.name}")
     print(f"  taille     : {taille / 1024 / 1024:.0f} Mo")
-    print("\nLes données (Blink_Clips, Blink_Daily…) se créeront à côté de "
-          "l'exécutable,\nou dans le dossier désigné par la variable BLINK_HOME.")
+    print("\nLes vidéos (Blink_Clips, Blink_Daily…) iront dans Documents/blink2video,\n"
+          "l'état (réglages, session) dans le dossier de données d'application du\n"
+          "système, ou les deux dans le dossier désigné par la variable BLINK_HOME.")
     return 0
 
 

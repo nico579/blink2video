@@ -1,246 +1,185 @@
-"""Non-régression du dossier de stockage réglable depuis la page web
-(AUDIT-2026-08-13.md, section 28.35) : app_dir() lit un petit fichier
-pointeur à côté de l'exécutable plutôt que le fichier de réglages lui-même,
-qui vit dans le dossier que ce pointeur désigne (sinon, boucle : il
-faudrait déjà connaître le dossier pour savoir où lire le réglage qui le
-donne)."""
+"""Dossiers de blink2video depuis 0.14 : l'état (réglages, session, fiches
+des processus) dans le dossier standard de l'OS, ce qui est produit (clips,
+vidéos) dans un dossier visible réglable depuis la page, et la reprise, une
+seule fois, de l'état d'une version ≤ 0.13, rangé à côté du programme ou
+dans la cible de son blink_home.txt (AUDIT-2026-08-13.md, section 28.35).
+
+Aucun test ne touche au vrai dossier d'état : _dossier_etat_standard et
+platformdirs.user_documents_dir sont redirigés vers un dossier temporaire."""
 
 from __future__ import annotations
 
+import json
+import os
+import sys
 import tempfile
 import unittest
-import json
 from pathlib import Path
 from unittest import mock
 
 import runtime
 
 
-class TestsDossierStockage(unittest.TestCase):
+class BaseDossiers(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporaire = tempfile.TemporaryDirectory(prefix="blink_ancre_")
-        self.ancre = Path(self.temporaire.name)
-        self.patch_ancre = mock.patch.object(runtime, "_dossier_ancre", return_value=self.ancre)
-        self.patch_ancre.start()
-        self.patch_env = mock.patch.dict("os.environ", {}, clear=False)
-        self.patch_env.start()
-        # BLINK_HOME, s'il est hérité de la session de test globale, a
-        # toujours priorité : neutralisé pour isoler le pointeur.
-        import os
-        os.environ.pop("BLINK_HOME", None)
+        self.temporaire = tempfile.TemporaryDirectory(prefix="blink_dossiers_")
+        self.racine = Path(self.temporaire.name).resolve()
+        self.ancre = self.racine / "programme"
+        self.ancre.mkdir()
+        self.etat = self.racine / "etat"
+        self.documents = self.racine / "Documents"
+        self.defaut_sorties = self.documents / runtime.ENTREE
+        for correctif in (
+                mock.patch.object(runtime, "_dossier_ancre", return_value=self.ancre),
+                mock.patch.object(runtime, "_dossier_etat_standard", return_value=self.etat),
+                mock.patch("platformdirs.user_documents_dir",
+                           return_value=str(self.documents)),
+                mock.patch.object(runtime, "_ETATS_CREES", set()),
+                mock.patch.dict(os.environ, {}, clear=False)):
+            correctif.start()
+            self.addCleanup(correctif.stop)
+        for nom in ("BLINK_HOME", "BLINK_CONTROL_HOME", "BLINK_UPDATE_AUTO_HOME"):
+            os.environ.pop(nom, None)
+        self.addCleanup(self.temporaire.cleanup)
 
-    def tearDown(self) -> None:
-        self.patch_ancre.stop()
-        self.patch_env.stop()
-        self.temporaire.cleanup()
+    def reglages(self) -> dict:
+        return json.loads((self.etat / runtime.REGLAGES).read_text(encoding="utf-8"))
 
-    def test_sans_pointeur_app_dir_rend_l_ancre(self):
-        self.assertEqual(runtime.app_dir(), self.ancre)
 
-    def test_pointeur_present_redirige_app_dir(self):
-        cible = self.ancre / "ailleurs"
+class TestsEmplacements(BaseDossiers):
+    def test_etat_dans_le_dossier_standard(self):
+        self.assertEqual(runtime.app_dir(), self.etat)
+        self.assertTrue(self.etat.is_dir())
+
+    def test_sorties_par_defaut_dans_documents(self):
+        self.assertEqual(runtime.dossier_sorties(), self.defaut_sorties)
+        self.assertEqual(runtime.lire_dossier_stockage(), str(self.defaut_sorties))
+
+    def test_blink_home_impose_l_etat_et_les_sorties(self):
+        force = self.racine / "force"
+        force.mkdir()
+        os.environ["BLINK_HOME"] = str(force)
+        self.assertEqual(runtime.app_dir(), force)
+        self.assertEqual(runtime.dossier_sorties(), force)
+        self.assertEqual(runtime._dossier_controle(), force)
+        # Pas de reprise ni de dossier standard créé pour autant.
+        self.assertFalse(self.etat.exists())
+
+    def test_reglage_des_sorties_l_emporte_sur_blink_home(self):
+        force = self.racine / "force"
+        force.mkdir()
+        os.environ["BLINK_HOME"] = str(force)
+        cible = self.racine / "videos"
         runtime.ecrire_dossier_stockage(str(cible))
-        self.assertEqual(runtime.app_dir(), cible.resolve())
+        self.assertEqual(runtime.dossier_sorties(), cible)
+        self.assertEqual(runtime.app_dir(), force)
 
-    def test_pointeur_vide_efface_le_reglage(self):
-        cible = self.ancre / "ailleurs"
-        runtime.ecrire_dossier_stockage(str(cible))
-        runtime.ecrire_dossier_stockage("")
-        self.assertEqual(runtime.app_dir(), self.ancre)
-        self.assertFalse((self.ancre / runtime.POINTEUR_STOCKAGE).exists())
-
-    def test_blink_home_garde_la_priorite_sur_le_pointeur(self):
-        import os
-        cible_pointeur = self.ancre / "ailleurs"
-        runtime.ecrire_dossier_stockage(str(cible_pointeur))
-        with tempfile.TemporaryDirectory(prefix="blink_home_force_") as force:
-            os.environ["BLINK_HOME"] = force
-            try:
-                self.assertEqual(runtime.app_dir(), Path(force).resolve())
-            finally:
-                del os.environ["BLINK_HOME"]
-
-    def test_lire_dossier_stockage_reflete_app_dir(self):
-        self.assertEqual(runtime.lire_dossier_stockage(), str(self.ancre))
-        cible = self.ancre / "ailleurs"
-        runtime.ecrire_dossier_stockage(str(cible))
-        self.assertEqual(runtime.lire_dossier_stockage(), str(cible.resolve()))
+    def test_controle_avec_l_etat(self):
+        self.assertEqual(runtime._dossier_controle(), self.etat)
 
     def test_app_dir_depuis_sans_pointeur_rend_l_ancre_fournie(self):
-        # maj.py l'appelle avec le dossier d'installation réel, pas
-        # forcément celui que _dossier_ancre() calculerait pour CE
-        # processus (tournant depuis un dossier temporaire) : l'ancre est
-        # donc un paramètre explicite, jamais relu depuis _dossier_ancre().
-        autre_ancre = self.ancre / "installation_reelle"
+        # maj.py l'appelle avec le dossier d'installation réel, pas celui que
+        # _dossier_ancre() calculerait pour CE processus (dossier temporaire).
+        autre_ancre = self.racine / "installation_reelle"
         autre_ancre.mkdir()
         self.assertEqual(runtime.app_dir_depuis(autre_ancre), autre_ancre)
 
-    def test_changement_de_dossier_copie_reglages_et_session(self):
-        """Revue du 27/08 : "je perds mon authentification" en changeant de
-        dossier de stockage. app_dir() démarrait vide au nouvel emplacement
-        - session et réglages, écrits dans l'ancien juste avant ce même
-        appel (ecrire_reglages() puis ecrire_dossier_stockage() dans
-        /api/reglages), restaient orphelins."""
-        (self.ancre / runtime.REGLAGES).write_text('{"port": 9999}', encoding="utf-8")
-        (self.ancre / "blink_auth.json").write_text('{"token": "abc"}', encoding="utf-8")
-        cible = self.ancre / "ailleurs"
-        runtime.ecrire_dossier_stockage(str(cible))
-        self.assertEqual(
-            (cible / runtime.REGLAGES).read_text(encoding="utf-8"), '{"port": 9999}')
-        self.assertEqual(
-            (cible / "blink_auth.json").read_text(encoding="utf-8"), '{"token": "abc"}')
-        # Copiés, pas déplacés : l'ancien emplacement reste intact.
-        self.assertTrue((self.ancre / runtime.REGLAGES).exists())
-        self.assertTrue((self.ancre / "blink_auth.json").exists())
-
-    def test_changement_de_dossier_sans_session_prealable_ne_plante_pas(self):
-        cible = self.ancre / "ailleurs"
-        runtime.ecrire_dossier_stockage(str(cible))
-        self.assertFalse((cible / "blink_auth.json").exists())
-
-    def test_effacer_le_reglage_copie_aussi_vers_l_emplacement_par_defaut(self):
-        cible = self.ancre / "ailleurs"
-        runtime.ecrire_dossier_stockage(str(cible))
-        (cible / "blink_auth.json").write_text('{"token": "xyz"}', encoding="utf-8")
-        runtime.ecrire_dossier_stockage("")
-        self.assertEqual(
-            (self.ancre / "blink_auth.json").read_text(encoding="utf-8"), '{"token": "xyz"}')
-
     def test_app_dir_depuis_suit_le_pointeur_de_l_ancre_fournie(self):
-        # Bug corrigé le 27 août 2026 (signalé sur Reddit) : maj.py forçait
-        # BLINK_HOME sur le dossier d'installation lui-même pendant une mise
-        # à jour, ramenant le dossier de données à celui de l'exécutable
-        # même quand l'utilisateur l'avait explicitement redirigé ailleurs.
-        autre_ancre = self.ancre / "installation_reelle"
+        # Bug corrigé le 27 août 2026 (signalé sur Reddit) : le dossier de
+        # données revenait à celui de l'exécutable après une mise à jour.
+        autre_ancre = self.racine / "installation_reelle"
         autre_ancre.mkdir()
-        cible = self.ancre / "stockage_redirige"
-        (autre_ancre / runtime.POINTEUR_STOCKAGE).write_text(
-            str(cible), encoding="utf-8")
+        cible = self.racine / "stockage_redirige"
+        (autre_ancre / runtime.POINTEUR_STOCKAGE).write_text(str(cible), encoding="utf-8")
         self.assertEqual(runtime.app_dir_depuis(autre_ancre), cible.resolve())
 
-    def test_changement_de_dossier_ne_perd_pas_instance_ni_demande_arret(self):
-        """Les fichiers de contrôle restent à l'ancre de l'installation.
 
-        Sinon, juste après le changement, stop cherche dans la nouvelle racine
-        et ne voit plus l'instance qui tourne encore depuis l'ancienne.
-        """
-        dossier_instances = self.ancre / runtime.INSTANCES
-        dossier_instances.mkdir()
-        fiche = dossier_instances / "123.json"
-        fiche.write_text(json.dumps({
-            "pid": 123, "depuis": "maintenant", "verbes": [["serve"]],
-            "enfants": [],
-        }), encoding="utf-8")
-
-        cible = self.ancre / "ailleurs"
+class TestsReglageDesSorties(BaseDossiers):
+    def test_changer_les_sorties(self):
+        cible = self.racine / "videos"
         runtime.ecrire_dossier_stockage(str(cible))
+        self.assertTrue(cible.is_dir())
+        self.assertEqual(runtime.dossier_sorties(), cible)
+        self.assertEqual(runtime.lire_dossier_stockage(), str(cible))
+        self.assertEqual(runtime.app_dir(), self.etat)
 
-        with mock.patch.object(runtime, "processus_correspond", return_value=True):
-            instances = runtime.lire_instances()
-        self.assertEqual([instance["pid"] for instance in instances], [123])
+    def test_reglage_vide_revient_au_defaut(self):
+        runtime.ecrire_dossier_stockage(str(self.racine / "videos"))
+        runtime.ecrire_dossier_stockage("")
+        self.assertEqual(runtime.dossier_sorties(), self.defaut_sorties)
+        self.assertEqual(self.reglages()["dossier_sorties"], "")
 
-        runtime.demander_arret()
-        self.assertTrue(runtime.arret_demande())
-        self.assertTrue((self.ancre / runtime.ARRET_DEMANDE).exists())
-        self.assertFalse((cible / runtime.ARRET_DEMANDE).exists())
-
-    def test_echec_de_copie_ne_publie_pas_le_nouveau_pointeur(self):
-        """La préparation est une transaction : le commit du pointeur vient dernier."""
-        (self.ancre / runtime.REGLAGES).write_text('{"port": 8765}', encoding="utf-8")
-        cible = self.ancre / "disque_indisponible"
-        with mock.patch.object(runtime.shutil, "copy2",
-                               side_effect=OSError("copie refusée")):
-            with self.assertRaisesRegex(OSError, "copie refusée"):
-                runtime.ecrire_dossier_stockage(str(cible))
-        self.assertEqual(runtime.app_dir(), self.ancre)
-        self.assertFalse((self.ancre / runtime.POINTEUR_STOCKAGE).exists())
-
-    def test_echec_du_retour_ne_quitte_pas_la_racine_actuelle(self):
-        cible = self.ancre / "ailleurs"
-        runtime.ecrire_dossier_stockage(str(cible))
-        (cible / "blink_auth.json").write_text('{"token": "abc"}', encoding="utf-8")
-        with mock.patch.object(runtime.shutil, "copy2",
-                               side_effect=OSError("ancre verrouillée")):
-            with self.assertRaisesRegex(OSError, "ancre verrouillée"):
-                runtime.ecrire_dossier_stockage("")
-        self.assertEqual(runtime.app_dir(), cible.resolve())
-
-    def test_ecriture_du_pointeur_ne_laisse_aucun_temporaire(self):
-        runtime.ecrire_dossier_stockage(str(self.ancre / "ailleurs"))
-        self.assertEqual(list(self.ancre.glob(".*blink_home*.tmp")), [])
-
-    def test_preferences_absentes_remplacent_les_anciens_choix_de_destination(self):
-        cible = self.ancre / "ailleurs"
-        cible.mkdir()
-        (cible / runtime.LANGUE).write_text("en", encoding="utf-8")
-        (cible / runtime.SUPPRESSION_AUTO).write_text('["ancienne-camera"]', encoding="utf-8")
-        runtime.ecrire_dossier_stockage(str(cible))
-        self.assertEqual((cible / runtime.LANGUE).read_text(encoding="utf-8"), "fr")
-        self.assertEqual((cible / runtime.SUPPRESSION_AUTO).read_text(encoding="utf-8"), "[]")
-        self.assertEqual(list(cible.glob(".*.tmp")), [])
-
-    def test_copie_conserve_octets_des_preferences_et_ne_deplace_pas_les_clips(self):
-        contenus = {
-            runtime.REGLAGES: b'{ "port": 9999 }\r\n',
-            "blink_auth.json": b'{ "session": "fictive" }\r\n',
-            runtime.LANGUE: b'en\r\n',
-            runtime.SUPPRESSION_AUTO: b'["camera-1"]\r\n',
-        }
-        for nom, contenu in contenus.items():
-            (self.ancre / nom).write_bytes(contenu)
-        clip = self.ancre / "Blink_Clips" / "camera" / "test.mp4"
+    def test_changer_les_sorties_ne_deplace_ni_session_ni_clips(self):
+        """Avant 0.14, changer de dossier déplaçait aussi l'état : session et
+        réglages devaient y être recopiés (revue du 27/08, « je perds mon
+        authentification »). Ils ne bougent plus du tout."""
+        runtime.app_dir()
+        (self.etat / "blink_auth.json").write_text('{"token": "abc"}', encoding="utf-8")
+        ancien = self.racine / "anciennes_videos"
+        clip = ancien / "Blink_Clips" / "camera" / "clip.mp4"
         clip.parent.mkdir(parents=True)
-        clip.write_bytes(b"clip synthetique")
-        cible = self.ancre / "ailleurs"
+        clip.write_bytes(b"clip")
+        runtime.ecrire_dossier_stockage(str(ancien))
+        cible = self.racine / "videos"
         runtime.ecrire_dossier_stockage(str(cible))
-        for nom, contenu in contenus.items():
-            self.assertEqual((cible / nom).read_bytes(), contenu)
-            self.assertEqual((self.ancre / nom).read_bytes(), contenu)
-        self.assertEqual(clip.read_bytes(), b"clip synthetique")
-        self.assertFalse((cible / "Blink_Clips").exists())
-        self.assertEqual(list(cible.glob(".*.tmp")), [])
+        self.assertEqual((self.etat / "blink_auth.json").read_text(encoding="utf-8"),
+                         '{"token": "abc"}')
+        self.assertEqual(clip.read_bytes(), b"clip")
+        self.assertEqual(list(cible.iterdir()), [])
 
-    def test_copie_partielle_refusee_nettoie_son_temporaire_sans_publier(self):
-        (self.ancre / "blink_auth.json").write_bytes(b"session source fictive")
-        cible = self.ancre / "ailleurs"
-        cible.mkdir()
-        (cible / "blink_auth.json").write_bytes(b"ancienne session fictive")
+    def test_les_autres_reglages_gardent_le_dossier_choisi(self):
+        cible = self.racine / "videos"
+        runtime.ecrire_dossier_stockage(str(cible))
+        runtime.ecrire_reglages(5, 2, 8765, False, "Europe/Paris",
+                                True, True, True, True, "webrtc")
+        self.assertEqual(runtime.dossier_sorties(), cible)
 
-        def copier_partiellement(source, temporaire):
-            Path(temporaire).write_bytes(b"copie interrompue")
-            raise OSError("copie interrompue")
+    def test_reglages_fournis_ecrits_avec_le_dossier(self):
+        reglages = {cle: valeur for cle, valeur in runtime.lire_reglages().items()
+                    if cle != "dossier_sorties"}
+        reglages["port"] = 9999
+        cible = self.racine / "videos"
+        runtime.ecrire_dossier_stockage(str(cible), reglages=reglages)
+        self.assertEqual(self.reglages()["port"], 9999)
+        self.assertEqual(self.reglages()["dossier_sorties"], str(cible))
 
-        with mock.patch.object(runtime.shutil, "copy2", side_effect=copier_partiellement):
-            with self.assertRaisesRegex(OSError, "copie interrompue"):
-                runtime.ecrire_dossier_stockage(str(cible))
-        self.assertEqual((cible / "blink_auth.json").read_bytes(), b"ancienne session fictive")
-        self.assertEqual((self.ancre / "blink_auth.json").read_bytes(), b"session source fictive")
-        self.assertEqual(list(cible.glob(".*.tmp")), [])
-        self.assertFalse((self.ancre / runtime.POINTEUR_STOCKAGE).exists())
+    def test_destination_inutilisable_refusee_sans_rien_enregistrer(self):
+        runtime.ecrire_dossier_stockage(str(self.racine / "videos"))
+        avant = (self.etat / runtime.REGLAGES).read_bytes()
+        fichier = self.racine / "un_fichier"
+        fichier.write_text("pas un dossier", encoding="utf-8")
+        with self.assertRaises(OSError):
+            runtime.ecrire_dossier_stockage(str(fichier / "sous_dossier"))
+        self.assertEqual((self.etat / runtime.REGLAGES).read_bytes(), avant)
 
-    def test_echec_marqueur_restaure_les_octets_exacts_du_pointeur(self):
-        ancien = self.ancre / "ancien"
-        ancien.mkdir()
-        pointeur = self.ancre / runtime.POINTEUR_STOCKAGE
-        contenu = (" \t" + str(ancien) + "\r\n").encode("utf-8")
-        pointeur.write_bytes(contenu)
-        cible = self.ancre / "nouveau"
+    def test_echec_marqueur_restaure_les_reglages_exacts(self):
+        runtime.app_dir()
+        contenu = b'{ "port": 9999 }\r\n'
+        (self.etat / runtime.REGLAGES).write_bytes(contenu)
         with mock.patch.object(runtime, "marquer_configuration_initiale",
                                side_effect=OSError("marqueur refusé")):
             with self.assertRaisesRegex(OSError, "marqueur refusé"):
-                runtime.ecrire_dossier_stockage(str(cible), configuration_initiale=True)
-        self.assertEqual(pointeur.read_bytes(), contenu)
-        self.assertEqual(runtime.app_dir(), ancien.resolve())
-        self.assertEqual(list(self.ancre.glob(".*blink_home*.tmp")), [])
+                runtime.ecrire_dossier_stockage(str(self.racine / "videos"),
+                                                configuration_initiale=True)
+        self.assertEqual((self.etat / runtime.REGLAGES).read_bytes(), contenu)
+        self.assertEqual(list(self.etat.glob(".*.tmp")), [])
 
+    def test_echec_marqueur_sans_reglages_prealables_les_retire(self):
+        with mock.patch.object(runtime, "marquer_configuration_initiale",
+                               side_effect=OSError("marqueur refusé")):
+            with self.assertRaisesRegex(OSError, "marqueur refusé"):
+                runtime.ecrire_dossier_stockage(str(self.racine / "videos"),
+                                                configuration_initiale=True)
+        self.assertFalse((self.etat / runtime.REGLAGES).exists())
+
+
+class TestsConfigurationInitiale(BaseDossiers):
     def test_installation_neuve_reste_en_attente_jusqu_a_validation(self):
         self.assertTrue(runtime.configuration_initiale_requise())
-        attente = self.ancre / runtime.MARQUEUR_CONFIGURATION_EN_ATTENTE
-        self.assertTrue(attente.is_file())
-
+        self.assertTrue((self.etat / runtime.MARQUEUR_CONFIGURATION_EN_ATTENTE).is_file())
         # La connexion créée pendant ce parcours ne doit pas être prise pour
         # une preuve d'installation historique au lancement suivant.
-        (self.ancre / "blink_auth.json").write_text("{}", encoding="utf-8")
+        (self.etat / "blink_auth.json").write_text("{}", encoding="utf-8")
         self.assertTrue(runtime.configuration_initiale_requise())
         self.assertFalse(runtime.configuration_initiale_effectuee())
 
@@ -248,16 +187,16 @@ class TestsDossierStockage(unittest.TestCase):
         self.assertTrue(runtime.configuration_initiale_requise())
         runtime.marquer_configuration_initiale()
         self.assertTrue(runtime.configuration_initiale_effectuee())
-        self.assertFalse(
-            (self.ancre / runtime.MARQUEUR_CONFIGURATION_EN_ATTENTE).exists())
+        self.assertFalse((self.etat / runtime.MARQUEUR_CONFIGURATION_EN_ATTENTE).exists())
         self.assertFalse(runtime.configuration_initiale_requise())
 
-    def test_session_d_une_ancienne_version_migre_sans_imposer_le_panneau(self):
-        (self.ancre / "blink_auth.json").write_text("{}", encoding="utf-8")
+    def test_session_existante_sans_marqueur_n_impose_pas_le_panneau(self):
+        runtime.app_dir()
+        (self.etat / "blink_auth.json").write_text("{}", encoding="utf-8")
         self.assertFalse(runtime.configuration_initiale_requise())
         self.assertTrue(runtime.configuration_initiale_effectuee())
 
-    def test_donnees_d_une_ancienne_version_migrent_sans_session(self):
+    def test_clips_d_une_ancienne_version_sans_session(self):
         clips = self.ancre / "Blink_Clips" / "camera"
         clips.mkdir(parents=True)
         (clips / "clip.mp4").write_bytes(b"ancien clip")
@@ -267,14 +206,198 @@ class TestsDossierStockage(unittest.TestCase):
     def test_changer_vers_un_dossier_vide_ne_redevient_pas_une_installation_neuve(self):
         runtime.configuration_initiale_requise()
         runtime.marquer_configuration_initiale()
-        cible = self.ancre / "stockage_vide"
+        cible = self.racine / "stockage_vide"
         runtime.ecrire_dossier_stockage(str(cible))
-        self.assertEqual(runtime.app_dir(), cible.resolve())
+        self.assertEqual(runtime.dossier_sorties(), cible)
         self.assertFalse(runtime.configuration_initiale_requise())
-        self.assertTrue(
-            (self.ancre / runtime.MARQUEUR_CONFIGURATION_INITIALE).is_file())
-        self.assertFalse(
-            (cible / runtime.MARQUEUR_CONFIGURATION_INITIALE).exists())
+        self.assertFalse((cible / runtime.MARQUEUR_CONFIGURATION_INITIALE).exists())
+
+    def test_changer_les_sorties_ne_perd_pas_instance_ni_demande_arret(self):
+        fiches = self.etat / runtime.INSTANCES
+        fiches.mkdir(parents=True)
+        (fiches / "123.json").write_text(json.dumps({
+            "pid": 123, "depuis": "maintenant", "verbes": [["serve"]], "enfants": [],
+        }), encoding="utf-8")
+        cible = self.racine / "videos"
+        runtime.ecrire_dossier_stockage(str(cible))
+        with mock.patch.object(runtime, "processus_correspond", return_value=True):
+            instances = runtime.lire_instances()
+        self.assertEqual([instance["pid"] for instance in instances], [123])
+        runtime.demander_arret()
+        self.assertTrue(runtime.arret_demande())
+        self.assertTrue((self.etat / runtime.ARRET_DEMANDE).exists())
+        self.assertFalse((cible / runtime.ARRET_DEMANDE).exists())
+
+
+class TestsRepriseDeLEtat(BaseDossiers):
+    def installation_013(self, donnees: Path) -> dict:
+        """État et clips tels que les laissait une version ≤ 0.13."""
+        donnees.mkdir(parents=True, exist_ok=True)
+        contenus = {nom: f"contenu de {nom}\r\n".encode("utf-8")
+                    for nom in runtime.ETAT_HISTORIQUE}
+        contenus[runtime.REGLAGES] = b'{ "port": 9999 }\r\n'
+        for nom, contenu in contenus.items():
+            (donnees / nom).write_bytes(contenu)
+        clip = donnees / "Blink_Clips" / "camera" / "clip.mp4"
+        clip.parent.mkdir(parents=True)
+        clip.write_bytes(b"clip")
+        (self.ancre / runtime.MARQUEUR_CONFIGURATION_INITIALE).write_text(
+            "0.13.7", encoding="utf-8")
+        return contenus
+
+    def test_app_dir_seul_ne_reprend_rien(self):
+        """Un simple calcul de chemin (un test, un outil) ne copie aucun état
+        et ne déplace aucune fiche : seul preparer_etat() le fait."""
+        self.installation_013(self.ancre)
+        fiches = self.ancre / runtime.INSTANCES
+        fiches.mkdir()
+        (fiches / "123.json").write_text("{}", encoding="utf-8")
+        self.assertEqual(runtime.app_dir(), self.etat)
+        self.assertEqual(list(self.etat.iterdir()), [])
+        self.assertTrue((fiches / "123.json").exists())
+
+    def test_blink_home_sans_reprise(self):
+        self.installation_013(self.ancre)
+        force = self.racine / "force"
+        force.mkdir()
+        os.environ["BLINK_HOME"] = str(force)
+        runtime.preparer_etat()
+        self.assertEqual(list(force.iterdir()), [])
+        self.assertFalse(self.etat.exists())
+
+    def test_reprend_l_etat_et_laisse_les_clips_en_place(self):
+        contenus = self.installation_013(self.ancre)
+        runtime.preparer_etat()
+        for nom, contenu in contenus.items():
+            if nom == runtime.REGLAGES:
+                continue
+            self.assertEqual((self.etat / nom).read_bytes(), contenu, nom)
+            self.assertEqual((self.ancre / nom).read_bytes(), contenu, nom)
+        reglages = self.reglages()
+        self.assertEqual(reglages["port"], 9999)
+        self.assertEqual(reglages["dossier_sorties"], str(self.ancre))
+        self.assertEqual(runtime.dossier_sorties(), self.ancre)
+        self.assertEqual((self.ancre / "Blink_Clips" / "camera" / "clip.mp4").read_bytes(),
+                         b"clip")
+        self.assertFalse((self.etat / "Blink_Clips").exists())
+        self.assertTrue(runtime.configuration_initiale_effectuee())
+        rapport = json.loads((self.etat / runtime.MARQUEUR_MIGRATION).read_text(encoding="utf-8"))
+        self.assertEqual(rapport["depuis"], str(self.ancre))
+        self.assertEqual(rapport["dossier_sorties"], str(self.ancre))
+        self.assertIn("blink_auth.json", rapport["repris"])
+        self.assertEqual(list(self.etat.glob(".*.tmp")), [])
+
+    def test_suit_le_pointeur_d_une_version_013(self):
+        donnees = self.racine / "donnees_redirigees"
+        contenus = self.installation_013(donnees)
+        (self.ancre / runtime.POINTEUR_STOCKAGE).write_text(str(donnees), encoding="utf-8")
+        runtime.preparer_etat()
+        self.assertEqual((self.etat / "blink_auth.json").read_bytes(),
+                         contenus["blink_auth.json"])
+        self.assertEqual(runtime.dossier_sorties(), donnees)
+        # Les marqueurs vivaient à côté du programme, pas avec les données.
+        self.assertTrue(runtime.configuration_initiale_effectuee())
+
+    def test_n_ecrase_rien_de_ce_que_l_etat_contient(self):
+        self.installation_013(self.ancre)
+        self.etat.mkdir()
+        (self.etat / "blink_auth.json").write_text("session récente", encoding="utf-8")
+        runtime.preparer_etat()
+        self.assertEqual((self.etat / "blink_auth.json").read_text(encoding="utf-8"),
+                         "session récente")
+
+    def test_une_seule_fois(self):
+        self.installation_013(self.ancre)
+        runtime.preparer_etat()
+        (self.etat / runtime.LANGUE).unlink()
+        runtime.preparer_etat()
+        self.assertFalse((self.etat / runtime.LANGUE).exists())
+
+    def test_fiches_deplacees_pour_que_stop_trouve_l_instance(self):
+        """Une instance 0.13 encore en cours doit rester visible de stop."""
+        ancienne = self.ancre / runtime.INSTANCES
+        ancienne.mkdir()
+        (ancienne / "123.json").write_text(json.dumps({
+            "pid": 123, "depuis": "hier", "verbes": [["start"]], "enfants": [],
+        }), encoding="utf-8")
+        runtime.preparer_etat()
+        with mock.patch.object(runtime, "processus_correspond", return_value=True):
+            instances = runtime.lire_instances()
+        self.assertEqual([instance["pid"] for instance in instances], [123])
+        self.assertFalse((ancienne / "123.json").exists())
+
+    def test_installation_neuve_ne_clot_pas_la_reprise(self):
+        """Le finaliseur d'une mise à jour tourne depuis un dossier temporaire
+        vide : il ne doit pas empêcher la version installée de reprendre
+        l'état ensuite."""
+        runtime.preparer_etat()
+        self.assertFalse((self.etat / runtime.MARQUEUR_MIGRATION).exists())
+        self.installation_013(self.ancre)
+        runtime.preparer_etat()
+        self.assertTrue((self.etat / "blink_auth.json").is_file())
+        self.assertTrue((self.etat / runtime.MARQUEUR_MIGRATION).is_file())
+
+    def test_etat_d_essai_n_empeche_pas_la_reprise(self):
+        """Des réglages écrits par un essai (test lancé sans isolation, outil)
+        sans rien à reprendre ne posent pas de marqueur : la vraie reprise
+        aura lieu quand l'ancien état sera là."""
+        (runtime.app_dir() / runtime.REGLAGES).write_text("{}", encoding="utf-8")
+        runtime.preparer_etat()
+        self.assertFalse((self.etat / runtime.MARQUEUR_MIGRATION).exists())
+        self.installation_013(self.ancre)
+        runtime.preparer_etat()
+        self.assertTrue((self.etat / "blink_auth.json").is_file())
+        self.assertTrue((self.etat / runtime.MARQUEUR_MIGRATION).is_file())
+
+    def test_reglages_illisibles_jamais_ecrases(self):
+        self.installation_013(self.ancre)
+        self.etat.mkdir()
+        (self.etat / runtime.REGLAGES).write_bytes(b"{ illisible")
+        runtime.preparer_etat()
+        self.assertEqual((self.etat / runtime.REGLAGES).read_bytes(), b"{ illisible")
+
+    def test_echec_de_reprise_ne_bloque_pas_et_sera_retente(self):
+        self.installation_013(self.ancre)
+        with mock.patch.object(runtime.shutil, "copy2", side_effect=OSError("disque plein")):
+            runtime.preparer_etat()
+        self.assertFalse((self.etat / runtime.MARQUEUR_MIGRATION).exists())
+        self.assertIn("disque plein",
+                      (self.etat / "migration.log").read_text(encoding="utf-8"))
+        runtime.preparer_etat()
+        self.assertTrue((self.etat / "blink_auth.json").is_file())
+        self.assertTrue((self.etat / runtime.MARQUEUR_MIGRATION).is_file())
+
+
+class TestsSansDossierRedirige(unittest.TestCase):
+    """Fonctions pures : aucun dossier n'est créé ici."""
+
+    def test_repli_sans_platformdirs_donne_le_meme_dossier(self):
+        # Avant bootstrap(), runtime calcule seul le dossier d'état. Il doit
+        # tomber au même endroit que platformdirs, sur chaque système de la CI.
+        attendu = runtime._dossier_etat_standard()
+        with mock.patch.dict(sys.modules, {"platformdirs": None}):
+            self.assertEqual(runtime._dossier_etat_standard(), attendu)
+
+    def test_noms_repris_et_produits_concordent_avec_les_modules(self):
+        with tempfile.TemporaryDirectory(prefix="blink_noms_") as dossier, \
+                mock.patch.dict(os.environ, {"BLINK_HOME": dossier,
+                                             "BLINK_BOOTSTRAP": "none"}):
+            import blink_auth
+            import blink_cli
+            import maj
+            import merge_daily as md
+            import serve
+            import watch
+        attendus = {blink_auth.CONFIG.name, runtime.PASSAGES.name,
+                    watch.WATCH_STATE.name, blink_cli.MARQUEUR_RACCOURCI,
+                    maj.CACHE.name, runtime.REGLAGES, runtime.LANGUE,
+                    runtime.JETON_WEBHOOK, runtime.SUPPRESSION_AUTO}
+        self.assertEqual(set(runtime.ETAT_HISTORIQUE), attendus)
+        produits = {md.DEFAULT_INPUT.name, md.DEFAULT_OUTPUT.name, md.DEFAULT_WEEKLY.name,
+                    md.DEFAULT_MONTHLY.name, md.DEFAULT_NORMALIZED.name,
+                    md.DEFAULT_EXCLUDED.name, serve.DOSSIER_DIRECT.name,
+                    serve.DOSSIER_SNAPSHOTS.name}
+        self.assertEqual(set(runtime.DOSSIERS_SORTIES), produits)
 
 
 if __name__ == "__main__":

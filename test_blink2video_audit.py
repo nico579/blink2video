@@ -884,13 +884,15 @@ class TestsDefautsSynchrones(BacASable):
         lui-meme pour la version relancee, ramenant le dossier de donnees a
         celui de l'executable meme quand l'utilisateur l'avait explicitement
         redirige ailleurs via le panneau de reglages. installer() doit
-        annoncer le dossier reellement en vigueur (pointeur suivi), pas le
-        dossier d'installation brut."""
+        annoncer le dossier reellement en vigueur, pas le dossier
+        d'installation brut : depuis 0.14, le dossier d'etat, qui ne depend
+        plus ni de l'installation ni de l'ancien pointeur."""
         installe = self.racine / "installe"
         installe.mkdir()
         (installe / "blink2video.exe").write_text("", encoding="utf-8")
-        reel = self.racine / "stockage_redirige"
-        (installe / runtime.POINTEUR_STOCKAGE).write_text(str(reel), encoding="utf-8")
+        (installe / runtime.POINTEUR_STOCKAGE).write_text(
+            str(self.racine / "stockage_013"), encoding="utf-8")
+        etat = self.racine / "etat"
 
         neuve = {
             "version": "9.9.9",
@@ -903,6 +905,8 @@ class TestsDefautsSynchrones(BacASable):
         dossier_extrait.mkdir()
 
         with mock.patch.dict(os.environ), \
+             mock.patch.object(runtime, "_dossier_etat_standard", return_value=etat), \
+             mock.patch.object(runtime, "_ETATS_CREES", set()), \
              mock.patch.object(runtime, "build_windows7", return_value=False), \
              mock.patch.object(runtime, "frozen", return_value=True), \
              mock.patch("sys.executable", str(installe / "blink2video.exe")), \
@@ -938,9 +942,8 @@ class TestsDefautsSynchrones(BacASable):
         )
         demarrer.assert_called_once()
         env_passe = demarrer.call_args.kwargs["env"]
-        # Le point du bug : BLINK_HOME ne doit jamais valoir `installe` tel
-        # quel des lors qu'un pointeur y redirige le stockage.
-        self.assertEqual(env_passe["BLINK_HOME"], str(reel.resolve()))
+        # Le point du bug : BLINK_HOME ne doit jamais valoir `installe`.
+        self.assertEqual(Path(env_passe["BLINK_HOME"]).resolve(), etat.resolve())
         self.assertNotEqual(env_passe["BLINK_HOME"], str(installe))
 
     def test_E01_sans_argument_selectionne_start(self):

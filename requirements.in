@@ -4,6 +4,8 @@ certifi
 tzdata
 imageio-ffmpeg
 backports.zoneinfo; python_version < "3.9"
+# Dossier d'état standard de l'OS (même convention que lidar2map et watch2notif).
+platformdirs
 
 # aiortc tire par defaut cryptography>=49 (donc cffi>=2). Sans venv dedie,
 # ce depot s'installe sur le python systeme partage avec d'autres outils

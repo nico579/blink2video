@@ -1069,9 +1069,14 @@ def _relancer(installe: Path, verbes: list) -> None:
     env = dict(os.environ)
     if env.pop("BLINK_UPDATE_AUTO_HOME", "") == "1":
         # Le finaliseur seul avait besoin d'une racine de données forcée.
-        # Le programme installé doit de nouveau suivre blink_home.txt pour
-        # permettre les changements de stockage depuis les réglages.
+        # Le programme installé doit de nouveau trouver seul son état.
         env.pop("BLINK_HOME", None)
+    # Même chose pour les fiches : seul le finaliseur devait les chercher là
+    # où la version remplacée les rangeait. Jusqu'à 0.13, c'était de toute
+    # façon la racine par défaut ; depuis 0.14, garder celle d'une version
+    # antérieure éloignerait l'instance relancée du dossier d'état, où stop
+    # la cherchera ensuite.
+    env.pop("BLINK_CONTROL_HOME", None)
     runtime.demarrer(commande, cwd=str(installe),
                      env=env,
                      stdin=subprocess.DEVNULL,
@@ -1080,22 +1085,25 @@ def _relancer(installe: Path, verbes: list) -> None:
 
 
 def finaliser(cible: Path) -> int:
-    """Conserve les racines de contrôle des versions antérieures au protocole.
+    """Retrouve les fiches de la version à remplacer, où qu'elle les range.
 
-    Un ancien lanceur ne passe que BLINK_HOME (données), même quand les
-    fiches sont à l'installation. Ne pas confondre une recherche vide avec
-    un arrêt réussi. Si plusieurs racines portent des fiches, refuser de
-    deviner quel ensemble arrêter.
+    Un lanceur récent fournit BLINK_CONTROL_HOME. Un ancien ne passe que
+    BLINK_HOME (données), même quand les fiches sont à l'installation, et
+    « update » depuis les sources ne passe rien. Candidats, donc : la racine
+    par défaut (le dossier d'état depuis 0.14, dont la reprise y déplace
+    aussi les fiches d'une instance plus ancienne encore en cours),
+    l'installation (≤ 0.13) et BLINK_HOME. Ne pas confondre une recherche
+    vide avec un arrêt réussi. Si plusieurs racines portent des fiches,
+    refuser de deviner quel ensemble arrêter.
     """
     if os.environ.get("BLINK_CONTROL_HOME"):
         return _finaliser(cible)
     installe = cible.resolve()
     home = os.environ.get("BLINK_HOME")
-    candidats = [installe]
+    candidats = [runtime._dossier_controle(), installe]
     if home:
-        donnees = Path(home).expanduser().resolve()
-        if donnees not in candidats:
-            candidats.append(donnees)
+        candidats.append(Path(home).expanduser().resolve())
+    candidats = list(dict.fromkeys(candidats))
     try:
         references = [racine for racine in candidats
                       if any((racine / runtime.INSTANCES).glob("*.json"))]
@@ -1105,7 +1113,7 @@ def finaliser(cible: Path) -> int:
     if len(references) > 1:
         print(msg("racines_controle_multiples"), flush=True)
         return 1
-    controle = references[0] if references else installe
+    controle = references[0] if references else candidats[0]
     ancien_controle = os.environ.get("BLINK_CONTROL_HOME")
     ancien_auto = os.environ.get("BLINK_UPDATE_AUTO_HOME")
     os.environ["BLINK_CONTROL_HOME"] = str(controle)
@@ -1228,7 +1236,7 @@ def _depuis_les_sources() -> int:
     runtime.demarrer(
         [sys.executable, "-u", str(dossier / "maj.py"), "--finaliser", str(dossier)],
         cwd=str(dossier), stdin=subprocess.DEVNULL,
-        stdout=(dossier / "maj.log").open("ab"), stderr=subprocess.STDOUT,
+        stdout=(runtime.app_dir() / "maj.log").open("ab"), stderr=subprocess.STDOUT,
         start_new_session=(os.name != "nt"))
     return 0
 
@@ -1291,8 +1299,10 @@ def installer(force: bool = False) -> int:
     # Le finaliseur temporaire doit connaître séparément les données et les
     # fiches de contrôle. Imposer les données via BLINK_HOME seul changeait
     # aussi la recherche des processus et rendait l'ancienne instance invisible.
-    # Respecter un BLINK_HOME fourni par l'utilisateur, sinon retirer cette
-    # surcharge temporaire à la relance pour retrouver le suivi du pointeur.
+    # Les nommer explicitement protège aussi d'un changement d'emplacement par
+    # défaut dans la version qui arrive (0.14 a déplacé l'état). Respecter un
+    # BLINK_HOME fourni par l'utilisateur, sinon retirer cette surcharge
+    # temporaire à la relance.
     env = dict(os.environ, BLINK_HOME=str(runtime.app_dir()),
                BLINK_CONTROL_HOME=str(runtime._dossier_controle()))
     if not os.environ.get("BLINK_HOME"):
@@ -1301,7 +1311,7 @@ def installer(force: bool = False) -> int:
         [str(_executable(dossier)), "update", "--finaliser", str(installe)],
         cwd=str(dossier), env=env,
         stdin=subprocess.DEVNULL,
-        stdout=(installe / "maj.log").open("ab"), stderr=subprocess.STDOUT,
+        stdout=(runtime.app_dir() / "maj.log").open("ab"), stderr=subprocess.STDOUT,
         start_new_session=(os.name != "nt"))
     return 0
 

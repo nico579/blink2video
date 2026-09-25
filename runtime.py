@@ -38,7 +38,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.13.8"
+VERSION = "0.14.0"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -71,7 +71,9 @@ REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timesta
                    "merge_mois": False, "download_auto": True, "live_protocol": "webrtc",
                    "font_size": None, "font_color": "white", "box_opacity": 0.55,
                    "trusted_host": "", "webhook_notif_url": "",
-                   "live_auto_stop_seconds": 0}
+                   "live_auto_stop_seconds": 0,
+                   # Vide : dossier par défaut, voir dossier_sorties().
+                   "dossier_sorties": ""}
 # Remplace la variable d'environnement BLINK_DIRECT_WEBRTC (experimentale,
 # BACKLOG.md 2026-09-03) une fois WebRTC valide en usage reel : un vrai
 # reglage, pas juste une variable a poser avant de lancer le serveur. "mse"
@@ -202,6 +204,7 @@ def lire_reglages() -> dict:
         "live_auto_stop_seconds": _entier_borne(
             valeurs, "live_auto_stop_seconds",
             REGLAGES_DEFAUT["live_auto_stop_seconds"], 0, 300),
+        "dossier_sorties": str(valeurs.get("dossier_sorties") or "").strip(),
     }
 
 
@@ -230,8 +233,18 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
                     box_opacity: float = 0.55, trusted_host: str = "",
                     webhook_notif_url: str = "",
                     live_auto_stop_seconds: int = 0,
+                    dossier_sorties: str | None = None,
                     dossier: Path | None = None) -> None:
     cible = (app_dir() if dossier is None else dossier) / REGLAGES
+    if dossier_sorties is None:
+        # Absent de l'appel : garder celui déjà enregistré. Le remettre à vide
+        # renverrait en silence les clips suivants vers le dossier par défaut.
+        try:
+            actuel = json.loads(cible.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            actuel = {}
+        dossier_sorties = str(actuel.get("dossier_sorties") or "") \
+            if isinstance(actuel, dict) else ""
     _ecrire_texte_atomique(cible, json.dumps({
         "usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
         "port": int(port), "timestamp": bool(timestamp),
@@ -243,6 +256,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
         "trusted_host": str(trusted_host).strip(),
         "webhook_notif_url": str(webhook_notif_url).strip(),
         "live_auto_stop_seconds": int(live_auto_stop_seconds),
+        "dossier_sorties": str(dossier_sorties).strip(),
     }))
 
 
@@ -510,6 +524,9 @@ DEPENDANCES = {
     # bug 4 : absent d'ici jusque-là, alors que requirements.in l'a
     # toujours listé).
     "imageio_ffmpeg": "imageio-ffmpeg",
+    # Dossier d'état standard de l'OS (app_dir) : même convention que
+    # lidar2map et watch2notif.
+    "platformdirs": "platformdirs",
 }
 if sys.version_info < (3, 9):
     # zoneinfo est stdlib depuis 3.9 ; en dessous (édition Windows 7,
@@ -628,24 +645,41 @@ def frozen() -> bool:
 POINTEUR_STOCKAGE = "blink_home.txt"
 MARQUEUR_CONFIGURATION_INITIALE = ".blink_configuration_initiale_effectuee"
 MARQUEUR_CONFIGURATION_EN_ATTENTE = ".blink_configuration_initiale_en_attente"
+# Compte rendu de la reprise de l'état d'une version ≤ 0.13 (voir
+# _migrer_etat_historique) : sa présence dit aussi qu'elle est faite.
+MARQUEUR_MIGRATION = ".blink_etat_migre.json"
+# L'état que cette reprise copie. Noms littéraux pour ceux que définissent
+# d'autres modules, que runtime ne peut pas importer :
+# test_runtime_dossier_stockage.py vérifie qu'ils concordent.
+ETAT_HISTORIQUE = (REGLAGES, "blink_auth.json", LANGUE, JETON_WEBHOOK,
+                   SUPPRESSION_AUTO, ".blink_passages.json",
+                   ".blink_watch_state.json", ".blink_raccourci_cree",
+                   ".blink_maj.json")
+# Ce que le programme produit, rangé sous dossier_sorties().
+DOSSIERS_SORTIES = ("Blink_Clips", "Blink_Daily", "Blink_Weekly", "Blink_Monthly",
+                    "Blink_Normalized", "Blink_Excluded", "Blink_Direct",
+                    "Blink_Snapshots")
 
 
 def _dossier_ancre() -> Path:
-    """Emplacement par défaut, celui d'avant tout réglage : à côté de
-    l'exécutable (figé) ou des sources. Fixe, jamais lui-même redirigé -
-    c'est justement ce qui permet d'y chercher `POINTEUR_STOCKAGE` sans
-    dépendre de la valeur qu'il contient (sinon, pour savoir où lire le
-    réglage, il faudrait déjà connaître ce que le réglage doit dire)."""
+    """Dossier du programme : à côté de l'exécutable (figé) ou des sources.
+
+    Jusqu'à 0.13, c'était aussi celui des données, sauf si
+    `POINTEUR_STOCKAGE`, posé ici, les redirigeait ailleurs. Il ne sert plus
+    qu'à retrouver ces données-là (migration, mise à jour depuis une de ces
+    versions) et à ce qui accompagne le programme lui-même."""
     if frozen():
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
 
 def app_dir_depuis(ancre: Path) -> Path:
-    """Dossier de données qu'annoncerait app_dir(), mais à partir d'une ancre
-    donnée plutôt que celle de ce processus (BLINK_HOME mis à part).
+    """Dossier des données d'une version ≤ 0.13 installée dans `ancre` : la
+    cible de son `blink_home.txt`, sinon l'ancre elle-même.
 
-    Sert à maj.py : la version fraîchement extraite tourne depuis un dossier
+    Sert à la reprise de leur état, et à maj.py, qui doit encore comprendre
+    les racines que lui transmettent les lanceurs de ces versions. Là, la
+    version fraîchement extraite tourne depuis un dossier
     temporaire, dont l'ancre naturelle ne connaît pas `blink_home.txt` de
     l'installation réelle. Elle a besoin d'annoncer le bon dossier à la
     version relancée sans pour autant l'enfermer dans l'ancre elle-même si
@@ -665,18 +699,196 @@ def app_dir_depuis(ancre: Path) -> Path:
     return ancre
 
 
-def app_dir() -> Path:
-    """Dossier des données : clips, vidéos, registres, journaux.
+def _dossier_etat_standard() -> Path:
+    """Dossier d'état standard de l'OS, celui que donne platformdirs.
 
-    Trois façons de le déplacer, dans cet ordre : la variable d'environnement
-    BLINK_HOME (utile pour une installation en lecture seule), le fichier
-    `blink_home.txt` à côté de l'exécutable (réglable depuis la page web,
-    voir `lire_dossier_stockage`/`ecrire_dossier_stockage`), et à défaut
-    l'emplacement historique, celui de l'exécutable lui-même."""
-    forced = os.environ.get("BLINK_HOME")
-    if forced:
-        return Path(forced).expanduser().resolve()
-    return app_dir_depuis(_dossier_ancre())
+    runtime.py doit rester importable avant que bootstrap() ait installé les
+    dépendances (sources lancées avec un Python qui ne les a pas encore). À
+    défaut de platformdirs, les mêmes règles que lui pour les trois systèmes
+    pris en charge : test_runtime_dossier_stockage.py compare les deux
+    résultats, et la CI le fait tourner sous chacun d'eux."""
+    try:
+        from platformdirs import user_data_dir
+    except ImportError:
+        if os.name == "nt":
+            base = (os.environ.get("LOCALAPPDATA")
+                    or str(Path.home() / "AppData" / "Local"))
+        elif sys.platform == "darwin":
+            base = str(Path.home() / "Library" / "Application Support")
+        else:
+            base = (os.environ.get("XDG_DATA_HOME", "").strip()
+                    or str(Path.home() / ".local" / "share"))
+        return (Path(base) / ENTREE).resolve()
+    return Path(user_data_dir(ENTREE, appauthor=False)).resolve()
+
+
+# Dossiers d'état déjà créés par ce processus.
+_ETATS_CREES: set = set()
+
+
+def app_dir() -> Path:
+    """Dossier d'état : réglages, session Blink, préférences, journaux et
+    fichiers qui pilotent les processus. Jamais ce que le programme produit,
+    rangé dans dossier_sorties().
+
+    La variable BLINK_HOME l'impose (tests, Docker, installation portable).
+    Sinon, le dossier standard de l'OS (LOCALAPPDATA sous Windows), même
+    convention que lidar2map et watch2notif. Il ne dépend plus de
+    l'emplacement du programme : sources et exécutable, ou deux copies de
+    l'exécutable, partagent le même état, et une mise à jour ne le touche
+    jamais. preparer_etat(), au démarrage, y reprend celui d'une version
+    ≤ 0.13."""
+    force = os.environ.get("BLINK_HOME")
+    if force:
+        return Path(force).expanduser().resolve()
+    etat = _dossier_etat_standard()
+    if etat not in _ETATS_CREES:
+        try:
+            etat.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass  # La première écriture dira pourquoi.
+        else:
+            _ETATS_CREES.add(etat)
+    return etat
+
+
+def preparer_etat() -> None:
+    """Reprend, une fois, l'état d'une version ≤ 0.13 (voir
+    _migrer_etat_historique). Sans effet avec BLINK_HOME.
+
+    Appelée au démarrage (blink2video.py), avant tout module qui tire des
+    constantes de app_dir() ou de dossier_sorties() à son import. Explicite,
+    comme migrer_donnees_existantes() de watch2notif, plutôt que cachée
+    dans app_dir() : un simple calcul de chemin, dans un test, ne doit
+    jamais copier un état ni déplacer les fiches d'une instance en cours.
+    Jamais bloquante : en cas d'échec, l'ancien état reste en place et la
+    reprise sera retentée au lancement suivant."""
+    if os.environ.get("BLINK_HOME"):
+        return
+    etat = app_dir()
+    try:
+        if (etat / MARQUEUR_MIGRATION).is_file():
+            return
+        # start et ses verbes démarrent ensemble : un seul processus copie,
+        # les autres attendent son verrou puis trouvent le marqueur.
+        with verrou("migration-etat", "migration", attente=60, racine=etat):
+            if not (etat / MARQUEUR_MIGRATION).is_file():
+                _migrer_etat_historique(etat)
+    except (OSError, BusyError) as erreur:
+        ajouter_ligne("migration.log", f"Reprise de l'état reportée : {erreur}")
+
+
+def _copier_si_absent(source: Path, cible: Path) -> bool:
+    """Copie atomique d'un fichier, sans jamais écraser la cible."""
+    import uuid
+
+    if cible.exists() or not source.is_file():
+        return False
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    temporaire = cible.with_name(f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        shutil.copy2(source, temporaire)
+        temporaire.replace(cible)
+    finally:
+        temporaire.unlink(missing_ok=True)
+    return True
+
+
+def _migrer_etat_historique(etat: Path) -> None:
+    """Reprend dans `etat` l'état d'une version ≤ 0.13, une seule fois.
+
+    Ces versions rangeaient tout au même endroit : à côté du programme, ou
+    dans la cible de son blink_home.txt. Réglages, session Blink,
+    préférences et marqueurs sont copiés sans écraser ce que `etat` contient
+    déjà, jamais déplacés : revenir à 0.13 reste possible. Les fiches des
+    processus en cours sont en revanche déplacées, pour que stop les trouve
+    à un seul endroit, y compris celles d'une instance lancée avant la mise
+    à jour. Les clips ne bougent pas : si l'ancien dossier en contient, le
+    réglage dossier_sorties y pointe, rien ne change sur le disque.
+
+    Le marqueur n'est posé que si quelque chose a été repris. Sans rien à
+    reprendre, l'examen recommence au lancement suivant, pour quelques
+    accès disque : le finaliseur d'une mise à jour, lancé depuis un dossier
+    temporaire sans données, ne clôt pas la reprise avant que la version
+    installée ait pu la faire, et rien de ce qu'un essai aurait écrit dans
+    `etat` ne peut l'empêcher non plus."""
+    import datetime as dt
+
+    ancre = _dossier_ancre()
+    ancien = app_dir_depuis(ancre)
+    repris = []
+    if ancien != etat:
+        for nom in ETAT_HISTORIQUE:
+            if _copier_si_absent(ancien / nom, etat / nom):
+                repris.append(nom)
+    # Fiches et marqueurs vivaient à côté du programme (l'ancienne racine de
+    # contrôle), même quand les données étaient redirigées.
+    if ancre != etat:
+        for nom in (MARQUEUR_CONFIGURATION_INITIALE, MARQUEUR_CONFIGURATION_EN_ATTENTE):
+            if _copier_si_absent(ancre / nom, etat / nom):
+                repris.append(nom)
+        fiches = ancre / INSTANCES
+        for fiche in sorted(fiches.glob("*.json")) if fiches.is_dir() else []:
+            cible = etat / INSTANCES / fiche.name
+            if not cible.exists():
+                cible.parent.mkdir(parents=True, exist_ok=True)
+                # move : copie puis suppression si l'état est sur un autre volume.
+                shutil.move(str(fiche), str(cible))
+                repris.append(f"{INSTANCES.name}/{fiche.name}")
+
+    sorties = ""
+    if ancien != etat and any((ancien / nom).is_dir() for nom in DOSSIERS_SORTIES):
+        chemin = etat / REGLAGES
+        try:
+            reglages = json.loads(chemin.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            reglages = {}
+        except (OSError, ValueError):
+            reglages = None  # Illisible : surtout ne pas l'écraser.
+        if isinstance(reglages, dict) and not str(reglages.get("dossier_sorties") or "").strip():
+            reglages["dossier_sorties"] = sorties = str(ancien)
+            _ecrire_texte_atomique(chemin, json.dumps(reglages))
+
+    if not (repris or sorties):
+        return
+    _ecrire_texte_atomique(etat / MARQUEUR_MIGRATION, json.dumps({
+        "version": VERSION,
+        "date": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "depuis": str(ancien),
+        "repris": repris,
+        "dossier_sorties": sorties,
+    }, ensure_ascii=False, indent=2))
+
+
+def _sorties_par_defaut() -> Path:
+    """BLINK_HOME s'il est fourni, comme avant 0.14 ; sinon un dossier
+    visible, Documents/blink2video."""
+    force = os.environ.get("BLINK_HOME")
+    if force:
+        return Path(force).expanduser().resolve()
+    try:
+        from platformdirs import user_documents_dir
+    except ImportError:
+        # Même repli que _dossier_etat_standard(), avant bootstrap().
+        documents = Path.home() / "Documents"
+    else:
+        documents = Path(user_documents_dir())
+    return (documents / ENTREE).resolve()
+
+
+def dossier_sorties() -> Path:
+    """Dossier de ce que le programme produit : clips, vidéos assemblées,
+    directs, captures (voir DOSSIERS_SORTIES), avec leurs registres et
+    vignettes.
+
+    Réglable depuis la page (réglage dossier_sorties) ; à défaut, BLINK_HOME
+    s'il est fourni, sinon Documents/blink2video. Les modules en tirent des
+    constantes à leur import : un changement s'applique au redémarrage que
+    la page déclenche après l'enregistrement."""
+    choisi = lire_reglages()["dossier_sorties"]
+    if choisi:
+        return Path(choisi).expanduser().resolve()
+    return _sorties_par_defaut()
 
 
 def ajouter_ligne(nom_fichier: str, ligne: str) -> None:
@@ -696,102 +908,62 @@ def ajouter_ligne(nom_fichier: str, ligne: str) -> None:
 
 
 def lire_dossier_stockage() -> str:
-    """Dossier de données effectif, tel qu'affiché dans le panneau de
-    réglages : la valeur réelle (app_dir()), pas le contenu brut du
-    pointeur, absent tant que personne n'a rien changé."""
-    return str(app_dir())
+    """Dossier des sorties tel qu'affiché dans le panneau de réglages : la
+    valeur effective, y compris quand c'est celle par défaut."""
+    return str(dossier_sorties())
 
 
-def _copier_preferences_stockage(ancien: Path, nouveau: Path) -> None:
-    """Copie l'état courant sans déplacer les clips ni modifier la source."""
-    import uuid
-
-    nouveau.mkdir(parents=True, exist_ok=True)
-    # Une préférence absente est aussi un choix : ne pas hériter des
-    # anciennes autorisations de suppression présentes dans la destination.
-    preferences_defaut = {LANGUE: "fr", SUPPRESSION_AUTO: "[]"}
-    for nom in (REGLAGES, "blink_auth.json", LANGUE, SUPPRESSION_AUTO):
-        source = ancien / nom
-        presente = source.is_file()
-        if not presente and nom not in preferences_defaut:
-            continue
-        cible = nouveau / nom
-        temporaire_copie = cible.with_name(
-            f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-        try:
-            if presente:
-                shutil.copy2(source, temporaire_copie)
-            else:
-                temporaire_copie.write_text(preferences_defaut[nom], encoding="utf-8")
-            temporaire_copie.replace(cible)
-        finally:
-            temporaire_copie.unlink(missing_ok=True)
-
-
-def _publier_pointeur_stockage(pointeur: Path, contenu: bytes | None) -> None:
-    """Publie atomiquement les octets du pointeur, ou le supprime si absent."""
+def _publier_octets(cible: Path, contenu: bytes | None) -> None:
+    """Publie atomiquement des octets, ou supprime le fichier si absent."""
     import uuid
 
     if contenu is None:
-        pointeur.unlink(missing_ok=True)
+        cible.unlink(missing_ok=True)
         return
-    temporaire_pointeur = pointeur.with_name(
-        f".{pointeur.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    temporaire = cible.with_name(f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     try:
-        temporaire_pointeur.write_bytes(contenu)
-        temporaire_pointeur.replace(pointeur)
+        temporaire.write_bytes(contenu)
+        temporaire.replace(cible)
     finally:
-        temporaire_pointeur.unlink(missing_ok=True)
+        temporaire.unlink(missing_ok=True)
 
 
 def ecrire_dossier_stockage(chemin: str, *, reglages: dict | None = None,
                             configuration_initiale: bool = False) -> None:
-    """Change le stockage ; un chemin vide revient à l'emplacement par défaut.
+    """Change le dossier des sorties ; un chemin vide revient au défaut.
 
-    Les clips restent sur place. Préférences, session et nouveaux réglages
-    sont préparés avant de publier le pointeur : un échec de préparation
-    conserve la racine active et laisse l'ancien emplacement intact.
+    Rien n'est déplacé : les fichiers déjà produits restent où ils sont, les
+    suivants iront dans le nouveau dossier. L'état (session, réglages) ne le
+    suit plus, il reste dans app_dir(). Le dossier est créé d'abord : un
+    emplacement inutilisable (lecteur absent, droits) est refusé avant
+    d'être enregistré.
     """
-    ancien = app_dir()
-    ancre = _dossier_ancre()
-    pointeur = ancre / POINTEUR_STOCKAGE
     chemin = chemin.strip()
-    destination = (Path(chemin).expanduser().resolve() if chemin else ancre)
+    valeur = str(Path(chemin).expanduser().resolve()) if chemin else ""
+    (Path(valeur) if valeur else _sorties_par_defaut()).mkdir(parents=True, exist_ok=True)
 
-    # Le marqueur initial doit suivre le pointeur : le parent start le
-    # surveille pour lancer les workers. Garder le pointeur exact permet de
-    # revenir à la racine précédente si cette dernière écriture échoue.
-    ancien_pointeur = None
+    # Le parent start surveille le marqueur initial pour lancer les workers.
+    # Garder les réglages exacts permet de les rétablir si cette dernière
+    # écriture échoue.
+    fichier = app_dir() / REGLAGES
+    precedents = None
     if configuration_initiale:
         try:
-            ancien_pointeur = pointeur.read_bytes()
+            precedents = fichier.read_bytes()
         except FileNotFoundError:
             pass
 
-    # BLINK_HOME a priorité sur le pointeur. On mémorise tout de même le choix
-    # demandé pour le jour où cette variable ne sera plus fournie, mais il ne
-    # faut pas copier un fichier sur lui-même dans la racine actuellement
-    # imposée par l'environnement.
-    nouveau = ancien if os.environ.get("BLINK_HOME") else destination
-
-    # Préparer entièrement la nouvelle racine avant de la rendre active.
-    if nouveau != ancien:
-        _copier_preferences_stockage(ancien, nouveau)
-
-    if reglages is not None:
-        ecrire_reglages(**reglages, dossier=nouveau)
-
-    _publier_pointeur_stockage(
-        pointeur, str(destination).encode("utf-8") if chemin else None)
+    ecrire_reglages(**{**(lire_reglages() if reglages is None else reglages),
+                       "dossier_sorties": valeur})
     if configuration_initiale:
         try:
             marquer_configuration_initiale()
         except OSError as erreur:
             try:
-                _publier_pointeur_stockage(pointeur, ancien_pointeur)
+                _publier_octets(fichier, precedents)
             except OSError as restauration:
                 raise OSError(
-                    "Échec du marqueur initial et de la restauration du stockage : "
+                    "Échec du marqueur initial et de la restauration des réglages : "
                     f"{restauration}") from erreur
             raise
 
@@ -833,34 +1005,33 @@ INSTANCE_PID_ENV = "BLINK_INSTANCE_PID"
 
 
 def _dossier_controle() -> Path:
-    """Racine fixe des fichiers servant à piloter les processus en cours.
+    """Racine des fichiers qui pilotent les processus en cours : fiches
+    ``.blink_run``, demande d'arrêt, marqueurs du parcours initial.
 
-    Ces fichiers ne sont pas des données utilisateur. Les placer dans
-    ``app_dir()`` les rendait invisibles exactement au moment où le dossier de
-    stockage changeait : l'instance courante restait décrite dans l'ancien
-    ``.blink_run``, tandis que ``stop`` la cherchait dans le nouveau. Sous
-    Windows, le nouveau serveur échouait alors à reprendre le port et l'ancien
-    continuait à montrer les clips de l'ancien dossier.
+    Jusqu'à 0.13, l'ancre de l'installation : le dossier des données pouvait
+    changer depuis la page, et des fiches rangées avec lui devenaient
+    invisibles à ``stop`` au moment même du basculement. Depuis 0.14, seul
+    le dossier des sorties change, et l'état est commun à toutes les
+    installations de l'utilisateur, session Blink comprise : les fiches y
+    vivent aussi, pour qu'un seul serveur à la fois s'en serve, qu'il soit
+    lancé depuis les sources ou depuis l'exécutable.
 
-    L'ancre de l'installation, qui contient déjà le pointeur de stockage, ne
-    change pas pendant ce basculement. ``BLINK_HOME`` reste respecté pour les
-    installations dont l'emplacement du programme n'est pas inscriptible.
+    ``BLINK_CONTROL_HOME`` n'est posé que par la mise à jour : son
+    finaliseur doit retrouver les fiches de la version qu'il remplace, là où
+    elle les a rangées.
     """
-    # Le finaliseur de mise à jour tourne hors de l'installation. Sa racine
-    # de données ne doit pas déplacer les fiches des processus à arrêter.
     force = os.environ.get("BLINK_CONTROL_HOME") or os.environ.get("BLINK_HOME")
     if force:
         return Path(force).expanduser().resolve()
-    return _dossier_ancre()
+    return app_dir()
 
 
 def _ecrire_marqueur_configuration(nom: str) -> None:
-    """Écrit atomiquement un petit marqueur dans la racine fixe de contrôle.
+    """Écrit atomiquement un petit marqueur dans la racine de contrôle.
 
-    Il ne vit volontairement pas dans ``app_dir()`` : changer le dossier de
-    stockage vers une destination vide ne doit jamais être confondu avec une
-    nouvelle installation. ``_dossier_controle()`` reste à côté de
-    l'exécutable même lorsque ``blink_home.txt`` redirige les clips.
+    Changer le dossier des sorties vers une destination vide ne doit jamais
+    être confondu avec une nouvelle installation : le marqueur reste avec
+    l'état, qui ne suit pas les sorties.
     """
     dossier = _dossier_controle()
     dossier.mkdir(parents=True, exist_ok=True)
@@ -875,23 +1046,31 @@ def _traces_installation_existante() -> bool:
     réglages, un pointeur de stockage ou un dossier de données non vide sont
     des preuves suffisantes d'un usage antérieur. Cette détection ne sert
     qu'une fois : elle est aussitôt matérialisée par le marqueur définitif.
+    Les sorties sont aussi cherchées dans l'ancien dossier d'une version
+    ≤ 0.13, au cas où sa reprise (voir preparer_etat()) n'aurait pas pu se
+    faire.
     """
     racine = app_dir()
     if (racine / REGLAGES).is_file() or (racine / "blink_auth.json").is_file():
         return True
-    if (_dossier_ancre() / POINTEUR_STOCKAGE).is_file():
+    ancre = _dossier_ancre()
+    if (ancre / POINTEUR_STOCKAGE).is_file():
         return True
-    for nom in ("Blink_Clips", "Blink_Daily", "Blink_Weekly", "Blink_Monthly",
-                "Blink_Normalized", "Blink_Excluded"):
-        dossier = racine / nom
-        try:
-            if dossier.is_dir() and next(dossier.iterdir(), None) is not None:
-                return True
-        except OSError:
-            # Une racine momentanément indisponible ne prouve ni une nouvelle
-            # installation ni une ancienne. Les autres traces peuvent encore
-            # trancher ; à défaut, le parcours initial reste le choix sûr.
-            continue
+    bases = [dossier_sorties()]
+    if not os.environ.get("BLINK_HOME"):
+        bases.append(app_dir_depuis(ancre))
+    for base in dict.fromkeys(bases):
+        for nom in DOSSIERS_SORTIES:
+            dossier = base / nom
+            try:
+                if dossier.is_dir() and next(dossier.iterdir(), None) is not None:
+                    return True
+            except OSError:
+                # Une racine momentanément indisponible ne prouve ni une
+                # nouvelle installation ni une ancienne. Les autres traces
+                # peuvent encore trancher ; à défaut, le parcours initial
+                # reste le choix sûr.
+                continue
     return False
 
 

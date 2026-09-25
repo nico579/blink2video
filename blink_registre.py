@@ -26,7 +26,7 @@ from blink_models import (
     msg,
 )
 
-OUTPUT = runtime.app_dir() / "Blink_Clips"
+OUTPUT = runtime.dossier_sorties() / "Blink_Clips"
 STATE_FILENAME = ".blink_download_state.json"
 STATE_V1_BACKUP_FILENAME = ".blink_download_state.v1.backup.json"
 

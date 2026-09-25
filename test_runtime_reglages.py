@@ -98,7 +98,7 @@ class TestsReglages(unittest.TestCase):
              "font_size": 40, "font_color": "yellow", "box_opacity": 0.3,
              "trusted_host": "100.101.194.5",
              "webhook_notif_url": "https://exemple.invalid/notif",
-             "live_auto_stop_seconds": 0})
+             "live_auto_stop_seconds": 0, "dossier_sorties": ""})
 
     def test_valeurs_partielles_completees_par_les_defauts(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -120,7 +120,8 @@ class TestsReglages(unittest.TestCase):
              "box_opacity": runtime.REGLAGES_DEFAUT["box_opacity"],
              "trusted_host": runtime.REGLAGES_DEFAUT["trusted_host"],
              "webhook_notif_url": runtime.REGLAGES_DEFAUT["webhook_notif_url"],
-             "live_auto_stop_seconds": runtime.REGLAGES_DEFAUT["live_auto_stop_seconds"]})
+             "live_auto_stop_seconds": runtime.REGLAGES_DEFAUT["live_auto_stop_seconds"],
+             "dossier_sorties": runtime.REGLAGES_DEFAUT["dossier_sorties"]})
 
     def test_fuseau_vide_dans_le_fichier_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text(

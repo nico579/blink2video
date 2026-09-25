@@ -35,6 +35,8 @@ multidict==6.1.0
 packaging==26.2
 pefile==2024.8.26
 Pillow==10.4.0
+# Dernière version compatible Python 3.8 (4.3.7 exige 3.9).
+platformdirs==4.3.6
 propcache==0.2.0
 pyinstaller==6.22.2
 pyinstaller-hooks-contrib==2026.6

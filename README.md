@@ -92,7 +92,7 @@ remembered between visits.
 ![The Settings panel](Screenshots/settings.PNG)
 
 Settings, behind the gear icon: automatic startup with the session, automatic
-page refresh, server port, data folder with a native folder picker, and local
+page refresh, server port, videos folder with a native folder picker, and local
 storage and cloud polling cadence. Also timestamp burned into the picture
 with its size, color and background opacity, time zone, the live view
 protocol (WebRTC or MSE), daily/weekly/monthly archiving toggled
@@ -122,11 +122,11 @@ on real cameras; keep MSE with Firefox ESR 115. See the
 No arguments needed: with no valid session yet, a browser tab opens by itself on
 a sign-in page — your address, your password, then the code Blink sends. Only a
 session token is kept, never the password. On the very first run, the Settings
-panel then opens automatically. Check the data folder and time zone in
+panel then opens automatically. Check the videos folder and time zone in
 particular, then click “Apply”: no clip is downloaded before that confirmation.
 Monitoring, clip downloading and video assembly then start at their own pace,
 and clips appear as they come in. This first-run flow is not repeated when the
-data folder is changed.
+videos folder is changed.
 
 If the tab didn't open, or you closed it, `blink2video open` brings it back.
 
@@ -378,7 +378,15 @@ Blink_Direct/      live view recordings, saved on demand
 Blink_Snapshots/   on-demand pictures, one per Snapshot click or webhook call
 ```
 
-Next to the executable, or in the folder named by `BLINK_HOME`.
+In `Documents/blink2video` by default, or in the videos folder chosen in
+Settings. Settings, the Blink session and logs live apart, in the system's
+application data folder (`%LOCALAPPDATA%\blink2video` on Windows,
+`~/Library/Application Support/blink2video` on macOS,
+`~/.local/share/blink2video` on Linux): an update or a reinstall never touches
+them, and the source and executable versions share them. `BLINK_HOME` puts
+everything in one folder of your choice. Coming from 0.13 or earlier, the first
+launch copies the settings and the session over, and the videos stay where
+they are: the videos folder points to them.
 
 <details>
 <summary>How it works</summary>
@@ -581,7 +589,7 @@ nobody is listening. `--port` if you moved it.
 
 | Variable | Effect |
 |---|---|
-| `BLINK_HOME` | data folder, defaulting to the executable's own |
+| `BLINK_HOME` | one folder for everything: settings, session and videos, unless another videos folder is chosen in Settings. Without it, the system's application data folder and `Documents/blink2video` |
 | `BLINK_BOOTSTRAP` | `auto`, `pip` or `none`: how the Python environment is handled |
 | `BLINK_BIND` | internal address used by `serve`, defaulting to `127.0.0.1`. Needed to bind it inside the official Docker container, behind a `127.0.0.1` port publication and `BLINK_TRUSTED_LOOPBACK_PROXY=1` (see the Docker section), or to bind it directly on a mesh VPN address (Tailscale, WireGuard), the simplest way to reach it remotely without a reverse proxy: pair it with that same address as the "Trusted host" in Settings, or `--trusted-host` at the command line (see "Reaching it remotely" above). There is no authentication on the web UI, so the server refuses any request that doesn't come from the local machine itself or from a trusted host: setting this to `0.0.0.0` alone does not expose the UI to the LAN |
 

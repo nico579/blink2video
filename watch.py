@@ -37,6 +37,8 @@ import merge_daily as md
 
 BASE_DIR = runtime.app_dir()
 WATCH_STATE = BASE_DIR / ".blink_watch_state.json"
+# Le registre des téléchargements vit avec les clips, dans les sorties.
+CLIPS = md.DEFAULT_INPUT
 
 # Au-delà de ce silence, une caméra qui enregistrait est considérée en panne.
 # Deux jours plutôt qu'un : un jardin peut rester calme vingt-quatre heures.
@@ -226,7 +228,7 @@ def last_clip_per_camera(timezone, cameras=None) -> dict:
     connue vers un clip plus ancien, ou la faisait disparaître entièrement
     si tous les clips récents étaient écartés, au risque d'une fausse
     alerte de silence."""
-    state = md.load_json(BASE_DIR / "Blink_Clips" / md.DOWNLOAD_STATE, {})
+    state = md.load_json(CLIPS / md.DOWNLOAD_STATE, {})
     latest: dict = {}
     for entry in (state.get("clips") or {}).values():
         if not isinstance(entry, dict):

@@ -251,7 +251,8 @@ def msg(cle: str, **valeurs) -> str:
     return runtime.traduire(LIBELLES, cle, **valeurs)
 
 
-BASE_DIR = runtime.app_dir()
+# Les sorties, visibles ; l'état (merge.log) reste dans runtime.app_dir().
+BASE_DIR = runtime.dossier_sorties()
 DEFAULT_INPUT = BASE_DIR / "Blink_Clips"
 DEFAULT_OUTPUT = BASE_DIR / "Blink_Daily"
 DEFAULT_WEEKLY = BASE_DIR / "Blink_Weekly"
@@ -638,9 +639,12 @@ def find_font(explicit: Path | None) -> Path:
             return explicit
         raise RuntimeError(msg("police_introuvable", chemin=explicit))
 
+    # À côté du programme, comme le dit le message police_absente (avant
+    # 0.14, c'était aussi le dossier des données par défaut).
+    programme = runtime._dossier_ancre()
     candidates = [
-        BASE_DIR / "DejaVuSans-Bold.ttf",
-        BASE_DIR / "fonts" / "DejaVuSans-Bold.ttf",
+        programme / "DejaVuSans-Bold.ttf",
+        programme / "fonts" / "DejaVuSans-Bold.ttf",
     ]
     system = platform.system()
     if system == "Windows":
@@ -1813,7 +1817,7 @@ def journal(ligne: str) -> None:
     console (AUDIT-2026-08-23, blocage silencieux de la boucle merge)."""
     moment = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        with (BASE_DIR / "merge.log").open("a", encoding="utf-8") as fichier:
+        with (runtime.app_dir() / "merge.log").open("a", encoding="utf-8") as fichier:
             fichier.write(f"{moment}  {ligne}\n")
     except OSError:
         pass

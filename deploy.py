@@ -27,6 +27,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 from pathlib import Path
@@ -78,13 +79,13 @@ def fail(msg: str) -> NoReturn:
 
 # === SHELL HELPERS =============================================================
 
-def run(cmd, check=True, capture=False, timeout=120):
+def run(cmd, check=True, capture=False, timeout=120, env=None):
     try:
         result = subprocess.run(
             cmd, cwd=str(SRC), check=False, text=True,
             stdout=subprocess.PIPE if capture else None,
             stderr=subprocess.PIPE if capture else None,
-            timeout=timeout,
+            timeout=timeout, env=env,
         )
     except subprocess.TimeoutExpired:
         fail(f"{' '.join(cmd)} a dépassé le timeout ({timeout}s).")
@@ -211,8 +212,13 @@ def preflight() -> None:
     session - un oubli ici committerait une régression déjà détectable
     localement en quelques secondes."""
     cprint("==> Suite de tests (python -m unittest discover)", "cyan")
-    res = run([sys.executable, "-m", "unittest", "discover", "-p", "test_*.py"],
-             check=False, capture=True, timeout=300)
+    # Ce dossier est aussi une installation en service (lancée depuis les
+    # sources) : un test qui oublierait d'isoler son dossier d'état ne doit
+    # jamais atteindre le vrai.
+    with tempfile.TemporaryDirectory(prefix="blink-deploy-tests-") as isole:
+        res = run([sys.executable, "-m", "unittest", "discover", "-p", "test_*.py"],
+                  check=False, capture=True, timeout=300,
+                  env=dict(os.environ, BLINK_HOME=isole))
     if res.returncode != 0:
         print((res.stdout or "") + (res.stderr or ""))
         fail("suite de tests en échec - corrige avant de pousser.")
