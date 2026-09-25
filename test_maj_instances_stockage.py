@@ -295,6 +295,39 @@ class TestMiseAJourCompositions(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(relances, [composition])
 
+    def test_enfants_d_un_superviseur_relances_par_lui_seul(self):
+        # Les fiches exactes d'une production lancée par « start » (relevées
+        # le 2026-09-25) : le superviseur liste ses enfants, qui ont aussi
+        # chacun la leur. Relancer ces fiches-là en plus du superviseur, qui
+        # les recrée lui-même, doublait watch et download après chaque mise
+        # à jour.
+        superviseur = [["serve", "--port", "8765", "--timezone", "Europe/Paris",
+                        "--trusted-host", ""],
+                       ["watch", "--loop", "10"],
+                       ["download", "--from", "all", "--usb-loop", "10",
+                        "--cloud-loop", "1"]]
+        fiches = [
+            {"pid": 11392, "verbes": superviseur, "enfants": [11996, 15368, 684]},
+            {"pid": 11996, "verbes": [superviseur[0]], "enfants": []},
+            {"pid": 15368, "verbes": [superviseur[1]], "enfants": []},
+            {"pid": 684, "verbes": [superviseur[2]], "enfants": []},
+        ]
+
+        for permutation, attendu in ((True, 0), (False, 1)):
+            with self.subTest(permutation=permutation):
+                code, relances = self.executer(fiches, permutation=permutation)
+                self.assertEqual(code, attendu)
+                self.assertEqual(relances, [superviseur])
+
+    def test_enfant_orphelin_reste_relance(self):
+        # Un enfant dont le superviseur a disparu n'est recréé par personne.
+        fiches = [{"pid": 684, "verbes": [["download", "--loop", "1"]], "enfants": []}]
+
+        code, relances = self.executer(fiches)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(relances, [[["download", "--loop", "1"]]])
+
     def test_sans_instance_conserve_la_relance_par_defaut(self):
         code, relances = self.executer([])
 

@@ -1140,9 +1140,16 @@ def _finaliser(cible: Path) -> int:
 
     # Ce qui tourne, noté avant l'arrêt : c'est ce qu'il faudra relancer.
     fiches = runtime.lire_instances()
+    # Les enfants d'un superviseur (start) ont aussi leur fiche, mais c'est
+    # lui qui les recrée : les relancer en plus doublait watch et download
+    # après chaque mise à jour. Un enfant orphelin, que ne liste aucune
+    # fiche, reste relancé.
+    enfants = {pid for fiche in fiches for pid in (fiche.get("enfants") or [])}
     compositions = []
     vues = set()
     for fiche in fiches:
+        if fiche.get("pid") in enfants:
+            continue
         verbes = fiche.get("verbes") or []
         signature = tuple(tuple(groupe) for groupe in verbes)
         if signature and signature not in vues:
