@@ -38,7 +38,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.13.7"
+VERSION = "0.13.8"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -1485,6 +1485,34 @@ def flags_enfant() -> int:
     CREATE_NO_WINDOW, faute de quoi Windows en ouvre une par verbe, ces
     fenêtres noires qui clignotent."""
     return 0 if console_disponible() else SANS_FENETRE
+
+
+def retablir_environnement_systeme() -> None:
+    """Rend aux programmes du système le LD_LIBRARY_PATH d'origine.
+
+    Sous Linux, le lanceur de PyInstaller préfixe cette variable du dossier
+    du bundle (_internal) et garde l'ancienne valeur dans
+    LD_LIBRARY_PATH_ORIG. Tout enfant en hérite : systemctl, xdg-open ou
+    notify-send chargeaient alors nos bibliothèques au lieu des leurs, et le
+    systemd de Debian Trixie, lié à OpenSSL 3.4, refusait la libcrypto du
+    bundle (issue #23). C'est le rétablissement que recommande PyInstaller
+    pour les programmes externes, fait une fois pour tous, navigateur ouvert
+    par webbrowser compris. Ce processus-ci n'en dépend plus : le chargeur
+    ne lit la variable qu'au démarrage. Nos propres verbes relancés non
+    plus, leur lanceur la préfixe de nouveau pour eux.
+    https://pyinstaller.org/en/stable/runtime-information.html#ld-library-path-libpath-considerations
+    """
+    if not frozen() or sys.platform in ("win32", "darwin"):
+        return
+    origine = os.environ.get("LD_LIBRARY_PATH_ORIG")
+    if origine is not None:
+        os.environ["LD_LIBRARY_PATH"] = origine
+    else:
+        # Variable absente avant le lanceur : il n'a rien gardé à rétablir.
+        os.environ.pop("LD_LIBRARY_PATH", None)
+
+
+retablir_environnement_systeme()
 
 
 def lancer(commande, **options):

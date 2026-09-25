@@ -615,6 +615,60 @@ def test_avancement() -> None:
              "la marque disparaît quand le calcul se termine")
 
 
+def test_programmes_du_systeme() -> None:
+    """Issue #23 : un programme du système lancé par blink2video (ici
+    systemctl, par « autostart off ») reçoit le LD_LIBRARY_PATH d'origine,
+    pas celui que le lanceur de PyInstaller préfixe du dossier _internal du
+    bundle. Un faux systemctl en tête du PATH note ce qu'il reçoit ; HOME et
+    BLINK_HOME temporaires : aucun vrai service n'est touché."""
+    if not sys.platform.startswith("linux"):
+        return
+    print("\nProgrammes du système (issue #23)")
+    with tempfile.TemporaryDirectory(prefix="blink-programmes-") as dossier:
+        racine = Path(dossier)
+        (racine / "donnees").mkdir()
+        faux = racine / "bin"
+        faux.mkdir()
+        sonde = racine / "sonde.txt"
+        systemctl = faux / "systemctl"
+        systemctl.write_text(
+            "#!/bin/sh\n"
+            'printf "%s|%s\\n" "${LD_LIBRARY_PATH-<absent>}" '
+            '"${LD_LIBRARY_PATH_ORIG-<absent>}" >> "$BLINK_SONDE"\n',
+            encoding="utf-8")
+        systemctl.chmod(0o755)
+        for origine in ("/opt/blink-sonde", None):
+            env = environnement_test(racine / "donnees")
+            env.update(HOME=str(racine / "home"), BLINK_SONDE=str(sonde),
+                       PATH=f"{faux}{os.pathsep}{env.get('PATH', '')}")
+            env.pop("LD_LIBRARY_PATH", None)
+            env.pop("LD_LIBRARY_PATH_ORIG", None)
+            if origine is not None:
+                env["LD_LIBRARY_PATH"] = origine
+            sonde.unlink(missing_ok=True)
+            try:
+                sortie = subprocess.run(
+                    commande_blink("autostart", "off"), cwd=str(SUITE_CWD),
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                    errors="replace", env=env, check=False, timeout=120).stdout
+            except subprocess.TimeoutExpired:
+                sortie = "délai dépassé"
+            recu = (sonde.read_text(encoding="utf-8").splitlines()
+                    if sonde.is_file() else [])
+            attendu = origine or "<absent>"
+            verifier(bool(recu) and all(ligne.split("|")[0] == attendu for ligne in recu),
+                     f"systemctl reçoit le LD_LIBRARY_PATH d'origine ({attendu})",
+                     f"reçu {recu}, sortie : {sortie[-300:]}")
+            if BUNDLE and origine is not None:
+                # Preuve que le lanceur du bundle l'avait bien préfixé : il en
+                # a gardé l'original de côté. Sans elle, le contrôle précédent
+                # passerait aussi sans le correctif.
+                verifier(bool(recu) and all(ligne.split("|")[1] == origine for ligne in recu),
+                         "le lanceur du bundle avait bien modifié LD_LIBRARY_PATH",
+                         f"reçu {recu}")
+
+
 def test_mise_a_jour() -> None:
     """La détection d'une version publiée, et son unique décision.
 
@@ -754,6 +808,7 @@ def main() -> int:
     test_cadence_cible()
     test_installation_neuve()
     test_arret()
+    test_programmes_du_systeme()
     ffmpeg = md.find_ffmpeg()
     print(f"ffmpeg : {ffmpeg}")
 
