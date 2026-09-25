@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import platform
+import posixpath
 import re
 import shutil
 import stat
@@ -84,6 +85,7 @@ LIBELLES = {
         "archive_zip_trop_volumineux": "Contenu ZIP décompressé trop volumineux.",
         "archive_tar_trop_volumineux": "Contenu TAR décompressé trop volumineux.",
         "archive_lien_type_tar_dangereux": "Lien ou type TAR dangereux : {nom!r}",
+        "archive_lien_hors_dossier": "Lien de l'archive hors du dossier d'extraction : {nom!r} -> {cible!r}",
         "archive_membre_tar_illisible": "Membre TAR illisible : {nom!r}",
         "archive_format_inconnu": "Format d'archive inconnu : {nom}",
         "archive_bundle_unique": "L'archive doit contenir un unique dossier de bundle.",
@@ -183,6 +185,7 @@ LIBELLES = {
         "archive_zip_trop_volumineux": "Decompressed ZIP content too large.",
         "archive_tar_trop_volumineux": "Decompressed TAR content too large.",
         "archive_lien_type_tar_dangereux": "Dangerous TAR link or type: {nom!r}",
+        "archive_lien_hors_dossier": "Archive link outside the extraction folder: {nom!r} -> {cible!r}",
         "archive_membre_tar_illisible": "Unreadable TAR member: {nom!r}",
         "archive_format_inconnu": "Unknown archive format: {nom}",
         "archive_bundle_unique": "The archive must contain a single bundle folder.",
@@ -264,6 +267,7 @@ MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 4 * 1024 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 100_000
 MAX_CHECKSUM_BYTES = 4096
+MAX_CIBLE_LIEN = 4096
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 VERSION_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 UPDATE_HOST_SUFFIXES = ("github.com", "githubusercontent.com")
@@ -641,6 +645,38 @@ def _inscrire_destination(registre: dict, morceaux: tuple, genre: str) -> None:
             raise OSError(msg("archive_membre_duplique", nom=nom))
 
 
+def _cible_lien_sure(morceaux: tuple, cible_lien: str) -> str:
+    """Cible d'un lien symbolique de l'archive, acceptée seulement si elle est
+    relative et reste dans le dossier d'extraction : la règle du filtre
+    « data » de tarfile (Python 3.12).
+
+    Les bundles PyInstaller publiés en contiennent : bibliothèques de Pillow
+    sous Linux, framework Python sous macOS. Les refuser tous faisait échouer
+    toute mise à jour sur ces deux systèmes (issue #21). Sous Windows, aucune
+    archive publiée n'en contient et en créer demande un privilège : ils y
+    restent refusés."""
+    nom = "/".join(morceaux)
+    if os.name == "nt":
+        raise OSError(msg("archive_lien_type_zip_dangereux", nom=nom))
+    brut = str(cible_lien or "")
+    if (not brut or len(brut) > MAX_CIBLE_LIEN or "\x00" in brut
+            or "\\" in brut or PurePosixPath(brut).is_absolute()):
+        raise OSError(msg("archive_lien_hors_dossier", nom=nom, cible=brut))
+    resolu = posixpath.normpath(posixpath.join(*morceaux[:-1], brut))
+    if resolu in (".", "..") or resolu.startswith("../"):
+        raise OSError(msg("archive_lien_hors_dossier", nom=nom, cible=brut))
+    return brut
+
+
+def _creer_liens(membres: list) -> None:
+    """Liens posés en dernier, une fois dossiers et fichiers écrits : aucun
+    chemin validé plus haut n'a pu en traverser un."""
+    for _info, cible, genre, lien in membres:
+        if genre == "lien":
+            cible.parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(lien, cible)
+
+
 def _copier_exactement(source, destination: Path, taille: int) -> None:
     restant = taille
     with destination.open("xb") as sortie:
@@ -668,10 +704,21 @@ def _extraire_zip(archive: Path, racine: Path) -> None:
             dossier = info.is_dir()
             if info.flag_bits & 0x1:
                 raise OSError(msg("archive_membre_zip_chiffre", nom=info.filename))
+            lien = None
             if dossier:
                 if type_mode not in (0, stat.S_IFDIR):
                     raise OSError(msg("archive_type_zip_dangereux", nom=info.filename))
                 genre = "dir"
+            elif type_mode == stat.S_IFLNK:
+                # Un lien ZIP porte sa cible comme contenu du membre.
+                if not 0 < info.file_size <= MAX_CIBLE_LIEN:
+                    raise OSError(msg("archive_lien_type_zip_dangereux", nom=info.filename))
+                genre = "lien"
+                try:
+                    lien = zip_.read(info).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise OSError(msg("archive_lien_type_zip_dangereux",
+                                      nom=info.filename)) from None
             else:
                 if type_mode not in (0, stat.S_IFREG):
                     raise OSError(msg("archive_lien_type_zip_dangereux", nom=info.filename))
@@ -680,18 +727,22 @@ def _extraire_zip(archive: Path, racine: Path) -> None:
                 if info.file_size < 0 or total > MAX_EXTRACTED_BYTES:
                     raise OSError(msg("archive_zip_trop_volumineux"))
             cible, morceaux = _destination_archive(racine, info.filename)
-            _inscrire_destination(registre, morceaux, genre)
-            membres.append((info, cible, genre))
+            if genre == "lien":
+                lien = _cible_lien_sure(morceaux, lien)
+            # Un lien est une feuille : rien ne peut être rangé « sous » lui.
+            _inscrire_destination(registre, morceaux, "file" if genre == "lien" else genre)
+            membres.append((info, cible, genre, lien))
 
-        for _, cible, genre in membres:
+        for _, cible, genre, _lien in membres:
             if genre == "dir":
                 cible.mkdir(parents=True, exist_ok=True)
-        for info, cible, genre in membres:
+        for info, cible, genre, _lien in membres:
             if genre != "file":
                 continue
             cible.parent.mkdir(parents=True, exist_ok=True)
             with zip_.open(info, "r") as source:
                 _copier_exactement(source, cible, info.file_size)
+        _creer_liens(membres)
 
 
 def _extraire_tar(archive: Path, racine: Path) -> None:
@@ -705,6 +756,7 @@ def _extraire_tar(archive: Path, racine: Path) -> None:
         membres = []
         total = 0
         for info in infos:
+            lien = None
             if info.isdir():
                 genre = "dir"
             elif info.isfile() and not getattr(info, "sparse", None):
@@ -712,16 +764,22 @@ def _extraire_tar(archive: Path, racine: Path) -> None:
                 total += info.size
                 if info.size < 0 or total > MAX_EXTRACTED_BYTES:
                     raise OSError(msg("archive_tar_trop_volumineux"))
+            elif info.issym():
+                genre = "lien"
             else:
+                # Liens physiques, périphériques, FIFO : jamais dans un bundle.
                 raise OSError(msg("archive_lien_type_tar_dangereux", nom=info.name))
             cible, morceaux = _destination_archive(racine, info.name)
-            _inscrire_destination(registre, morceaux, genre)
-            membres.append((info, cible, genre))
+            if genre == "lien":
+                lien = _cible_lien_sure(morceaux, info.linkname)
+            # Un lien est une feuille : rien ne peut être rangé « sous » lui.
+            _inscrire_destination(registre, morceaux, "file" if genre == "lien" else genre)
+            membres.append((info, cible, genre, lien))
 
-        for _, cible, genre in membres:
+        for _, cible, genre, _lien in membres:
             if genre == "dir":
                 cible.mkdir(parents=True, exist_ok=True)
-        for info, cible, genre in membres:
+        for info, cible, genre, _lien in membres:
             if genre != "file":
                 continue
             cible.parent.mkdir(parents=True, exist_ok=True)
@@ -733,6 +791,7 @@ def _extraire_tar(archive: Path, racine: Path) -> None:
             # Pas de propriétaire, setuid/setgid ni mode arbitraire venant de
             # l'archive. Seul le caractère exécutable utile est conservé.
             cible.chmod(0o755 if info.mode & 0o111 else 0o644)
+        _creer_liens(membres)
 
 
 def _extraire(archive: Path, vers: Path) -> Path:
@@ -891,7 +950,10 @@ def _poser(source: Path, cible: Path) -> None:
     dossier temporaire reste derrière, et le ménage se fait au passage
     suivant."""
     if source.is_dir():
-        shutil.copytree(source, cible)
+        # symlinks=True : les liens internes du bundle (validés à
+        # l'extraction) restent des liens au lieu d'être dupliqués ; la
+        # structure du framework Python sous macOS en dépend.
+        shutil.copytree(source, cible, symlinks=True)
     else:
         shutil.copy2(source, cible)
         if os.name != "nt":

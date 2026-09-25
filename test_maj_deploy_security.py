@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import io
+import os
 import stat
 import tarfile
 import tempfile
@@ -97,6 +98,87 @@ class SecuriteMiseAJourTests(unittest.TestCase):
             maj._extraire(archive, self.racine / "contenu")
 
         self.assertFalse((self.racine / "echappe").exists())
+
+    # Issue #21 : les bundles PyInstaller publiés pour Linux et macOS
+    # contiennent des liens relatifs internes (bibliothèques de Pillow,
+    # framework Python). Tous refusés, ils faisaient échouer chaque mise à jour.
+    def _tar_avec_lien(self, cible_lien: str, *, sous_le_lien: bool = False) -> Path:
+        archive = self.racine / "bundle.tar.gz"
+        with tarfile.open(archive, "w:gz") as sortie:
+            for nom in ("blink2video", "blink2video/_internal",
+                        "blink2video/_internal/pillow.libs"):
+                dossier = tarfile.TarInfo(nom)
+                dossier.type = tarfile.DIRTYPE
+                sortie.addfile(dossier)
+            contenu = b"bibliotheque"
+            fichier = tarfile.TarInfo("blink2video/_internal/pillow.libs/libwebp.so.7")
+            fichier.size = len(contenu)
+            sortie.addfile(fichier, io.BytesIO(contenu))
+            lien = tarfile.TarInfo("blink2video/_internal/libwebp.so.7")
+            lien.type = tarfile.SYMTYPE
+            lien.linkname = cible_lien
+            sortie.addfile(lien)
+            if sous_le_lien:
+                cache = tarfile.TarInfo("blink2video/_internal/libwebp.so.7/cache")
+                cache.size = 0
+                sortie.addfile(cache, io.BytesIO(b""))
+        return archive
+
+    @unittest.skipIf(os.name == "nt", "créer un lien exige un privilège sous Windows")
+    def test_tar_accepte_les_liens_internes_du_bundle(self):
+        dossier = maj._extraire(self._tar_avec_lien("pillow.libs/libwebp.so.7"),
+                                self.racine / "contenu")
+
+        lien = dossier / "_internal" / "libwebp.so.7"
+        self.assertTrue(lien.is_symlink())
+        self.assertEqual(os.readlink(lien), "pillow.libs/libwebp.so.7")
+        self.assertEqual(lien.read_bytes(), b"bibliotheque")
+
+    @unittest.skipIf(os.name == "nt", "créer un lien exige un privilège sous Windows")
+    def test_zip_accepte_les_liens_internes_du_bundle(self):
+        archive = self.racine / "bundle.zip"
+        with zipfile.ZipFile(archive, "w") as sortie:
+            sortie.writestr("blink2video/_internal/Python.framework/Versions/3.12/Python",
+                            b"python")
+            lien = zipfile.ZipInfo("blink2video/_internal/Python.framework/Versions/Current")
+            lien.create_system = 3
+            lien.external_attr = (stat.S_IFLNK | 0o777) << 16
+            sortie.writestr(lien, "3.12")
+
+        dossier = maj._extraire(archive, self.racine / "contenu")
+
+        courant = dossier / "_internal" / "Python.framework" / "Versions" / "Current"
+        self.assertTrue(courant.is_symlink())
+        self.assertEqual((courant / "Python").read_bytes(), b"python")
+
+    def test_lien_absolu_refuse(self):
+        with self.assertRaises(OSError):
+            maj._extraire(self._tar_avec_lien("/etc/passwd"), self.racine / "contenu")
+
+    def test_lien_ne_peut_pas_servir_de_dossier(self):
+        # Sinon un membre rangé « sous » le lien s'écrirait là où il pointe.
+        with self.assertRaises(OSError):
+            maj._extraire(self._tar_avec_lien("pillow.libs", sous_le_lien=True),
+                          self.racine / "contenu")
+
+    @unittest.skipUnless(os.name == "nt", "politique propre à Windows")
+    def test_liens_refuses_sous_windows(self):
+        with self.assertRaises(OSError):
+            maj._extraire(self._tar_avec_lien("pillow.libs/libwebp.so.7"),
+                          self.racine / "contenu")
+
+    @unittest.skipIf(os.name == "nt", "créer un lien exige un privilège sous Windows")
+    def test_pose_conserve_les_liens_du_bundle(self):
+        source = self.racine / "neuf" / "_internal"
+        (source / "pillow.libs").mkdir(parents=True)
+        (source / "pillow.libs" / "libwebp.so.7").write_bytes(b"bibliotheque")
+        os.symlink("pillow.libs/libwebp.so.7", source / "libwebp.so.7")
+
+        maj._poser(source, self.racine / "installe" / "_internal")
+
+        pose = self.racine / "installe" / "_internal" / "libwebp.so.7"
+        self.assertTrue(pose.is_symlink())
+        self.assertEqual(pose.read_bytes(), b"bibliotheque")
 
     def test_archive_decompressee_est_bornee_avant_ecriture(self):
         archive = self.racine / "bombe.zip"
