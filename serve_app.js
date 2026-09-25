@@ -170,6 +170,7 @@ const I18N = {
     "camera.wake": "Réveiller", "camera.waking": "Réveil…",
     "camera.wake.title": "Réveille la caméra maintenant (prend une photo). Consomme un peu de batterie, jusqu'à 2 minutes.",
     "camera.snapshot": "Photo", "camera.snapshotting": "Photo…",
+    "camera.snapshot.saved": "Photo enregistrée ✓",
     "camera.snapshot.title": "Prend une photo maintenant et la garde dans Photos. Consomme un peu de batterie, jusqu'à 2 minutes.",
     "camera.battery": "batterie {v}", "camera.wifi": "Wi-Fi {v} dBm",
     "camera.lfr": "liaison module {v}", "camera.measured.at": "relevé à {v}",
@@ -337,6 +338,7 @@ const I18N = {
     "camera.wake": "Wake", "camera.waking": "Waking…",
     "camera.wake.title": "Wakes the camera now (takes a photo). Uses a bit of battery, up to 2 minutes.",
     "camera.snapshot": "Snapshot", "camera.snapshotting": "Snapshot…",
+    "camera.snapshot.saved": "Snapshot saved ✓",
     "camera.snapshot.title": "Takes a picture now and keeps it under Pictures. Uses a bit of battery, up to 2 minutes.",
     "camera.battery": "battery {v}", "camera.wifi": "Wi-Fi {v} dBm",
     "camera.lfr": "module link {v}", "camera.measured.at": "measured at {v}",
@@ -567,6 +569,7 @@ function render() {
 
 // --- direct et armement ----------------------------------------------------
 let system = null;
+let rafraichirVignettes = true;
 
 async function loadSystem(force) {
   if (system && !force) return renderLive();
@@ -862,6 +865,20 @@ function renderLive() {
     </h2>
     <div class="grid wide">${s.cameras.map((c) => cameraCard(c, s.armed)).join("")}</div>
   `).join("");
+  if (rafraichirVignettes) actualiserVignettes();
+  rafraichirVignettes = false;
+}
+
+function actualiserVignettes() {
+  for (const cadre of $("list").querySelectorAll(".live")) {
+    const still = cadre.querySelector(".still");
+    const name = cadre.querySelector('[data-action="watch-live"]')?.dataset.name;
+    if (!still || !name) continue;
+    // Garder la dernière image visible pendant la requête à Blink.
+    fetch(urlVignette(name, true)).then((response) => {
+      if (response.ok && still.isConnected) still.src = urlVignette(name);
+    }).catch(() => {});
+  }
 }
 
 function cameraCard(c, systemArmed) {
@@ -1798,9 +1815,14 @@ async function watchMse(name) {
 // bouton par-dessus. Arrêter un direct ramène ici, donc la vignette revient au
 // lieu de laisser un rectangle noir jusqu'au rechargement de la page.
 function repos(name, libelle) {
-  return `<img class="still" src="${h(avecJeton(`/camthumb/${encodeURIComponent(name)}`))}" alt="">
+  return `<img class="still" src="${h(urlVignette(name))}" alt="">
      <button class="watch" data-action="watch-live" data-name="${h(name)}">${h(libelle)}</button>
      ${expandBtn(name)}`;
+}
+
+function urlVignette(name, refresh = false) {
+  const url = `/camthumb/${encodeURIComponent(name)}?v=${Date.now()}`;
+  return avecJeton(refresh ? `${url}&refresh=1` : url);
 }
 
 // Factorisé : posé à la fois ici (repos, y compris l'état d'échec qui
@@ -1919,11 +1941,21 @@ async function prendreSnapshot(name, bouton) {
       body: JSON.stringify({ name }),
     });
     const result = await lireJSON(answer);
-    if (result.error) { alert(result.error); return; }
+    if (result.error) { alert(result.error); bouton.textContent = libelle; return; }
+    const still = document.querySelector(`#live-${cssId(name)} .still`);
+    if (still) still.src = urlVignette(name);
+    bouton.textContent = t("camera.snapshot.saved");
+    setTimeout(() => {
+      if (bouton.isConnected && bouton.textContent === t("camera.snapshot.saved")) {
+        bouton.textContent = libelle;
+      }
+    }, 3000);
     if ($("view").value === "pictures") chargerSnapshots();
+  } catch (error) {
+    alert(String(error));
+    bouton.textContent = libelle;
   } finally {
     bouton.disabled = false;
-    bouton.textContent = libelle;
   }
 }
 
@@ -2522,6 +2554,7 @@ $("refresh").onclick = async () => {
       // passage que cette appli fait de son côté (blink.refresh(force=True),
       // qui relit vraiment chaque caméra, pas seulement le résumé du
       // compte - voir system_state() côté serveur).
+      rafraichirVignettes = true;
       loadSystem(true);
     }
   };
@@ -2544,7 +2577,11 @@ $("showOut").onchange = render;
 // rechargement complet de la page). "live" n'en a pas besoin, il lit
 // `system` (loadSystem), jamais `data`/`videos`.
 $("view").onchange = () => {
-  if ($("view").value === "live") { render(); return; }
+  if ($("view").value === "live") {
+    rafraichirVignettes = true;
+    render();
+    return;
+  }
   // Quitter Direct retire ses vidéos du DOM : fermer aussi les sessions
   // et les réveils en attente avant de reconstruire une autre vue.
   for (const name of nomsDirectsActifs()) stopWatch(name);

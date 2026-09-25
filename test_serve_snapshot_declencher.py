@@ -33,14 +33,29 @@ class DeclencherSnapshotTests(unittest.TestCase):
         self.handler.paths = {"snapshots": self.snapshots, "thumbs": self.thumbs}
         self.slot = threading.BoundedSemaphore(1)
         self.info = {}
-        self.blink = object()
+        self.blink = SimpleNamespace(get_homescreen=mock.AsyncMock())
         self.media = mock.AsyncMock(return_value=SimpleNamespace(
             status=200, read=mock.AsyncMock(return_value=b"\xff\xd8\xff\xe0photo")))
         self.camera = SimpleNamespace(
             name="Jardin",
+            camera_id="7",
             network_id=42,
+            thumbnail="ancienne-url",
+            _cached_image=b"ancienne photo",
             snap_picture=mock.AsyncMock(return_value={"id": 123, "network_id": 42}),
             get_media=self.media,
+        )
+        async def changer_vignette(info):
+            self.camera.thumbnail = info["thumbnail"]
+        self.camera.update_images = mock.AsyncMock(side_effect=changer_vignette)
+        self.numero_vignette = 0
+        async def info_camera(_camera_id, **_kwargs):
+            self.numero_vignette += 1
+            return {"thumbnail": f"nouvelle-url-{self.numero_vignette}"}
+        self.sync = SimpleNamespace(
+            network_id=42,
+            get_unique_info=mock.Mock(return_value={"thumbnail": "nouvelle-url"}),
+            get_camera_info=mock.AsyncMock(side_effect=info_camera),
         )
         self.status = mock.AsyncMock(return_value={"status_code": 908, "complete": True})
         self.disk = tempfile.TemporaryDirectory(prefix="blink-snapshot-lock-")
@@ -60,7 +75,7 @@ class DeclencherSnapshotTests(unittest.TestCase):
             mock.patch.object(serve, "MODULE_SLOT_INFO", self.info),
             mock.patch.object(serve.blink_engine, "hub_lock", self.hub_lock),
             mock.patch.object(serve.BLINK, "call", self.call),
-            mock.patch.object(serve.BLINK, "find_camera", return_value=(None, self.camera)),
+            mock.patch.object(serve.BLINK, "find_camera", return_value=(self.sync, self.camera)),
             mock.patch.object(api, "request_command_status", self.status),
         ):
             patch.start()
@@ -82,11 +97,68 @@ class DeclencherSnapshotTests(unittest.TestCase):
         self.assertEqual(chemin.read_bytes(), b"\xff\xd8\xff\xe0photo")
         self.assertEqual(chemin.parent.name, "Jardin")
         self.assertTrue(chemin.name.endswith(".jpg"))
-        cle = serve.camera_key(None, self.camera.name, self.camera)
+        cle = serve.camera_key(self.sync, self.camera.name, self.camera)
         vignette = self.thumbs / "cameras" / f"{serve.safe_file(cle)}.jpg"
         self.assertTrue(vignette.is_file(), "la vignette du Direct doit aussi être mise à jour")
         self.assertEqual(vignette.read_bytes(), b"\xff\xd8\xff\xe0photo")
         self.verifier_liberation()
+
+    def test_adresse_change_apres_plusieurs_lectures(self):
+        self.sync.get_camera_info.side_effect = [
+            {"thumbnail": "ancienne-url"},
+            {"thumbnail": "ancienne-url"},
+            {"thumbnail": "nouvelle-url"},
+        ]
+
+        async def media_courant():
+            corps = (b"\xff\xd8\xff\xe0photo" if self.camera.thumbnail == "nouvelle-url"
+                     else b"ancienne photo")
+            return SimpleNamespace(status=200, read=mock.AsyncMock(return_value=corps))
+
+        self.media.side_effect = media_courant
+        with mock.patch.object(serve.asyncio, "sleep", new_callable=mock.AsyncMock) as pause:
+            chemin = self.handler.declencher_snapshot("Jardin")
+        self.assertEqual(chemin.read_bytes(), b"\xff\xd8\xff\xe0photo")
+        self.assertEqual(self.sync.get_camera_info.await_count, 3)
+        self.assertEqual(pause.await_count, 2)
+        self.verifier_liberation()
+
+    def test_vignette_rafraichie_depuis_blink_sur_demande(self):
+        cle = serve.camera_key(self.sync, self.camera.name, self.camera)
+        cache = self.thumbs / "cameras" / f"{serve.safe_file(cle)}.jpg"
+        cache.parent.mkdir(parents=True)
+        cache.write_bytes(b"ancienne photo")
+        self.handler.wfile = io.BytesIO()
+        self.handler.send_response = mock.Mock()
+        self.handler.send_header = mock.Mock()
+        self.handler.end_headers = mock.Mock()
+
+        self.handler.send_camera_thumb(cle)
+        self.assertEqual(self.handler.wfile.getvalue(), b"ancienne photo")
+        self.media.assert_not_awaited()
+
+        self.handler.wfile = io.BytesIO()
+        self.handler.send_camera_thumb(cle, refresh=True)
+        self.blink.get_homescreen.assert_awaited_once_with()
+        self.camera.update_images.assert_awaited_once()
+        self.media.assert_awaited_once_with()
+        self.assertEqual(cache.read_bytes(), b"\xff\xd8\xff\xe0photo")
+        self.assertEqual(self.handler.wfile.getvalue(), cache.read_bytes())
+
+    def test_vignette_rafraichie_conserve_cache_si_blink_echoue(self):
+        cle = serve.camera_key(self.sync, self.camera.name, self.camera)
+        cache = self.thumbs / "cameras" / f"{serve.safe_file(cle)}.jpg"
+        cache.parent.mkdir(parents=True)
+        cache.write_bytes(b"ancienne photo")
+        self.handler.wfile = io.BytesIO()
+        self.handler.send_response = mock.Mock()
+        self.handler.send_header = mock.Mock()
+        self.handler.end_headers = mock.Mock()
+        self.media.side_effect = RuntimeError("Blink indisponible")
+
+        self.handler.send_camera_thumb(cle, refresh=True)
+        self.assertEqual(cache.read_bytes(), b"ancienne photo")
+        self.assertEqual(self.handler.wfile.getvalue(), b"ancienne photo")
 
     def test_vignette_ecrite_sous_la_cle_stable_pas_l_identite_fournie(self):
         # Le webhook (issue GitHub #9) reçoit le nom affiché de la caméra
@@ -96,7 +168,7 @@ class DeclencherSnapshotTests(unittest.TestCase):
         # laisserait la tuile inchangée pour tout appel webhook (constaté en
         # conditions réelles avec une vraie caméra, avant ce correctif).
         self.handler.declencher_snapshot("Jardin")
-        cle = serve.camera_key(None, self.camera.name, self.camera)
+        cle = serve.camera_key(self.sync, self.camera.name, self.camera)
         self.assertNotEqual(cle, "Jardin", "la clé opaque doit différer du nom pour que ce test soit probant")
         vignette_par_cle = self.thumbs / "cameras" / f"{serve.safe_file(cle)}.jpg"
         vignette_par_nom = self.thumbs / "cameras" / "Jardin.jpg"
@@ -154,16 +226,55 @@ class DeclencherSnapshotTests(unittest.TestCase):
         self.media.assert_not_awaited()
 
     def test_image_indisponible_apres_confirmation(self):
-        for reponse in (None, SimpleNamespace(status=404)):
-            with self.subTest(reponse=reponse):
-                self.media.return_value = reponse
-                with self.assertRaisesRegex(RuntimeError, "[Ii]mage"):
-                    self.handler.declencher_snapshot("Jardin")
-                self.verifier_liberation()
+        with mock.patch.object(serve.asyncio, "sleep", new_callable=mock.AsyncMock):
+            for reponse in (None, SimpleNamespace(status=404)):
+                with self.subTest(reponse=reponse):
+                    self.media.return_value = reponse
+                    with self.assertRaisesRegex(RuntimeError, "publi"):
+                        self.handler.declencher_snapshot("Jardin")
+                    self.verifier_liberation()
         self.assertFalse(any(self.snapshots.rglob("*.jpg")),
                          "aucun fichier ne doit exister sans image recuperee")
         self.assertFalse(any(self.thumbs.rglob("*.jpg")),
                          "la vignette du Direct ne doit pas non plus changer sans image")
+
+    def test_photo_ancienne_n_est_pas_enregistree_comme_nouvelle(self):
+        cle = serve.camera_key(self.sync, self.camera.name, self.camera)
+        vignette = self.thumbs / "cameras" / f"{serve.safe_file(cle)}.jpg"
+        vignette.parent.mkdir(parents=True)
+        vignette.write_bytes(b"ancienne photo")
+        self.sync.get_camera_info.side_effect = None
+        self.sync.get_camera_info.return_value = {"thumbnail": "ancienne-url"}
+        self.media.return_value = SimpleNamespace(
+            status=200, read=mock.AsyncMock(return_value=b"ancienne photo"))
+        with mock.patch.object(serve.asyncio, "sleep", new_callable=mock.AsyncMock) as pause:
+            with self.assertRaisesRegex(RuntimeError, "publi"):
+                self.handler.declencher_snapshot("Jardin")
+        self.assertEqual(self.sync.get_camera_info.await_count, 10)
+        self.assertEqual(self.media.await_count, 10)
+        self.assertEqual(pause.await_count, 9)
+        self.assertFalse(any(self.snapshots.rglob("*.jpg")))
+        self.assertEqual(vignette.read_bytes(), b"ancienne photo")
+        self.verifier_liberation()
+
+    def test_lecture_bloquee_respecte_le_delai_et_libere_le_module(self):
+        async def info_bloquee(_camera_id, **_kwargs):
+            await asyncio.sleep(3600)
+
+        self.sync.get_camera_info.side_effect = info_bloquee
+        with mock.patch.object(serve, "ATTENTE_MEDIA_SNAPSHOT_SECONDS", 1):
+            with self.assertRaisesRegex(RuntimeError, "publi"):
+                self.handler.declencher_snapshot("Jardin")
+        self.assertFalse(any(self.snapshots.rglob("*.jpg")))
+        self.assertFalse(any(self.thumbs.rglob("*.jpg")))
+        self.verifier_liberation()
+
+    def test_photo_nouvelle_acceptee_avec_url_stable(self):
+        self.sync.get_camera_info.side_effect = None
+        self.sync.get_camera_info.return_value = {"thumbnail": "ancienne-url"}
+        chemin = self.handler.declencher_snapshot("Jardin")
+        self.assertEqual(chemin.read_bytes(), b"\xff\xd8\xff\xe0photo")
+        self.assertEqual(self.sync.get_camera_info.await_count, 1)
 
     def test_exception_reseau_rend_les_deux_verrous(self):
         self.camera.snap_picture.side_effect = OSError("reseau coupe")

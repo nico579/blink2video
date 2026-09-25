@@ -85,7 +85,9 @@ LIBELLES = {
         "interruption_arret": "\nArrêt.",
         "snapshot_commande_refusee": "Blink a refusé la commande de photo.",
         "snapshot_non_confirme": "Blink n'a pas confirmé la photo.",
-        "snapshot_image_indisponible": "Image indisponible après la prise de vue.",
+        "snapshot_image_indisponible":
+            "La caméra a pris la photo, mais Blink ne l'a pas encore publiée. "
+            "Réessayez dans un instant.",
         "webhook_camera_manquante": "Paramètre « camera » manquant.",
         "webhook_jeton_invalide": "Jeton de webhook invalide ou manquant.",
     },
@@ -120,7 +122,9 @@ LIBELLES = {
         "interruption_arret": "\nStopping.",
         "snapshot_commande_refusee": "Blink refused the picture command.",
         "snapshot_non_confirme": "Blink did not confirm the picture.",
-        "snapshot_image_indisponible": "Image unavailable after taking the picture.",
+        "snapshot_image_indisponible":
+            "The camera took the picture, but Blink has not published it yet. "
+            "Try again in a moment.",
         "webhook_camera_manquante": "Missing «camera» parameter.",
         "webhook_jeton_invalide": "Invalid or missing webhook token.",
     },
@@ -222,6 +226,12 @@ ATTENTE_MODULE_MAX_SECONDS = 25
 # runtime.verrou() documente pour son paramètre attente (constaté en réel,
 # 2026-09-04 : bascules de caméra ressenties comme "instables").
 ATTENTE_HUB_MAX_SECONDS = 20
+
+# La photo confirmée peut mettre encore un peu de temps à paraître chez Blink.
+# MODULE_SLOT reste pris pendant cette attente, partagée avec les directs et
+# les téléchargements : ne pas prolonger le sondage au-delà de ce plafond.
+ATTENTE_MEDIA_SNAPSHOT_SECONDS = 18
+INTERVALLE_MEDIA_SNAPSHOT_SECONDS = 2
 
 # Bascule pilotée par le bouton d'enregistrement de la page (JS,
 # /api/direct-enregistrement plus bas) : un seul direct actif à la fois
@@ -2495,11 +2505,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         reveiller_camera() qui ne fait que confirmer le réveil (issue GitHub
         #9 : bouton manuel et webhook partagent cette même méthode).
 
-        La confirmation de commande (request_command_status) dit seulement
-        que Blink a bien reçu la nouvelle photo, pas que get_media() la
-        renverrait déjà : un get_media() séparé, après coup, est le seul
-        moyen fiable d'obtenir CETTE image plutôt que l'ancienne mise en
-        cache par snap_picture() lui-même avant que la caméra ait répondu."""
+        La confirmation de commande ne met pas à jour la vignette dans blinkpy.
+        Il faut relire l'état de la caméra et vérifier que l'image a changé ;
+        sinon get_media() peut renvoyer l'ancienne photo."""
         resultat = {}
 
         def demander(blink):
@@ -2507,6 +2515,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 from blinkpy import api
 
                 sync, camera = BLINK.find_camera(_blink, identity)
+                ancienne_url = camera.thumbnail
+                ancien_corps = getattr(camera, "_cached_image", None)
                 reponse = await camera.snap_picture()
                 if not isinstance(reponse, dict) or not reponse.get("id"):
                     raise RuntimeError(msg("snapshot_commande_refusee"))
@@ -2518,12 +2528,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         or statut.get("status_code") != 908
                         or statut.get("complete") is not True):
                     raise RuntimeError(msg("snapshot_non_confirme"))
-                media = await camera.get_media()
-                if media is None or media.status != 200:
+                dernier_essai = (ATTENTE_MEDIA_SNAPSHOT_SECONDS
+                                 // INTERVALLE_MEDIA_SNAPSHOT_SECONDS)
+                async def attendre_media():
+                    for tentative in range(dernier_essai + 1):
+                        await self._actualiser_media_camera(_blink, sync, camera)
+                        media = await camera.get_media()
+                        if media is not None and media.status == 200:
+                            corps = await media.read()
+                        else:
+                            corps = b""
+                        image_changee = (camera.thumbnail != ancienne_url or
+                                         (ancien_corps is not None and corps != ancien_corps))
+                        if corps and image_changee:
+                            return corps
+                        if tentative < dernier_essai:
+                            await asyncio.sleep(INTERVALLE_MEDIA_SNAPSHOT_SECONDS)
+                    raise RuntimeError(msg("snapshot_image_indisponible"))
+
+                try:
+                    corps = await asyncio.wait_for(
+                        attendre_media(), timeout=ATTENTE_MEDIA_SNAPSHOT_SECONDS)
+                except asyncio.TimeoutError:
                     raise RuntimeError(msg("snapshot_image_indisponible"))
                 resultat["camera"] = camera_key(sync, camera.name, camera)
                 resultat["nom"] = camera.name
-                resultat["corps"] = await media.read()
+                resultat["corps"] = corps
             return run()
 
         if not MODULE_SLOT.acquire(blocking=False):
@@ -2548,9 +2578,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         cible = dossier / f"{horodatage}_{empreinte}.jpg"
         cible.write_bytes(resultat["corps"])
         runtime.notifier_nouveau_media(resultat["nom"], cible, "snapshot")
-        # La vignette du Direct (send_camera_thumb) vient d'un cache distinct,
-        # jamais renouvelé sans clic sur Actualiser : une photo prise à la
-        # demande a déjà l'image sous la main, autant lui éviter d'afficher
+        # La vignette du Direct (send_camera_thumb) vient d'un cache distinct.
+        # Une photo prise à la demande a déjà l'image sous la main ; elle évite d'afficher
         # une vue plus vieille que ce qu'on vient tout juste de capturer
         # (demandé sur l'issue GitHub #10). resultat["camera"], pas
         # `identity` : le webhook reçoit le nom affiché (voir le gabarit
@@ -2570,6 +2599,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         attente = cache.with_suffix(".tmp.jpg")
         attente.write_bytes(corps)
         attente.replace(cache)
+
+    async def _actualiser_media_camera(self, blink, sync, camera) -> None:
+        """Relit l'URL de la photo dans l'état courant de Blink."""
+        await blink.get_homescreen()
+        info = await sync.get_camera_info(
+            camera.camera_id, unique_info=sync.get_unique_info(camera.name))
+        if not isinstance(info, dict) or not info.get("thumbnail"):
+            raise RuntimeError(msg("snapshot_image_indisponible"))
+        await camera.update_images(info)
 
     def lister_snapshots(self) -> list:
         """Plus récent d'abord ; pas de registre séparé, le nom de fichier
@@ -2623,7 +2661,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception as erreur:
             self.send_json({"error": f"{type(erreur).__name__}: {erreur}"}, 503)
 
-    def send_camera_thumb(self, identity: str) -> None:
+    def send_camera_thumb(self, identity: str, refresh: bool = False) -> None:
         """Sert la dernière vignette connue d'une caméra.
 
         Elle remplace le cadre noir avant qu'on lance un direct : on voit
@@ -2632,13 +2670,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         son côté, pas une capture neuve : la demander réveillerait la caméra et
         userait sa batterie à chaque affichage de la page.
 
-        Récupérée une seule fois, puis servie telle quelle : seul « Actualiser »
-        la renouvelle."""
+        Une demande explicite de rafraîchissement relit l'image conservée par
+        Blink. En cas d'échec, la dernière image locale reste disponible."""
         cached = (self.paths["thumbs"] / "cameras" / f"{safe_file(identity)}.jpg")
-        if not (cached.is_file() and cached.stat().st_size > 0):
+        if refresh or not (cached.is_file() and cached.stat().st_size > 0):
             def fetch(blink):
                 async def run(_blink=blink):
-                    _, camera = BLINK.find_camera(_blink, identity)
+                    sync, camera = BLINK.find_camera(_blink, identity)
+                    await self._actualiser_media_camera(_blink, sync, camera)
                     response = await camera.get_media()
                     if response is None or response.status != 200:
                         return b""
@@ -3439,7 +3478,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # complet du compte à chaque vignette. C'est find_camera, plus bas,
             # qui refuse un nom inconnu, et safe_file qui assainit le nom de
             # fichier du cache.
-            self.send_camera_thumb(unquote(route[len("/camthumb/"):]))
+            refresh = parse_qs(urlparse(self.path).query).get("refresh", [""])[0] == "1"
+            self.send_camera_thumb(unquote(route[len("/camthumb/"):]), refresh=refresh)
             return
 
         if route.startswith("/live-mse/"):
@@ -3701,10 +3741,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_event({"done": True, "ok": False})
             self.lock.release()
             return
-        # Les vignettes de caméra ne sont pas renouvelées ici : « Actualiser »
-        # demande les clips, pas une nouvelle photo de chaque caméra. Elles sont
-        # prises une fois, à la première ouverture de la vue Direct, et ne
-        # changent plus tant qu'on ne les efface pas.
+        # La page renouvelle les vignettes à la fin de cette actualisation.
         try:
             # Le téléchargement interroge le Sync Module, comme le direct. Les
             # laisser se chevaucher garantirait un « System is busy » : mieux
