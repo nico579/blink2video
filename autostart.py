@@ -17,6 +17,7 @@ sur demande explicite, et `--dry-run` montre ce qui serait fait sans le faire.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -62,6 +63,10 @@ LIBELLES = {
         "demarrage_installe": "Démarrage automatique installé : {cible}",
         "commande_label": "  commande : {commande}",
         "prendra_effet": "  Il prendra effet à la prochaine ouverture de session.",
+        "session_systemd_absente":
+            "  Aucune session systemd pour {utilisateur} : le service démarrera à "
+            "sa prochaine connexion. Pour un démarrage dès l'allumage, sans "
+            "connexion : sudo loginctl enable-linger {utilisateur}",
     },
     "en": {
         "aide_desc": "Start monitoring along with the login session.",
@@ -100,6 +105,10 @@ LIBELLES = {
         "demarrage_installe": "Autostart installed: {cible}",
         "commande_label": "  command: {commande}",
         "prendra_effet": "  It will take effect at the next login.",
+        "session_systemd_absente":
+            "  No systemd session for {utilisateur}: the service will start at "
+            "their next login. To start at boot without logging in: "
+            "sudo loginctl enable-linger {utilisateur}",
     },
 }
 
@@ -319,20 +328,41 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
 
 # --------------------------------------------------------------------- Linux
 
+def env_systemctl(environ=None, uid=None, racine: Path = Path("/run/user")) -> dict:
+    """Environnement de « systemctl --user », session systemd comprise.
+
+    Un utilisateur dédié ouvert par su ou sudo n'a ni XDG_RUNTIME_DIR ni
+    DBUS_SESSION_BUS_ADDRESS : systemctl --user ne trouve alors pas son
+    gestionnaire de services (issue #23, il fallait les exporter à la main
+    dans le .profile). Les deux se déduisent de /run/user/<uid>, que systemd
+    crée pour tout utilisateur qui a une session ou le « linger » activé."""
+    env = dict(os.environ if environ is None else environ)
+    if not env.get("XDG_RUNTIME_DIR"):
+        dossier = racine / str(os.getuid() if uid is None else uid)
+        if dossier.is_dir():
+            env["XDG_RUNTIME_DIR"] = str(dossier)
+    if not env.get("DBUS_SESSION_BUS_ADDRESS") and env.get("XDG_RUNTIME_DIR"):
+        bus = Path(env["XDG_RUNTIME_DIR"]) / "bus"
+        if bus.exists():
+            env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={bus}"
+    return env
+
+
 def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     dossier = Path.home() / ".config/systemd/user"
     if etat == "status":
         return _lister(sorted(dossier.glob(f"{NOM}*.service")),
                        _("label_services_utilisateur"))
     cible = dossier / f"{etiquette(quoi)}.service"
+    env = env_systemctl() if not simulation else None
     if etat == "off":
         if not simulation:
             runtime.lancer(["systemctl", "--user", "disable", "--now", etiquette(quoi)],
                            check=False, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
+                           stderr=subprocess.DEVNULL, env=env)
         code = _retirer(cible, simulation)
         if not simulation:
-            runtime.lancer(["systemctl", "--user", "daemon-reload"], check=False)
+            runtime.lancer(["systemctl", "--user", "daemon-reload"], check=False, env=env)
         return code
 
     contenu = (
@@ -350,10 +380,14 @@ def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
         return 0
     cible.parent.mkdir(parents=True, exist_ok=True)
     cible.write_text(contenu, encoding="utf-8")
-    runtime.lancer(["systemctl", "--user", "daemon-reload"], check=False)
+    runtime.lancer(["systemctl", "--user", "daemon-reload"], check=False, env=env)
     runtime.lancer(["systemctl", "--user", "enable", "--now", etiquette(quoi)],
-                   check=False)
-    return _installe(cible, quoi)
+                   check=False, env=env)
+    code = _installe(cible, quoi)
+    if not env.get("XDG_RUNTIME_DIR"):
+        import getpass
+        print(_("session_systemd_absente", utilisateur=getpass.getuser()))
+    return code
 
 
 # ------------------------------------------------------------------- communs
