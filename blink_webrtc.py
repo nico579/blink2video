@@ -139,8 +139,9 @@ if DISPONIBLE:
         """Piste video sans decodage ni reencodage : lit le flux TCP local
         de blinkpy octet par octet, demultiplexe nous-memes (pas de PyAV,
         blink_ts_demux.py), regroupe les NAL units par unite d'acces
-        (delimitee par un AUD, type 9 - c'est ainsi que la camera les
-        emet), les fait passer telles quelles en av.Packet.
+        (AUD, type 9, quand la camera en emet comme les Mini d'origine ;
+        sinon premiere tranche d'une nouvelle image, cf. _traiter_nal),
+        les fait passer telles quelles en av.Packet.
 
         recv() peut renvoyer un av.Packet plutot qu'un av.VideoFrame
         (documente dans la docstring de MediaStreamTrack.recv elle-meme) :
@@ -180,6 +181,8 @@ if DISPONIBLE:
             self._t_ancrage: Optional[float] = None
             self._pts_ancrage: Optional[int] = None
             self._unite_courante: list = []
+            self._unite_courante_octets = 0
+            self._unite_a_vcl = False
             self._pts_courant = None
             self._file: asyncio.Queue = asyncio.Queue(maxsize=FILE_IMAGES_MAX)
             self._file_octets = 0
@@ -278,10 +281,23 @@ if DISPONIBLE:
                         self._demander_fermeture()
 
         def _traiter_nal(self, pts, nal: bytes) -> None:
+            # Début d'unité d'accès selon ITU-T H.264 §7.4.1.2.3, pas
+            # seulement l'AUD : les Blink Mini d'origine en émettent un par
+            # image, les Mini 2 / Mini 2K+ apparemment pas (issue #18). Sans
+            # AUD, rien n'était jamais transmis au navigateur - MSE, qui
+            # délègue ce découpage à ffmpeg, marchait sur ces mêmes caméras.
             type_ = blink_ts_demux.type_nal(nal)
-            if type_ == 9:
+            if type_ == 9 or (
+                self._unite_a_vcl and blink_ts_demux.debut_unite_acces(nal)
+            ):
                 self._flush_unite_courante()
+            if not self._unite_courante:
                 self._pts_courant = pts
+            if type_ in (1, 5):
+                self._unite_a_vcl = True
+            self._unite_courante_octets += len(nal)
+            if self._unite_courante_octets > FILE_IMAGES_MAX_OCTETS:
+                raise RuntimeError("Unité d'accès H.264 sans fin détectable")
             self._unite_courante.append(nal)
             if type_ in (7, 8) and not self.sps_pps_pret.is_set():
                 self.sps_pps += nal
@@ -295,6 +311,8 @@ if DISPONIBLE:
             self._mettre_unite(self._pts_courant, unite)
             self._synchroniser_enregistrement(unite)
             self._unite_courante = []
+            self._unite_courante_octets = 0
+            self._unite_a_vcl = False
 
         def _mettre_unite(self, pts, unite: bytes) -> None:
             if (self._file.full()
@@ -762,6 +780,7 @@ async def negocier(
 
         sender = pc.addTrack(track)
         profil = _profile_level_id(track.sps_pps)
+        journal(f"H.264 source {profil or 'SPS illisible'}")
         if profil:
             profil_reception = _profil_reception_h264(offer_sdp, profil)
             if profil_reception != profil:
