@@ -1836,6 +1836,14 @@ class TestsE01Onboarding(unittest.TestCase):
             "authenticated": False, "networks": 0, "sync_modules": 0,
             "cameras": 0, "cloud_only": False, "error": None,
         }
+        # Jamais de raccourci sur le vrai Bureau : un « start » réussi dans un
+        # BLINK_HOME neuf le pose (_proposer_raccourci_bureau). Constaté le
+        # 26/09/2026, le raccourci blink2video de l'utilisateur pointait vers
+        # les sources du dossier où la suite venait de tourner. Le test dédié
+        # au raccourci pose sa propre simulation, prioritaire sur celle-ci.
+        correctif = mock.patch("raccourci_bureau.creer", return_value=0)
+        correctif.start()
+        self.addCleanup(correctif.stop)
 
     def test_E01_port_repond_puis_connexion_reussie(self):
         """5.10/5.12 : succès dès que le préflight redevient positif."""
