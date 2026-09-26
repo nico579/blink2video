@@ -1,0 +1,15 @@
+# Les actions sont épinglées par SHA complet (un tag de version se déplace,
+# un SHA non). Dependabot ouvre une pull request quand l'une d'elles publie
+# une nouvelle version : il avance le SHA et le commentaire de version, il ne
+# reste qu'à relire le changement et fusionner. Les versions mineures et
+# correctives arrivent groupées en une seule pull request par semaine ; un
+# changement de version majeure garde la sienne, pour être relu à part.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions-mineures:
+        update-types: ["minor", "patch"]

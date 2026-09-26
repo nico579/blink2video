@@ -19,6 +19,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Droits minimaux du GITHUB_TOKEN : lecture seule. Un job qui publie
+# déclare lui-même le droit d'écriture dont il a besoin.
+permissions:
+  contents: read
+
 jobs:
   caracterisation:
     name: caractérisation ${{ matrix.os }} / Python ${{ matrix.python }}
@@ -30,9 +35,9 @@ jobs:
         os: [windows-latest, ubuntu-latest, macos-latest]
         python: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ matrix.python }}
 
@@ -63,9 +68,9 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
@@ -113,8 +118,8 @@ jobs:
             asset: blink2video-macos-arm64
             exe: dist/blink2video/blink2video
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
@@ -182,7 +187,7 @@ jobs:
           python -m pip install --quiet -r requirements.txt
           python tests.py
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.asset }}
           path: dist/blink2video
@@ -192,7 +197,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       - name: Construire l'image
         run: docker build -t blink2video:ci .

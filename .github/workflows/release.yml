@@ -26,6 +26,11 @@ on:
         description: "Étiquette de la release (ex : v1.0.0)"
         required: true
 
+# Droits minimaux du GITHUB_TOKEN : lecture seule. Un job qui publie
+# déclare lui-même le droit d'écriture dont il a besoin.
+permissions:
+  contents: read
+
 jobs:
   # L'etiquette et le code doivent dire la meme version. Sans ce controle, on
   # peut publier v9.9.9 depuis un code qui se croit en 0.2.1, et le binaire
@@ -35,10 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
       - name: Comparer
@@ -75,11 +80,11 @@ jobs:
             exe: dist/blink2video/blink2video
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
@@ -163,7 +168,7 @@ jobs:
               f"{empreinte.hexdigest()}  {archive.name}\n", encoding="ascii")
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}.*
@@ -198,7 +203,7 @@ jobs:
     # environnement, meme du meme nom.
     environment: docker
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
@@ -214,17 +219,17 @@ jobs:
       # Silicon sous Docker Desktop) sans machine arm dediee. Buildx est le
       # constructeur multi-plateforme de Docker depuis 2019 ; sans lui,
       # "docker build" ne produit qu'une image pour l'architecture du runner.
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Connexion Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Construire et publier (amd64 + arm64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -259,14 +264,26 @@ jobs:
       # chaque fois. L'image Docker elle-meme est deja publiee directement
       # sur Docker Hub par ce meme step (push: true), rien a en recuperer
       # ici.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artefacts
           pattern: blink2video-*
 
+      # gh, la CLI officielle de GitHub déjà présente sur le runner, plutôt
+      # qu'une action tierce dans le seul job qui a le droit d'écrire : un tag
+      # d'action déplacé par un attaquant y remplacerait les archives que la
+      # mise à jour intégrée installe. Même principe que release.yml de
+      # lidar2map. L'étiquette passe par l'environnement, jamais interpolée
+      # dans le script : l'entrée manuelle « tag » ne peut rien y injecter.
       - name: Publier
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: artefacts/**/*
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" artefacts/*/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" artefacts/*/* --generate-notes --verify-tag \
+              --repo "$GITHUB_REPOSITORY"
+          fi

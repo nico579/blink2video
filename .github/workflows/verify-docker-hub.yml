@@ -13,6 +13,11 @@ on:
         required: true
         default: "latest"
 
+# Droits minimaux du GITHUB_TOKEN : lecture seule. Un job qui publie
+# déclare lui-même le droit d'écriture dont il a besoin.
+permissions:
+  contents: read
+
 jobs:
   verifier:
     name: pull + smoke test
