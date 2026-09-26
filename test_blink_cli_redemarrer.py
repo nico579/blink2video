@@ -10,6 +10,10 @@ sauf --sans-relance, relancer « start »."""
 from __future__ import annotations
 
 import contextlib
+import os
+import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -139,7 +143,7 @@ class TestsSerialisationArret(unittest.TestCase):
                                return_value=contextlib.nullcontext()) as verrou, \
              mock.patch.object(blink_cli, "_arreter_instances", return_value=0) as corps:
             self.assertEqual(blink_cli.arreter([]), 0)
-        verrou.assert_called_once_with("stop")
+        verrou.assert_called_once_with("stop", attente=10)
         corps.assert_called_once()
 
     def test_stop_concurrent_echoue_sans_toucher_aux_instances(self):
@@ -148,6 +152,33 @@ class TestsSerialisationArret(unittest.TestCase):
              mock.patch.object(blink_cli, "_arreter_instances") as corps:
             self.assertEqual(blink_cli.arreter([]), 1)
         corps.assert_not_called()
+
+    def test_stop_attend_la_fin_d_un_lancement(self):
+        # Vrai verrou sur disque, dans un dossier de contrôle temporaire : un
+        # « launch » le tient une seconde, comme un enfant qui inscrit sa
+        # fiche juste après « start ». Le stop doit attendre puis s'exécuter,
+        # au lieu d'être refusé.
+        tenu = threading.Event()
+
+        def lancement():
+            with blink_cli.runtime.verrou_controle("launch"):
+                tenu.set()
+                time.sleep(1)
+
+        with tempfile.TemporaryDirectory(prefix="blink-controle-") as controle, \
+                mock.patch.dict(os.environ, {"BLINK_CONTROL_HOME": controle}), \
+                mock.patch.object(blink_cli, "_arreter_instances", return_value=0) as corps:
+            fil = threading.Thread(target=lancement)
+            fil.start()
+            self.assertTrue(tenu.wait(5))
+            debut = time.monotonic()
+            code = blink_cli.arreter([])
+            duree = time.monotonic() - debut
+            fil.join()
+
+        self.assertEqual(code, 0)
+        corps.assert_called_once()
+        self.assertGreaterEqual(duree, 0.5, "stop n'a pas attendu le verrou")
 
 
 class TestsRedemarrerDansVerbes(unittest.TestCase):

@@ -179,7 +179,7 @@ LIBELLES = {
             "(numéro réattribué à un autre logiciel) : ignoré.",
         "toujours_en_vie": "Toujours en vie : {liste}",
         "arrete": "Arrêté.",
-        "arret_redemarrage_en_cours": "Arrêt ou redémarrage déjà en cours ({erreur}).",
+        "arret_redemarrage_en_cours": "Lancement, arrêt ou redémarrage en cours ({erreur}). Réessayez dans un instant.",
         "session_invalide_injoignable":
             "\nSession enregistrée invalide ou injoignable : {erreur}",
         "aucune_session_ouverture_connexion":
@@ -275,7 +275,7 @@ LIBELLES = {
             "(number reassigned to another program): skipped.",
         "toujours_en_vie": "Still alive: {liste}",
         "arrete": "Stopped.",
-        "arret_redemarrage_en_cours": "Stop or restart already in progress ({erreur}).",
+        "arret_redemarrage_en_cours": "Launch, stop or restart in progress ({erreur}). Try again in a moment.",
         "session_invalide_injoignable":
             "\nSaved session invalid or unreachable: {erreur}",
         "aucune_session_ouverture_connexion":
@@ -577,7 +577,12 @@ def arreter(arguments: list = ()) -> int:
         description=msg("aide_desc_stop"),
     ).parse_args(list(arguments))
     try:
-        with runtime.verrou_controle("stop"):
+        # Patient comme le lancement (attente=10), contrairement à restart :
+        # un stop tapé juste après start tombait pendant qu'un enfant
+        # inscrivait sa fiche sous le verrou « launch », et était refusé.
+        # Mis en file derrière un lancement, il arrête ce qui vient d'être
+        # lancé, ce qui est exactement ce qu'on lui demande.
+        with runtime.verrou_controle("stop", attente=10):
             return _arreter_instances()
     except runtime.BusyError as erreur:
         print(msg("arret_redemarrage_en_cours", erreur=erreur))
