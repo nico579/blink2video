@@ -1,0 +1,131 @@
+name: Expérience launchd, migration d'un agent existant (issue 31)
+
+# Expérience jetable, sur sa propre branche. Un agent est posé par main
+# (nom commun com.nico579.blink2video, KeepAlive=true), puis les fichiers de
+# fix/macos-sigterm remplacent ceux de main, comme le ferait une mise à jour.
+# Un « stop » fait relancer le superviseur par l'ancien agent : désormais
+# nouveau, il doit réécrire l'agent sur disque. Suite « connexion » : une
+# ouverture de session simulée charge l'agent réécrit, qui ne doit plus
+# défaire « stop ». Suite « off » : « autostart off » doit décharger l'agent
+# resté chargé sous l'ancien nom.
+
+on:
+  push:
+    branches: [experience/launchd]
+    paths: ['.github/workflows/experience-launchd-migration.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  migration:
+    name: ${{ matrix.suite }}
+    runs-on: macos-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [connexion, off]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: main
+          path: app
+          persist-credentials: false
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: fix/macos-sigterm
+          path: apres
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Dépendances, icône comprise
+        run: |
+          python -m pip install --quiet -r apres/requirements.txt
+          python -m pip install --quiet pystray
+
+      - name: Agent de la 0.14, mise à jour, puis ${{ matrix.suite }}
+        shell: bash
+        run: |
+          set -u
+          uid=$(id -u)
+          domaine="gui/$uid"
+          launchctl print "$domaine" >/dev/null 2>&1 || domaine="user/$uid"
+          ancien=com.nico579.blink2video
+          nouveau=com.nico579.blink2video-serve
+          plist="$HOME/Library/LaunchAgents/$nouveau.plist"
+          port=8799
+          verbes="serve --port $port merge --loop 60"
+
+          champ() {
+            launchctl print "$domaine/$1" 2>/dev/null \
+              | awk -F' = ' -v cle="$2" '$1 ~ "^[[:space:]]*"cle"$" {print $2; exit}'
+          }
+          etat() { echo "    $1 : state=$(champ "$1" state) pid=$(champ "$1" pid) runs=$(champ "$1" runs) last_exit=$(champ "$1" 'last exit code')"; }
+          charge() { launchctl print "$domaine/$1" >/dev/null 2>&1 && echo oui || echo non; }
+          cle() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist" 2>&1 | tr -s '\n ' ' '; }
+          page() { curl -s -o /dev/null -m 2 "http://127.0.0.1:$port/"; }
+          attendre_page() { for _ in $(seq 1 90); do page && return 0; sleep 1; done; return 1; }
+          processus() {
+            ps -axo pid,ppid,command | grep 'blink2video.py\|serve.py\|merge_daily.py' \
+              | grep -v grep | sed 's/^/    /' || echo "    aucun processus blink2video"
+          }
+
+          cd app
+          echo "=== 1. agent posé par main"
+          git log -1 --format='    version : %h %s'
+          python blink2video.py autostart on $verbes >/dev/null
+          attendre_page && echo "    page servie"
+          sleep 12
+          etat $ancien
+          echo "    fichier : Label=$(cle Label)KeepAlive=$(cle KeepAlive)"
+
+          echo "=== 2. mise à jour : les fichiers de la branche remplacent ceux de main"
+          rsync -a --exclude .git ../apres/ ./
+          git -C ../apres log -1 --format='    version : %h %s'
+
+          echo "=== 3. stop : l'ancien agent relance le superviseur, qui réécrit l'agent"
+          python blink2video.py stop
+          attendre_page && echo "    page revenue" || echo "    page JAMAIS revenue"
+          sleep 15
+          etat $ancien
+          echo "    fichier : Label=$(cle Label)KeepAlive=$(cle KeepAlive)"
+          processus
+
+          if [ "${{ matrix.suite }}" = connexion ]; then
+            echo "=== 4. ouverture de session simulée : l'ancien agent part, le fichier réécrit est chargé"
+            launchctl bootout "$domaine/$ancien"
+            sleep 3
+            python blink2video.py stop >/dev/null
+            launchctl bootstrap "$domaine" "$plist" || echo "    bootstrap refusé"
+            attendre_page && echo "    page servie"
+            sleep 12
+            etat $nouveau
+            echo "    ancien chargé : $(charge $ancien)"
+            runs_avant=$(champ $nouveau runs)
+            echo "=== 5. stop sous l'agent réécrit"
+            python blink2video.py stop
+            sleep 40
+            etat $nouveau
+            processus
+            runs_apres=$(champ $nouveau runs)
+            if [ "$runs_apres" != "$runs_avant" ]; then relance=OUI; else relance=non; fi
+            echo "===== RESULTAT connexion : agent réécrit chargé : $(charge $nouveau) ; relancé après stop : $relance"
+          else
+            echo "=== 4. autostart off, l'ancien agent étant encore chargé"
+            python blink2video.py autostart off $verbes
+            sleep 5
+            python blink2video.py stop >/dev/null
+            sleep 30
+            processus
+            if [ -f "$plist" ]; then fichier=présent; else fichier=absent; fi
+            echo "===== RESULTAT off : ancien chargé : $(charge $ancien) ; nouveau chargé : $(charge $nouveau) ; fichier : $fichier ; page : $(page && echo répond || echo muette)"
+          fi
+
+          python blink2video.py autostart off $verbes >/dev/null 2>&1 || true
+          launchctl remove $ancien >/dev/null 2>&1 || true
+          python blink2video.py stop >/dev/null 2>&1 || true
