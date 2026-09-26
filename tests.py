@@ -420,6 +420,15 @@ def test_arret() -> None:
                  f"{len(donnees['enfants'])} enfant(s)")
 
         enfants = [int(numero) for numero in donnees.get("enfants") or []]
+        # Chaque enfant inscrit aussi sa propre fiche, sous le même verrou de
+        # contrôle « launch » que le parent : un « stop » arrivé avant la
+        # dernière de ces inscriptions est refusé (« déjà réservé par
+        # launch »). Constaté sur un runner macOS lent, où l'exécutable figé
+        # met plus d'une seconde à démarrer : attendre toute la composition.
+        for _ in range(60):
+            if all((fiches / f"{numero}.json").is_file() for numero in enfants):
+                break
+            time.sleep(0.5)
         vivants_avant = [numero for numero in enfants
                          if runtime.processus_vivant(numero)]
         verifier(len(enfants) == 2,

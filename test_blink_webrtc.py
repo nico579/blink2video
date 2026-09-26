@@ -162,7 +162,10 @@ class TestsCycleWebRTC(unittest.IsolatedAsyncioTestCase):
         negociation = asyncio.create_task(self.negocier())
         await self.attendre_lecture()
         negociation.cancel()
-        await asyncio.wait_for(nettoyage_demarre.wait(), 1)
+        # Garde-fou contre un blocage, pas une mesure de vitesse : le
+        # nettoyage démarre aussitôt, mais une seconde n'a pas toujours suffi
+        # à un runner Windows chargé (CI du 2026-09-25).
+        await asyncio.wait_for(nettoyage_demarre.wait(), 10)
         self.assertFalse(negociation.done())
         self.assertTrue(self.tracks[0]._tache.done())
         self.writer.close.assert_called_once()

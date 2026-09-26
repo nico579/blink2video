@@ -136,13 +136,16 @@ class TestAppliquerSelectionNAttendPasLeVerrouRegistre(unittest.TestCase):
         # load_download_state() plutôt qu'une lecture JSON directe : un
         # remplacement atomique en cours peut transitoirement refuser la
         # lecture côté Windows (PermissionError), déjà toléré par ce helper.
-        for _ in range(30):
+        # Dix secondes au plus : l'exclusion aboutit en quelques dixièmes, mais
+        # trois n'ont pas suffi à un runner Windows chargé (CI du 2026-09-25).
+        limite = time.monotonic() + 10
+        while True:
             etat = serve.blink_registre.load_download_state(self.paths["input"])
             if etat["clips"].get("cle-1", {}).get("excluded"):
                 break
+            if time.monotonic() > limite:
+                self.fail("l'exclusion n'a jamais été appliquée en arrière-plan")
             time.sleep(0.1)
-        else:
-            self.fail("l'exclusion n'a jamais été appliquée en arrière-plan")
         self.assertTrue((self.paths["excluded"] / self.identity).is_file(),
                          "le brut aurait dû être déplacé vers Blink_Excluded")
 
