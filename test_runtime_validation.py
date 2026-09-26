@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 
@@ -321,6 +322,117 @@ class VerrouTests(unittest.TestCase):
         with runtime.verrou("cycle-normal", "moi"):
             self.assertTrue(cible.exists())
         self.assertFalse(cible.exists())
+
+
+@unittest.skipUnless(os.name == "nt", "état propre au système de fichiers de Windows")
+class VerrouEnAttenteDeSuppressionTests(unittest.TestCase):
+    """CI Windows des 25 et 26/09/2026 : un verrou que son propriétaire vient
+    de supprimer, mais qu'un antivirus ou l'indexeur tient encore ouvert,
+    reste « en attente de suppression ». Le recréer lève alors
+    PermissionError, ni succès ni FileExistsError, et verrou() laissait
+    passer l'erreur : l'exclusion lancée en arrière-plan mourait sans rien
+    appliquer. On reproduit ici ce vrai état du système de fichiers, par un
+    lecteur qui partage tout et une suppression à la fermeture, la seule
+    que connaisse Windows 7. Sous Windows 10 22H2, os.remove() efface le nom
+    tout de suite, même lecteur ouvert ; les runners Windows de la CI ont
+    pourtant bien connu cet état."""
+
+    GENERIC_READ = 0x80000000
+    DELETE = 0x00010000
+    PARTAGE_TOTAL = 0x1 | 0x2 | 0x4  # lecture, écriture, suppression
+    OPEN_EXISTING = 3
+    FILE_FLAG_DELETE_ON_CLOSE = 0x04000000
+
+    def setUp(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        self.ctypes = ctypes
+        self.invalide = wintypes.HANDLE(-1).value
+        # Instance propre à ce test : ses argtypes ne touchent pas
+        # ctypes.windll.kernel32, partagé avec le code testé.
+        self.k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.k32.CreateFileW.restype = wintypes.HANDLE
+        self.k32.CreateFileW.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        self.k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        temporaire = tempfile.TemporaryDirectory(prefix="blink-verrou-suppression-")
+        self.addCleanup(temporaire.cleanup)
+        self.racine = Path(temporaire.name)
+        self.fichier = self.racine / ".blink_suppression.lock"
+        self.lecteurs = []
+        self.addCleanup(self.liberer)
+
+    def ouvrir(self, chemin: Path, acces: int, drapeaux: int = 0):
+        poignee = self.k32.CreateFileW(str(chemin), acces, self.PARTAGE_TOTAL, None,
+                                       self.OPEN_EXISTING, drapeaux, None)
+        if poignee in (None, self.invalide):
+            raise self.ctypes.WinError(self.ctypes.get_last_error())
+        return poignee
+
+    def mettre_en_suppression(self, chemin: Path) -> None:
+        """Laisse `chemin` en attente de suppression, retenu par un lecteur
+        que liberer() fermera."""
+        chemin.write_bytes(b"{}")
+        self.lecteurs.append(self.ouvrir(chemin, self.GENERIC_READ))
+        self.k32.CloseHandle(self.ouvrir(chemin, self.DELETE,
+                                         self.FILE_FLAG_DELETE_ON_CLOSE))
+        # L'état est bien reproduit : la création exclusive est refusée.
+        with self.assertRaises(PermissionError):
+            os.close(os.open(chemin, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+
+    def liberer(self) -> None:
+        """Ferme le lecteur, ce qui achève la suppression. Sans effet la
+        seconde fois : une poignée fermée deux fois pourrait en viser une
+        autre, réattribuée entre-temps."""
+        try:
+            poignee = self.lecteurs.pop()
+        except IndexError:
+            return
+        self.k32.CloseHandle(poignee)
+
+    def prendre(self, attente: float) -> dict:
+        """Tente le verrou sur un fil à part : une régression qui bouclerait
+        sans fin échoue ici au lieu de pendre toute la suite."""
+        resultat = {}
+
+        def tenter() -> None:
+            try:
+                with runtime.verrou("suppression", "moi", attente=attente,
+                                    racine=self.racine):
+                    resultat["owner"] = json.loads(
+                        self.fichier.read_text(encoding="utf-8"))["owner"]
+            except Exception as erreur:  # rapportée par l'assertion du test
+                resultat["erreur"] = erreur
+
+        fil = threading.Thread(target=tenter, daemon=True)
+        fil.start()
+        fil.join(timeout=10)
+        self.assertFalse(fil.is_alive(), "verrou() ne rend jamais la main")
+        return resultat
+
+    def test_verrou_obtenu_des_que_la_suppression_s_acheve(self) -> None:
+        self.mettre_en_suppression(self.fichier)
+        threading.Timer(0.3, self.liberer).start()
+        self.assertEqual(self.prendre(attente=5), {"owner": "moi"})
+        self.assertFalse(self.fichier.exists())
+
+    def test_refus_qui_dure_leve_busyerror_a_l_echeance(self) -> None:
+        self.mettre_en_suppression(self.fichier)
+        erreur = self.prendre(attente=0.3).get("erreur")
+        self.assertIsInstance(erreur, runtime.BusyError, repr(erreur))
+
+    def test_marque_de_purge_en_attente_de_suppression(self) -> None:
+        # Verrou abandonné par un processus mort : sa purge passe par la
+        # marque .purge, elle aussi créée puis supprimée à chaque passage.
+        self.fichier.write_text(json.dumps(
+            {"owner": "victime", "pid": 999_999, "jeton": "perime", "at": 0}),
+            encoding="utf-8")
+        self.mettre_en_suppression(self.fichier.with_name(self.fichier.name + ".purge"))
+        threading.Timer(0.3, self.liberer).start()
+        with mock.patch.object(runtime, "processus_vivant", return_value=False):
+            self.assertEqual(self.prendre(attente=5), {"owner": "moi"})
 
 
 class RepeterTests(unittest.TestCase):

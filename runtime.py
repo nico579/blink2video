@@ -1962,6 +1962,23 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
             descripteur = os.open(fichier, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             pass
+        except PermissionError as erreur:
+            # Sous Windows, un verrou que son propriétaire vient de supprimer
+            # reste « en attente de suppression » tant qu'un antivirus ou
+            # l'indexeur le tient encore ouvert : le recréer est alors refusé
+            # (accès refusé), ni succès ni FileExistsError. Le verrou se
+            # libère, simplement pas encore : on réessaie dans la même
+            # fenêtre d'attente, comme filelock le fait pour ce même cas.
+            # L'erreur traversait jusqu'ici verrou(), et l'exclusion lancée en
+            # arrière-plan mourait sans rien appliquer (CI Windows des 25 et
+            # 26/09/2026). Ailleurs, ce refus est un vrai manque de droits.
+            if os.name != "nt":
+                raise
+            if time.monotonic() >= limite:
+                raise BusyError(f"verrou en cours de suppression ou "
+                                f"inaccessible : {fichier}") from erreur
+            time.sleep(0.05)
+            continue
         else:
             # La création a réussi : le verrou nous appartient, personne
             # d'autre n'a pu obtenir le même fichier au même instant.
@@ -2021,7 +2038,12 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
             purge = fichier.with_name(fichier.name + ".purge")
             try:
                 os.close(os.open(purge, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-            except FileExistsError:
+            except (FileExistsError, PermissionError) as erreur:
+                # PermissionError : même refus Windows qu'à la création du
+                # verrou plus haut, la marque de purge étant elle aussi créée
+                # puis supprimée à chaque passage.
+                if isinstance(erreur, PermissionError) and os.name != "nt":
+                    raise
                 # Un autre processus est dans cette même section (ou, très
                 # rarement, y est mort avant son finally) : `limite` reste le
                 # seul garde-fou contre une attente indéfinie, même ici.
