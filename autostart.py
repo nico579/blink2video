@@ -67,6 +67,9 @@ LIBELLES = {
             "  Aucune session systemd pour {utilisateur} : le service démarrera à "
             "sa prochaine connexion. Pour un démarrage dès l'allumage, sans "
             "connexion : sudo loginctl enable-linger {utilisateur}",
+        "agent_migre":
+            "Agent de démarrage mis à jour : {cible} (effet à la prochaine "
+            "ouverture de session)",
     },
     "en": {
         "aide_desc": "Start monitoring along with the login session.",
@@ -109,6 +112,7 @@ LIBELLES = {
             "  No systemd session for {utilisateur}: the service will start at "
             "their next login. To start at boot without logging in: "
             "sudo loginctl enable-linger {utilisateur}",
+        "agent_migre": "Login agent updated: {cible} (takes effect at the next login)",
     },
 }
 
@@ -290,14 +294,76 @@ def _chaine_ps(valeur: str) -> str:
 
 # --------------------------------------------------------------------- macOS
 
+# Nom que portaient tous les agents jusqu'à la 0.14 : le même pour chaque
+# entrée, alors que launchd identifie un agent par ce nom. Deux entrées ne
+# pouvaient donc pas cohabiter, et retirer l'une pouvait décharger l'autre.
+# Chaque agent porte désormais le nom de son fichier, selon la convention
+# d'Apple, comme ceux de lidar2map et de watch2notif.
+ANCIEN_LABEL_MACOS = f"com.nico579.{NOM}"
+RELANCE_MACOS = {"SuccessfulExit": False}
+
+
+def _label_macos(quoi: tuple = DEFAUT) -> str:
+    return f"com.nico579.{etiquette(quoi)}"
+
+
+def _retirer_agent_ancien_nom() -> None:
+    """Décharge l'agent encore chargé sous l'ancien nom commun, s'il l'est.
+
+    launchd garde la définition lue à l'ouverture de session. Une fois le
+    fichier réécrit (voir migrer_agents_macos), l'agent chargé porte encore
+    l'ancien nom : ni « unload » du fichier, ni un nouveau « load », ne le
+    retrouveraient, et il relancerait un second superviseur à côté du
+    nouveau."""
+    runtime.lancer(["launchctl", "remove", ANCIEN_LABEL_MACOS], check=False,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def migrer_agents_macos(dossier=None) -> list:
+    """Réécrit sur disque les agents posés par une version antérieure.
+
+    Leur nom et leur politique de relance ont changé (issue #31) : sans cette
+    réécriture, un agent déjà installé garderait ses défauts jusqu'à ce qu'on
+    le réinstalle. launchd ne relit le fichier qu'à l'ouverture de session ;
+    la correction prend donc effet à la suivante, sans aucun geste. Même
+    principe que la mise à jour de watch2notif. Rend les fichiers réécrits.
+    Un fichier illisible reste tel quel : jamais au prix d'un démarrage."""
+    import plistlib
+
+    if dossier is None:
+        dossier = Path.home() / "Library/LaunchAgents"
+    reecrits = []
+    for fichier in sorted(Path(dossier).glob(f"com.nico579.{NOM}-*.plist")):
+        try:
+            agent = plistlib.loads(fichier.read_bytes())
+        except Exception:
+            continue
+        attendu = {"Label": fichier.stem, "KeepAlive": dict(RELANCE_MACOS)}
+        if all(agent.get(cle) == valeur for cle, valeur in attendu.items()):
+            continue
+        agent.update(attendu)
+        temporaire = fichier.with_name(fichier.name + ".tmp")
+        try:
+            temporaire.write_bytes(plistlib.dumps(agent, sort_keys=False))
+            os.replace(temporaire, fichier)
+        except OSError:
+            temporaire.unlink(missing_ok=True)
+            continue
+        print(_("agent_migre", cible=fichier))
+        reecrits.append(fichier)
+    return reecrits
+
+
 def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     dossier = Path.home() / "Library/LaunchAgents"
     if etat == "status":
         return _lister(sorted(dossier.glob(f"com.nico579.{NOM}*.plist")),
                        _("label_agents_lancement"))
-    cible = dossier / f"com.nico579.{etiquette(quoi)}.plist"
+    label = _label_macos(quoi)
+    cible = dossier / f"{label}.plist"
     if etat == "off":
         if not simulation:
+            _retirer_agent_ancien_nom()
             runtime.lancer(["launchctl", "unload", str(cible)], check=False,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return _retirer(cible, simulation)
@@ -308,7 +374,7 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
         '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
         '<plist version="1.0"><dict>\n'
-        f'  <key>Label</key><string>com.nico579.{NOM}</string>\n'
+        f'  <key>Label</key><string>{label}</string>\n'
         f'  <key>ProgramArguments</key>\n  <array>\n{arguments}  </array>\n'
         f'  <key>WorkingDirectory</key><string>{runtime.app_dir()}</string>\n'
         '  <key>RunAtLoad</key><true/>\n'
@@ -325,6 +391,7 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     if simulation:
         print(_("ecrirait", cible=cible, contenu=contenu))
         return 0
+    _retirer_agent_ancien_nom()
     cible.parent.mkdir(parents=True, exist_ok=True)
     cible.write_text(contenu, encoding="utf-8")
     runtime.lancer(["launchctl", "load", str(cible)], check=False)

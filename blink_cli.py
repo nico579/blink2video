@@ -894,6 +894,20 @@ def _sortie_propre_sur_sigterm() -> None:
     threading.Thread(target=attendre, name="sigterm", daemon=True).start()
 
 
+def _migrer_agents_macos() -> None:
+    """Remet à jour un agent launchd posé par une version antérieure (voir
+    autostart.migrer_agents_macos). launchd lance le superviseur : c'est donc
+    lui qui, au premier démarrage d'une nouvelle version, corrige l'agent qui
+    l'a lancé. Jamais au prix du démarrage lui-même."""
+    if sys.platform != "darwin":
+        return
+    try:
+        import autostart
+        autostart.migrer_agents_macos()
+    except Exception:
+        pass
+
+
 def executer(groupes: list) -> int:
     """Exécute les verbes cités, ensemble.
 
@@ -1069,6 +1083,7 @@ def executer(groupes: list) -> int:
         print(msg("impossible_demarrer_pendant_arret", erreur=erreur))
         return 1
     _sortie_propre_sur_sigterm()
+    _migrer_agents_macos()
 
     # Les passages uniques, l'un après l'autre, dans l'ordre où ils sont cités.
     pire_ponctuel = 0
