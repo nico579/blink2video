@@ -864,6 +864,36 @@ def _groupe_persistant(groupe: list) -> bool:
     )
 
 
+def _sortie_propre_sur_sigterm() -> None:
+    """Fait d'un SIGTERM une sortie de code 0 pour le superviseur.
+
+    Sous launchd, seule une sortie de code 0 compte comme voulue : tué par le
+    SIGTERM de « stop », le superviseur passait pour planté, et l'agent de
+    démarrage automatique le relançait aussitôt, défaisant l'arrêt, la mise à
+    jour et « Appliquer » (issue #31, vérifié sur un runner macOS). Un simple
+    gestionnaire de signal ne suffirait pas : l'icône de la barre des menus
+    retient le fil principal dans AppKit, où Python ne l'exécuterait pas. Le
+    signal est donc bloqué, puis attendu par un fil dédié (sigwait).
+
+    Appelée après le lancement des enfants et avant la création de tout fil :
+    ceux-ci héritent du blocage, les enfants déjà lancés non. Tout processus
+    blink2video lancé plus tard le lève à son démarrage
+    (runtime.debloquer_sigterm). « stop » arrête lui-même les enfants, d'après
+    leurs fiches : sortir sans attendre suffit, et une attente plus longue que
+    son délai de grâce finirait en SIGKILL, que launchd relancerait."""
+    import os
+    import signal
+    if not hasattr(signal, "pthread_sigmask"):
+        return  # Windows : taskkill n'envoie pas de signal.
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+
+    def attendre() -> None:
+        signal.sigwait({signal.SIGTERM})
+        os._exit(0)
+
+    threading.Thread(target=attendre, name="sigterm", daemon=True).start()
+
+
 def executer(groupes: list) -> int:
     """Exécute les verbes cités, ensemble.
 
@@ -1038,6 +1068,7 @@ def executer(groupes: list) -> int:
     except runtime.BusyError as erreur:
         print(msg("impossible_demarrer_pendant_arret", erreur=erreur))
         return 1
+    _sortie_propre_sur_sigterm()
 
     # Les passages uniques, l'un après l'autre, dans l'ordre où ils sont cités.
     pire_ponctuel = 0

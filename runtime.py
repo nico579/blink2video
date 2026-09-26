@@ -26,6 +26,7 @@ import json
 import os
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -1691,7 +1692,20 @@ def retablir_environnement_systeme() -> None:
         os.environ.pop("LD_LIBRARY_PATH", None)
 
 
+def debloquer_sigterm() -> None:
+    """Lève un blocage de SIGTERM hérité du processus qui nous a lancé.
+
+    Le superviseur de « start » bloque SIGTERM pour l'attendre dans un fil
+    dédié (voir blink_cli._sortie_propre_sur_sigterm), et un masque de
+    signaux se transmet aux processus lancés : sans cette levée, un processus
+    né de lui, par exemple via le « Redémarrer » de l'icône, ignorerait le
+    SIGTERM de « stop » jusqu'au SIGKILL de repli. Sans effet sous Windows."""
+    if hasattr(signal, "pthread_sigmask"):
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
+
+
 retablir_environnement_systeme()
+debloquer_sigterm()
 
 
 def lancer(commande, **options):

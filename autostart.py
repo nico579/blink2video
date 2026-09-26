@@ -313,8 +313,13 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
         f'  <key>WorkingDirectory</key><string>{runtime.app_dir()}</string>\n'
         '  <key>RunAtLoad</key><true/>\n'
         # Relance la surveillance si elle s'interrompt : un chien de garde qui
-        # s'arrête en silence ne vaut rien.
-        '  <key>KeepAlive</key><true/>\n'
+        # s'arrête en silence ne vaut rien. Mais pas après un arrêt voulu :
+        # KeepAlive=true relançait aussi après « stop », une mise à jour ou
+        # « Appliquer » (issue #31). Seule une sortie en erreur ou par un
+        # signal relance désormais ; le superviseur fait du SIGTERM de « stop »
+        # une sortie 0 (blink_cli._sortie_propre_sur_sigterm). Même politique
+        # que lidar2map et watch2notif.
+        '  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n'
         '</dict></plist>\n'
     )
     if simulation:
