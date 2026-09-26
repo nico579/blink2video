@@ -17,6 +17,11 @@ import build_xr_tester
 import maj
 import runtime
 
+# Jamais de chemin relatif au répertoire courant : `unittest discover`, avec
+# son motif par défaut, importe aussi tests.py, qui s'installe dès son import
+# dans un bac à sable.
+RACINE = Path(__file__).resolve().parent
+
 
 def _interpreteur_38() -> str | None:
     """Un vrai interpréteur 3.8, si un est installé sur cette machine (jamais
@@ -60,12 +65,12 @@ class Windows7Python38AnnotationsTests(unittest.TestCase):
     def test_build_s_importe_sous_python_3_8(self):
         resultat = subprocess.run(
             [self.interpreteur, "-c", "import build"],
-            capture_output=True, text=True, timeout=30, check=False,
+            capture_output=True, text=True, timeout=30, check=False, cwd=RACINE,
         )
         self.assertEqual(resultat.returncode, 0, resultat.stderr)
 
     def test_spec_n_evalue_pas_ses_annotations_sous_python_3_8(self):
-        source = Path("blink2video.spec").read_text(encoding="utf-8")
+        source = (RACINE / "blink2video.spec").read_text(encoding="utf-8")
         debut = source.index("def _ffprobe()")
         fin = source.index("\n\n\n", debut)
         fragment = "from __future__ import annotations\n\n" + source[debut:fin]
