@@ -1,10 +1,14 @@
 """Le routage POST conserve les protections communes et les corps métier."""
 
+import http.server
 import io
 import json
 import os
 import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
 from unittest import mock
 
 
@@ -86,7 +90,17 @@ class TestsRoutagePost(unittest.TestCase):
         handler.rfile.read.assert_called_once_with(
             int(handler.headers.get("Content-Length") or 0))
 
-    def test_hote_ou_origine_refuse_avant_lecture_et_traitement(self):
+    # Un refus lit le corps annoncé, borné, sans jamais l'interpréter :
+    # fermer la connexion sur des octets non lus faisait perdre la réponse
+    # sous Windows (RST). Rien n'est traité d'un client non autorisé.
+    def assert_corps_draine_sans_traitement(self, handler):
+        handler.send_error.assert_called_once_with(403)
+        handler.send_json.assert_not_called()
+        handler.rfile.read.assert_called_once_with(
+            int(handler.headers["Content-Length"]))
+        self.assert_aucun_traitement(handler)
+
+    def test_hote_ou_origine_refuse_sans_traitement(self):
         for route in ROUTES:
             for entete, valeur in (("Host", "externe.invalid:8765"),
                                    ("Origin", "https://externe.invalid")):
@@ -94,12 +108,9 @@ class TestsRoutagePost(unittest.TestCase):
                     handler = self.handler(route)
                     handler.headers[entete] = valeur
                     handler.do_POST()
-                    handler.send_error.assert_called_once_with(403)
-                    handler.send_json.assert_not_called()
-                    handler.rfile.read.assert_not_called()
-                    self.assert_aucun_traitement(handler)
+                    self.assert_corps_draine_sans_traitement(handler)
 
-    def test_jeton_absent_ou_incorrect_refuse_avant_lecture_et_traitement(self):
+    def test_jeton_absent_ou_incorrect_refuse_sans_traitement(self):
         for route in ROUTES:
             for token in (None, "jeton-incorrect"):
                 with self.subTest(route=route, token=token):
@@ -109,10 +120,18 @@ class TestsRoutagePost(unittest.TestCase):
                     else:
                         handler.headers["X-Blink-Token"] = token
                     handler.do_POST()
-                    handler.send_error.assert_called_once_with(403)
-                    handler.send_json.assert_not_called()
-                    handler.rfile.read.assert_not_called()
-                    self.assert_aucun_traitement(handler)
+                    self.assert_corps_draine_sans_traitement(handler)
+
+    def test_refus_ne_lit_jamais_un_corps_annonce_trop_gros(self):
+        # Au-delà d'1 Mo, la connexion est fermée sans lire : un client non
+        # autorisé ne peut pas occuper le serveur avec un envoi démesuré.
+        handler = self.handler("/api/reglages")
+        handler.headers["X-Blink-Token"] = "jeton-incorrect"
+        handler.headers["Content-Length"] = str(2 * 1024 * 1024)
+        handler.do_POST()
+        handler.send_error.assert_called_once_with(403)
+        handler.rfile.read.assert_not_called()
+        self.assert_aucun_traitement(handler)
 
     def test_json_malforme_refuse_avant_traitement(self):
         for route in ROUTES:
@@ -232,6 +251,35 @@ class TestsRoutagePost(unittest.TestCase):
                     handler.send_json.assert_called_once_with(
                         {"error": "Sélection de vidéos invalide."}, 400)
                     handler.send_error.assert_not_called()
+
+
+class TestsRefusSurVraieConnexion(unittest.TestCase):
+    """Le vrai handler derrière un serveur local : un refus de jeton doit
+    toujours arriver au client. Fermée sur un corps non lu, la connexion
+    partait en RST sous Windows (25 réponses 403 perdues sur 300, mesuré le
+    2026-09-26) ; cinquante envois rendent la course presque certaine."""
+
+    def setUp(self):
+        for correctif in (mock.patch.object(serve.Handler, "trusted_host", ""),
+                          mock.patch.object(serve.Handler, "log_message",
+                                            lambda *args: None)):
+            correctif.start()
+            self.addCleanup(correctif.stop)
+        self.serveur = http.server.ThreadingHTTPServer(("127.0.0.1", 0), serve.Handler)
+        self.addCleanup(self.serveur.server_close)
+        self.addCleanup(self.serveur.shutdown)
+        threading.Thread(target=self.serveur.serve_forever, daemon=True).start()
+
+    def test_refus_de_jeton_arrive_toujours_au_client(self):
+        port = self.serveur.server_address[1]
+        corps = json.dumps({"donnees": "x" * 20000}).encode("utf-8")
+        for _ in range(50):
+            requete = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/reglages", data=corps, method="POST",
+                headers={"Content-Type": "application/json"})
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(requete, timeout=10)
+            self.assertEqual(ctx.exception.code, 403)
 
 
 if __name__ == "__main__":

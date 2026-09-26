@@ -4255,9 +4255,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         break
             _ecrire_exclusion_directe(self.paths, exclusion_directe)
 
+    # Au-delà, le corps d'une requête refusée n'est pas lu : la connexion est
+    # fermée sans lui, un envoi abusif ne doit pas occuper le serveur.
+    _CORPS_REFUSE_MAX = 1 << 20
+
+    def _refuser(self, code: int) -> None:
+        """Répond une erreur à un POST après avoir lu son corps, sans jamais
+        l'interpréter. Fermée avec des octets non lus, la connexion part en RST
+        sous Windows et le client perd la réponse (WinError 10053) : 25 refus
+        de jeton perdus sur 300 POST avec corps, mesuré le 2026-09-26, soit la
+        page qui garde un jeton périmé après un redémarrage. Lecture bornée
+        et octets jetés : l'audit qui voulait refuser « avant lecture »
+        cherchait à ne rien traiter d'un client non authentifié, ce qui reste
+        vrai. Même correctif que les serveurs de lidar2map et watch2notif."""
+        try:
+            longueur = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            longueur = 0
+        if 0 < longueur <= self._CORPS_REFUSE_MAX:
+            self.rfile.read(longueur)
+        self.send_error(code)
+
     def do_POST(self):
         if not self.hote_autorise() or not self.jeton_valide():
-            self.send_error(403)
+            self._refuser(403)
             return
         # Même filet que do_GET : après hote_autorise()/jeton_valide() ici,
         # donc seulement atteignable par un client déjà de confiance, mais
@@ -4265,7 +4286,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             route = urlparse(self.path).path
         except ValueError:
-            self.send_error(400)
+            self._refuser(400)
             return
         try:
             length = int(self.headers.get("Content-Length") or 0)
