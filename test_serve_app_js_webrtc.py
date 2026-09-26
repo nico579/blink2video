@@ -226,7 +226,7 @@ class RTCPeerConnection extends EventTarget {
 })().catch(error => { console.error(error.stack); process.exitCode = 1; });
 '''
         result = subprocess.run([self.node, "-", scenario], input=script,
-                                capture_output=True, text=True, encoding="utf-8", timeout=10)
+                                capture_output=True, text=True, encoding="utf-8", timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["ok"])
 

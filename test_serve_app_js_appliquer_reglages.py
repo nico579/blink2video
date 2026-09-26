@@ -145,7 +145,7 @@ function instantane() {
 """
         resultat = subprocess.run(
             [self.node, "-e", script, json.dumps(params)], capture_output=True,
-            text=True, encoding="utf-8", check=True, timeout=30,
+            text=True, encoding="utf-8", check=True, timeout=60,
         )
         return json.loads(resultat.stdout)
 

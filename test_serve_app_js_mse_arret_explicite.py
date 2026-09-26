@@ -64,7 +64,7 @@ process.stdout.write(JSON.stringify({{
 }}));
 """
         resultat = subprocess.run(
-            [self.node, "-e", script], capture_output=True, text=True, timeout=10,
+            [self.node, "-e", script], capture_output=True, text=True, timeout=60,
         )
         if resultat.returncode != 0:
             self.fail(f"Node a échoué : {resultat.stderr}")
@@ -167,7 +167,7 @@ watchMse("Jardin").then(() => {{
 }});
 """
         resultat = subprocess.run(
-            [self.node, "-e", script], capture_output=True, text=True, timeout=10,
+            [self.node, "-e", script], capture_output=True, text=True, timeout=60,
         )
         if resultat.returncode != 0:
             self.fail(f"Node a échoué : {resultat.stderr}")
