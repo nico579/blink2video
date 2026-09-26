@@ -1,0 +1,120 @@
+name: Expérience launchd, blink2video réel (issue 31)
+
+# Expérience jetable, sur sa propre branche : le vrai blink2video, inscrit
+# par « autostart on » comme chez un utilisateur macOS, survit-il à « stop » ?
+# Avant (main, KeepAlive=true) et après (fix/macos-sigterm). pystray est
+# installé pour que le superviseur tienne son icône, donc son fil principal,
+# dans AppKit, comme dans le bundle. Un plantage (kill -9) doit en revanche
+# toujours être relancé.
+
+on:
+  push:
+    branches: [experience/launchd]
+    paths: ['.github/workflows/experience-launchd-reel.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  launchd:
+    name: ${{ matrix.version }} (${{ matrix.ref }})
+    runs-on: macos-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: avant
+            ref: main
+          - version: apres
+            ref: fix/macos-sigterm
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ matrix.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Dépendances, icône comprise
+        run: |
+          python -m pip install --quiet -r requirements.txt
+          python -m pip install --quiet pystray
+          python -c "import tray; print('icône disponible :', tray.disponible())"
+
+      - name: Démarrage automatique, stop, puis plantage
+        shell: bash
+        run: |
+          set -u
+          sw_vers
+          git log -1 --format='version testée : %h %s'
+          uid=$(id -u)
+          domaine="gui/$uid"
+          launchctl print "$domaine" >/dev/null 2>&1 || domaine="user/$uid"
+          label=com.nico579.blink2video
+          port=8799
+
+          champ() {
+            launchctl print "$domaine/$label" 2>/dev/null \
+              | awk -F' = ' -v cle="$1" '$1 ~ "^[[:space:]]*"cle"$" {print $2; exit}'
+          }
+          etat() {
+            echo "state=$(champ state) pid=$(champ pid) runs=$(champ runs) last_exit=$(champ 'last exit code')"
+          }
+          page() { curl -s -o /dev/null -m 2 "http://127.0.0.1:$port/"; }
+          attendre_page() {
+            for _ in $(seq 1 90); do page && return 0; sleep 1; done
+            return 1
+          }
+          processus() {
+            ps -axo pid,ppid,command | grep 'blink2video.py\|blink_serve\|serve.py\|merge_daily' \
+              | grep -v grep | sed 's/^/    /' || echo "    aucun processus blink2video"
+          }
+
+          python blink2video.py autostart on serve --port $port merge --loop 60
+          echo "--- agent écrit :"
+          cat "$HOME/Library/LaunchAgents/com.nico579.blink2video-serve.plist"
+          if attendre_page; then echo "page servie"; else echo "page JAMAIS servie"; fi
+          # launchd ne relance pas un agent plus d'une fois toutes les 10 s
+          # (ThrottleInterval) : laisser passer ce délai avant d'arrêter.
+          sleep 12
+          echo "--- avant stop : $(etat)"
+          processus
+          runs_avant=$(champ runs)
+
+          echo "--- blink2video stop"
+          time python blink2video.py stop
+          sleep 40
+          echo "--- 40 s après stop : $(etat)"
+          processus
+          runs_stop=$(champ runs)
+          if [ "$runs_stop" != "$runs_avant" ]; then relance_stop=OUI; else relance_stop=non; fi
+          if page; then echo "la page répond encore"; else echo "la page ne répond plus"; fi
+
+          # Plantage : l'agent doit toujours être relancé. S'il ne tourne plus
+          # (stop respecté), on le redémarre d'abord.
+          if [ "$(champ state)" != "running" ]; then
+            launchctl kickstart "$domaine/$label"
+            attendre_page || echo "page JAMAIS servie après kickstart"
+            sleep 12
+          fi
+          runs_crash_avant=$(champ runs)
+          pid=$(champ pid)
+          echo "--- kill -9 du superviseur (pid ${pid:-?}) : $(etat)"
+          [ -n "${pid:-}" ] && kill -9 "$pid"
+          sleep 25
+          echo "--- 25 s après kill -9 : $(etat)"
+          runs_crash=$(champ runs)
+          if [ "$runs_crash" != "$runs_crash_avant" ]; then relance_crash=OUI; else relance_crash=non; fi
+
+          echo
+          echo "===== RESULTAT ${{ matrix.version }} : relancé après stop : $relance_stop ; relancé après kill -9 : $relance_crash"
+
+          python blink2video.py autostart off || true
+          python blink2video.py stop >/dev/null 2>&1 || true
+          echo "--- journaux"
+          for f in "$HOME/Library/Application Support/blink2video"/*.log; do
+            [ -f "$f" ] && { echo "== $f"; tail -n 25 "$f"; }
+          done
