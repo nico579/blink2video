@@ -136,8 +136,10 @@ class TestAppliquerSelectionNAttendPasLeVerrouRegistre(unittest.TestCase):
         # load_download_state() plutôt qu'une lecture JSON directe : un
         # remplacement atomique en cours peut transitoirement refuser la
         # lecture côté Windows (PermissionError), déjà toléré par ce helper.
-        # Dix secondes au plus : l'exclusion aboutit en quelques dixièmes, mais
-        # trois n'ont pas suffi à un runner Windows chargé (CI du 2026-09-25).
+        # Dix secondes au plus, l'exclusion aboutissant en quelques dixièmes.
+        # Les échecs des CI Windows des 25 et 26/09/2026, pris d'abord pour
+        # de la lenteur, venaient d'un refus de Windows à la recréation du
+        # verrou, qui tuait le fil de l'exclusion (voir runtime.verrou()).
         limite = time.monotonic() + 10
         while True:
             etat = serve.blink_registre.load_download_state(self.paths["input"])
