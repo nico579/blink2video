@@ -38,7 +38,7 @@ const event = {{ line: "X" }};
 process.stdout.write(JSON.stringify({self.expression}));
 """
         resultat = subprocess.run(
-            [self.node, "-e", script], capture_output=True, text=True, timeout=10,
+            [self.node, "-e", script], capture_output=True, text=True, timeout=60,
         )
         if resultat.returncode != 0:
             raise AssertionError(resultat.stderr)

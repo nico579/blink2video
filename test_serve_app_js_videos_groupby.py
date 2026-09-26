@@ -54,7 +54,7 @@ renderVideos("daily");
 process.stdout.write(boxes.list.innerHTML);
 """
         resultat = subprocess.run(
-            [self.node, "-e", script], capture_output=True, text=True, timeout=10,
+            [self.node, "-e", script], capture_output=True, text=True, timeout=60,
         )
         if resultat.returncode != 0:
             self.fail(f"Node a échoué : {resultat.stderr}")

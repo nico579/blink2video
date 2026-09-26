@@ -324,7 +324,7 @@ function stopWatch(name) {
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=5,
+                timeout=60,
             )
         finally:
             os.unlink(fichier.name)

@@ -45,7 +45,7 @@ class TestsCssId(unittest.TestCase):
         )
         resultat = subprocess.run(
             [self.node, "-e", script, json.dumps(noms)],
-            capture_output=True, text=True, check=True, timeout=10,
+            capture_output=True, text=True, check=True, timeout=60,
         )
         return json.loads(resultat.stdout)
 

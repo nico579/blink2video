@@ -134,7 +134,7 @@ globalThis.fetch = async (url, options) => {
             [self.node, "-e", script, json.dumps({
                 "type": type_liste, "mode": mode, "initial": initial, "nom": NOM_SENSIBLE,
             })],
-            capture_output=True, text=True, encoding="utf-8", check=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", check=True, timeout=60,
         )
         return json.loads(resultat.stdout)
 

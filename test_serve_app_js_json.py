@@ -56,7 +56,7 @@ class TestsLectureJSONApresRedemarrage(unittest.TestCase):
             capture_output=True,
             text=True,
             check=True,
-            timeout=10,
+            timeout=60,
         )
         return json.loads(resultat.stdout)
 

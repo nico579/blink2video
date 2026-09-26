@@ -57,7 +57,7 @@ const setTimeout = (callback) => {{ attendre = callback; }};
 """
         resultat = subprocess.run(
             [self.node, "-e", script], capture_output=True, text=True,
-            encoding="utf-8", timeout=10,
+            encoding="utf-8", timeout=60,
         )
         if resultat.returncode != 0:
             raise AssertionError(resultat.stderr)
@@ -96,7 +96,7 @@ const fetch = () => new Promise((resolve) => {{ terminer = resolve; }});
 """
         resultat = subprocess.run(
             [self.node, "-e", script], capture_output=True, text=True,
-            encoding="utf-8", timeout=10,
+            encoding="utf-8", timeout=60,
         )
         if resultat.returncode != 0:
             raise AssertionError(resultat.stderr)

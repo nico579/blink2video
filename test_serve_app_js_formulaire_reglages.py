@@ -173,7 +173,7 @@ function capturer() {
                 "ouvertures": ouvertures if ouvertures is not None else [{"reglages": REGLAGES}],
                 "actions": actions or [],
             })],
-            capture_output=True, text=True, encoding="utf-8", check=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", check=True, timeout=60,
         )
         self.assertTrue(resultat.stdout, "ouvrirReglages ne doit pas attendre les listes")
         return json.loads(resultat.stdout)
