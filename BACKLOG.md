@@ -755,3 +755,29 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
   clips (acceptes) et sur des copies tronquees (refusees). Un clip
   synthetique seulement si le vrai clip ne peut pas etre publie. Les 104 clips reels de Nico restent dans la VM de test pour
   comparer, jamais dans le depot (images privees, depot public).
+
+- **Icone de zone de notification sous GNOME Wayland : menu absent (voie
+  StatusNotifierItem).**
+  Source : essai de Nico dans sa VM Ubuntu 26.04 (GNOME, Wayland), 2026-10-01.
+  Le paquet Linux affiche l'icone, le clic gauche ouvre la page, le clic
+  droit n'ouvre aucun menu. Diagnostic : la session a l'extension
+  ubuntu-appindicators et un hote StatusNotifierWatcher actifs, mais
+  blink2video n'y est pas enregistre (trois icones seulement, toutes
+  d'Ubuntu). Le paquet n'a pas gi (PyGObject) et le processus n'a charge
+  aucune bibliotheque d'icone : pystray retombe tres probablement sur son
+  mode X11 (XEmbed, python-xlib, Python pur), dont le menu est une fenetre X11
+  que Wayland n'ouvre pas. Meme avec le Python du systeme, le mode
+  AppIndicator echouerait sur une Ubuntu standard : le typelib
+  gir1.2-ayatanaappindicator3-0.1 n'est pas installe (« Namespace
+  AyatanaAppIndicator3 not available »), donc embarquer gi seul ne suffit pas.
+  Touche aussi lidar2map, gpxsolar et watch2notif (menu commun, nico579_commons.tray).
+  Voies : (1) documenter, l'icone a menu marche sous KDE, XFCE, X11 ; page et
+  raccourci du Bureau suffisent ailleurs ; (2) embarquer GTK et AppIndicator
+  (+40 a 60 Mo, CI plus lourde, fragile selon les distributions) ; (3) CHOIX DE
+  NICO : parler directement le protocole StatusNotifierItem (standard
+  freedesktop de GNOME, KDE...) avec une petite bibliotheque D-Bus en Python
+  pur, dans nico579_commons.tray, sans rien exiger d'installe sur la machine,
+  une centaine a deux cents lignes dont un menu dbusmenu, testable dans la VM
+  (verification par gdbus : enregistrement aupres du watcher, GetLayout, Event).
+  A faire dans la vague de mutualisation sur la zone de notification, apres
+  les codages de confort ; prototype dans la VM refuse pour l'instant (quota).
