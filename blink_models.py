@@ -8,11 +8,14 @@ reste du programme manipule sans se soucier de la source."""
 from __future__ import annotations
 
 import bisect
+import collections
 import contextlib
 import datetime as dt
 import hashlib
 import json
 import math
+import re
+import unicodedata
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -43,6 +46,9 @@ LIBELLES = {
         "manifeste_local_absent":
             "Blink n'a pas renvoyé le manifeste du stockage local après "
             "{tentatives} tentatives (module resté occupé)",
+        "clips_nom_inconnu":
+            "  ! {nombre} clip(s) du stockage local ignoré(s) : nom de caméra "
+            "inconnu de blink2video : {noms}.",
         "jours_negatifs": "le nombre de jours doit être positif ou nul",
         "cloud_plafond_securite":
             "  ! [données] Manifeste cloud proche du plafond de sécurité "
@@ -90,6 +96,9 @@ LIBELLES = {
         "manifeste_local_absent":
             "Blink did not return the local storage manifest after "
             "{tentatives} attempts (module stayed busy)",
+        "clips_nom_inconnu":
+            "  ! {nombre} local storage clip(s) ignored: camera name "
+            "unknown to blink2video: {noms}.",
         "jours_negatifs": "the number of days must be zero or positive",
         "cloud_plafond_securite":
             "  ! [data] Cloud manifest close to the safety cap "
@@ -351,6 +360,55 @@ def select_sync_modules(blink: Blink, requested_name: str | None):
     return selected
 
 
+# Le Sync Module écrit le nom de chaque caméra en ASCII dans son manifeste et
+# sur la clé USB : « 1-Haustür » devient « 1Haustr » (issue #55, noms de
+# fichiers relevés sur une vraie clé). blinkpy cherche ce nom dans une table
+# construite avec ``re.sub(r"\W+", "", nom)``, où ``\W`` de Python 3 garde les
+# lettres accentuées (« 1Haustür ») : aucune correspondance, et le clip est
+# jeté sans une ligne de journal. Les caméras dont le nom a un accent ou un
+# umlaut (« Séjour », « Bébé », « Küche ») ne voyaient jamais leurs clips USB.
+_TRANSLITTERATION = str.maketrans({
+    "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue",
+    "æ": "ae", "Æ": "Ae", "œ": "oe", "Œ": "Oe", "ø": "o", "Ø": "O",
+})
+
+
+def _formes_nom_manifeste(nom: str) -> set:
+    """Formes ASCII sous lesquelles le Sync Module peut écrire ce nom.
+
+    Règle exacte du module inconnue (la seule observation est la suppression
+    de « ü ») : on garde les trois transformations plausibles, lettre
+    supprimée, lettre sans accent (NFKD) et translittération allemande."""
+    formes = set()
+    for variante in (
+        nom,
+        unicodedata.normalize("NFKD", nom),
+        nom.translate(_TRANSLITTERATION),
+    ):
+        # « _ » reste : ``\W`` de blinkpy le garde aussi, comme pour tout nom
+        # déjà ASCII (la clé d'origine ne change pas).
+        forme = re.sub(r"[^A-Za-z0-9_]+", "", variante)
+        if forme:
+            formes.add(forme)
+    return formes
+
+
+def _completer_table_noms(sync) -> None:
+    """Ajoute à la table de blinkpy les formes ASCII des noms de caméras.
+
+    Une forme qui désignerait deux caméras différentes n'est jamais ajoutée :
+    mieux vaut un clip signalé comme inconnu qu'attribué à la mauvaise caméra
+    (son nom en fait le dossier). Une clé déjà présente n'est jamais écrasée."""
+    table = sync._names_table
+    candidats = collections.defaultdict(set)
+    for nom in {str(propre).strip() for propre in table.values()}:
+        for forme in _formes_nom_manifeste(nom):
+            candidats[forme].add(nom)
+    for forme, noms in candidats.items():
+        if len(noms) == 1 and forme not in table:
+            table[forme] = next(iter(noms))
+
+
 async def read_local_manifest(sync) -> list:
     """Demande au Sync Module la liste à jour de ses clips locaux."""
     import asyncio
@@ -373,14 +431,44 @@ async def read_local_manifest(sync) -> list:
     # refus est temporaire, pas une panne, d'où la reprise avec une attente qui
     # s'allonge plutôt qu'un abandon immédiat.
     delays = (3, 8, 15, 25)
-    for attempt, delay in enumerate((*delays, None), start=1):
-        if await sync.update_local_storage_manifest():
-            return list(storage["manifest"])
-        if delay is None:
-            break
-        print(msg("module_occupe_attente", delay=delay, attempt=attempt,
-                  total=len(delays)))
-        await asyncio.sleep(delay)
+    _completer_table_noms(sync)
+    inconnus = collections.Counter()
+    # blinkpy jette sans rien dire un clip dont le nom de caméra n'est pas dans
+    # sa table : on relève ces noms au passage de la réponse brute, pour les
+    # signaler. Attribut d'instance posé puis retiré, la classe reste intacte.
+    avait = "poll_local_storage_manifest" in vars(sync)
+    original = sync.poll_local_storage_manifest
+
+    async def sonder(*args, **kwargs):
+        reponse = await original(*args, **kwargs)
+        try:
+            for clip in reponse.get("clips") or []:
+                nom = clip.get("camera_name")
+                if nom not in sync._names_table:
+                    inconnus[str(nom)] += 1
+        except (AttributeError, TypeError):
+            pass
+        return reponse
+
+    sync.poll_local_storage_manifest = sonder
+    try:
+        for attempt, delay in enumerate((*delays, None), start=1):
+            inconnus.clear()
+            if await sync.update_local_storage_manifest():
+                if inconnus:
+                    print(msg("clips_nom_inconnu", nombre=sum(inconnus.values()),
+                              noms=", ".join(f"« {n} »" for n in sorted(inconnus))))
+                return list(storage["manifest"])
+            if delay is None:
+                break
+            print(msg("module_occupe_attente", delay=delay, attempt=attempt,
+                      total=len(delays)))
+            await asyncio.sleep(delay)
+    finally:
+        if avait:
+            sync.poll_local_storage_manifest = original
+        else:
+            del sync.poll_local_storage_manifest
 
     raise RuntimeError(msg("manifeste_local_absent", tentatives=len(delays) + 1))
 
