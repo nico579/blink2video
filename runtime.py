@@ -532,7 +532,7 @@ DEPENDANCES = {
     # systemd (autostart.py). Sans l'extra « tray », elle n'exige rien de plus
     # que la bibliothèque standard : l'icône reste facultative depuis les
     # sources. Même fourchette que requirements.in.
-    "nico579_commons": "nico579-commons>=0.3.2,<0.4",
+    "nico579_commons": "nico579-commons>=0.4.0,<0.5",
 }
 if sys.version_info < (3, 9):
     # zoneinfo est stdlib depuis 3.9 ; en dessous (édition Windows 7,

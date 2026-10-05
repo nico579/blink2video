@@ -819,9 +819,9 @@ multidict==6.7.1 \
     # via
     #   aiohttp
     #   yarl
-nico579-commons==0.3.2 \
-    --hash=sha256:7f575b38afd09a690003993287748d3b205a27abe1e7ca7c6b0c83c696538a1c \
-    --hash=sha256:8544a4d8129a5aa027dbf0eadce3083b21755435d475b094146cc50d5dc7d194
+nico579-commons==0.4.0 \
+    --hash=sha256:745947e894b7b7890d23e20c9e913c594e664ed4e15894bf6cbd7e35ca5b8d86 \
+    --hash=sha256:937e692059d0d0f24ad3f1a131b815cdc5ea693ade1d45331814512a6883a0c5
     # via -r requirements.in
 platformdirs==4.11.13 \
     --hash=sha256:228b2283af5c1f32673cdf55271216a52bbd8258cb31374e302ad7bd26cd7513 \

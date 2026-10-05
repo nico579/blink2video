@@ -15,3 +15,8 @@ pyinstaller
 # paire ; Pillow sert aussi à convertir l'icône de l'exécutable.
 Pillow
 pystray
+# Linux : l'icône parle le protocole StatusNotifierItem par D-Bus quand le bureau
+# a un hôte (GNOME avec l'extension AppIndicator, KDE), faute de quoi pystray
+# n'ouvre aucun menu sous Wayland. jeepney est l'extra « tray » de
+# nico579-commons sous Linux, en Python pur : ni GTK ni PyGObject à embarquer.
+jeepney; sys_platform == "linux"

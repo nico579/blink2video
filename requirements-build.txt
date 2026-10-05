@@ -707,6 +707,10 @@ imageio-ffmpeg==0.6.0 \
     # via
     #   -c requirements.txt
     #   -r requirements.in
+jeepney==0.9.0 ; sys_platform == 'linux' \
+    --hash=sha256:97e5714520c16fc0a45695e5365a2e11b81ea79bba796e26f9f1d178cb182683 \
+    --hash=sha256:cf0e9e845622b81e4a28df94c40345400256ec608d0e55bb8a3feaa9163f5732
+    # via -r requirements-build.in
 macholib==1.16.4 ; sys_platform == 'darwin' \
     --hash=sha256:da1a3fa8266e30f0ce7e97c6a54eefaae8edd1e5f86f3eb8b95457cae90265ea \
     --hash=sha256:f408c93ab2e995cd2c46e34fe328b130404be143469e41bc366c807448979362
@@ -862,9 +866,9 @@ multidict==6.7.1 \
     #   -c requirements.txt
     #   aiohttp
     #   yarl
-nico579-commons==0.3.2 \
-    --hash=sha256:7f575b38afd09a690003993287748d3b205a27abe1e7ca7c6b0c83c696538a1c \
-    --hash=sha256:8544a4d8129a5aa027dbf0eadce3083b21755435d475b094146cc50d5dc7d194
+nico579-commons==0.4.0 \
+    --hash=sha256:745947e894b7b7890d23e20c9e913c594e664ed4e15894bf6cbd7e35ca5b8d86 \
+    --hash=sha256:937e692059d0d0f24ad3f1a131b815cdc5ea693ade1d45331814512a6883a0c5
     # via
     #   -c requirements.txt
     #   -r requirements.in
