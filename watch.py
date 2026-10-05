@@ -201,6 +201,8 @@ async def read_state(timezone) -> dict:
         home = blink.homescreen or {}
         modules = [
             {"name": str(m.get("name") or "").strip(),
+             "id": str(m.get("id") or ""),
+             "network_id": str(m.get("network_id") or ""),
              "online": str(m.get("status") or "") != "offline"}
             for m in (home.get("sync_modules") or [])
         ]
@@ -382,6 +384,33 @@ def _alertes_silence(previous: dict, current: dict, cameras: dict, timezone) -> 
     return alertes
 
 
+def _module_precedent(module: dict, anciens: list):
+    """Entrée précédente du même module, ou None si on ne peut pas l'affirmer.
+
+    Par identifiant Blink quand les deux côtés en ont un : deux Sync Modules
+    peuvent porter le même nom (« My Blink Sync Module » par défaut). Retrouvés
+    par le nom, le module hors ligne était comparé au module en ligne qui porte
+    le même nom, et sa chute était signalée à chaque tour (fenêtre toutes les
+    dix minutes). Sans identifiant (état d'avant, ou module sans id), le nom ne
+    sert que s'il désigne un seul module."""
+    cle = module.get("id")
+    if cle:
+        for ancien in anciens:
+            if ancien.get("id") == cle:
+                return ancien
+    memes = [a for a in anciens
+             if a["name"] == module["name"] and not (cle and a.get("id"))]
+    return memes[0] if len(memes) == 1 else None
+
+
+def _libelle_module(module: dict, modules: list) -> str:
+    """Le nom, suivi du réseau quand deux modules portent le même nom."""
+    homonymes = [m for m in modules if m["name"] == module["name"]]
+    if len(homonymes) > 1 and module.get("network_id"):
+        return f"{module['name']} ({module['network_id']})"
+    return module["name"]
+
+
 def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
     """Compare deux observations sans répéter les anomalies déjà signalées.
 
@@ -394,13 +423,14 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
     ignores = normaliser_sourdines(ignores, cameras, avant)
     maintenant = {nom: etat for nom, etat in cameras.items() if nom not in ignores}
 
-    for module in current.get("modules") or []:
-        etait = next((m for m in previous.get("modules") or []
-                      if m["name"] == module["name"]), None)
+    modules = current.get("modules") or []
+    for module in modules:
+        etait = _module_precedent(module, previous.get("modules") or [])
+        nom = _libelle_module(module, modules)
         if not module["online"] and (etait is None or etait.get("online")):
-            alerts.append(_msg("module_hors_ligne", nom=module["name"]))
+            alerts.append(_msg("module_hors_ligne", nom=nom))
         elif module["online"] and etait is not None and not etait.get("online"):
-            recoveries.append(_msg("module_retour", nom=module["name"]))
+            recoveries.append(_msg("module_retour", nom=nom))
 
     for name, etat in sorted(maintenant.items()):
         ancien = _etat_camera_precedent(name, etat, avant, cameras)
