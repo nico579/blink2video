@@ -624,17 +624,13 @@ une decision de conception plutot qu'un simple oubli, a trancher avec
 l'utilisateur - et le lot d'optimisations, non urgentes.
 
 - **Journalieres/hebdo/mensuelles sans distinction si deux cameras se
-  nettoient pareil.** (Reformule apres 28.64 : la derive entre les trois
-  copies de safe_name est fermee, ceci est ce qui restait reellement.)
-  merge_daily.py, etapes de regroupement : `safe_name(camera)` sert de nom
-  de dossier ET de fichier sans aucun suffixe distinctif, contrairement a
-  `target_path()` (clips bruts) qui en a un. Deux cameras dont le nom brut
-  differe mais se nettoie pareil ("Garage" / "Garage!") verraient leurs
-  videos assemblees atterrir au meme endroit. Rare en pratique (exige une
-  coincidence de nommage precise), et changer le nommage des dossiers de
-  sortie toucherait des installations existantes deja organisees autour de
-  `Blink_Daily/<camera>/...` - decision a prendre avec l'utilisateur, pas
-  a trancher seule.
+  nettoient pareil.** FAIT le 2026-10-05 (decision de Nico : oui). Deux noms
+  differents qui donnent le meme dossier par safe_name ("Garage" / "Garage!",
+  ou "Salon" / "salon" sous Windows et macOS) recoivent maintenant des cles
+  distinctes, comme les homonymes de deux reseaux : le nom deja propre garde
+  son dossier, les autres prennent " (2)", " (3)"... (merge_daily.
+  _cles_camera_par_collision). Registre reel de production : aucune
+  collision, rien ne change pour les installations existantes.
 
 - **Silence d'une camera n'ayant jamais enregistre.**
   (Reformule apres 28.68 : les deux autres defauts de watch.py sont

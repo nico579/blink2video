@@ -814,11 +814,20 @@ def _cles_camera_par_collision(entries: dict) -> dict:
     Le network_id trié en premier garde le nom nu (n'invalide pas
     l'historique déjà assemblé sous ce nom, quel qu'il soit) ; les autres
     reçoivent un suffixe lisible, conservant le nom pour l'affichage comme
-    demandé plutôt qu'un identifiant opaque."""
+    demandé plutôt qu'un identifiant opaque.
+
+    Même règle pour deux noms DIFFÉRENTS qui se nettoient pareil (« Garage »
+    et « Garage! » donnent le même dossier par safe_name) : sans elle, leurs
+    journalières s'écrivaient au même chemin, l'une écrasant l'autre. Le nom
+    déjà propre garde son dossier (l'historique déjà assemblé n'est pas
+    déplacé), les autres reçoivent « (2) », « (3) »... ; la casse ne distingue
+    pas deux dossiers, Windows et macOS les confondant."""
     reseaux_par_nom = defaultdict(set)
+    paires = set()
     for entry in entries.values():
         camera = str(entry.get("camera") or "camera").strip() or "camera"
         network_id = str(entry.get("network_id") or "")
+        paires.add((camera, network_id))
         if network_id:
             reseaux_par_nom[camera].add(network_id)
 
@@ -829,6 +838,26 @@ def _cles_camera_par_collision(entries: dict) -> dict:
         _principal, *autres = sorted(reseaux)
         for rang, reseau in enumerate(autres, start=2):
             cles[(camera, reseau)] = f"{camera} ({rang})"
+
+    def dossier(cle: str) -> str:
+        return safe_name(cle).casefold()
+
+    cles_par_paire = {paire: cles.get(paire, paire[0]) for paire in paires}
+    noms = sorted(set(cles_par_paire.values()),
+                  key=lambda nom: (safe_name(nom) != nom, nom.casefold(), nom))
+    pris, renommes = set(), {}
+    for nom in noms:
+        if dossier(nom) not in pris:
+            pris.add(dossier(nom))
+            continue
+        rang = 2
+        while dossier(f"{nom} ({rang})") in pris or f"{nom} ({rang})" in noms:
+            rang += 1
+        renommes[nom] = f"{nom} ({rang})"
+        pris.add(dossier(renommes[nom]))
+    for paire, nom in cles_par_paire.items():
+        if nom in renommes:
+            cles[paire] = renommes[nom]
     return cles
 
 
