@@ -813,13 +813,20 @@ class TestsEvenementsCloudProches(unittest.IsolatedAsyncioTestCase):
             new=mock.AsyncMock(return_value=[cloud_meme, cloud_autre]),
         ), mock.patch.object(
             blink_engine.md, "valid_mp4_complet", side_effect=blink_engine.md.valid_mp4
-        ), contextlib.redirect_stdout(io.StringIO()):
+        ), mock.patch.object(
+            blink_engine.runtime, "toast"
+        ) as toast, contextlib.redirect_stdout(io.StringIO()):
             code = await blink_engine.un_passage(
                 object(), arguments(self.sortie, source="all"), [("Test", Sync())],
             )
 
         self.assertEqual(code, 0)
         self.assertEqual(appels_cloud, [2])
+        # Deux clips rapatries : le passage annonce « 2 nouveaux clips ». Sans ce
+        # blocage, chaque execution locale de la suite posait un vrai toast Windows
+        # (les « clips fantomes » du 2026-10-05) et la CI Windows pouvait s'y bloquer.
+        toast.assert_called_once()
+        self.assertIn("2", toast.call_args.args[1])
 
 
 class TestsMigrationV1(BacASable):
