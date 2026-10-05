@@ -100,11 +100,15 @@ class VignettesAuTelechargement(unittest.IsolatedAsyncioTestCase):
         self.vignettes_au_toast = None
         self.racine = racine
 
-        def faux_ffmpeg(commande, **_options):
-            self.lancements.append(commande)
-            if not echec_ffmpeg:
-                Path(commande[-1]).write_bytes(b"jpeg")
-            return mock.Mock(returncode=0)
+        def faux_extraction(ffmpeg_, source_, provisoire, timeout=None):
+            # On remplace l'extraction elle-même, pas runtime.lancer : le verrou
+            # du registre s'en sert, sous Linux et macOS, pour lire l'identité d'un
+            # processus, et un faux objet y finissait dans un JSON (CI du 2026-10-05).
+            self.lancements.append((ffmpeg_, source_, provisoire))
+            if echec_ffmpeg:
+                return False
+            provisoire.write_bytes(b"jpeg")
+            return True
 
         def toast(*_a, **_k):
             self.vignettes_au_toast = sorted(
@@ -129,7 +133,8 @@ class VignettesAuTelechargement(unittest.IsolatedAsyncioTestCase):
                 blink_engine.md, "valid_mp4_complet", side_effect=blink_engine.md.valid_mp4))
             patches.enter_context(mock.patch.object(
                 blink_engine, "_ffmpeg_pour_vignettes", return_value=ffmpeg))
-            patches.enter_context(mock.patch.object(runtime, "lancer", side_effect=faux_ffmpeg))
+            patches.enter_context(mock.patch.object(
+                blink_engine.md, "extraire_vignette", side_effect=faux_extraction))
             patches.enter_context(mock.patch.object(runtime, "travail"))
             patches.enter_context(mock.patch.object(runtime, "marquer"))
             patches.enter_context(mock.patch.object(runtime, "notifier_nouveau_media"))
