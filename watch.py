@@ -263,6 +263,10 @@ MESSAGES = {
             "option conservée pour compatibilité ; watch ne démarre plus l'interface",
         "aide_ignore": "mettre des caméras en sourdine : plus aucune alerte à leur sujet",
         "aide_unignore": "lever la sourdine",
+        "aide_ignore_module":
+            "mettre des Sync Modules en sourdine (identifiant, réseau ou nom) : "
+            "plus aucune alerte à leur sujet",
+        "aide_unignore_module": "lever la sourdine d'un Sync Module",
         "module_hors_ligne": "Module « {nom} » hors ligne.",
         "module_retour": "Module « {nom} » de nouveau en ligne.",
         "camera_hors_ligne": "Caméra « {nom} » hors ligne.",
@@ -272,15 +276,23 @@ MESSAGES = {
         "camera_detection_reactivee": "Caméra « {nom} » : détection réactivée.",
         "systeme_desarme": "Système entièrement désarmé.",
         "camera_silence": "Caméra « {nom} » : aucun clip depuis {jours} jour(s).",
+        "camera_jamais_enregistree":
+            "Caméra « {nom} » : aucun clip enregistré depuis {jours} jour(s) de surveillance.",
         "titre_echec": "Blink : surveillance en échec",
         "titre_anomalies": "Blink : {n} anomalie(s)",
         "titre_retour": "Blink : retour à la normale",
         "hint_sourdine": "Pour ne plus être averti d'une caméra :",
+        "hint_sourdine_module": "Pour ne plus être averti d'un module :",
         "format_moment": "%d/%m/%Y à %H:%M",
         "alerte_ligne": "ALERTE   {ligne}",
         "retabli_ligne": "rétabli  {ligne}",
         "rien_a_signaler": "Rien à signaler ({moment}).",
         "cameras_en_sourdine": "Caméras en sourdine :",
+        "modules_en_sourdine": "Modules en sourdine :",
+        "module_inconnu":
+            "Module inconnu : « {ref} ». Modules connus : {connus}.",
+        "module_ambigu":
+            "« {ref} » désigne plusieurs modules ({candidats}) : utilisez l'identifiant.",
         "aucune": "aucune",
         "titre_test_alerte": "Blink : test d'alerte",
         "corps_test_alerte": "Ceci est un test. La surveillance sait vous joindre.",
@@ -292,6 +304,9 @@ MESSAGES = {
         "aide_port": "kept for compatibility; watch no longer starts the interface",
         "aide_ignore": "mute cameras: no more alerts about them",
         "aide_unignore": "unmute",
+        "aide_ignore_module":
+            "mute Sync Modules (id, network or name): no more alerts about them",
+        "aide_unignore_module": "unmute a Sync Module",
         "module_hors_ligne": 'Module "{nom}" offline.',
         "module_retour": 'Module "{nom}" back online.',
         "camera_hors_ligne": 'Camera "{nom}" offline.',
@@ -301,15 +316,22 @@ MESSAGES = {
         "camera_detection_reactivee": 'Camera "{nom}": detection re-enabled.',
         "systeme_desarme": "System fully disarmed.",
         "camera_silence": 'Camera "{nom}": no clip for {jours} day(s).',
+        "camera_jamais_enregistree":
+            'Camera "{nom}": no clip recorded in {jours} day(s) of monitoring.',
         "titre_echec": "Blink: monitoring failed",
         "titre_anomalies": "Blink: {n} issue(s)",
         "titre_retour": "Blink: back to normal",
         "hint_sourdine": "To stop being notified about a camera:",
+        "hint_sourdine_module": "To stop being notified about a module:",
         "format_moment": "%d/%m/%Y at %H:%M",
         "alerte_ligne": "ALERT    {ligne}",
         "retabli_ligne": "fixed    {ligne}",
         "rien_a_signaler": "Nothing to report ({moment}).",
         "cameras_en_sourdine": "Muted cameras:",
+        "modules_en_sourdine": "Muted modules:",
+        "module_inconnu": 'Unknown module: "{ref}". Known modules: {connus}.',
+        "module_ambigu":
+            '"{ref}" matches several modules ({candidats}): use the id.',
         "aucune": "none",
         "titre_test_alerte": "Blink: alert test",
         "corps_test_alerte": "This is a test. Monitoring can reach you.",
@@ -384,6 +406,68 @@ def _alertes_silence(previous: dict, current: dict, cameras: dict, timezone) -> 
     return alertes
 
 
+def suivre_premiers_releves(previous: dict, current: dict) -> dict:
+    """Date du premier relevé de chaque caméra qui n'a encore aucun clip.
+
+    `last_clip` ne contient que les caméras ayant déjà enregistré : une caméra
+    qui n'a jamais rien enregistré n'y entrait jamais, et le contrôle de
+    silence ne la voyait pas, quelle que soit la durée. Ce point d'ancrage
+    (depuis quand l'observe-t-on sans clip ?) manquait. Une caméra qui obtient
+    un clip, ou disparaît de l'installation, sort du suivi d'elle-même."""
+    connues = previous.get("first_seen") or {}
+    avec_clip = current.get("last_clip") or {}
+    maintenant = current.get("at") or dt.datetime.now(dt.timezone.utc).isoformat()
+    return {nom: connues.get(nom) or maintenant
+            for nom in (current.get("cameras") or {}) if nom not in avec_clip}
+
+
+def _alertes_jamais_enregistre(previous: dict, current: dict, cameras: dict,
+                               timezone) -> list:
+    """Même seuil et mêmes conditions que _alertes_silence : en ligne, armée,
+    et une seule alerte au franchissement."""
+    alertes = []
+    now = dt.datetime.now(timezone)
+    for nom, iso in sorted((current.get("first_seen") or {}).items()):
+        etat = cameras.get(nom) or {}
+        if not etat.get("online") or not etat.get("armed"):
+            continue
+        try:
+            depuis = dt.datetime.fromisoformat(iso)
+            jours = (now - depuis).days
+            deja = 0
+            if previous.get("at"):
+                deja = (dt.datetime.fromisoformat(previous["at"]) - depuis).days
+        except (ValueError, TypeError):
+            continue
+        if jours >= SILENCE_DAYS > deja:
+            alertes.append(_msg("camera_jamais_enregistree", nom=nom, jours=jours))
+    return alertes
+
+
+def cle_module(module: dict) -> str:
+    """Ce qui identifie un module dans la liste des sourdines : son id Blink,
+    sinon son nom (module sans id, état d'avant)."""
+    return module.get("id") or module["name"]
+
+
+def resoudre_modules(references, modules: list):
+    """(clés, inconnus, ambigus) : désigne des modules par identifiant, réseau,
+    nom ou libellé « nom (réseau) ». Un nom partagé par deux modules est
+    ambigu : il couperait les deux (les noms par défaut sont identiques)."""
+    cles, inconnus, ambigus = set(), [], []
+    for ref in references:
+        trouves = [m for m in modules if ref in (
+            m.get("id"), m.get("network_id"), m["name"], _libelle_module(m, modules))
+            and ref]
+        if not trouves:
+            inconnus.append(ref)
+        elif len({cle_module(m) for m in trouves}) > 1:
+            ambigus.append((ref, trouves))
+        else:
+            cles.add(cle_module(trouves[0]))
+    return cles, inconnus, ambigus
+
+
 def _module_precedent(module: dict, anciens: list):
     """Entrée précédente du même module, ou None si on ne peut pas l'affirmer.
 
@@ -424,7 +508,11 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
     maintenant = {nom: etat for nom, etat in cameras.items() if nom not in ignores}
 
     modules = current.get("modules") or []
+    muets = set(previous.get("ignored_modules") or [])
     for module in modules:
+        if cle_module(module) in muets or module["name"] in muets:
+            # Comme une caméra en sourdine : ni alerte ni retour à la normale.
+            continue
         etait = _module_precedent(module, previous.get("modules") or [])
         nom = _libelle_module(module, modules)
         if not module["online"] and (etait is None or etait.get("online")):
@@ -443,6 +531,7 @@ def compare(previous: dict, current: dict, timezone, ignores: set) -> tuple:
             alerts.append(_msg("systeme_desarme"))
 
     alerts.extend(_alertes_silence(previous, current, maintenant, timezone))
+    alerts.extend(_alertes_jamais_enregistre(previous, current, maintenant, timezone))
     return alerts, recoveries
 
 
@@ -511,8 +600,10 @@ def _controler(args, timezone) -> None:
         ignores = normaliser_sourdines(previous.get("ignored") or [],
                                       current.get("cameras") or {},
                                       previous.get("cameras") or {})
+        current["first_seen"] = suivre_premiers_releves(previous, current)
         alerts, recoveries = compare(previous, current, timezone, ignores)
         current["ignored"] = sorted(ignores)
+        current["ignored_modules"] = sorted(previous.get("ignored_modules") or [])
         # Écrire avant de prévenir : la boîte de dialogue attend un clic, et une
         # anomalie non notée serait signalée deux fois au tour suivant.
         if not args.dry_run:
@@ -529,11 +620,55 @@ def _controler(args, timezone) -> None:
     journal("; ".join(alerts + recoveries) or "rien a signaler")
     if alerts and not args.dry_run:
         corps = [f"- {ligne}" for ligne in alerts]
-        corps += ["", _msg("hint_sourdine"),
-                  '  blink2video watch --ignore "nom de la caméra"']
+        modules = current.get("modules") or []
+        a_signaler = [
+            m for m in modules if not m["online"]
+            and _msg("module_hors_ligne", nom=_libelle_module(m, modules)) in alerts]
+        if len(a_signaler) < len(alerts):
+            corps += ["", _msg("hint_sourdine"),
+                      '  blink2video watch --ignore "nom de la caméra"']
+        if a_signaler:
+            corps += ["", _msg("hint_sourdine_module")]
+            corps += [f'  blink2video watch --ignore-module "{cle_module(m)}"'
+                      for m in a_signaler]
         popup(_msg("titre_anomalies", n=len(alerts)), "\n".join(corps))
     for ligne in recoveries:
         toast(_msg("titre_retour"), ligne)
+
+
+def _sourdine_modules(args) -> int:
+    """--ignore-module / --unignore-module : 0 si l'état a été mis à jour, 2 si
+    un module n'existe pas ou est ambigu (rien n'est alors écrit)."""
+    with runtime.verrou("watch", "sourdine", stale_after=60, attente=10):
+        state = md.load_json(WATCH_STATE, {})
+        modules = state.get("modules") or []
+        muets = set(state.get("ignored_modules") or [])
+        a_ajouter, inconnus, ambigus = resoudre_modules(args.ignore_module, modules)
+        a_retirer, inconnus_retrait, ambigus_retrait = resoudre_modules(
+            args.unignore_module, modules)
+        # Lever la sourdine d'une clé encore enregistrée reste possible même si
+        # le module a disparu de l'installation.
+        for ref in list(inconnus_retrait):
+            if ref in muets:
+                a_retirer.add(ref)
+                inconnus_retrait.remove(ref)
+        inconnus += inconnus_retrait
+        ambigus += ambigus_retrait
+        if inconnus or ambigus:
+            connus = ", ".join(
+                f"{_libelle_module(m, modules)} [{cle_module(m)}]" for m in modules) \
+                or _msg("aucune")
+            for ref in inconnus:
+                print(_msg("module_inconnu", ref=ref, connus=connus))
+            for ref, trouves in ambigus:
+                candidats = ", ".join(cle_module(m) for m in trouves)
+                print(_msg("module_ambigu", ref=ref, candidats=candidats))
+            return 2
+        muets = (muets | a_ajouter) - a_retirer
+        state["ignored_modules"] = sorted(muets)
+        md.save_json(WATCH_STATE, state)
+    print(_msg("modules_en_sourdine"), ", ".join(state["ignored_modules"]) or _msg("aucune"))
+    return 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -553,6 +688,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--unignore", metavar="CAMERA", nargs="+", default=[], help=_msg("aide_unignore"),
+    )
+    parser.add_argument(
+        "--ignore-module", metavar="MODULE", nargs="+", default=[],
+        help=_msg("aide_ignore_module"),
+    )
+    parser.add_argument(
+        "--unignore-module", metavar="MODULE", nargs="+", default=[],
+        help=_msg("aide_unignore_module"),
     )
     return parser.parse_args()
 
@@ -582,6 +725,11 @@ def main() -> int:
             state["ignored"] = sorted(ignores)
             md.save_json(WATCH_STATE, state)
         print(_msg("cameras_en_sourdine"), ", ".join(state["ignored"]) or _msg("aucune"))
+
+    if args.ignore_module or args.unignore_module:
+        code = _sourdine_modules(args)
+        if code:
+            return code
 
     if args.test:
         popup(_msg("titre_test_alerte"), _msg("corps_test_alerte"))

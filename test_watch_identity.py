@@ -133,7 +133,8 @@ class TestIdentitesSurveillance(unittest.TestCase):
         fichier.write_text(json.dumps({"cameras": {"Jardin": {}},
                                        "ignored": ["Jardin"]}), encoding="utf-8")
         args = SimpleNamespace(dry_run=False, timezone="UTC", loop=None, test=False,
-                               ignore=[], unignore=[self.libelle(courant, 1)])
+                               ignore=[], unignore=[self.libelle(courant, 1)],
+                               ignore_module=[], unignore_module=[])
         with mock.patch.object(watch, "WATCH_STATE", fichier), \
                 mock.patch.object(watch, "read_state", new=mock.AsyncMock(return_value=courant)), \
                 mock.patch.object(runtime, "verrou"), \

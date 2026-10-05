@@ -636,18 +636,14 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
   `Blink_Daily/<camera>/...` - decision a prendre avec l'utilisateur, pas
   a trancher seule.
 
-- **Silence d'une camera n'ayant jamais enregistre.**
-  (Reformule apres 28.68 : les deux autres defauts de watch.py sont
-  fermes, ceci est ce qui restait reellement.) Le controle de silence
-  prolonge (`compare()`) ne visite que les cameras presentes dans
-  `last_clip` (au moins un clip, meme ecarte, un jour) - une camera qui
-  n'a jamais rien enregistre depuis son installation n'y entre jamais,
-  quelle que soit la duree. Fermer ce cas demande un point d'ancrage
-  temporel qui n'existe pas encore (depuis quand cette camera n'a-t-elle
-  rien enregistre ?) : un suivi d'etat a ajouter a WATCH_STATE (horodater
-  la premiere observation d'une camera sans historique), pas un correctif
-  d'une ligne - a concevoir plutot qu'a improviser au milieu d'une serie
-  de corrections.
+- **Silence d'une camera n'ayant jamais enregistre.** FAIT le 2026-10-05
+  (decision de Nico : oui). watch.py garde dans WATCH_STATE ("first_seen") la
+  date du premier releve de chaque camera qui n'a encore aucun clip, et
+  alerte une seule fois quand elle atteint SILENCE_DAYS, en ligne et armee,
+  comme le controle de silence existant. Une camera qui obtient un clip, ou
+  disparait de l'installation, sort du suivi ; une camera en sourdine ne
+  declenche rien. Le premier releve ne declenche jamais d'alerte (camera
+  fraichement installee).
 
 - **Optimisations identifiees (pas des bugs, pas urgentes).**
   Registre reecrit en entier a chaque clip (quadratique sur un lot) ;
@@ -812,14 +808,13 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
   fabriquer la vignette au telechargement du clip, et une borne sur la file ;
   le test a froid de Joel sur les vrais clips dira s'ils sont encore utiles.
 
-- **Sourdine d'un Sync Module dans watch.**
-  Source : Nico, 2026-10-05 (module du Portail eteint, fenetre « Module hors
-  ligne » a chaque tour ; la fenetre ne propose que --ignore pour une camera).
-  La boucle elle-meme venait de deux modules de meme nom (« My Blink Sync
-  Module ») retrouves par leur nom : corrigee en 0.16.3 (identifiant Blink).
-  Reste : pouvoir mettre un module en sourdine comme une camera. Piege : par
-  le nom, un --ignore couperait les deux modules homonymes ; il faut cibler
-  par identifiant (ou par reseau), et le dire dans le texte de la fenetre.
-  A decider avec la meme discipline que les cameras (une sourdine ne produit ni
-  alerte ni retour a la normale).
-
+- **Sourdine d'un Sync Module dans watch.** FAIT le 2026-10-05 (demande de
+  Nico). `watch --ignore-module REF...` et `--unignore-module REF...` ; REF =
+  identifiant Blink du module, identifiant de reseau, nom, ou libelle
+  « nom (reseau) ». Un nom partage par deux modules (le nom par defaut est
+  identique) est refuse comme ambigu, avec la liste des identifiants, et rien
+  n'est ecrit. Comme une camera en sourdine : ni alerte ni retour a la
+  normale. La fenetre « Module hors ligne » propose maintenant la commande
+  --ignore-module avec l'identifiant du module concerne. Etat :
+  WATCH_STATE["ignored_modules"]. La boucle d'alerte elle-meme (deux modules
+  homonymes) etait corrigee en 0.16.3.
