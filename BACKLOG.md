@@ -800,9 +800,17 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
   client est parti ; a evaluer : une borne sur la file d'attente. Hors de la
   PR #59, a faire apres les issues en cours.
   FAIT le 2026-10-05 : plus de ffmpeg pour une requete dont le navigateur est
-  parti (serve._client_parti, controle apres l'attente du creneau). RESTE :
-  fabriquer la vignette au telechargement du clip, et une borne sur la file ;
-  le test a froid de Joel sur les vrais clips dira s'ils sont encore utiles.
+  parti (serve._client_parti, controle apres l'attente du creneau).
+  FAIT le 2026-10-05 (demande de Nico) : le telechargeur fabrique la vignette de
+  chaque clip qui arrive (blink_engine._preparer_vignettes, avant la
+  notification, 40 par passage au plus), avec la meme extraction que serve.py
+  (merge_daily.extraire_vignette) et au meme chemin de cache : la page trouve
+  la vignette prete. Mesure sur le vrai clip USB : 0,14 s. Limites connues :
+  avec --thumbs personnalise la vignette faite au telechargement est
+  inutilisee ; une vignette est refaite par serve.py quand la version
+  normalisee du clip (avec l'horodatage incruste) est plus recente. RESTE : une
+  borne sur la file d'attente de serve ; le test a froid de Joel sur les vrais
+  clips dira si elle est encore utile.
 
 - **Sourdine d'un Sync Module dans watch.** FAIT le 2026-10-05 (demande de
   Nico). `watch --ignore-module REF...` et `--unignore-module REF...` ; REF =

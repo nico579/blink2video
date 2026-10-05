@@ -7,6 +7,8 @@ connaît rien de la CLI ni de la session, qui lui sont fournies toutes faites.""
 import asyncio
 import copy
 import datetime as dt
+import functools
+import os
 import time
 from pathlib import Path
 from typing import NamedTuple
@@ -535,6 +537,21 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
 
 JOURNAL_TELECHARGEMENTS = "telechargements.log"
 
+# Vignettes à fabriquer à l'arrivée des clips (voir _preparer_vignettes) : au
+# plus ce nombre par passage ; le reste, par exemple un premier téléchargement
+# de plusieurs centaines de clips, se fabrique à la demande de la page comme
+# avant, sans retarder la notification.
+MAX_VIGNETTES_PAR_PASSAGE = 40
+_VIGNETTES_EN_ATTENTE: list = []
+
+
+@functools.lru_cache(maxsize=1)
+def _ffmpeg_pour_vignettes():
+    try:
+        return md.find_ffmpeg()
+    except RuntimeError:
+        return None
+
 
 def _journaliser_telechargement(source: str, target: Path, output: Path) -> None:
     """Une ligne par clip téléchargé : de quoi dire, après coup, ce qu'une
@@ -552,6 +569,38 @@ def _journaliser_telechargement(source: str, target: Path, output: Path) -> None
         taille = 0
     moment = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     runtime.ajouter_ligne(JOURNAL_TELECHARGEMENTS, f"{moment}  {source}  {nom}  {taille} o")
+    _VIGNETTES_EN_ATTENTE.append((target, output))
+
+
+def _preparer_vignettes() -> None:
+    """Fabrique la vignette des clips qui viennent d'arriver, au même endroit et
+    sous le même nom que serve.py : la page les trouve déjà prêtes au lieu de
+    lancer un ffmpeg par clip à l'ouverture de la galerie (test à froid de
+    Joël, PR #59 : 2 672 lancements pour 2 672 clips).
+
+    Jamais fatale : une vignette manquante se fabrique à la demande, comme
+    avant. Le dossier est celui de serve.py par défaut (à côté du dossier des
+    clips) ; avec une option --thumbs personnalisée, la vignette faite ici est
+    simplement inutilisée. Une vignette plus ancienne que la version normalisée
+    du clip, faite plus tard, est refaite par serve.py."""
+    en_attente = _VIGNETTES_EN_ATTENTE[:MAX_VIGNETTES_PAR_PASSAGE]
+    del _VIGNETTES_EN_ATTENTE[:]
+    ffmpeg = _ffmpeg_pour_vignettes() if en_attente else None
+    if not ffmpeg:
+        return
+    for target, output in en_attente:
+        try:
+            identite = md.clip_identity(output, target)
+            vignette = (output.parent / ".blink_thumbs" / "clip" / identite).with_suffix(".jpg")
+            vignette.parent.mkdir(parents=True, exist_ok=True)
+            provisoire = vignette.with_name(f"{vignette.stem}.{os.getpid()}.tmp.jpg")
+            try:
+                if md.extraire_vignette(ffmpeg, target, provisoire, timeout=60):
+                    provisoire.replace(vignette)
+            finally:
+                provisoire.unlink(missing_ok=True)
+        except Exception:
+            continue
 
 
 def _suppression_auto_autorisee(sync, clip) -> bool:
@@ -1091,6 +1140,11 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
     progression.finir()
 
     if args.command == "download":
+        # Les vignettes avant la notification : le clic sur le toast ouvre la
+        # page, qui doit les trouver prêtes. Hors du fil de la boucle (ffmpeg
+        # bloque) ; run_in_executor plutôt que asyncio.to_thread, absent de
+        # Python 3.8 (édition Windows 7).
+        await asyncio.get_running_loop().run_in_executor(None, _preparer_vignettes)
         # Ligne de synthèse, toutes sources confondues.
         print(msg("nouveaux_clips", n=neufs_total))
         runtime.marquer("download")

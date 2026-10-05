@@ -2344,25 +2344,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         if self._client_parti():
                             self.close_connection = True
                             return
-                        runtime.lancer(
-                            [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-                             # -ss avant -i : ffmpeg saute directement à la position
-                             # demandée au lieu de décoder tout ce qui précède.
-                             "-ss", "1.5", "-i", str(source), "-frames:v", "1",
-                             "-vf", "scale=480:-2", "-q:v", "5", str(pending)],
-                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, check=False,
-                        )
-                        if not pending.is_file() or pending.stat().st_size == 0:
-                            # Clip plus court que la position demandée : on se
-                            # rabat sur la toute première image.
-                            runtime.lancer(
-                                [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-                                 "-i", str(source), "-frames:v", "1",
-                                 "-vf", "scale=480:-2", "-q:v", "5", str(pending)],
-                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, check=False,
-                            )
+                        md.extraire_vignette(self.ffmpeg, source, pending)
                     if not pending.is_file() or pending.stat().st_size == 0:
                         pending.unlink(missing_ok=True)
                         self.send_error(404)

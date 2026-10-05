@@ -637,6 +637,29 @@ def find_ffmpeg() -> str:
     return candidats[0]
 
 
+def extraire_vignette(ffmpeg: str, source: Path, pending: Path, timeout=None) -> bool:
+    """Extrait la vignette d'un clip dans `pending` ; vrai si le fichier existe.
+
+    Prise un peu après le début, jamais sur la première image : une caméra qui
+    vient de se déclencher livre souvent une ou deux images noires ou
+    surexposées, le temps que l'exposition s'ajuste. Un clip plus court que la
+    position demandée se rabat sur sa toute première image. Partagée par
+    serve.py (à la demande) et le téléchargeur (à l'arrivée du clip) : une seule
+    manière de fabriquer la vignette, donc un seul aspect."""
+    for entree in (["-ss", "1.5", "-i", str(source)], ["-i", str(source)]):
+        # -ss avant -i : ffmpeg saute directement à la position demandée au
+        # lieu de décoder tout ce qui précède.
+        runtime.lancer(
+            [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", *entree,
+             "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "5", str(pending)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, check=False, timeout=timeout,
+        )
+        if pending.is_file() and pending.stat().st_size > 0:
+            return True
+    return False
+
+
 def has_drawtext(ffmpeg: str) -> bool:
     try:
         result = runtime.lancer(
