@@ -533,6 +533,27 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
     )
 
 
+JOURNAL_TELECHARGEMENTS = "telechargements.log"
+
+
+def _journaliser_telechargement(source: str, target: Path, output: Path) -> None:
+    """Une ligne par clip téléchargé : de quoi dire, après coup, ce qu'une
+    notification « N nouveaux clips » annonçait vraiment.
+
+    Heure, source (usb ou cloud), chemin relatif au dossier des clips et taille :
+    ni URL ni identifiant de compte. Jamais fatal (runtime.ajouter_ligne)."""
+    try:
+        nom = target.relative_to(output).as_posix()
+    except ValueError:
+        nom = target.name
+    try:
+        taille = target.stat().st_size
+    except OSError:
+        taille = 0
+    moment = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    runtime.ajouter_ligne(JOURNAL_TELECHARGEMENTS, f"{moment}  {source}  {nom}  {taille} o")
+
+
 def _suppression_auto_autorisee(sync, clip) -> bool:
     """Relit le choix après la copie locale, juste avant l'appel distant.
 
@@ -625,6 +646,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                     consommees.add(cle_cloud)
                     downloaded += 1
                     resultat = "downloaded"
+                    _journaliser_telechargement("cloud", target, output)
                     runtime.notifier_nouveau_media(clip.name, target, "clip")
                     if _suppression_auto_autorisee(sync, clip):
                         if await clip.delete_video(blink):
@@ -998,6 +1020,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                             state, plan.sync, plan.nom, clip, output, target,
                         )
                         blink_registre.save_download_state(output, state)
+                        _journaliser_telechargement("usb", target, output)
                         runtime.notifier_nouveau_media(clip.name, target, "clip")
                         if _suppression_auto_autorisee(plan.sync, clip):
                             # La copie locale est déjà valide et inscrite. Une
@@ -1079,6 +1102,11 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
             # doit parler la même langue que ce que l'utilisateur a choisi.
             cle = "notif_corps_singulier" if neufs_total == 1 else "notif_corps_pluriel"
             corps = msg(cle, n=neufs_total)
+            runtime.ajouter_ligne(
+                JOURNAL_TELECHARGEMENTS,
+                f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  notification  "
+                f"{neufs_total} clip(s) annoncé(s)",
+            )
             # Le port configuré, pas 8765 en dur : sans ça, la notification
             # pointait vers la mauvaise page dès que l'utilisateur changeait
             # de port dans les réglages (revue du 27/08, bug 5).
