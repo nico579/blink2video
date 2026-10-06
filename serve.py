@@ -51,6 +51,8 @@ except ImportError:  # Python 3.8 (build Windows 7, voir build-win7.yml) : pas d
 
 # Avant tout import de dépendance : c'est ici qu'un environnement isolé
 # est préparé et le programme relancé dedans si nécessaire.
+from nico579_commons import serveweb
+
 import runtime
 
 LIBELLES = {
@@ -1818,13 +1820,6 @@ class _ReglagesInvalides(ValueError):
 _ENTREE_CONFIANCE_RE = re.compile(r"^[A-Za-z0-9._\-:\[\]/]+$")
 
 
-def _entrees_confiance(valeur: str) -> list:
-    """Entrées de trusted_host : une liste séparée par des virgules (issue
-    #13), chacune un nom d'hôte exact, une IP ou un sous-réseau CIDR. Une
-    valeur unique, la seule forme possible avant, reste une liste d'un."""
-    return [entree.strip() for entree in (valeur or "").split(",") if entree.strip()]
-
-
 def normaliser_hotes_confiance(valeur: str) -> str:
     """Valide trusted_host et le rend sous forme canonique (« a,b »), ou lève
     ValueError avec un message affichable. Appliqué à l'enregistrement depuis
@@ -1832,7 +1827,7 @@ def normaliser_hotes_confiance(valeur: str) -> str:
     version antérieure et refusé par celle-ci empêcherait sinon le serveur de
     démarrer après mise à jour. À l'usage, hote_autorise() et end_headers()
     ignorent de toute façon les entrées invalides (refus par défaut)."""
-    entrees = _entrees_confiance(valeur)
+    entrees = serveweb.entrees_confiance(valeur)
     for entree in entrees:
         # Un « - » initial n'appartient à aucun nom d'hôte ni adresse, et
         # argparse lirait « --trusted-host -x » comme une option sans valeur :
@@ -1981,7 +1976,7 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
     return dossier, reglages
 
 
-class Handler(http.server.BaseHTTPRequestHandler):
+class Handler(serveweb.Handler):
     # HTTP/1.1 pour garder la connexion ouverte : un navigateur qui se déplace
     # dans une vidéo enchaîne les requêtes Range, une par saut. En HTTP/1.0 il
     # rouvrirait une connexion à chaque fois.
@@ -2003,7 +1998,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ protection
 
-    _HOTES_LOCAUX = ("127.0.0.1", "localhost", "::1")
+    # La garde d'hôte (Host, Origin, trusted_host en liste ou CIDR, proxy local)
+    # est celle de nico579_commons.serveweb, la même pour les quatre
+    # applications ; ne reste ici que ce qui est propre à blink2video.
+    variable_proxy_local = "BLINK_TRUSTED_LOOPBACK_PROXY"
 
     def _journaliser_acces_refuse(self, raison: str) -> None:
         """Trace un 403 de hote_autorise() dans serve_erreurs.log (même
@@ -2027,118 +2025,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     f"trusted_host configuré: {self.trusted_host!r}\n")
         except OSError:
             pass
-
-    @staticmethod
-    def _hote_correspond(hote: str, hote_confiance: str) -> bool:
-        """Vrai si `hote` (Host ou Origin, déjà réduit au hostname) est
-        couvert par l'une des entrées de `hote_confiance`.
-
-        Chaque entrée (liste séparée par des virgules, issue #13 : un seul
-        nom ou un seul sous-réseau ne suffisait pas pour mêler accès direct
-        et iframe) est soit une IP/nom d'hôte exact (comparaison de chaîne),
-        soit un sous-réseau CIDR (192.168.1.0/24, issue #10 : un client
-        Windows en DHCP n'a pas d'adresse fixe). ip_network(..., strict=False)
-        tolère aussi qu'on y colle l'adresse d'une machine du réseau plutôt
-        que l'adresse réseau elle-même (192.168.1.5/24), erreur de saisie
-        probable et sans ambiguïté sur l'intention. Jamais de ValueError
-        remontée : un hote ou un CIDR mal formé se traite comme "pas de
-        correspondance", pas comme une erreur serveur."""
-        for entree in _entrees_confiance(hote_confiance):
-            if "/" in entree:
-                try:
-                    if ipaddress.ip_address(hote) in ipaddress.ip_network(entree, strict=False):
-                        return True
-                except ValueError:
-                    continue
-            elif hote == entree:
-                return True
-        return False
-
-    def hote_autorise(self) -> bool:
-        """Faux si Host (ou Origin, quand le navigateur l'envoie) ne désigne
-        pas cette machine.
-
-        L'interface n'a pas d'authentification (40210a6, délibéré : un outil
-        personnel, pas un service multi-utilisateur) ; le seul rempart contre
-        une page tierce qui actionnerait l'API à l'insu de qui la visite est
-        de vérifier d'où vient la requête. Un client HTTP quelconque (tests,
-        `curl` local) n'envoie pas Origin : seul Host, toujours présent,
-        est alors regardé."""
-        # trusted_host (réglage web, ou --trusted-host au lancement) : usage
-        # prévu, un tunnel privé (Tailscale, WireGuard) auquel BLINK_BIND lie
-        # directement cette instance, sans reverse proxy devant pour réécrire
-        # Host - l'alternative la plus simple à ce montage restait jusqu'ici
-        # de toujours en installer un (voir le README, "Reaching it
-        # remotely"). Contrairement à BLINK_TRUSTED_LOOPBACK_PROXY (qui ne
-        # relâche que la provenance de la connexion ; Host doit rester
-        # 127.0.0.1), celui-ci relâche aussi Host lui-même : la garantie ne
-        # vient alors plus de la boucle locale, mais du réseau du tunnel -
-        # seuls ses appareils peuvent router un paquet vers cette adresse,
-        # chiffré au niveau protocole, avant même que cette fonction ne
-        # s'exécute. La page reste sans la moindre authentification propre,
-        # mais n'est jamais joignable par personne d'autre, exactement comme
-        # depuis la boucle locale. N'a de sens qu'avec BLINK_BIND réglé sur
-        # cette même adresse précise, jamais 0.0.0.0 (qui accepterait alors
-        # n'importe quelle interface, LAN compris, sous ce même Host).
-        #
-        # Sous-réseau CIDR (192.168.1.0/24 plutôt qu'une IP unique) : la
-        # garantie change de nature, elle ne vient plus de "seul ce tunnel
-        # chiffré peut router un paquet ici" mais de "seul ce réseau local
-        # peut" - tout appareil qui y est déjà, y compris un invité ou un
-        # objet connecté compromis, gagne alors le même accès sans
-        # authentification. Un choix a assumer sciemment pour un LAN
-        # domestique de confiance, jamais pour un tunnel qui doit rester
-        # aussi étroit qu'une seule machine.
-        hote_confiance = (self.trusted_host or "").strip()
-        hote = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
-        hote_est_local = hote in self._HOTES_LOCAUX
-        hote_est_confiance = self._hote_correspond(hote, hote_confiance)
-        if not hote_est_local and not hote_est_confiance:
-            self._journaliser_acces_refuse(
-                f"Host {hote!r} ni local, ni couvert par trusted_host {hote_confiance!r}")
-            return False
-        # Host est fourni par le client et se forge avec curl : il ne constitue
-        # pas une frontière réseau à lui seul. Hors conteneur ou tunnel de
-        # confiance, seule une vraie adresse cliente de boucle locale est
-        # admise. Le compose officiel passe par le pont Docker ; son opt-in
-        # explicite reste sûr tant que le port hôte est publié sur 127.0.0.1,
-        # comme dans docker-compose.yml.
-        client = str(getattr(self, "client_address", ("127.0.0.1", 0))[0])
-        try:
-            boucle_locale = ipaddress.ip_address(client).is_loopback
-        except ValueError:
-            boucle_locale = False
-        proxy_local = os.environ.get("BLINK_TRUSTED_LOOPBACK_PROXY") == "1"
-        if not boucle_locale and not proxy_local and not hote_est_confiance:
-            self._journaliser_acces_refuse(
-                f"ni boucle locale (IP cliente {client!r}), ni "
-                f"BLINK_TRUSTED_LOOPBACK_PROXY, ni trusted_host "
-                f"(Host {hote!r}, trusted_host {hote_confiance!r})")
-            return False
-        origine = self.headers.get("Origin")
-        if origine:
-            # Même repli fermé que boucle_locale ci-dessus (ValueError sur
-            # une adresse illisible) : urlparse lève sur certaines formes
-            # manifestement invalides (IPv6 mal fermé, ex. « http://[abc »)
-            # au lieu de rendre un hostname vide comme le reste des Origin
-            # mal formées. Trouvé en auditant la même levée sur l'URL de
-            # webhook sortant (issue #11) : un client qui forge cet en-tête
-            # faisait planter la requête (exception non rattrapée jusqu'à
-            # do_GET/do_POST) plutôt que de se la voir simplement refuser.
-            try:
-                origine_hote = urlparse(origine).hostname
-            except ValueError:
-                origine_hote = None
-            origine_ok = origine_hote is not None and (
-                origine_hote in self._HOTES_LOCAUX
-                or self._hote_correspond(origine_hote, hote_confiance)
-            )
-            if not origine_ok:
-                self._journaliser_acces_refuse(
-                    f"Origin {origine!r} (hostname {origine_hote!r}) "
-                    f"ni local, ni couvert par trusted_host {hote_confiance!r}")
-                return False
-        return True
 
     def jeton_valide(self) -> bool:
         """Le jeton de process (TOKEN) doit accompagner toute requête qui
@@ -2174,7 +2060,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # (ioBroker) était refusé, vérifié dans Chrome. Tout port de l'hôte,
         # comme hote_autorise() qui ignore déjà le port. Pas d'entrée IPv6 :
         # la syntaxe CSP n'a pas de forme pour une adresse IPv6 littérale.
-        exacts = [entree for entree in _entrees_confiance(self.trusted_host)
+        exacts = [entree for entree in serveweb.entrees_confiance(self.trusted_host)
                   if "/" not in entree and ":" not in entree
                   and _ENTREE_CONFIANCE_RE.match(entree)]
         frame_ancestors = ("'self' " + " ".join(f"{entree}:*" for entree in exacts)
