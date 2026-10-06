@@ -30,7 +30,7 @@ platformdirs
 # que la bibliothèque standard : l'icône (pystray, Pillow) reste facultative
 # depuis les sources, et absente de l'image Docker. Fourchette : une version
 # incompatible ne peut pas entrer dans le verrou.
-nico579-commons>=0.4.2,<0.5
+nico579-commons>=0.4.4,<0.5
 
 # aiortc tire par defaut cryptography>=49 (donc cffi>=2). Sans venv dedie,
 # ce depot s'installe sur le python systeme partage avec d'autres outils

@@ -866,9 +866,9 @@ multidict==6.7.1 \
     #   -c requirements.txt
     #   aiohttp
     #   yarl
-nico579-commons==0.4.2 \
-    --hash=sha256:2c1d2317087a7abfbc21998a32ec97c3ba98bfb8694ee0616397d7dde14acdbf \
-    --hash=sha256:ea95b36af4f73d8976d48c75b59361db5248e27db519caf655b23b6dfed44742
+nico579-commons==0.4.4 \
+    --hash=sha256:0f426af5c9f309c21332063d948573d9f5c34e728f1d0659378127a15895c218 \
+    --hash=sha256:15ee37b9126fc6ba0925af541bd192c2d5a70b753b2874450fed68e51dbc7e10
     # via
     #   -c requirements.txt
     #   -r requirements.in

@@ -22,6 +22,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from nico579_commons import demarrage
 from nico579_commons import relance as relance_commune
 
 import runtime
@@ -256,47 +257,53 @@ def _raccourci(quoi: tuple = ()) -> Path:
     return _dossier_demarrage() / f"{etiquette(quoi)}.lnk"
 
 
+def _entree(quoi: tuple = DEFAUT) -> demarrage.Entree:
+    """L'entrée de démarrage de ce verbe, pour nico579_commons.demarrage (le
+    même code que lidar2map et watch2notif pose les fichiers) : ne reste ici
+    que ce qui est propre à blink2video, le nom d'entrée, la commande et le
+    dossier de travail."""
+    return demarrage.Entree(
+        etiquette(quoi), tuple(commande(quoi)), runtime.app_dir(),
+        "Surveillance blink2video", label_macos=_label_macos(quoi),
+        anciens_labels_macos=(ANCIEN_LABEL_MACOS,))
+
+
+def _entree_nommee(quoi: tuple = DEFAUT) -> demarrage.Entree:
+    """Pour retirer ou lister : le nom suffit, la commande n'est pas évaluée (un
+    verbe inconnu ne doit pas empêcher de retirer une entrée)."""
+    return demarrage.Entree(etiquette(quoi), (), runtime.app_dir(),
+                            label_macos=_label_macos(quoi))
+
+
+def _message_retrait(cible: Path, existait: bool) -> int:
+    print(_("demarrage_retire" if existait else "demarrage_deja_absent", cible=cible))
+    return 0
+
+
 def _windows(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     if etat == "status":
-        return _lister(sorted(_dossier_demarrage().glob(f"{NOM}*.lnk")),
+        return _lister(demarrage.installees(NOM, plateforme="win32"),
                        _("label_raccourcis_demarrage"))
-    cible = _raccourci(quoi)
     if etat == "off":
-        return _retirer(cible, simulation)
+        return _retirer(demarrage.chemin_raccourci(_entree_nommee(quoi)), simulation)
 
-    ligne = commande(quoi)
-    executable = ligne[0]
-    arguments = subprocess.list2cmdline(ligne[1:])
+    entree = _entree(quoi)
+    cible = demarrage.chemin_raccourci(entree)
+    executable = entree.commande[0]
+    arguments = subprocess.list2cmdline(entree.commande[1:])
     if simulation:
         print(_("creerait", cible=cible))
         print(_("cible_label", executable=executable))
         print(_("args_label", arguments=arguments))
         return 0
 
-    # Un raccourci se crée par l'interface COM de l'explorateur, présente sur
-    # toute installation de Windows. PowerShell l'expose sans rien installer.
     # Aucune fenêtre ne s'ouvre : l'exécutable est construit sans console
     # (console=False dans blink2video.spec), comme pythonw.exe qui le remplace
-    # depuis les sources. WindowStyle 7 (réduite) ne sert plus que de garde :
-    # une console, s'il en revenait une, ne s'ouvrirait pas en plein écran.
-    script = (
-        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut({cible});"
-        "$s.TargetPath = {executable}; $s.Arguments = {arguments};"
-        "$s.WorkingDirectory = {dossier}; $s.WindowStyle = 7;"
-        "$s.Description = 'Surveillance blink2video'; $s.Save()"
-    ).format(
-        cible=_chaine_ps(str(cible)),
-        executable=_chaine_ps(executable),
-        arguments=_chaine_ps(arguments),
-        dossier=_chaine_ps(str(runtime.app_dir())),
-    )
-    resultat = runtime.lancer(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE, text=True, errors="replace", check=False,
-    )
-    if resultat.returncode != 0 or not cible.exists():
-        print(_("echec_raccourci", detail=resultat.stderr.strip() or _("raccourci_non_cree")))
+    # depuis les sources. WindowStyle 7 (réduite) ne sert plus que de garde.
+    try:
+        demarrage.activer(entree, plateforme="win32", lancer=runtime.lancer)
+    except demarrage.ErreurDemarrage as erreur:
+        print(_("echec_raccourci", detail=erreur.valeurs.get("detail") or _("raccourci_non_cree")))
         return 1
     return _installe(cible, quoi)
 
@@ -369,48 +376,29 @@ def migrer_agents_macos(dossier=None) -> list:
 
 
 def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
-    dossier = Path.home() / "Library/LaunchAgents"
     if etat == "status":
-        return _lister(sorted(dossier.glob(f"com.nico579.{NOM}*.plist")),
+        return _lister(demarrage.installees(NOM, plateforme="darwin",
+                                            prefixe_label=f"com.nico579.{NOM}"),
                        _("label_agents_lancement"))
-    label = _label_macos(quoi)
-    cible = dossier / f"{label}.plist"
+    entree = _entree_nommee(quoi) if etat == "off" else _entree(quoi)
+    cible = demarrage.chemin_agent(entree)
     if etat == "off":
-        if not simulation:
-            _retirer_agent_ancien_nom()
-            runtime.lancer(["launchctl", "unload", str(cible)], check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return _retirer(cible, simulation)
+        if simulation:
+            print(_("supprimerait", cible=cible))
+            return 0
+        existait = cible.exists()
+        # Même sans fichier : un agent chargé sous l'ancien nom commun.
+        _retirer_agent_ancien_nom()
+        demarrage.desactiver(entree, plateforme="darwin", lancer=runtime.lancer)
+        return _message_retrait(cible, existait)
 
-    # Valeurs échappées : un dossier comme « Blink & Videos » écrivait un &
-    # brut, et launchd refusait le plist (audit du 26/09/2026, B08). Même
-    # échappement que le jumeau lidar2map.
-    from xml.sax.saxutils import escape
-    arguments = "".join(f"    <string>{escape(a)}</string>\n" for a in commande(quoi))
-    contenu = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
-        '<plist version="1.0"><dict>\n'
-        f'  <key>Label</key><string>{label}</string>\n'
-        f'  <key>ProgramArguments</key>\n  <array>\n{arguments}  </array>\n'
-        f'  <key>WorkingDirectory</key><string>{escape(str(runtime.app_dir()))}</string>\n'
-        '  <key>RunAtLoad</key><true/>\n'
-        # Relance la surveillance si elle s'interrompt : un chien de garde qui
-        # s'arrête en silence ne vaut rien. Mais pas après un arrêt voulu :
-        # KeepAlive=true relançait aussi après « stop », une mise à jour ou
-        # « Appliquer » (issue #31). Seule une sortie en erreur ou par un
-        # signal relance désormais ; le superviseur fait du SIGTERM de « stop »
-        # une sortie 0 (blink_cli._sortie_propre_sur_sigterm). Même politique
-        # que lidar2map et watch2notif.
-        '  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n'
-        '</dict></plist>\n'
-    )
-
-    # Relu avant d'être écrit : jamais d'agent annoncé installé que launchd
-    # refuserait à la prochaine ouverture de session.
+    # Valeurs échappées par plistlib : un dossier comme « Blink & Videos »
+    # écrivait un & brut, et launchd refusait le plist (audit du 26/09/2026,
+    # B08). Relu avant d'être écrit : jamais d'agent annoncé installé que
+    # launchd refuserait à la prochaine ouverture de session.
     import plistlib
     try:
+        contenu = demarrage.contenu_agent(entree)
         plistlib.loads(contenu.encode("utf-8"))
     except Exception as erreur:
         print(_("plist_invalide", erreur=erreur))
@@ -418,45 +406,17 @@ def _macos(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
     if simulation:
         print(_("ecrirait", cible=cible, contenu=contenu))
         return 0
-    _retirer_agent_ancien_nom()
-    cible.parent.mkdir(parents=True, exist_ok=True)
-    cible.write_text(contenu, encoding="utf-8")
-    runtime.lancer(["launchctl", "load", str(cible)], check=False)
+    demarrage.activer(entree, plateforme="darwin", lancer=runtime.lancer)
     return _installe(cible, quoi)
 
 
 # --------------------------------------------------------------------- Linux
 
-def env_systemctl(environ=None, uid=None, racine: Path = Path("/run/user")) -> dict:
-    """Environnement de « systemctl --user », session systemd comprise.
-
-    Un utilisateur dédié ouvert par su ou sudo n'a ni XDG_RUNTIME_DIR ni
-    DBUS_SESSION_BUS_ADDRESS : systemctl --user ne trouve alors pas son
-    gestionnaire de services (issue #23, il fallait les exporter à la main
-    dans le .profile). Les deux se déduisent de /run/user/<uid>, que systemd
-    crée pour tout utilisateur qui a une session ou le « linger » activé."""
-    env = dict(os.environ if environ is None else environ)
-    if not env.get("XDG_RUNTIME_DIR"):
-        dossier = racine / str(os.getuid() if uid is None else uid)
-        if dossier.is_dir():
-            env["XDG_RUNTIME_DIR"] = str(dossier)
-    if not env.get("DBUS_SESSION_BUS_ADDRESS") and env.get("XDG_RUNTIME_DIR"):
-        bus = Path(env["XDG_RUNTIME_DIR"]) / "bus"
-        if bus.exists():
-            env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={bus}"
-    return env
-
-
-def argument_systemd(valeur: str) -> str:
-    """Un argument d'ExecStart= entre guillemets, selon les règles de systemd
-    (man systemd.service, « Command lines ») : antislash et guillemet
-    échappés, % doublé (spécificateurs), $ doublé (substitution de
-    variables). Une simple jointure par espaces coupait en deux un chemin
-    comme « /home/moi/Blink Videos/blink2video » (audit du 26/09/2026, B07).
-    Même échappement que le jumeau lidar2map, $ en plus."""
-    echappe = (valeur.replace("\\", "\\\\").replace('"', '\\"')
-               .replace("%", "%%").replace("$", "$$"))
-    return f'"{echappe}"'
+# Ces deux-là sont celles du commun (nico579_commons.demarrage), nées ici :
+# l'environnement de « systemctl --user » (issue #23) et un argument d'ExecStart=
+# entre guillemets, % et $ doublés (audit du 26/09/2026, B07).
+env_systemctl = demarrage.env_systemctl
+argument_systemd = demarrage.argument_systemd
 
 
 # Sous l'unité posée par « autostart on », tout processus lancé par blink2video
@@ -528,54 +488,37 @@ def relancer_service(environ=None) -> str:
 
 
 def _linux(etat: str, simulation: bool, quoi: tuple = DEFAUT) -> int:
-    dossier = Path.home() / ".config/systemd/user"
     if etat == "status":
-        return _lister(sorted(dossier.glob(f"{NOM}*.service")),
+        return _lister(demarrage.installees(NOM, plateforme="linux"),
                        _("label_services_utilisateur"))
-    cible = dossier / f"{etiquette(quoi)}.service"
+    entree = _entree_nommee(quoi) if etat == "off" else _entree(quoi)
+    cible = demarrage.chemin_unite(entree)
     env = env_systemctl() if not simulation else None
     if etat == "off":
-        if not simulation:
-            runtime.lancer(["systemctl", "--user", "disable", "--now", etiquette(quoi)],
-                           check=False, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, env=env)
-        code = _retirer(cible, simulation)
-        if not simulation:
-            runtime.lancer(["systemctl", "--user", "daemon-reload"], check=False, env=env)
-        return code
+        if simulation:
+            print(_("supprimerait", cible=cible))
+            return 0
+        existait = cible.exists()
+        demarrage.desactiver(entree, plateforme="linux", lancer=runtime.lancer, env=env)
+        return _message_retrait(cible, existait)
 
-    contenu = (
-        "[Unit]\n"
-        "Description=Surveillance blink2video\n\n"
-        "[Service]\n"
-        f"ExecStart={' '.join(argument_systemd(a) for a in commande(quoi))}\n"
-        # Une seule valeur, que systemd ne découpe pas ; seuls ses
-        # spécificateurs % y sont interprétés.
-        f"WorkingDirectory={str(runtime.app_dir()).replace('%', '%%')}\n"
-        "Restart=on-failure\n\n"
-        "[Install]\n"
-        "WantedBy=default.target\n"
-    )
     if simulation:
-        print(_("ecrirait", cible=cible, contenu=contenu))
+        print(_("ecrirait", cible=cible, contenu=demarrage.contenu_unite(entree)))
         return 0
-    cible.parent.mkdir(parents=True, exist_ok=True)
-    cible.write_text(contenu, encoding="utf-8")
-    runtime.lancer(["systemctl", "--user", "daemon-reload"], check=False, env=env)
-    activation = ["systemctl", "--user", "enable", "--now", etiquette(quoi)]
-    resultat = runtime.lancer(activation, check=False, env=env)
-    if not env.get("XDG_RUNTIME_DIR"):
-        code = _installe(cible, quoi)
-        import getpass
-        print(_("session_systemd_absente", utilisateur=getpass.getuser()))
-        return code
-    # Avec une session systemd, un refus est un vrai échec : ne plus
-    # l'annoncer comme une installation réussie (audit du 26/09/2026, B07).
-    if resultat.returncode != 0:
-        print(_("installation_refusee", commande=" ".join(activation),
-                code=resultat.returncode, cible=cible))
+    try:
+        notes = demarrage.activer(entree, plateforme="linux", lancer=runtime.lancer, env=env)
+    except demarrage.ErreurDemarrage as erreur:
+        # Avec une session systemd, un refus est un vrai échec : ne plus
+        # l'annoncer comme une installation réussie (audit du 26/09/2026, B07).
+        v = erreur.valeurs
+        print(_("installation_refusee", commande=v["commande"], code=v["retour"],
+                cible=v["cible"]))
         return 1
-    return _installe(cible, quoi)
+    code = _installe(cible, quoi)
+    for cle, valeurs in notes:
+        if cle == "session_systemd_absente":
+            print(_("session_systemd_absente", utilisateur=valeurs["utilisateur"]))
+    return code
 
 
 # ------------------------------------------------------------------- communs

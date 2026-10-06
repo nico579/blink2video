@@ -611,6 +611,40 @@ les perdre, pas forcement les construire toutes.
   d'office, decision laissee a l'utilisateur. Nouvelle version (v0.11.6)
   tentee ensuite avec le correctif en place.
 
+## Mutualisation restante entre les quatre applications (2026-10-06)
+
+Ce qui est dans nico579-commons et branché dans les quatre : icône et menu,
+raccourci de bureau, recherche de version, relance, environnement système,
+écritures atomiques, dossiers d'état, serveur web et garde d'hôte, démarrage
+automatique (`demarrage`, 0.4.4). Dans gpxsolar, lidar2map et watch2notif :
+l'installation automatique (`maj_install`, `Installateur`, bandeau commun).
+Dans blink2video et watch2notif : téléchargement et extraction sûrs
+(`maj_archive`). Reste, par ordre d'intérêt :
+
+- **blink2video : remplacement de l'installation par `maj_install` (non fait,
+  par choix).** Les deux conceptions diffèrent par ce qu'elles savent faire,
+  pas par du code recopié. Celle de `maj.py` arrête toutes les instances et
+  tous les verbes, remplace élément par élément (`_poser`) sous une
+  réservation d'installation, garde un marqueur de permutation pour reprendre
+  après une coupure (`RestaurationIncomplete`), puis relance chaque composition
+  de verbes qui tournait (`_relancer_tout`, depuis le registre des instances).
+  L'assistant de `maj_install` relance une seule commande et son retour arrière
+  est un échange de dossiers sans marqueur de reprise. L'adopter ferait perdre
+  de la robustesse à l'application qu'on met le plus à jour. Y revenir si on
+  étend `maj_install` à plusieurs commandes de relance et à un marqueur de
+  reprise ; sinon garder la divergence, documentée ici.
+- **Amorçage des dépendances en mode sources.** Trois versions indépendantes :
+  `runtime.bootstrap` (blink2video), `_bootstrap_*` de lidar2map (environ
+  800 lignes) et `_bootstrap_*` de gpxsolar. Rien dans le commun. Grosse
+  refonte d'un mécanisme qui marche : à faire seulement si un quatrième
+  besoin apparaît.
+- **Petits jumeaux.** Verrou d'instance de watch2notif (`single_instance.py`,
+  61 lignes, même mécanisme que `atomique.verrou_inter_processus`) ; contexte
+  TLS de blink2video (`blink_tls.py`) face à celui de lidar2map
+  (`_bootstrap_tls.py`) ; `send_json` et `end_headers` de blink2video, qui
+  diffèrent de ceux du commun à dessein (CSP à nonce, `ensure_ascii`) ;
+  `web_bridge.js` copié entre gpxsolar et lidar2map.
+
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
 Les onze bugs numerotes de la revue sont tous traites (28.59 a 28.68) :
