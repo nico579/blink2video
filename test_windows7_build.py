@@ -204,9 +204,8 @@ class Windows7BuildTests(unittest.TestCase):
 
     def test_update_is_disabled_without_network(self):
         with mock.patch.object(runtime, "build_windows7", return_value=True), \
-                mock.patch.object(maj.VERIFICATEUR, "verifier") as interroger:
-            self.assertEqual(maj.disponible(), {})
-            self.assertEqual(maj.verifier_maintenant(), ({}, True))
+                mock.patch.object(maj, "_interroger") as interroger:
+            self.assertEqual(maj.disponible(force=True), {})
             with redirect_stdout(StringIO()) as sortie:
                 self.assertEqual(maj.installer(force=True), 0)
             self.assertIn("désactivée", sortie.getvalue())

@@ -39,7 +39,7 @@ from typing import NamedTuple
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.18.4"
+VERSION = "0.18.5"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -535,7 +535,7 @@ DEPENDANCES = {
     # systemd (autostart.py). Sans l'extra « tray », elle n'exige rien de plus
     # que la bibliothèque standard : l'icône reste facultative depuis les
     # sources. Même fourchette que requirements.in.
-    "nico579_commons": "nico579-commons>=0.4.0,<0.5",
+    "nico579_commons": "nico579-commons>=0.4.1,<0.5",
 }
 if sys.version_info < (3, 9):
     # zoneinfo est stdlib depuis 3.9 ; en dessous (édition Windows 7,
@@ -665,7 +665,8 @@ MARQUEUR_MIGRATION = ".blink_etat_migre.json"
 # test_runtime_dossier_stockage.py vérifie qu'ils concordent.
 ETAT_HISTORIQUE = (REGLAGES, "blink_auth.json", LANGUE, JETON_WEBHOOK,
                    SUPPRESSION_AUTO, ".blink_passages.json",
-                   ".blink_watch_state.json", ".blink_raccourci_cree")
+                   ".blink_watch_state.json", ".blink_raccourci_cree",
+                   ".blink_maj.json")
 # Ce que le programme produit, rangé sous dossier_sorties().
 DOSSIERS_SORTIES = ("Blink_Clips", "Blink_Daily", "Blink_Weekly", "Blink_Monthly",
                     "Blink_Normalized", "Blink_Excluded", "Blink_Direct",

@@ -39,8 +39,6 @@ import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from nico579_commons import maj as maj_commune
-
 import runtime
 from blink_tls import contexte_tls
 
@@ -259,6 +257,14 @@ def msg(cle: str, **valeurs) -> str:
 
 
 DEPOT = "nico579/blink2video"
+CACHE = Path(".blink_maj.json")
+# Une heure. Six heures faisaient attendre une version publiée jusqu'à une
+# demi-journée (issue #35) ; une question par heure reste loin des soixante
+# que l'API de GitHub accorde par heure et par adresse sans compte. Pour ne
+# pas attendre du tout, le bouton « Vérifier les mises à jour » des réglages
+# (verifier_maintenant). L'interface, elle, lit le cache sans jamais
+# interroger GitHub à l'ouverture d'une page.
+FRAICHEUR = 3600
 DOSSIER_TRAVAIL = "update"
 MARQUEUR_TRAVAIL = ".blink2video-update"
 # Avant 0.10.5, les mises à jour étaient préparées à côté de l'installation.
@@ -279,6 +285,18 @@ UPDATE_HOST_SUFFIXES = ("github.com", "githubusercontent.com")
 
 
 # ------------------------------------------------------------------ détection
+
+def _numeros(version: str) -> tuple:
+    """« v0.5.3 » devient (0, 5, 3), comparable à un autre tuple.
+
+    Comparer des chaînes rangerait 0.5.10 avant 0.5.9."""
+    propre = version.strip().lstrip("vV")
+    morceaux = []
+    for part in propre.split("."):
+        chiffres = "".join(c for c in part if c.isdigit())
+        morceaux.append(int(chiffres) if chiffres else 0)
+    return tuple(morceaux)
+
 
 def _sha256_normalise(valeur) -> str:
     """Empreinte SHA-256 canonique, ou chaîne vide si elle est impropre."""
@@ -326,26 +344,23 @@ def _archive_de_ce_systeme(assets: list) -> dict:
     return {}
 
 
-def _ouvrir_github(url: str) -> dict:
-    """La réponse JSON de GitHub, avec les racines de contexte_tls() (celles du
-    système et de certifi : Windows 7 ne reçoit plus toutes les nouvelles)."""
+# La recherche de la dernière release reste ICI et non dans
+# nico579_commons.maj (Verificateur), contrairement à celle des trois autres
+# applications : ce module est le programme de mise à jour, il doit s'importer
+# et fonctionner sans AUCUNE dépendance installée (c'est justement quand les
+# dépendances sont cassées qu'on en a besoin ; test_updater_reste_importable_
+# sans_dependances, python -S). Et installer() a besoin de l'archive de ce
+# système et du contrôle d'empreinte, que le Verificateur ne porte pas.
+# Spécialisation assumée, vue en comparant les jumeaux le 2026-10-06.
+def _interroger() -> dict:
+    """Demande à GitHub la dernière release publiée."""
     requete = urllib.request.Request(
-        url, headers={"Accept": "application/vnd.github+json",
-                      "User-Agent": f"blink2video/{runtime.VERSION}"})
+        f"https://api.github.com/repos/{DEPOT}/releases/latest",
+        headers={"Accept": "application/vnd.github+json",
+                 "User-Agent": f"blink2video/{runtime.VERSION}"})
     with urllib.request.urlopen(requete, timeout=10,
                                 context=contexte_tls()) as reponse:
         return json.loads(reponse.read().decode("utf-8"))
-
-
-# La recherche de la dernière release est celle du commun, la même pour les
-# quatre applications : une question à GitHub par heure (issue #35 : six
-# heures faisaient attendre une publication jusqu'à une demi-journée ; une par
-# heure reste loin des soixante que l'API accorde par adresse sans compte),
-# faite par le fil de veiller_sur_les_versions() ; la page et le menu de
-# l'icône lisent la dernière réponse sans jamais attendre le réseau. Pour ne
-# pas attendre du tout, le bouton « Vérifier les mises à jour » des réglages
-# (verifier_maintenant).
-VERIFICATEUR = maj_commune.Verificateur(DEPOT, runtime.VERSION, ouvrir=_ouvrir_github)
 
 
 def _version_locale() -> str:
@@ -390,33 +405,69 @@ def _conclure_sans_relance(message: str) -> None:
     runtime.fin_travail(conserver=runtime.TRAVAIL_TERMINE_VISIBLE)
 
 
-def disponible() -> dict:
+def disponible(force: bool = False, reseau: bool = True) -> dict:
     """La version publiée si elle est plus récente que la nôtre, sinon rien.
 
-    Instantané : ne lit que la dernière réponse de GitHub, c'est ainsi que
-    l'interface répond, une requête de page n'ayant pas à attendre GitHub. Le
-    fil de veiller_sur_les_versions() la tient à jour."""
+    Le cache évite d'appeler GitHub à chaque question, et sert encore quand la
+    machine est hors ligne : une mise à jour signalée hier reste vraie. Sans
+    `reseau`, on se contente de ce cache : c'est ainsi que l'interface répond,
+    une requête de page n'ayant pas à attendre GitHub."""
     if runtime.build_windows7():
         return {}
-    # Depuis les sources, le fichier peut changer sous un processus lancé.
-    VERIFICATEUR.version_locale = _version_locale()
-    trouvee = VERIFICATEUR.disponible()
-    if not trouvee:
+
+    fichier = runtime.app_dir() / CACHE
+    cache = {}
+    try:
+        cache = json.loads(fichier.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        cache = {}
+
+    age = time.time() - float(cache.get("verifie") or 0)
+    if reseau and (force or age > FRAICHEUR or not cache):
+        try:
+            release = _interroger()
+            cache = {"verifie": time.time(),
+                     "version": str(release.get("tag_name") or "").lstrip("vV"),
+                     "page": release.get("html_url"),
+                     "archive": _archive_de_ce_systeme(release.get("assets") or [])}
+            try:
+                fichier.write_text(json.dumps(cache, ensure_ascii=False),
+                                   encoding="utf-8")
+            except OSError:
+                pass
+        except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError):
+            # Hors ligne, ou GitHub indisponible : ce n'est pas une erreur, la
+            # mise à jour n'est pas une fonction vitale. On garde le cache.
+            pass
+
+    version = str(cache.get("version") or "")
+    locale = _version_locale()
+    if not version or _numeros(version) <= _numeros(locale):
         return {}
-    return {"version": trouvee["version"], "page": trouvee["page"],
-            "archive": _archive_de_ce_systeme(trouvee["assets"])}
+    return {"version": version, "page": cache.get("page"),
+            "archive": cache.get("archive") or {}}
+
+
+def _date_verification() -> float:
+    """Heure de la dernière réponse de GitHub gardée dans le cache, 0 sinon."""
+    try:
+        cache = json.loads((runtime.app_dir() / CACHE).read_text(encoding="utf-8"))
+        return float(cache.get("verifie") or 0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0.0
 
 
 def verifier_maintenant() -> tuple:
     """Pour le bouton « Vérifier les mises à jour » des réglages : interroge
-    GitHub sans attendre le prochain passage du fil de fond (issue #35). Rend
-    la version plus récente, ou {}, et si GitHub a bien répondu : la page
-    distingue ainsi « déjà à jour » de « GitHub injoignable ». L'édition
-    Windows 7 n'en propose aucune."""
+    GitHub sans attendre que le cache vieillisse (issue #35). Rend la version
+    plus récente, ou {}, et si GitHub a bien répondu : la page distingue
+    ainsi « déjà à jour » de « GitHub injoignable », que disponible() confond
+    exprès pour le fil de fond. L'édition Windows 7 n'en propose aucune."""
     if runtime.build_windows7():
         return {}, True
-    repondu = VERIFICATEUR.verifier()
-    return disponible(), repondu
+    avant = _date_verification()
+    neuve = disponible(force=True)
+    return neuve, _date_verification() > avant
 
 
 # --------------------------------------------------------------- installation

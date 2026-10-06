@@ -3927,7 +3927,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # ce cache à jour.
             self.send_json({"passages": runtime.passages(),
                             "clips": nombre_clips_connus(read_entries(self.paths)),
-                            "maj": maj.disponible()})
+                            "maj": maj.disponible(reseau=False)})
             return
 
         if route == "/api/travail":
@@ -4707,14 +4707,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == "/api/maj/verifier":
             # Bouton « Vérifier les mises à jour » des réglages : GitHub tout
             # de suite, sans attendre le fil de fond (une heure au plus, voir
-            # une heure au plus). « ok » faux : GitHub n'a pas répondu, la réponse
-            # précédente reste telle quelle.
+            # maj.FRAICHEUR). « ok » faux : GitHub n'a pas répondu, le cache
+            # reste tel quel.
             neuve, ok = maj.verifier_maintenant()
             self.send_json({"maj": neuve, "ok": ok, "version": runtime.VERSION})
             return
 
         if route == "/api/update":
-            neuve = maj.disponible()
+            neuve = maj.disponible(reseau=False)
             if not neuve:
                 self.send_json({"error": "Aucune version plus récente."}, 409)
                 return
@@ -5205,11 +5205,18 @@ def veiller_sur_les_versions() -> None:
 
     Un fil séparé plutôt qu'un appel dans la page : GitHub peut mettre dix
     secondes à répondre, ou ne pas répondre du tout, et rien de tout cela ne
-    doit se voir depuis l'interface. Une visite par heure : à six heures, une
-    publication pouvait attendre une demi-journée avant d'apparaître
-    (issue #35). L'édition Windows 7 n'en propose aucune."""
-    if not runtime.build_windows7():
-        maj.VERIFICATEUR.veiller()
+    doit se voir depuis l'interface. Une visite par heure (maj.FRAICHEUR) :
+    à six heures, une publication pouvait attendre une demi-journée avant
+    d'apparaître (issue #35)."""
+    def veille():
+        while True:
+            try:
+                maj.disponible()
+            except Exception:      # une panne de réseau n'arrête pas le serveur
+                pass
+            time.sleep(maj.FRAICHEUR)
+
+    threading.Thread(target=veille, daemon=True).start()
 
 
 def main() -> int:

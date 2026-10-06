@@ -216,8 +216,7 @@ class SecuriteMiseAJourTests(unittest.TestCase):
                               "https://api.github.com/repos/nico579/blink2video/releases/latest")
         with mock.patch.object(maj, "contexte_tls", return_value=contexte), \
                 mock.patch.object(maj.urllib.request, "urlopen", return_value=reponse) as ouvrir:
-            resultat = maj._ouvrir_github(
-                "https://api.github.com/repos/nico579/blink2video/releases/latest")
+            resultat = maj._interroger()
         self.assertEqual(resultat["tag_name"], "v1.0.0")
         self.assertIs(ouvrir.call_args.kwargs["context"], contexte)
 

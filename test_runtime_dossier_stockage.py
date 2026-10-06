@@ -384,12 +384,13 @@ class TestsSansDossierRedirige(unittest.TestCase):
                                              "BLINK_BOOTSTRAP": "none"}):
             import blink_auth
             import blink_cli
+            import maj
             import merge_daily as md
             import serve
             import watch
         attendus = {blink_auth.CONFIG.name, runtime.PASSAGES.name,
                     watch.WATCH_STATE.name, blink_cli.MARQUEUR_RACCOURCI,
-                    runtime.REGLAGES, runtime.LANGUE,
+                    maj.CACHE.name, runtime.REGLAGES, runtime.LANGUE,
                     runtime.JETON_WEBHOOK, runtime.SUPPRESSION_AUTO}
         self.assertEqual(set(runtime.ETAT_HISTORIQUE), attendus)
         produits = {md.DEFAULT_INPUT.name, md.DEFAULT_OUTPUT.name, md.DEFAULT_WEEKLY.name,
