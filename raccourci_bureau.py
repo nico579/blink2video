@@ -16,6 +16,7 @@ n'ouvre jamais de navigateur toute seule, voir DEFAUT dans autostart.py),
 il faut l'ajouter explicitement pour ce raccourci-ci, qui n'a de sens que si
 l'interface finit par s'afficher."""
 
+import os
 import shlex
 import subprocess
 import sys
@@ -69,6 +70,16 @@ def _ligne() -> list:
 
 def _icone() -> Path:
     return runtime.resource_dir() / "assets" / "blink2video.ico"
+
+
+def _icone_linux() -> Path:
+    """Les bureaux Linux affichent un PNG, pas un .ico : à la racine du bundle
+    (blink2video.spec l'y pose), ou dans assets/ depuis les sources."""
+    racine = runtime.resource_dir()
+    for candidat in (racine / "blink2video.png", racine / "assets" / "blink2video.png"):
+        if candidat.is_file():
+            return candidat
+    return _icone()
 
 
 def creer(simulation: bool = False) -> int:
@@ -177,24 +188,79 @@ def _macos(simulation: bool) -> int:
 
 # -------------------------------------------------------------------- Linux
 
+# Caractères qui obligent à entourer un argument de guillemets dans la clé Exec
+# (spécification Desktop Entry, « Exec variables »).
+_RESERVES_EXEC = frozenset(" \t\n\"'\\><~|&;$*?#()`")
+
+
+def _argument_exec(argument: str) -> str:
+    """Un argument écrit pour la clé Exec d'un fichier .desktop.
+
+    Ce n'est pas la syntaxe d'un shell : shlex.quote() entoure d'apostrophes,
+    que la spécification ne connaît pas. Ici, guillemets doubles seulement si
+    nécessaire ; à l'intérieur, guillemet, accent grave, dollar et barre
+    oblique inverse sont précédés d'une barre oblique inverse ; « % » est
+    doublé (sinon c'est un code de champ) ; enfin chaque barre oblique inverse
+    est doublée par la règle générale des chaînes, si bien qu'une barre
+    oblique inverse littérale s'écrit avec quatre."""
+    if not argument:
+        return '""'  # Un argument vide doit rester un argument.
+    argument = argument.replace("%", "%%")
+    if not any(c in _RESERVES_EXEC for c in argument):
+        return argument
+    for c in ("\\", '"', "`", "$"):
+        argument = argument.replace(c, "\\" + c)
+    return '"' + argument.replace("\\", "\\\\") + '"'
+
+
+def _bureau_linux() -> Path:
+    """Le dossier du Bureau de l'utilisateur, tel que le dit XDG.
+
+    ~/Desktop n'existe que sur un système en anglais : « Bureau » en
+    français, « Schreibtisch » en allemand. Même lecture que xdg-user-dir
+    (~/.config/user-dirs.dirs, XDG_DESKTOP_DIR), sans lancer de programme ; à
+    défaut ~/Desktop."""
+    accueil = Path.home()
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or accueil / ".config")
+    try:
+        lignes = (config / "user-dirs.dirs").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lignes = []
+    for ligne in lignes:
+        ligne = ligne.strip()
+        if ligne.startswith("XDG_DESKTOP_DIR="):
+            valeur = ligne.split("=", 1)[1].strip().strip('"')
+            valeur = valeur.replace("$HOME", str(accueil)).replace("${HOME}", str(accueil))
+            chemin = Path(valeur)
+            # Un chemin relatif ou égal à ~ (Bureau désactivé) n'est pas un Bureau.
+            if chemin.is_absolute() and chemin != accueil:
+                return chemin
+    return accueil / "Desktop"
+
+
 def _linux(simulation: bool) -> int:
-    cible = Path.home() / "Desktop" / "blink2video.desktop"
-    exec_ligne = "sh -c {}".format(
-        shlex.quote(" ".join(shlex.quote(a) for a in _ligne())))
+    cible = _bureau_linux() / "blink2video.desktop"
+    exec_ligne = " ".join(_argument_exec(a) for a in _ligne())
+    chemin_travail = str(runtime.app_dir()).replace("\\", "\\\\")
     contenu = (
         "[Desktop Entry]\n"
         "Type=Application\n"
         "Name=blink2video\n"
         f"Exec={exec_ligne}\n"
-        f"Path={runtime.app_dir()}\n"
-        f"Icon={_icone()}\n"
+        f"Path={chemin_travail}\n"
+        f"Icon={_icone_linux()}\n"
         "Terminal=true\n"
     )
     if simulation:
         print(_("ecrirait", cible=cible, contenu=contenu))
         return 0
-    cible.write_text(contenu, encoding="utf-8")
-    cible.chmod(0o755)
+    try:
+        cible.parent.mkdir(parents=True, exist_ok=True)
+        cible.write_text(contenu, encoding="utf-8")
+        cible.chmod(0o755)
+    except OSError as erreur:
+        print(_("echec", detail=str(erreur)))
+        return 1
     # GNOME/Nautilus refuse de lancer un .desktop du Bureau tant qu'il n'est
     # pas marqué « de confiance » ; les autres environnements (KDE, XFCE) ne
     # connaissent pas cet attribut, d'où l'échec ignoré plutôt que remonté.

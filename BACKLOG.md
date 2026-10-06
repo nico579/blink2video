@@ -825,7 +825,8 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
 
 - **Audit du 2026-10-02 (0.15.7) : constats restants, rejoues sur la 0.18.1.**
   Rejoues le 2026-10-06 par les scripts de l'audit (assertions transformees en
-  mesures). FAITS en 0.18.2 : B03 (`--from cloud --hub` ne prenait rien) et B13
+  mesures). FAITS en 0.18.3 : B10 (raccourci Linux, signale par Nico dans la VM le
+  2026-10-06 : le Bureau s'appelle ~/Bureau, pas ~/Desktop). FAITS en 0.18.2 : B03 (`--from cloud --hub` ne prenait rien) et B13
   (bouton de mise a jour grise apres une requete echouee). FAITS avant : B02
   (PR #72), O04 (FFmpeg fige), O05 (clip USB reel). RESTENT, tous reproduits et
   sans cas reel connu, a traiter si l'un se presente :
@@ -834,8 +835,7 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
   B05 reponse 416 sans Content-Length (client en attente) ; B06 sauvegarde
   obsolete qui efface `source_deleted` ; B07 sessions HTTP non fermees apres une
   reconnexion echouee ; B08 file WebRTC pleine qui perd le signal de fin ; B09
-  launchctl refuse annonce comme installe (macOS) ; B10 `Exec=` du raccourci Linux
-  avec syntaxe de shell, et dossier Desktop absent ; B11 marqueurs de passage
+  launchctl refuse annonce comme installe (macOS) ; B11 marqueurs de passage
   concurrents qui se remplacent ; B12 deux preparations de mise a jour dont la
   seconde efface la premiere ; B14 identite de processus illisible = verrou
   repris (CHOIX ASSUME du 2026-09-29 pour les pannes apres redemarrage : ne pas
