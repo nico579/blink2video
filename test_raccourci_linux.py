@@ -178,6 +178,21 @@ class CreationLinux(unittest.TestCase):
         self.assertNotIn("sh -c", lignes["Exec"])
         self.assertEqual(lignes["Type"], "Application")
 
+    def test_le_lanceur_est_marque_de_confiance_avec_la_valeur_true(self):
+        # Nautilus et DING comparent à 'true' : « yes » laissait « Autoriser le
+        # lancement » désactivé sur le Bureau Ubuntu.
+        self.assertEqual(rb._linux(False), 0)
+        fichier = self.accueil / "Desktop" / "blink2video.desktop"
+        appels = [c.args[0] for c in runtime.lancer.call_args_list]
+        self.assertEqual(appels, [["gio", "set", str(fichier), "metadata::trusted", "true"]])
+
+    def test_gio_absent_ne_fait_pas_echouer_la_creation(self):
+        # subprocess.run lève FileNotFoundError si le programme n'existe pas,
+        # même avec check=False : le fichier est déjà écrit, c'est un succès.
+        runtime.lancer.side_effect = FileNotFoundError("gio")
+        self.assertEqual(rb._linux(False), 0)
+        self.assertTrue((self.accueil / "Desktop" / "blink2video.desktop").is_file())
+
     def test_sans_configuration_ecrit_dans_desktop(self):
         self.assertEqual(rb._linux(False), 0)
         self.assertTrue((self.accueil / "Desktop" / "blink2video.desktop").is_file())

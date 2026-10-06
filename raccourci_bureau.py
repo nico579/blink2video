@@ -264,7 +264,13 @@ def _linux(simulation: bool) -> int:
     # GNOME/Nautilus refuse de lancer un .desktop du Bureau tant qu'il n'est
     # pas marqué « de confiance » ; les autres environnements (KDE, XFCE) ne
     # connaissent pas cet attribut, d'où l'échec ignoré plutôt que remonté.
-    runtime.lancer(["gio", "set", str(cible), "metadata::trusted", "yes"],
-                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # La valeur est la chaîne « true », pas « yes » : Nautilus et DING (les
+    # icônes du bureau d'Ubuntu) comparent à 'true' et traitent toute autre
+    # valeur comme « lancement non autorisé » (vu dans la VM Ubuntu, 2026-10-06).
+    try:
+        runtime.lancer(["gio", "set", str(cible), "metadata::trusted", "true"],
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass  # gio absent (KDE, XFCE minimal) : le fichier est écrit, c'est l'essentiel.
     print(_("raccourci_cree", cible=cible))
     return 0
