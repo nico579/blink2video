@@ -361,11 +361,13 @@ async def main(args: argparse.Namespace) -> int:
             return 1
 
         try:
-            modules = (
-                [] if args.source == "cloud"
-                else (modules_disponibles if not args.hub
-                      else blink_models.select_sync_modules(blink, args.hub))
-            )
+            # Le filtre --hub se résout quelle que soit la source : le plan
+            # cloud en tire les réseaux autorisés (blink_engine._inventorier_cloud),
+            # et un nom de module inconnu doit être signalé même sans USB.
+            # Sans --hub, une source cloud seule n'a besoin d'aucun module.
+            selectionnes = (modules_disponibles if not args.hub
+                            else blink_models.select_sync_modules(blink, args.hub))
+            modules = [] if args.source == "cloud" and not args.hub else selectionnes
         except ValueError as error:
             print(msg("erreur_hub", erreur=error))
             return 2

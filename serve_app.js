@@ -78,6 +78,7 @@ const I18N = {
     "update.title": "Version {version} publiée. Le téléchargement, l'arrêt et la relance sont automatiques.",
     "update.updating": "Mise à jour…",
     "update.progress": "Mise à jour vers {version} : téléchargement, puis relance…",
+    "update.failed": "La mise à jour n'a pas pu être lancée : {erreur}",
     "passages.updated": "actualisé {heure}",
     "passages.new.one": " · {n} nouveau clip, cliquez sur Actualiser",
     "passages.new.many": " · {n} nouveaux clips, cliquez sur Actualiser",
@@ -268,6 +269,7 @@ const I18N = {
     "update.title": "Version {version} published. Download, stop and restart are automatic.",
     "update.updating": "Updating…",
     "update.progress": "Updating to {version}: downloading, then restarting…",
+    "update.failed": "The update could not be started: {erreur}",
     "passages.updated": "updated {heure}",
     "passages.new.one": " · {n} new clip, click Refresh",
     "passages.new.many": " · {n} new clips, click Refresh",
@@ -902,9 +904,18 @@ $("update").onclick = async () => {
   bouton.dataset.encours = "1";
   bouton.disabled = true;
   bouton.textContent = t("update.updating");
-  const reponse = await fetch("/api/update", { method: "POST",
-    headers: { "Content-Type": "application/json" }, body: "{}" });
-  const resultat = await lireJSON(reponse);
+  // Le bouton reste utilisable tant que le serveur n'a pas confirmé le
+  // lancement : une requête rejetée (serveur injoignable) ou une réponse
+  // illisible le laissait grisé jusqu'au rechargement de la page (audit du
+  // 2026-10-02, B13).
+  let resultat;
+  try {
+    const reponse = await fetch("/api/update", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: "{}" });
+    resultat = await lireJSON(reponse);
+  } catch (erreur) {
+    resultat = { error: tf("update.failed", { erreur: String(erreur) }) };
+  }
   if (resultat.error) {
     alert(resultat.error);
     bouton.disabled = false;

@@ -822,3 +822,23 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
   --ignore-module avec l'identifiant du module concerne. Etat :
   WATCH_STATE["ignored_modules"]. La boucle d'alerte elle-meme (deux modules
   homonymes) etait corrigee en 0.16.3.
+
+- **Audit du 2026-10-02 (0.15.7) : constats restants, rejoues sur la 0.18.1.**
+  Rejoues le 2026-10-06 par les scripts de l'audit (assertions transformees en
+  mesures). FAITS en 0.18.2 : B03 (`--from cloud --hub` ne prenait rien) et B13
+  (bouton de mise a jour grise apres une requete echouee). FAITS avant : B02
+  (PR #72), O04 (FFmpeg fige), O05 (clip USB reel). RESTENT, tous reproduits et
+  sans cas reel connu, a traiter si l'un se presente :
+  B01 reconstruction echouee qui reduit semaine/mois (se repare seul au passage
+  suivant reussi, verifie) ; B04 verrou vide ou `.purge` abandonne jamais repris ;
+  B05 reponse 416 sans Content-Length (client en attente) ; B06 sauvegarde
+  obsolete qui efface `source_deleted` ; B07 sessions HTTP non fermees apres une
+  reconnexion echouee ; B08 file WebRTC pleine qui perd le signal de fin ; B09
+  launchctl refuse annonce comme installe (macOS) ; B10 `Exec=` du raccourci Linux
+  avec syntaxe de shell, et dossier Desktop absent ; B11 marqueurs de passage
+  concurrents qui se remplacent ; B12 deux preparations de mise a jour dont la
+  seconde efface la premiere ; B14 identite de processus illisible = verrou
+  repris (CHOIX ASSUME du 2026-09-29 pour les pannes apres redemarrage : ne pas
+  inverser sans accord) ; O01 types RTP > 127 au 9e profil H.264 ; O02 retour a
+  zero des PTS MPEG a 33 bits. Pieces : Documentslinkudit6-10-02.
+
