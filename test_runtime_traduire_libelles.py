@@ -18,6 +18,7 @@ import os
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -150,9 +151,22 @@ class TestTraduireLibelles(unittest.TestCase):
 
     def test_maj_msg_bascule_et_formate(self):
         self._regler_langue("en")
-        self.assertEqual(
-            maj.msg("archive_chemin_dangereux", brut="../../etc/passwd"),
-            "Dangerous path in the archive: '../../etc/passwd'")
+        # Les refus d'archive viennent du commun (clé, valeurs) et redeviennent,
+        # par maj._en_langue_courante, l'OSError au texte de la langue de la page.
+        with tempfile.TemporaryDirectory() as dossier:
+            archive = Path(dossier) / "mauvaise.zip"
+            with zipfile.ZipFile(archive, "w") as sortie:
+                sortie.writestr("../../etc/passwd", b"x")
+            with self.assertRaises(OSError) as erreur:
+                maj._extraire(archive, Path(dossier) / "contenu")
+            self.assertEqual(str(erreur.exception),
+                             "Dangerous path in the archive: '../../etc/passwd'")
+            self._regler_langue("fr")
+            with self.assertRaises(OSError) as erreur:
+                maj._extraire(archive, Path(dossier) / "contenu2")
+            self.assertEqual(str(erreur.exception),
+                             "Chemin dangereux dans l'archive : '../../etc/passwd'")
+            self._regler_langue("en")
         self.assertEqual(maj.msg("deja_a_jour", version="0.12.20"),
                          "blink2video 0.12.20 is up to date.")
         self._regler_langue("fr")

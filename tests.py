@@ -688,11 +688,12 @@ def test_mise_a_jour() -> None:
     proposerait jamais la mise à jour."""
     import maj
     import runtime
+    from nico579_commons.maj import numeros
 
     print("\nMise à jour")
-    verifier(maj._numeros("v0.5.10") > maj._numeros("0.5.9"),
+    verifier(numeros("v0.5.10") > numeros("0.5.9"),
              "0.5.10 est plus récent que 0.5.9")
-    verifier(maj._numeros("0.5.3") == maj._numeros("v0.5.3"),
+    verifier(numeros("0.5.3") == numeros("v0.5.3"),
              "le « v » du nom d'étiquette ne compte pas")
 
     assets = [{"name": "blink2video-linux-x86_64.tar.gz", "size": 1,
@@ -709,8 +710,8 @@ def test_mise_a_jour() -> None:
     # Sans réseau : la réponse ne doit venir que du cache, et une version égale
     # à la nôtre ne doit rien proposer.
     verifier(maj.disponible(reseau=False) == {}
-             or maj._numeros(maj.disponible(reseau=False)["version"])
-             > maj._numeros(runtime.VERSION),
+             or numeros(maj.disponible(reseau=False)["version"])
+             > numeros(runtime.VERSION),
              "aucune mise à jour n'est proposée vers une version plus ancienne")
 
     # Le remplacement des fichiers, sur une installation factice : c'est le seul
