@@ -32,7 +32,6 @@ import autostart
 import smoketest
 import watch
 import serve
-import raccourci_bureau
 
 
 class TestTraduireLibelles(unittest.TestCase):
@@ -230,17 +229,8 @@ class TestTraduireLibelles(unittest.TestCase):
                 str(erreur),
                 "Previous update not finalized: backups and preparation kept.")
 
-    # Issue #16 : raccourci_bureau.py (jumeau d'autostart.py) et les messages
-    # propres à runtime.py (bootstrap, --loop) étaient restés hors traduction.
-
-    def test_raccourci_bureau_toutes_les_cles_existent_dans_les_deux_langues(self):
-        self.assertEqual(set(raccourci_bureau.LIBELLES["fr"]),
-                         set(raccourci_bureau.LIBELLES["en"]))
-
-    def test_raccourci_bureau_bascule_et_formate(self):
-        self._regler_langue("en")
-        self.assertEqual(raccourci_bureau._("raccourci_cree", cible="X"),
-                         "Shortcut created: X")
+    # Issue #16 : les messages propres à runtime.py (bootstrap, --loop) étaient
+    # restés hors traduction.
 
     def test_runtime_toutes_les_cles_existent_dans_les_deux_langues(self):
         self.assertEqual(set(runtime._LIBELLES_RUNTIME["fr"]),

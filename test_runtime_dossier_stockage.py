@@ -162,7 +162,7 @@ class TestsReglageDesSorties(BaseDossiers):
                 runtime.ecrire_dossier_stockage(str(self.racine / "videos"),
                                                 configuration_initiale=True)
         self.assertEqual((self.etat / runtime.REGLAGES).read_bytes(), contenu)
-        self.assertEqual(list(self.etat.glob(".*.tmp")), [])
+        self.assertEqual(list(self.etat.glob(".*.part")), [])
 
     def test_echec_marqueur_sans_reglages_prealables_les_retire(self):
         with mock.patch.object(runtime, "marquer_configuration_initiale",
@@ -285,7 +285,7 @@ class TestsRepriseDeLEtat(BaseDossiers):
         self.assertEqual(rapport["depuis"], str(self.ancre))
         self.assertEqual(rapport["dossier_sorties"], str(self.ancre))
         self.assertIn("blink_auth.json", rapport["repris"])
-        self.assertEqual(list(self.etat.glob(".*.tmp")), [])
+        self.assertEqual(list(self.etat.glob(".*.part")), [])
 
     def test_suit_le_pointeur_d_une_version_013(self):
         donnees = self.racine / "donnees_redirigees"
@@ -384,13 +384,12 @@ class TestsSansDossierRedirige(unittest.TestCase):
                                              "BLINK_BOOTSTRAP": "none"}):
             import blink_auth
             import blink_cli
-            import maj
             import merge_daily as md
             import serve
             import watch
         attendus = {blink_auth.CONFIG.name, runtime.PASSAGES.name,
                     watch.WATCH_STATE.name, blink_cli.MARQUEUR_RACCOURCI,
-                    maj.CACHE.name, runtime.REGLAGES, runtime.LANGUE,
+                    runtime.REGLAGES, runtime.LANGUE,
                     runtime.JETON_WEBHOOK, runtime.SUPPRESSION_AUTO}
         self.assertEqual(set(runtime.ETAT_HISTORIQUE), attendus)
         produits = {md.DEFAULT_INPUT.name, md.DEFAULT_OUTPUT.name, md.DEFAULT_WEEKLY.name,

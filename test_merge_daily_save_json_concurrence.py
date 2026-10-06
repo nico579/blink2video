@@ -22,6 +22,7 @@ from unittest import mock
 os.environ.setdefault("BLINK_BOOTSTRAP", "none")
 
 import merge_daily as md  # noqa: E402
+from nico579_commons import atomique  # noqa: E402
 
 
 class TestsSaveJsonConcurrent(unittest.TestCase):
@@ -62,7 +63,7 @@ class TestsSaveJsonConcurrent(unittest.TestCase):
         cible est remplacée au même instant par un autre écrivain : simulé
         ici pour éprouver ce cas sur tous les systèmes, pas seulement en CI
         Windows (162 échecs sur 600 écritures avant correction)."""
-        original = Path.replace
+        original = os.replace
         en_cours = set()
         garde = threading.Lock()
 
@@ -90,7 +91,7 @@ class TestsSaveJsonConcurrent(unittest.TestCase):
                 except Exception as erreur:  # noqa: BLE001 - tout échec compte
                     erreurs.append(erreur)
 
-        with mock.patch.object(Path, "replace", replace_facon_windows):
+        with mock.patch.object(atomique.os, "replace", replace_facon_windows):
             fils = [threading.Thread(target=ecrire) for _ in range(4)]
             for fil in fils:
                 fil.start()
@@ -101,22 +102,27 @@ class TestsSaveJsonConcurrent(unittest.TestCase):
 
     def test_refus_windows_transitoire_reessaye(self):
         # Sous Windows, un lecteur qui tient la cible ouverte fait échouer
-        # os.replace en PermissionError le temps de sa lecture.
-        refus = PermissionError(13, "Access is denied")
-        with mock.patch.object(md.runtime, "_ecrire_texte_atomique",
-                               side_effect=[refus, refus, None]) as ecrire, \
-                mock.patch.object(md.time, "sleep") as dormir:
+        # os.replace en PermissionError le temps de sa lecture. Le remplacement
+        # est celui de nico579_commons.atomique : deux refus, puis il passe.
+        vrai = os.replace
+        refus = [PermissionError(13, "Access is denied")] * 2
+
+        def capricieux(source, cible):
+            if refus:
+                raise refus.pop()
+            return vrai(source, cible)
+
+        with mock.patch.object(atomique.os, "replace", capricieux),                 mock.patch.object(atomique.time, "sleep") as dormir:
             md.save_json(self.cible, {"a": 1})
-        self.assertEqual(ecrire.call_count, 3)
         self.assertEqual(dormir.call_count, 2)
+        self.assertEqual(md.load_json(self.cible, None), {"a": 1})
 
     def test_refus_persistant_finit_par_remonter(self):
-        with mock.patch.object(md.runtime, "_ecrire_texte_atomique",
-                               side_effect=PermissionError(13, "Access is denied")) as ecrire, \
-                mock.patch.object(md.time, "sleep"):
+        with mock.patch.object(atomique.os, "replace",
+                               side_effect=PermissionError(13, "Access is denied")) as remplacer,                 mock.patch.object(atomique.time, "sleep"):
             with self.assertRaises(PermissionError):
                 md.save_json(self.cible, {"a": 1})
-        self.assertEqual(ecrire.call_count, 10)
+        self.assertEqual(remplacer.call_count, atomique.TENTATIVES_REFUS)
 
     def test_cree_le_dossier_parent(self):
         cible = self.dossier / "sous" / "dossier" / "etat.json"
@@ -146,7 +152,7 @@ class TestsLoadJsonConcurrent(unittest.TestCase):
             return original(chemin, *args, **kwargs)
 
         with mock.patch.object(Path, "read_text", lire), \
-                mock.patch.object(md.time, "sleep") as dormir:
+                mock.patch.object(atomique.time, "sleep") as dormir:
             self.assertEqual(md.load_json(self.cible, {}), {"a": 1})
         self.assertEqual(dormir.call_count, 2)
 
@@ -154,7 +160,7 @@ class TestsLoadJsonConcurrent(unittest.TestCase):
         """Sémantique Windows simulée partout : lire une cible en cours de
         remplacement échoue. Le remplacement dure 0,2 s et la lecture part
         exactement pendant : elle doit rendre la nouvelle valeur."""
-        lire_original, remplacer_original = Path.read_text, Path.replace
+        lire_original, remplacer_original = Path.read_text, os.replace
         en_cours = threading.Event()
 
         def lire(chemin, *args, **kwargs):
@@ -171,7 +177,7 @@ class TestsLoadJsonConcurrent(unittest.TestCase):
                 en_cours.clear()
 
         with mock.patch.object(Path, "read_text", lire), \
-                mock.patch.object(Path, "replace", remplacer):
+                mock.patch.object(atomique.os, "replace", remplacer):
             ecrivain = threading.Thread(
                 target=md.save_json, args=(self.cible, {"a": 2}))
             ecrivain.start()

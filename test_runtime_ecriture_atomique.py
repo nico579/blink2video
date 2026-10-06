@@ -1,10 +1,13 @@
 """Contrats des petits fichiers runtime, sur des destinations temporaires."""
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+from nico579_commons import atomique
 
 import runtime
 
@@ -48,10 +51,10 @@ class TestsEcrituresAtomiques(unittest.TestCase):
             with self.subTest(cible=cible.name):
                 ecrire()
                 self.assertEqual(cible.read_text(encoding="utf-8"), attendu)
-                self.assertEqual(list(self.racine.rglob("*.tmp")), [])
+                self.assertEqual(list(self.racine.rglob("*.part")), [])
 
     def test_ancienne_version_reste_lisible_jusqu_au_remplacement(self):
-        remplacer = Path.replace
+        remplacer = os.replace
         for cible, ecrire, attendu in self.ecritures():
             with self.subTest(cible=cible.name):
                 cible.write_text("ancienne version", encoding="utf-8")
@@ -66,7 +69,7 @@ class TestsEcrituresAtomiques(unittest.TestCase):
                     remplacements.append(source)
                     return remplacer(source, destination)
 
-                with mock.patch.object(Path, "replace", verifier):
+                with mock.patch.object(atomique.os, "replace", verifier):
                     ecrire()
                 self.assertEqual(len(remplacements), 1)
                 self.assertFalse(remplacements[0].exists())
@@ -88,22 +91,22 @@ class TestsEcrituresAtomiques(unittest.TestCase):
                         ecrire()
                 self.assertIs(recue.exception, erreur)
                 self.assertEqual(cible.read_text(encoding="utf-8"), "ancienne version")
-                self.assertEqual(list(self.racine.rglob("*.tmp")), [])
+                self.assertEqual(list(self.racine.rglob("*.part")), [])
 
     def test_remplacement_refuse_preserve_la_cible_et_nettoie(self):
         for cible, ecrire, _ in self.ecritures():
             with self.subTest(cible=cible.name):
                 cible.write_text("ancienne version", encoding="utf-8")
                 erreur = PermissionError("destination verrouillée")
-                with mock.patch.object(Path, "replace", side_effect=erreur):
+                with mock.patch.object(atomique.os, "replace", side_effect=erreur),                         mock.patch.object(atomique.time, "sleep"):
                     with self.assertRaises(PermissionError) as recue:
                         ecrire()
                 self.assertIs(recue.exception, erreur)
                 self.assertEqual(cible.read_text(encoding="utf-8"), "ancienne version")
-                self.assertEqual(list(self.racine.rglob("*.tmp")), [])
+                self.assertEqual(list(self.racine.rglob("*.part")), [])
 
     def test_deux_ecritures_imbriquees_ont_des_temporaires_distincts(self):
-        remplacer = Path.replace
+        remplacer = os.replace
         for cible, ecrire, attendu in self.ecritures():
             with self.subTest(cible=cible.name):
                 sources = []
@@ -115,11 +118,11 @@ class TestsEcrituresAtomiques(unittest.TestCase):
                         self.assertTrue(source.exists())
                     return remplacer(source, destination)
 
-                with mock.patch.object(Path, "replace", imbriquer):
+                with mock.patch.object(atomique.os, "replace", imbriquer):
                     ecrire()
                 self.assertEqual(len(set(sources)), 2)
                 self.assertEqual(cible.read_text(encoding="utf-8"), attendu)
-                self.assertEqual(list(self.racine.rglob("*.tmp")), [])
+                self.assertEqual(list(self.racine.rglob("*.part")), [])
 
     def test_reglages_dans_destination_explicite_sans_changer_la_racine_active(self):
         runtime.ecrire_reglages(**runtime.REGLAGES_DEFAUT, dossier=self.controle)

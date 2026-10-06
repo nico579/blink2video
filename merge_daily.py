@@ -21,7 +21,6 @@ import argparse
 import datetime as dt
 import functools
 import hashlib
-import json
 import os
 import platform
 import re
@@ -38,6 +37,8 @@ try:
 except ImportError:  # Python 3.8 (build Windows 7, voir build-win7.yml) : pas de zoneinfo en stdlib.
     from backports.zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+
+from nico579_commons import atomique
 
 import runtime
 
@@ -531,69 +532,27 @@ def raison_refus_mp4(path: Path) -> str:
         return f"diagnostic impossible ({type(erreur).__name__})"
 
 
-# Un verrou par fichier pour les lecteurs ET les écrivains d'un même processus
-# (les threads de serve.py) : voir load_json() et save_json().
-_VERROUS_SAVE_JSON: dict = {}
-_VERROU_SAVE_JSON = threading.Lock()
-
-
-def _verrou_fichier(path: Path) -> threading.Lock:
-    with _VERROU_SAVE_JSON:
-        return _VERROUS_SAVE_JSON.setdefault(os.path.abspath(path), threading.Lock())
-
-
 def load_json(path: Path, default: dict) -> dict:
-    """Lit un objet JSON, ou ``default`` s'il est absent ou illisible.
+    """Lit un objet JSON, ou ``default`` s'il est absent, corrompu ou d'un
+    autre type que dict.
 
-    Sous Windows, une lecture qui croise un remplacement du fichier échoue en
-    PermissionError (4 lectures sur 70 969 sous forte concurrence, mesuré le
-    2026-09-24) : rendre alors ``default`` faisait réécrire un contenu vidé à
-    toute lecture-modification-écriture. Même verrou par fichier que
-    save_json() entre les threads d'un processus, et nouvelles tentatives
-    rapprochées face à un autre processus (antivirus, indexeur)."""
-    with _verrou_fichier(path):
-        for tentative in range(10):
-            try:
-                if not path.exists():
-                    return default
-                value = json.loads(path.read_text(encoding="utf-8"))
-                return value if isinstance(value, dict) else default
-            except PermissionError:
-                if tentative == 9:
-                    return default
-                time.sleep(0.05)
-            except (OSError, json.JSONDecodeError):
-                return default
+    La lecture elle-même (refus passager de Windows face à un remplacement
+    concurrent, antivirus, indexeur) est nico579_commons.atomique.lire_json :
+    un refus qui persiste lève au lieu de rendre ``default``, qui ferait
+    réécrire un contenu vidé à toute lecture-modification-écriture."""
+    value = atomique.lire_json(path, default)
+    return value if isinstance(value, dict) else default
 
 
 def save_json(path: Path, value: dict) -> None:
-    """Remplace ``path`` atomiquement.
+    """Remplace ``path`` atomiquement (nico579_commons.atomique.ecrire_json).
 
-    Temporaire propre à chaque appel, comme runtime._ecrire_texte_atomique :
-    un nom fixe (``path.with_suffix(".tmp")``) était partagé par tous les
-    écrivains. serve.py tourne sur un ThreadingHTTPServer et la page charge
-    /api/clips et /api/videos en parallèle, qui réécrivent tous deux
-    ASSEMBLED_DURATIONS : le second ``replace`` trouvait le temporaire déjà
-    consommé par le premier (FileNotFoundError, reproduit 197 fois sur 600
-    écritures concurrentes, audit du 2026-09-24).
-
-    Sous Windows, remplacer un fichier qu'un autre écrivain remplace, ou
-    qu'un lecteur tient ouvert, au même instant échoue en PermissionError
-    (« Access is denied », 162 fois sur 600 en CI) : les écrivains d'un même
-    processus passent donc l'un après l'autre, et une lecture concurrente
-    (autre thread, autre processus, antivirus) est absorbée par quelques
-    nouvelles tentatives rapprochées, comme runtime._supprimer_verrou."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    contenu = json.dumps(value, indent=2, ensure_ascii=False)
-    with _verrou_fichier(path):
-        for tentative in range(10):
-            try:
-                runtime._ecrire_texte_atomique(path, contenu)
-                return
-            except PermissionError:
-                if tentative == 9:
-                    raise
-                time.sleep(0.05)
+    Temporaire propre à chaque appel : un nom fixe était partagé par tous les
+    écrivains, et serve.py tourne sur un ThreadingHTTPServer dont deux routes
+    réécrivent ASSEMBLED_DURATIONS en parallèle (FileNotFoundError, reproduit
+    197 fois sur 600 écritures concurrentes, audit du 2026-09-24). Les refus
+    passagers de Windows (162 sur 600 en CI) sont retentés."""
+    atomique.ecrire_json(path, value)
 
 
 def find_ffmpeg() -> str:

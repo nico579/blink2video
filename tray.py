@@ -23,7 +23,7 @@ arrete directement les verbes lances ; Redemarrer relance ensuite par
 
 « Mettre a jour », quand une version plus recente existe, passe par
 « blink2video update », le mecanisme du bouton de mise a jour de la page
-(serve.py, /api/update). `maj.disponible(reseau=False)` ne lit que le cache
+(serve.py, /api/update). `maj.disponible()` ne lit que le cache
 deja entretenu par le thread de fond de serve.py : ouvrir le menu
 n'interroge jamais GitHub soi-meme."""
 
@@ -66,7 +66,7 @@ def _mettre_a_jour() -> None:
 
 
 def _version_disponible():
-    return (maj.disponible(reseau=False) or {}).get("version")
+    return (maj.disponible() or {}).get("version")
 
 
 def executer(port: int, arret: threading.Event, nettoyer) -> None:

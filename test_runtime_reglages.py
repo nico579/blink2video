@@ -81,7 +81,7 @@ class TestsReglages(unittest.TestCase):
                                 timezone="Europe/Paris", merge_jour=True,
                                 merge_semaine=True, merge_mois=True, download_auto=True,
                                 live_protocol="webrtc")
-        self.assertEqual(list(self.dossier.glob("*.tmp")), [])
+        self.assertEqual(list(self.dossier.glob("*.part")), [])
 
     def test_ecrire_puis_lire_conserve_les_valeurs(self):
         runtime.ecrire_reglages(usb_minutes=7, cloud_minutes=2, port=8899, timestamp=False,

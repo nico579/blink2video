@@ -1,16 +1,13 @@
 """Publication/purge de progression : fixtures temporaires, aucun worker réel."""
 
 import datetime as dt
-import errno
 import json
 import multiprocessing
 import os
-import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
 import runtime
@@ -124,22 +121,7 @@ class ProgressionConcurrenceTests(unittest.TestCase):
                 runtime.fin_travail()
                 self.assertEqual(runtime.travail_affichable(), {})
             self.assertEqual(runtime._lire_fiche_travail(self.cible), ancien)
-        self.assertEqual(list(self.racine.glob("*.tmp")), [])
-
-    def test_branche_posix_reessaie_sans_attente_longue_et_libere_sur_exception(self):
-        fcntl = SimpleNamespace(LOCK_EX=2, LOCK_NB=4, LOCK_UN=8,
-                                flock=mock.Mock(side_effect=[
-                                    BlockingIOError(errno.EAGAIN, "occupé"), None, None]))
-        with mock.patch.object(runtime.os, "name", "posix"), \
-                mock.patch.dict(sys.modules, {"fcntl": fcntl}), \
-                mock.patch.object(runtime.time, "sleep") as dormir:
-            with self.assertRaisesRegex(ValueError, "travail interrompu"):
-                with runtime._verrou_travail(self.cible):
-                    raise ValueError("travail interrompu")
-        self.assertEqual([appel.args[1] for appel in fcntl.flock.call_args_list],
-                         [fcntl.LOCK_EX | fcntl.LOCK_NB,
-                          fcntl.LOCK_EX | fcntl.LOCK_NB, fcntl.LOCK_UN])
-        dormir.assert_called_once_with(0.005)
+        self.assertEqual(list(self.racine.glob("*.part")), [])
 
     def test_polling_actif_ne_verrouille_pas_et_publication_ne_sonde_pas_les_processus(self):
         with mock.patch.object(runtime, "identite_processus",

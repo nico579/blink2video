@@ -212,17 +212,20 @@ def lire_reglages() -> dict:
 def _ecrire_texte_atomique(cible: Path, contenu: str) -> None:
     """Remplace un petit fichier UTF-8 après écriture complète à côté de lui.
 
-    Le temporaire est propre à chaque appel, y compris dans un même processus.
-    L'appelant conserve la création des dossiers, la sérialisation et les
-    verrous de transaction : un replace atomique ne protège pas à lui seul
-    une lecture-modification-écriture concurrente. Les erreurs remontent.
+    Temporaire propre à chaque appel, y compris dans un même processus, et
+    remplacement qui retente un refus passager de Windows (antivirus,
+    indexeur) : nico579_commons.atomique, la même pour les quatre
+    applications. L'appelant conserve la création des dossiers, la
+    sérialisation et les verrous de transaction : un replace atomique ne
+    protège pas à lui seul une lecture-modification-écriture concurrente. Les
+    erreurs remontent.
     """
-    import uuid
+    from nico579_commons import atomique
 
-    temporaire = cible.with_name(f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    temporaire = atomique.chemin_part(cible)
     try:
         temporaire.write_text(contenu, encoding="utf-8")
-        temporaire.replace(cible)
+        atomique.remplacer(temporaire, cible)
     finally:
         temporaire.unlink(missing_ok=True)
 
@@ -662,8 +665,7 @@ MARQUEUR_MIGRATION = ".blink_etat_migre.json"
 # test_runtime_dossier_stockage.py vérifie qu'ils concordent.
 ETAT_HISTORIQUE = (REGLAGES, "blink_auth.json", LANGUE, JETON_WEBHOOK,
                    SUPPRESSION_AUTO, ".blink_passages.json",
-                   ".blink_watch_state.json", ".blink_raccourci_cree",
-                   ".blink_maj.json")
+                   ".blink_watch_state.json", ".blink_raccourci_cree")
 # Ce que le programme produit, rangé sous dossier_sorties().
 DOSSIERS_SORTIES = ("Blink_Clips", "Blink_Daily", "Blink_Weekly", "Blink_Monthly",
                     "Blink_Normalized", "Blink_Excluded", "Blink_Direct",
@@ -1675,31 +1677,6 @@ def flags_enfant() -> int:
     return 0 if console_disponible() else SANS_FENETRE
 
 
-def retablir_environnement_systeme() -> None:
-    """Rend aux programmes du système le LD_LIBRARY_PATH d'origine.
-
-    Sous Linux, le lanceur de PyInstaller préfixe cette variable du dossier
-    du bundle (_internal) et garde l'ancienne valeur dans
-    LD_LIBRARY_PATH_ORIG. Tout enfant en hérite : systemctl, xdg-open ou
-    notify-send chargeaient alors nos bibliothèques au lieu des leurs, et le
-    systemd de Debian Trixie, lié à OpenSSL 3.4, refusait la libcrypto du
-    bundle (issue #23). C'est le rétablissement que recommande PyInstaller
-    pour les programmes externes, fait une fois pour tous, navigateur ouvert
-    par webbrowser compris. Ce processus-ci n'en dépend plus : le chargeur
-    ne lit la variable qu'au démarrage. Nos propres verbes relancés non
-    plus, leur lanceur la préfixe de nouveau pour eux.
-    https://pyinstaller.org/en/stable/runtime-information.html#ld-library-path-libpath-considerations
-    """
-    if not frozen() or sys.platform in ("win32", "darwin"):
-        return
-    origine = os.environ.get("LD_LIBRARY_PATH_ORIG")
-    if origine is not None:
-        os.environ["LD_LIBRARY_PATH"] = origine
-    else:
-        # Variable absente avant le lanceur : il n'a rien gardé à rétablir.
-        os.environ.pop("LD_LIBRARY_PATH", None)
-
-
 def debloquer_sigterm() -> None:
     """Lève un blocage de SIGTERM hérité du processus qui nous a lancé.
 
@@ -1712,7 +1689,13 @@ def debloquer_sigterm() -> None:
         signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
 
 
-retablir_environnement_systeme()
+if frozen():
+    # LD_LIBRARY_PATH rendu aux programmes du système (issue #23) : voir
+    # nico579_commons.environnement. Importé seulement ici : depuis les sources,
+    # le commun n'est installé qu'après ce module (bootstrap des dépendances),
+    # et la fonction ne fait de toute façon rien hors bundle.
+    from nico579_commons import environnement
+    environnement.retablir_environnement_systeme()
 debloquer_sigterm()
 
 
@@ -2194,60 +2177,34 @@ def _fichier_travail(pid: int | None = None) -> Path:
 def _verrou_travail(cible: Path, attente: float = 0.25):
     """Courte exclusion entre publication et purge, sans sondage de processus.
 
-    Le fichier reste en place : le supprimer après déverrouillage permettrait
-    à deux processus de verrouiller deux fichiers différents au même chemin.
-    Le verrou OS est libéré même si son détenteur s'arrête brutalement.
+    Verrou de nico579_commons.atomique, sur le fichier voisin
+    « .blink_travail.lock » : il reste en place (le supprimer après
+    déverrouillage permettrait à deux processus de verrouiller deux fichiers
+    différents au même chemin), et l'OS le libère même si son détenteur
+    s'arrête brutalement. BusyError si un autre le tient plus de `attente`.
     """
-    import errno
+    from nico579_commons import atomique
 
-    with (cible.parent / TRAVAIL.with_suffix(".lock")).open("a+b") as flux:
-        if os.name == "nt":
-            import msvcrt
-
-            def acquerir():
-                flux.seek(0)
-                msvcrt.locking(flux.fileno(), msvcrt.LK_NBLCK, 1)
-
-            def liberer():
-                flux.seek(0)
-                msvcrt.locking(flux.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            def acquerir():
-                fcntl.flock(flux.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-            def liberer():
-                fcntl.flock(flux.fileno(), fcntl.LOCK_UN)
-
-        limite = time.monotonic() + max(0, attente)
-        while True:
-            try:
-                acquerir()
-                break
-            except OSError as exc:
-                if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
-                    raise
-                if time.monotonic() >= limite:
-                    raise BusyError("publication de progression en cours") from exc
-                time.sleep(0.005)
-        try:
-            yield
-        finally:
-            liberer()
+    pile = contextlib.ExitStack()
+    try:
+        pile.enter_context(atomique.verrou_inter_processus(
+            cible.parent / TRAVAIL.stem, delai_s=max(0, attente)))
+    except TimeoutError as exc:
+        raise BusyError("publication de progression en cours") from exc
+    with pile:
+        yield
 
 
 def _ecrire_fiche_travail(cible: Path, etat: dict) -> bool:
     """Remplace une fiche atomiquement, y compris sous antivirus Windows."""
-    import uuid
+    from nico579_commons import atomique
 
-    temporaire = cible.with_name(
-        f".{cible.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    temporaire = atomique.chemin_part(cible)
     reussi = False
     try:
         temporaire.write_text(json.dumps(etat, ensure_ascii=False), encoding="utf-8")
         with _verrou_travail(cible):
-            temporaire.replace(cible)
+            atomique.remplacer(temporaire, cible)
         reussi = True
     except (OSError, BusyError):
         pass
