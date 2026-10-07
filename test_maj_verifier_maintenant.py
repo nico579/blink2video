@@ -105,5 +105,28 @@ class TestVerifierMaintenant(unittest.TestCase):
             self.assertEqual(maj.disponible(reseau=False), {})
 
 
+class TestVeille(unittest.TestCase):
+    """veiller_sur_les_versions est la veille du commun, la même que celle des trois autres
+    applications : plus de boucle propre à blink2video."""
+
+    def test_la_veille_est_celle_du_commun(self):
+        import serve
+        verificateur = mock.Mock()
+        with mock.patch.object(serve.runtime, "build_windows7", return_value=False),                 mock.patch.object(serve.maj, "_verificateur", return_value=verificateur):
+            serve.veiller_sur_les_versions()
+        verificateur.veiller.assert_called_once_with()
+
+    def test_l_edition_windows_7_ne_veille_pas(self):
+        import serve
+        with mock.patch.object(serve.runtime, "build_windows7", return_value=True),                 mock.patch.object(serve.maj, "_verificateur") as verificateur:
+            serve.veiller_sur_les_versions()
+        verificateur.assert_not_called()
+
+    def test_une_panne_n_arrete_pas_le_serveur(self):
+        import serve
+        with mock.patch.object(serve.runtime, "build_windows7", return_value=False),                 mock.patch.object(serve.maj, "_verificateur", side_effect=RuntimeError("boum")):
+            serve.veiller_sur_les_versions()      # ne lève rien
+
+
 if __name__ == "__main__":
     unittest.main()

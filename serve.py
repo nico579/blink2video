@@ -5084,16 +5084,15 @@ def veiller_sur_les_versions() -> None:
     secondes à répondre, ou ne pas répondre du tout, et rien de tout cela ne
     doit se voir depuis l'interface. Une visite par heure (maj.FRAICHEUR) :
     à six heures, une publication pouvait attendre une demi-journée avant
-    d'apparaître (issue #35)."""
-    def veille():
-        while True:
-            try:
-                maj.disponible()
-            except Exception:      # une panne de réseau n'arrête pas le serveur
-                pass
-            time.sleep(maj.FRAICHEUR)
-
-    threading.Thread(target=veille, daemon=True).start()
+    d'apparaître (issue #35). La boucle est celle du commun (Verificateur.veiller),
+    la même pour les quatre applications : elle ne redemande pas une réponse
+    encore fraîche, celle du cache disque d'un démarrage récent."""
+    if runtime.build_windows7():
+        return             # pas de mise à jour automatique pour cette édition
+    try:
+        maj._verificateur().veiller()
+    except Exception:      # une panne n'arrête pas le serveur
+        pass
 
 
 def main() -> int:

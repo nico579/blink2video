@@ -42,7 +42,7 @@ pyinstaller==6.22.2
 pyinstaller-hooks-contrib==2026.6
 pystray==0.19.5
 # Menu commun de l'icône (tray.py) et sortie du service systemd ; Python >=3.8, sans autre dépendance (pystray et Pillow, épinglés ci-dessus, sont son extra « tray »).
-nico579-commons==0.4.7
+nico579-commons==0.4.9
 python-dateutil==2.9.0.post0
 python-slugify==8.0.4
 pywin32-ctypes==0.2.3
