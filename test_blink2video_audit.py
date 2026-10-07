@@ -326,6 +326,14 @@ class TestsDefautsSynchrones(BacASable):
             "import sys\n"
             "for _nom in ('aiohttp', 'blinkpy', 'blinkpy.auth', 'blinkpy.blinkpy'):\n"
             "    sys.modules[_nom] = None\n"
+            # Le moteur d'amorçage lit les métadonnées des paquets installés, pas
+            # les imports : les cacher aussi, sinon rien n'est « absent » pour lui.
+            "import importlib.metadata as _metadonnees\n"
+            "_distributions = _metadonnees.distributions\n"
+            "def _sans_les_deux(*args, **options):\n"
+            "    return (d for d in _distributions(*args, **options)\n"
+            "            if (d.metadata['Name'] or '').lower() not in ('aiohttp', 'blinkpy'))\n"
+            "_metadonnees.distributions = _sans_les_deux\n"
         )
         env = dict(os.environ, BLINK_HOME=str(self.home), BLINK_BOOTSTRAP="none",
                    PYTHONPATH=str(ROOT), PYTHONIOENCODING="utf-8")
@@ -372,13 +380,14 @@ class TestsDefautsSynchrones(BacASable):
         quand blinkpy est absent, au lieu de planter plus tard sans message
         clair. Prouve aussi que la garde du test bloque réellement l'import :
         runtime.bootstrap(), appelé au bon moment par main(), détecte
-        l'absence via importlib.util.find_spec et l'annonce proprement,
-        plutôt que de laisser un ImportError remonter sans contexte."""
+        l'absence par les métadonnées des paquets installés (le moteur commun
+        d'amorçage) et l'annonce proprement, plutôt que de laisser un
+        ImportError remonter sans contexte."""
         resultat = self._sans_blinkpy_ni_aiohttp(
             "import blink2video; blink2video.route(['login'])"
         )
         self.assertNotEqual(resultat.returncode, 0)
-        self.assertIn("Dépendances absentes", resultat.stdout)
+        self.assertIn("Paquets Python absents", resultat.stdout)
         self.assertIn("aiohttp", resultat.stdout)
         self.assertIn("blinkpy", resultat.stdout)
 

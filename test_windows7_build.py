@@ -116,7 +116,6 @@ class Windows7BuildTests(unittest.TestCase):
         self.assertIn("certifi", requirements)
         verrouille = build.REQUIREMENTS.read_text(encoding="utf-8")
         self.assertIn("certifi==", verrouille)
-        self.assertEqual(runtime.DEPENDANCES.get("certifi"), "certifi")
 
     def test_workflows_build_both_profiles_from_main_only(self):
         workflows = Path(__file__).parent / ".github" / "workflows"

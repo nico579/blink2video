@@ -21,7 +21,6 @@ from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotat
 
 import argparse
 import contextlib
-import importlib.util
 import json
 import os
 import secrets
@@ -34,12 +33,14 @@ import urllib.request
 from pathlib import Path
 from typing import NamedTuple
 
+import _amorcage
+
 
 # Version de l'outil, et seule source de l'étiquette de publication : le
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.19.2"
+VERSION = "0.20.0"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -309,20 +310,12 @@ def traduire(libelles: dict, cle: str, **valeurs) -> str:
 # n'utilise que la stdlib et retombe sur « fr » si rien n'est encore écrit.
 _LIBELLES_RUNTIME = {
     "fr": {
-        "dependances_absentes": "Dépendances absentes : {liste}",
-        "creation_venv": "Création de l'environnement isolé dans {dossier}...",
-        "relance_venv": "Relance dans {dossier}...",
-        "installation": "Installation de : {liste}",
         "repetition": "Répétition toutes les {minutes} min. Ctrl+C pour arrêter.",
         "tour_interrompu": "Tour interrompu par une erreur, nouvel essai au prochain : {erreur}",
         "arret": "\nArrêt.",
         "aide_loop": "répéter toutes les N minutes au lieu d'agir une fois (défaut 10)",
     },
     "en": {
-        "dependances_absentes": "Missing dependencies: {liste}",
-        "creation_venv": "Creating the isolated environment in {dossier}...",
-        "relance_venv": "Relaunching in {dossier}...",
-        "installation": "Installing: {liste}",
         "repetition": "Repeating every {minutes} min. Ctrl+C to stop.",
         "tour_interrompu": "Run interrupted by an error, retrying next time: {erreur}",
         "arret": "\nStopped.",
@@ -515,35 +508,6 @@ DELEGUES = {nom: verbe.module for nom, verbe in VERBES.items()
             if verbe.module != ENTREE}
 
 
-DEPENDANCES = {
-    "aiohttp": "aiohttp",
-    "blinkpy": "blinkpy",
-    # blink_auth complète le magasin TLS système avec ces racines à jour.
-    "certifi": "certifi",
-    # Windows n'embarque aucune base de fuseaux horaires : sans ce paquet,
-    # ZoneInfo("Europe/Paris") échoue et tout l'horodatage avec.
-    "tzdata": "tzdata",
-    # find_ffmpeg() (merge_daily.py) s'en sert par défaut, pour ne pas
-    # dépendre d'un ffmpeg déjà présent sur la machine (revue du 27/08,
-    # bug 4 : absent d'ici jusque-là, alors que requirements.in l'a
-    # toujours listé).
-    "imageio_ffmpeg": "imageio-ffmpeg",
-    # Dossier d'état standard de l'OS (app_dir) : même convention que
-    # lidar2map et watch2notif.
-    "platformdirs": "platformdirs",
-    # Briques communes aux quatre applications : ici la sortie du service
-    # systemd (autostart.py). Sans l'extra « tray », elle n'exige rien de plus
-    # que la bibliothèque standard : l'icône reste facultative depuis les
-    # sources. Même fourchette que requirements.in.
-    "nico579_commons": "nico579-commons>=0.4.5,<0.5",
-}
-if sys.version_info < (3, 9):
-    # zoneinfo est stdlib depuis 3.9 ; en dessous (édition Windows 7,
-    # Python 3.8), backports.zoneinfo le fournit - même condition que
-    # requirements.in.
-    DEPENDANCES["backports.zoneinfo"] = "backports.zoneinfo"
-
-
 def extraire_mode_bootstrap(argv: list) -> list:
     """Retire --bootstrap=... de `argv` s'il y est, et reporte sa valeur dans
     la variable d'environnement BLINK_BOOTSTRAP. Renvoie `argv` sans lui.
@@ -572,81 +536,34 @@ def bootstrap() -> None:
     de blinkpy : c'est le problème de l'œuf et de la poule, on ne peut pas
     vérifier des dépendances après avoir échoué à les importer.
 
-    Trois modes, choisis par --bootstrap= ou par la variable BLINK_BOOTSTRAP :
-      auto (défaut) : venv dans ~/.blink2video/venv, créé au besoin, puis relance
+    Le moteur est _amorcage.py, copie octet pour octet de
+    nico579_commons.amorcage, commun aux quatre applications (il tourne avant
+    l'installation de la bibliothèque commune, qu'il ne peut donc pas importer :
+    test_amorcage_commun.py compare les deux). Les dépendances sont celles de
+    requirements.in, installées depuis le verrou requirements.txt ; il n'y a
+    plus de seconde liste ici. Sous Python 3.8 (édition Windows 7), le verrou,
+    compilé pour 3.11, ne s'applique pas : on installe requirements.in.
+
+    Quatre modes, choisis par --bootstrap= ou par la variable BLINK_BOOTSTRAP :
+      auto (défaut) : venv dans ~/.blink2video/venv, créé au besoin, puis relance ;
+                      si les dépendances sont déjà là et qu'aucun venv n'existe
+                      (une image Docker), l'environnement courant suffit
+      force         : comme auto, même si un autre environnement est actif
       pip           : installation dans l'environnement courant
       none          : aucune installation, on vérifie et on explique
 
     Sans effet dans un bundle, qui embarque déjà tout."""
-    if frozen() or os.environ.get("BLINK_BOOTSTRAP_DONE"):
+    if frozen():
         return
-
     sys.argv[1:] = extraire_mode_bootstrap(sys.argv[1:])
-    mode = os.environ.get("BLINK_BOOTSTRAP", "auto")
-
-    manquantes = [pip for module, pip in DEPENDANCES.items()
-                  if importlib.util.find_spec(module) is None]
-
-    if mode == "none":
-        if manquantes:
-            print(_msg("dependances_absentes", liste=", ".join(manquantes)))
-            # Entre guillemets quand la ligne porte une fourchette : collée
-            # telle quelle dans un shell, « < » et « > » redirigeraient.
-            print("  pip install " + " ".join(
-                f'"{pip}"' if set(pip) & set("<>") else pip for pip in manquantes))
-            sys.exit(1)
-        return
-
-    if mode == "pip":
-        if manquantes:
-            _installer(sys.executable, manquantes)
-        return
-
-    venv_dir = Path.home() / ".blink2video" / "venv"
-    python = venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-
-    # Déjà dans le bon environnement : on continue, sans quoi on se relancerait
-    # indéfiniment.
-    if Path(sys.prefix).resolve() == venv_dir.resolve():
-        if manquantes:
-            _installer(sys.executable, manquantes)
-        return
-
-    if not manquantes and not venv_dir.exists():
-        return  # l'environnement courant suffit, inutile d'en créer un
-
-    if not python.exists():
-        print(_msg("creation_venv", dossier=venv_dir))
-        subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
-
-    if not _venv_a_jour(python):
-        _installer(str(python), list(DEPENDANCES.values()))
-
-    print(_msg("relance_venv", dossier=venv_dir))
-    os.execve(str(python), [str(python), *sys.argv],
-              dict(os.environ, BLINK_BOOTSTRAP_DONE="1"))
+    amorcage().lancer()
 
 
-def _venv_a_jour(python: Path) -> bool:
-    """Vrai si l'interpréteur du venv importe déjà toutes les dépendances.
-
-    Un venv créé par une version plus ancienne du programme peut avoir pris
-    forme sans jamais recevoir un paquet ajouté depuis (ex. imageio-ffmpeg,
-    revue du 27/08, bug 4) : sans cette vérification à chaque relance,
-    _installer() n'était appelé qu'à la création, jamais pour réparer un
-    venv déjà là mais incomplet. Interroger le venv lui-même (plutôt que de
-    ne comparer qu'une liste) reste vrai même après une install manuelle ou
-    un pip cassé dans ce venv précis."""
-    verif = "import " + ", ".join(DEPENDANCES.keys())
-    resultat = subprocess.run([str(python), "-c", verif],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                              check=False)
-    return resultat.returncode == 0
-
-
-def _installer(python: str, paquets: list) -> None:
-    print(_msg("installation", liste=", ".join(paquets)))
-    subprocess.run([python, "-m", "pip", "install", "--quiet", *paquets], check=True)
+def amorcage() -> "_amorcage.Amorcage":
+    return _amorcage.Amorcage(
+        "blink2video", Path(__file__).resolve().parent, variable="BLINK_BOOTSTRAP",
+        verrou=None if sys.version_info < (3, 9) else "requirements.txt",
+        reutiliser_environnement=True, langue=lire_langue)
 
 
 def frozen() -> bool:

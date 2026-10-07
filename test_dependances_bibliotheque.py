@@ -31,8 +31,22 @@ def lignes_utiles(nom: str) -> list:
 
 
 class TestsDeclarationDeLaBibliotheque(unittest.TestCase):
-    def test_meme_fourchette_au_demarrage_et_dans_requirements_in(self):
-        self.assertIn(runtime.DEPENDANCES["nico579_commons"], lignes_utiles("requirements.in"))
+    def test_le_demarrage_lit_requirements_in_et_le_verrou(self):
+        # Une seule liste : celle de requirements.in, plus de seconde dans runtime.
+        self.assertTrue(any(ligne.startswith("nico579-commons>=")
+                            for ligne in lignes_utiles("requirements.in")))
+        moteur = runtime.amorcage()
+        self.assertEqual(moteur.fichier_dependances, RACINE / "requirements.in")
+        self.assertEqual(moteur.fichier_verrou, RACINE / "requirements.txt")
+        self.assertIn("nico579-commons", runtime._amorcage.dependances_directes(
+            moteur.fichier_dependances))
+
+    def test_sous_python_3_8_pas_de_verrou(self):
+        # Le verrou est compilé pour 3.11 : l'édition Windows 7 installe requirements.in.
+        with mock.patch.object(runtime.sys, "version_info", (3, 8, 10, "final", 0)):
+            moteur = runtime.amorcage()
+        self.assertIsNone(moteur.fichier_verrou)
+        self.assertNotIn("--require-hashes", moteur.commande("py"))
 
     def test_les_deux_verrous_l_epinglent_a_la_meme_version(self):
         versions = set()
@@ -59,22 +73,20 @@ class TestsDeclarationDeLaBibliotheque(unittest.TestCase):
 
 
 class TestsMessageDuModeNone(unittest.TestCase):
-    def test_la_fourchette_est_citee_entre_guillemets(self):
-        # Collée telle quelle dans un shell, « < » redirigerait l'entrée.
+    def test_le_mode_none_explique_ce_qui_manque_et_sort(self):
         sortie = io.StringIO()
         with mock.patch.object(runtime, "frozen", return_value=False), \
                 mock.patch.dict(runtime.os.environ, {"BLINK_BOOTSTRAP": "none"}), \
                 mock.patch.object(sys, "argv", ["blink2video"]), \
-                mock.patch.object(runtime.importlib.util, "find_spec", return_value=None), \
+                mock.patch.object(runtime._amorcage, "dependances_absentes",
+                                  return_value=["aiohttp", "nico579-commons"]), \
                 contextlib.redirect_stdout(sortie):
-            runtime.os.environ.pop("BLINK_BOOTSTRAP_DONE", None)
-            with self.assertRaises(SystemExit):
+            with self.assertRaises(SystemExit) as sortie_du_programme:
                 runtime.bootstrap()
-        ligne = [ligne for ligne in sortie.getvalue().splitlines()
-                 if ligne.strip().startswith("pip install")][0]
-        self.assertIn(f'"{runtime.DEPENDANCES["nico579_commons"]}"', ligne)
-        self.assertIn("aiohttp", ligne)
-        self.assertNotIn('"aiohttp"', ligne)
+        self.assertEqual(sortie_du_programme.exception.code, 1)
+        texte = sortie.getvalue()
+        self.assertIn("aiohttp, nico579-commons", texte)
+        self.assertIn(f"pip install -r {RACINE / 'requirements.txt'}", texte)
 
 
 class TestsSortieDuServiceViaLaBibliotheque(unittest.TestCase):

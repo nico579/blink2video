@@ -531,32 +531,14 @@ class ExtraireModeBootstrapTests(unittest.TestCase):
         self.assertNotIn("BLINK_BOOTSTRAP", os.environ)
 
 
-class VenvAJourTests(unittest.TestCase):
-    """Revue du 27/08, bug 4 : un venv déjà créé mais incomplet (dépendance
-    ajoutée depuis, install précédente interrompue) n'était jamais réparé,
-    _installer() n'étant appelé qu'à la création du venv."""
-
-    def test_venv_complet_est_reconnu(self) -> None:
-        with mock.patch.object(runtime.subprocess, "run",
-                               return_value=mock.Mock(returncode=0)) as appel:
-            self.assertTrue(runtime._venv_a_jour("un/faux/python.exe"))
-        commande = appel.call_args[0][0]
-        for module in runtime.DEPENDANCES:
-            self.assertIn(module, commande[2])
-
-    def test_venv_incomplet_est_detecte(self) -> None:
-        with mock.patch.object(runtime.subprocess, "run",
-                               return_value=mock.Mock(returncode=1)):
-            self.assertFalse(runtime._venv_a_jour("un/faux/python.exe"))
-
-
 class DependancesTests(unittest.TestCase):
     def test_imageio_ffmpeg_fait_partie_des_dependances(self) -> None:
         """find_ffmpeg() (merge_daily.py) en dépend par défaut : absent du
         venv auto-créé, un compte sans ffmpeg système échouait en silence
         jusqu'au premier assemblage."""
-        self.assertIn("imageio_ffmpeg", runtime.DEPENDANCES)
-        self.assertEqual(runtime.DEPENDANCES["imageio_ffmpeg"], "imageio-ffmpeg")
+        racine = Path(__file__).resolve().parent
+        self.assertIn("imageio-ffmpeg",
+                      runtime._amorcage.dependances_directes(racine / "requirements.in"))
 
 
 if __name__ == "__main__":
