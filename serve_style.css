@@ -195,7 +195,15 @@
   #reglages .row-boutons { margin-top:0; justify-content:space-between; }
   #reglages .row-boutons button { flex:none; white-space:nowrap; padding:9px 12px; }
   #stopButton { border-color:var(--out); color:#ffb3ab; }
-  .pagination { display:flex; align-items:center; justify-content:center; gap:12px; margin:16px 0; flex-wrap:wrap; }
+  .pagination { display:flex; align-items:center; justify-content:flex-start; gap:12px; margin:16px 0; flex-wrap:wrap; }
+  /* La barre du haut reste visible pendant le défilement, juste sous l'en-tête (lui aussi figé) :
+     --entete-h est sa hauteur réelle, mesurée par serve_app.js (elle change quand l'en-tête passe
+     à la ligne). Celle du bas, répétée pour la fin de la liste, garde sa place. */
+  #list > .pagination:first-child { position:sticky; top:var(--entete-h, 0px); z-index:9;
+                                    background:var(--bg); margin:0 0 12px; padding:10px 0;
+                                    border-bottom:1px solid var(--line); }
+  /* « Page suivante » ramène la liste en haut : sous l'en-tête, pas dessous. */
+  #list { scroll-margin-top:var(--entete-h, 0px); }
   .pagination form { display:flex; align-items:center; gap:7px; }
   .pagination input { width:5em; font:inherit; color:var(--text); background:var(--card);
                       border:1px solid var(--line); border-radius:7px; padding:7px; }

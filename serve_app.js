@@ -2295,6 +2295,18 @@ let pageClips = 0;
 let clipsParPage = restaurerTaillePageClips();
 let nettoyerLecteursClips = () => {};
 
+// L'en-tête est figé en haut de la page, et la barre « Clips par page » se fige juste dessous :
+// elle a besoin de sa hauteur réelle, qui change quand l'en-tête passe à la ligne (fenêtre
+// étroite). Publiée en variable CSS (--entete-h), suivie quand l'en-tête change de taille.
+(function suivreHauteurEntete() {
+  const entete = document.querySelector("header");
+  if (!entete) return;
+  const publier = () => document.documentElement.style.setProperty("--entete-h", `${entete.offsetHeight}px`);
+  publier();
+  if (window.ResizeObserver) new ResizeObserver(publier).observe(entete);
+  else window.addEventListener("resize", publier);
+})();
+
 function restaurerTaillePageClips() {
   try {
     const taille = Number(localStorage.getItem(CLE_TAILLE_PAGE_CLIPS) ?? CLIPS_PAR_PAGE);

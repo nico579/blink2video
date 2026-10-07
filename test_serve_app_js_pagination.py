@@ -256,5 +256,25 @@ changerPageClips(1);
         self.assertEqual(self.identities(sortie), [f'clip-{i}' for i in range(1,100,2)])
 
 
+class TestsBarrePagination(unittest.TestCase):
+    """La barre « Clips par page » : alignée à gauche, figée sous l'en-tête pendant le
+    défilement (capture de Nico du 2026-10-07). Le rendu réel a été vu dans un navigateur ;
+    ici, ce qui empêche le retour en arrière."""
+
+    def test_barre_a_gauche_et_figee_sous_l_entete(self):
+        css = Path(__file__).with_name("serve_style.css").read_text(encoding="utf-8")
+        regle = re.search(r"\.pagination \{([^}]*)\}", css).group(1)
+        self.assertIn("justify-content:flex-start", regle)
+        self.assertNotIn("center", regle.split("justify-content:")[1].split(";")[0])
+        figee = re.search(r"#list > \.pagination:first-child \{([^}]*)\}", css).group(1)
+        self.assertIn("position:sticky", figee)
+        self.assertIn("top:var(--entete-h", figee)
+
+    def test_la_hauteur_de_l_entete_est_publiee_en_variable_css(self):
+        js = Path(__file__).with_name("serve_app.js").read_text(encoding="utf-8")
+        self.assertIn('setProperty("--entete-h"', js)
+        self.assertIn("ResizeObserver", js)
+
+
 if __name__ == "__main__":
     unittest.main()
