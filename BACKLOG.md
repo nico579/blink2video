@@ -139,3 +139,11 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
   registre, sortie du service systemd : propres à blink2video par conception.
 - **B14 de l'audit** : identité de processus illisible = verrou repris, choix assumé du 2026-09-29 pour
   les pannes après redémarrage, à ne pas inverser sans accord.
+- **Sélecteur FR / EN et panneau Réglages de blink2video** (décision du 2026-10-07). Les trois autres
+  applications ont le sélecteur commun (`/nico579-langue.js`, route `/api/langue`, choix gardé côté
+  serveur) et le bouton ⚙ commun. blink2video garde les siens : sa langue est gardée par navigateur
+  (`localStorage`, un téléphone et un PC peuvent différer) et recopiée au serveur pour le menu de
+  l'icône ; sa page porte une CSP à nonce et son serveur ne sert aucun fichier commun ; il a deux
+  groupes FR / EN (en-tête et fenêtre de connexion) et son propre panneau, déjà riche, avec la
+  vérification des mises à jour et le démarrage automatique. Les unifier changerait son comportement
+  pour un gain nul.

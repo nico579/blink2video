@@ -270,6 +270,15 @@ class TestsBarrePagination(unittest.TestCase):
         self.assertIn("position:sticky", figee)
         self.assertIn("top:var(--entete-h", figee)
 
+    def test_la_barre_ne_glisse_pas_entre_sa_place_naturelle_et_sa_place_figee(self):
+        # Avec 20 px de marge en haut de <main>, la barre glissait de 20 px quand on bougeait
+        # l'ascenseur près du haut (capture de Nico du 2026-10-07) : sa place naturelle doit
+        # etre la place figee, collee a l'en-tete.
+        css = Path(__file__).with_name("serve_style.css").read_text(encoding="utf-8")
+        main = re.search(r"main \{ padding:([^;]*);", css).group(1)
+        self.assertTrue(main.startswith("0 "), main)
+        self.assertIn("#list > :first-child:not(.pagination) { margin-top:20px; }", css)
+
     def test_la_hauteur_de_l_entete_est_publiee_en_variable_css(self):
         js = Path(__file__).with_name("serve_app.js").read_text(encoding="utf-8")
         self.assertIn('setProperty("--entete-h"', js)

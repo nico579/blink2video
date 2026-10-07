@@ -34,7 +34,11 @@
   .btn-lang { background:var(--card); color:var(--dim); border:none; border-radius:0;
               padding:7px 10px; font:inherit; font-weight:600; cursor:pointer; }
   .btn-lang.active { background:#3a5a86; color:#fff; }
-  main { padding:20px; }
+  /* Pas de marge en haut : la barre « Clips par page » (figée sous l'en-tête) est la première
+     chose de la liste ; avec 20 px au-dessus, elle glissait de 20 px entre sa place naturelle et sa
+     place figée quand on bougeait l'ascenseur près du haut. Ce qui n'est pas cette barre garde
+     son espace par la règle « #list > :first-child » plus bas. */
+  main { padding:0 20px 20px; }
   h2 { font-size:14px; color:var(--dim); font-weight:600; margin:28px 0 12px;
        border-bottom:1px solid var(--line); padding-bottom:7px; }
   h2:first-child { margin-top:0; }
@@ -202,6 +206,7 @@
   #list > .pagination:first-child { position:sticky; top:var(--entete-h, 0px); z-index:9;
                                     background:var(--bg); margin:0 0 12px; padding:10px 0;
                                     border-bottom:1px solid var(--line); }
+  #list > :first-child:not(.pagination) { margin-top:20px; }
   /* « Page suivante » ramène la liste en haut : sous l'en-tête, pas dessous. */
   #list { scroll-margin-top:var(--entete-h, 0px); }
   .pagination form { display:flex; align-items:center; gap:7px; }
