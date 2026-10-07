@@ -2080,15 +2080,6 @@ class Handler(serveweb.Handler):
 
     # ------------------------------------------------------------------ envoi
 
-    def send_json(self, payload: dict, status: int = 200) -> None:
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-        self.wfile.flush()
-
     def repondre_puis_redemarrer(self, commande_restart: list) -> None:
         """Détache une commande capable d'arrêter CE processus, puis confirme
         au navigateur qu'elle a bien été créée. Factorise /api/reglages et

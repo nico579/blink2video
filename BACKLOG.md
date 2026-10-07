@@ -649,12 +649,17 @@ Dans blink2video et watch2notif : téléchargement et extraction sûrs
   gpxsolar), le contexte TLS (lidar2map). Garder la copie à jour : après une
   nouvelle version du commun qui touche `amorcage.py`, recopier le fichier du
   paquet dans les trois dépôts et monter l'épingle.
-- **Petits jumeaux.** Verrou d'instance de watch2notif (`single_instance.py`,
-  61 lignes, même mécanisme que `atomique.verrou_inter_processus`) ; contexte
-  TLS de blink2video (`blink_tls.py`) face à celui de lidar2map
-  (`_bootstrap_tls.py`) ; `send_json` et `end_headers` de blink2video, qui
-  diffèrent de ceux du commun à dessein (CSP à nonce, `ensure_ascii`) ;
-  `web_bridge.js` copié entre gpxsolar et lidar2map.
+- **Petits jumeaux (traités le 2026-10-07).** `single_instance` de watch2notif
+  est une enveloppe sur `atomique.verrou_inter_processus` (même fichier et même
+  octet : une ancienne version encore en cours reste exclue). `send_json` est celui
+  du commun (UTF-8 lisible et flush, commun 0.4.7) : l'override de blink2video a
+  disparu. Laissés à part, à dessein : les deux TLS (`blink_tls.py` passe un
+  contexte strict avec le bundle certifi à blinkpy, `_bootstrap_tls.py` de
+  lidar2map remplace la fabrique HTTPS de tout le processus avant l'amorçage : deux
+  mécanismes, et `AGENTS.md` demande la prudence sur le TLS de blink2video),
+  `end_headers` de blink2video (CSP à nonce, absente des autres) et `web_bridge.js`
+  (un helper de 12 lignes et sept méthodes communes ; le reste est l'API de
+  chaque application).
 
 ## Revue de code du 2026-08-20 (commit 0eab463)
 
