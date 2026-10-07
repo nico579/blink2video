@@ -3,25 +3,27 @@
 Ce qui est ouvert, rien d'autre : ce qui est fait est dans BACKLOG-FAIT.md, mot pour mot.
 Une piste notée ailleurs (rapport de mutualisation de nico579-commons, issues, mémoire de
 session) est aussi listée ici, avec un renvoi : le BACKLOG est l'endroit où l'on regarde pour
-savoir ce qui reste. Dernier nettoyage : 2026-10-07.
+savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electron écarté, audit laissé en l'état).
 
-## À étudier ou à décider
+## À décider ou à faire
 
-- **Étude Electron pour les quatre applications.** Demande de Nico du 2026-10-02 :
-  Electron (https://www.electronjs.org/fr/) peut-il simplifier les quatre projets ? Aucune étude
-  n'est faite, rien n'est décidé. Cadre dans nico579-commons, ANALYSE-MUTUALISATION-2026-09-29.md,
-  §11 : ce qu'il remplacerait (serveur local et navigateur, icône et menu, raccourci et démarrage
-  automatique, installateur et mise à jour) et ce qu'il ne remplace pas (le moteur Python :
-  blinkpy, ffmpeg, aiortc, GPX, LiDAR). Avis préliminaire du 2026-10-07, à confirmer par une étude
-  écrite : non. Chaque application embarquerait son Chromium et son Node (de l'ordre de 150 à 200 Mo
-  de plus, quatre fois) sans rien retirer ; l'icône sous GNOME Wayland et la mise à jour automatique
-  sont déjà résolues par le commun ; la mise à jour d'Electron suppose des programmes signés (la
-  candidature SignPath est en attente) ; Electron ne tourne plus sous Windows 7, que l'édition
-  « legacy » vise. Seul vrai gain : une fenêtre à soi plutôt qu'un onglet, donc plus de navigateur
-  récent exigé pour le direct WebRTC. Alternative à comparer : un raccourci en mode application
-  du navigateur. À faire maintenant que la mutualisation est terminée.
+- **Test hebdomadaire des fournisseurs de lidar2map : il reste la clé de fi-maanmittauslaitos.**
+  Le workflow « Smoke providers » (lundi) était rouge chaque semaine depuis le 2026-08-17, sans alerte.
+  Réparé le 2026-10-07 (lidar2map 1.60.2) : de-sh (le serveur n'envoie pas son certificat intermédiaire,
+  embarqué désormais), es-euskadi (le service veut le nom de la couverture, plus l'index) et ca-quebec
+  (c'était le test, qui prenait une feuille voisine hors zone). Reste fi : la clé du secret
+  `FI_NLS_API_KEY` est refusée (HTTP 403, « invalid authorization »). Clé gratuite à renouveler
+  (maanmittauslaitos.fi/rajapinnat/api-avaimen-ohje), à mettre dans le secret du dépôt lidar2map, puis
+  retirer fi de `--skip` dans `.github/workflows/smoke.yml`. Aucune alerte n'est envoyée quand ce
+  workflow échoue (issue automatique ou message : non décidé).
 
-- **Audit du 2026-10-02 (0.15.7) : 13 constats restants, à décider par Nico.**
+- **Signature de code des exécutables.** Candidature SignPath Foundation soumise le 2026-08-29, en
+  attente de réponse. Conditionne aussi les mises à jour automatiques d'Electron (voir ci-dessus).
+
+## En attente d'un retour ou d'un cas réel
+
+- **Audit du 2026-10-02 (0.15.7) : 13 constats restants, aucun correctif prévu.**
+  Décision de Nico du 2026-10-07 : on en reste là ; à traiter seulement si l'un se présente.
   Le dossier est `Documents\blink\audit\2026-10-02` (ignoré par git, jamais `git add -A` ;
   son `changements.patch` de 246 Ko est une donnée, à ne jamais appliquer sans ordre). Analysé le
   2026-10-06 sur la 0.18.1 : les scripts de l'audit rejoués en mesure seule, rapport, aucune
@@ -39,27 +41,8 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07.
   repris (CHOIX ASSUME du 2026-09-29 pour les pannes apres redemarrage : ne pas
   inverser sans accord) ; O01 types RTP > 127 au 9e profil H.264 ; O02 retour a
   zero des PTS MPEG a 33 bits.
-  Mon avis : B05 (client bloqué sur une réponse 416 sans Content-Length) et B07 (sessions HTTP
-  non fermées après une reconnexion échouée) sont les plus plausibles en usage réel ; le reste peut
-  attendre qu'un cas se présente. Rien ne se corrige sans demande de Nico (audit veut dire rapport).
-
-- **Test hebdomadaire des fournisseurs de lidar2map en échec chaque semaine depuis le 2026-08-17,
-  et personne n'est prévenu.** Workflow « Smoke providers » (lundi). Dernier passage, le 2026-10-05 :
-  47 réussis, 3 en échec : ca-quebec (la dalle de téléchargement est absente), de-sh (
-  CERTIFICATE_VERIFY_FAILED, « unable to get local issuer certificate » : cause à établir, peut-être
-  un certificat intermédiaire que le magasin certifi ne complète pas) et fi-maanmittauslaitos
-  (HTTP 403 ; mes notes du 2026-09-26 y voyaient la clé d'API). Deux
-  décisions : réparer ou retirer ces trois fournisseurs, et faire que l'échec du workflow ouvre une
-  issue ou envoie un message, pour qu'une source cassée ne reste pas des semaines sans qu'on le sache.
-
-- **Signature de code des exécutables.** Candidature SignPath Foundation soumise le 2026-08-29, en
-  attente de réponse. Conditionne aussi les mises à jour automatiques d'Electron (voir ci-dessus).
-
-- **Brouillon de release v0.11.5, orphelin.** Les trois tentatives de publication de septembre ont
-  échoué (corrigé en v0.11.6, voir BACKLOG-FAIT.md) ; il reste un brouillon `v0.11.5` avec 6 fichiers
-  sur GitHub, sans tag. À supprimer si Nico est d'accord (décision laissée à lui, rien n'a été effacé).
-
-## En attente d'un retour ou d'un cas réel
+  Si l'un se présente, B05 et B07 sont les plus plausibles en usage réel. Rien ne se corrige sans
+  demande de Nico (audit veut dire rapport).
 
 - **Issue #55 (Björn) : « USB storage only detects clips from one camera ».** Cause trouvée et
   corrigée en 0.15.7 : le Sync Module écrit les noms de caméra en ASCII (le ü est supprimé) et

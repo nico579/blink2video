@@ -858,3 +858,30 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
   --ignore-module avec l'identifiant du module concerne. Etat :
   WATCH_STATE["ignored_modules"]. La boucle d'alerte elle-meme (deux modules
   homonymes) etait corrigee en 0.16.3.
+
+- **Étude Electron pour les quatre applications.** Demande de Nico du 2026-10-02 :
+
+> **Statut : ÉCARTÉ le 2026-10-07, décision de Nico : non.** Pas d'étude complète : l'avis
+> préliminaire suffit (coût en taille et en signature, moteur Python conservé, Windows 7 exclu).
+> La décision est aussi dans nico579-commons, ANALYSE-MUTUALISATION-2026-09-29.md, §11.
+
+  Electron (https://www.electronjs.org/fr/) peut-il simplifier les quatre projets ? Aucune étude
+  n'est faite, rien n'est décidé. Cadre dans nico579-commons, ANALYSE-MUTUALISATION-2026-09-29.md,
+  §11 : ce qu'il remplacerait (serveur local et navigateur, icône et menu, raccourci et démarrage
+  automatique, installateur et mise à jour) et ce qu'il ne remplace pas (le moteur Python :
+  blinkpy, ffmpeg, aiortc, GPX, LiDAR). Avis préliminaire du 2026-10-07, à confirmer par une étude
+  écrite : non. Chaque application embarquerait son Chromium et son Node (de l'ordre de 150 à 200 Mo
+  de plus, quatre fois) sans rien retirer ; l'icône sous GNOME Wayland et la mise à jour automatique
+  sont déjà résolues par le commun ; la mise à jour d'Electron suppose des programmes signés (la
+  candidature SignPath est en attente) ; Electron ne tourne plus sous Windows 7, que l'édition
+  « legacy » vise. Seul vrai gain : une fenêtre à soi plutôt qu'un onglet, donc plus de navigateur
+  récent exigé pour le direct WebRTC. Alternative à comparer : un raccourci en mode application
+  du navigateur. À faire maintenant que la mutualisation est terminée.
+
+- **Brouillon de release v0.11.5, orphelin.** Les trois tentatives de publication de septembre ont
+
+> **Statut : SUPPRIMÉ le 2026-10-07** (sur décision de Nico). Il n'y a plus aucun brouillon de release
+> dans le dépôt.
+
+  échoué (corrigé en v0.11.6, voir BACKLOG-FAIT.md) ; il reste un brouillon `v0.11.5` avec 6 fichiers
+  sur GitHub, sans tag. À supprimer si Nico est d'accord (décision laissée à lui, rien n'a été effacé).
