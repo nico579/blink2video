@@ -36,6 +36,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from nico579_commons import maj_install
+
 import runtime
 from blink_tls import contexte_tls
 
@@ -61,19 +63,6 @@ LIBELLES = {
             "Échec : le nouvel exécutable annonce « {annonce} », "
             "on attendait « {attendue} ».",
         "binaire_verifie": "  vérifié : {annonce}",
-        "permutation_non_finalisee":
-            "Une permutation non finalisée subsiste : {marqueur}. "
-            "Sauvegardes .ancien conservées ; réparation nécessaire.",
-        "permutation_preparation_interrompue":
-            "Préparation de permutation interrompue : {marqueur}. "
-            "Aucun remplacement autorisé avant vérification.",
-        "permutation_non_demarree": "Permutation non démarrée : {erreur}",
-        "echec_remplacement": "Échec du remplacement ({erreur}). Retour à la version précédente.",
-        "restauration_incomplete":
-            "Restauration incomplète ; aucune relance ni nouvelle tentative. "
-            "Conserver {marqueur} et les sauvegardes .ancien. {echecs}",
-        "maj_precedente_non_finalisee":
-            "Mise à jour précédente non finalisée : sauvegardes et préparation conservées.",
         "relance": "Relance : {commande}",
         "hors_du_service":
             "Sous le service systemd : la suite se poursuit hors de l'unité, "
@@ -81,11 +70,6 @@ LIBELLES = {
         "racine_controle_illisible": "Mise à jour interrompue : racine de contrôle illisible.",
         "racines_controle_multiples":
             "Mise à jour interrompue : plusieurs racines de contrôle possibles.",
-        "arret_version_en_place": "Arrêt de la version en place…",
-        "arret_echoue": "Mise à jour interrompue : la commande d'arrêt a échoué.",
-        "instance_encore_active": "Mise à jour interrompue : une instance est encore active.",
-        "version_precedente_intacte": "La version précédente est intacte : rien n'a été remplacé.",
-        "installe_dans": "Installé dans {installe}",
         "pas_un_depot_git":
             "Ces sources ne viennent pas d'un dépôt git : rien à tirer. "
             "Téléchargez l'archive publiée, ou clonez le dépôt.",
@@ -128,19 +112,6 @@ LIBELLES = {
             "Failed: the new executable reports « {annonce} », "
             "expected « {attendue} ».",
         "binaire_verifie": "  verified: {annonce}",
-        "permutation_non_finalisee":
-            "An unfinished swap remains: {marqueur}. "
-            ".old backups kept; repair needed.",
-        "permutation_preparation_interrompue":
-            "Swap preparation interrupted: {marqueur}. "
-            "No replacement allowed before verification.",
-        "permutation_non_demarree": "Swap not started: {erreur}",
-        "echec_remplacement": "Replacement failed ({erreur}). Reverting to the previous version.",
-        "restauration_incomplete":
-            "Incomplete restoration; no relaunch or further attempt. "
-            "Keep {marqueur} and the .old backups. {echecs}",
-        "maj_precedente_non_finalisee":
-            "Previous update not finalized: backups and preparation kept.",
         "relance": "Relaunching: {commande}",
         "hors_du_service":
             "Under the systemd service: continuing outside the unit, "
@@ -148,11 +119,6 @@ LIBELLES = {
         "racine_controle_illisible": "Update interrupted: control root unreadable.",
         "racines_controle_multiples":
             "Update interrupted: multiple possible control roots.",
-        "arret_version_en_place": "Stopping the current version…",
-        "arret_echoue": "Update interrupted: the stop command failed.",
-        "instance_encore_active": "Update interrupted: an instance is still active.",
-        "version_precedente_intacte": "The previous version is intact: nothing was replaced.",
-        "installe_dans": "Installed in {installe}",
         "pas_un_depot_git":
             "These sources don't come from a git repository: nothing to pull. "
             "Download the published archive, or clone the repository.",
@@ -175,6 +141,11 @@ LIBELLES = {
         "version_disponible": "Version {version} available (you have {actuelle}): {page}",
     },
 }
+
+# Les messages de la permutation (arrêt, remplacement, restauration) viennent du
+# commun : un seul texte pour les quatre applications.
+for _langue, _textes in maj_install.LIBELLES_PERMUTATION.items():
+    LIBELLES[_langue].update(_textes)
 
 
 def msg(cle: str, **valeurs) -> str:
@@ -528,154 +499,56 @@ def _verifier(dossier: Path, attendue: str) -> bool:
 # du dossier (clips, vidéos, registres, session Blink) appartient à
 # l'utilisateur et n'est jamais touché.
 CONTENU_DU_PROGRAMME = ("blink2video.exe", "blink2video", "_internal")
+# Noms historiques, gardés pour reconnaître l'état laissé par une version plus
+# ancienne : le commun ajoute « .lock » au nom de la réservation.
 MARQUEUR_PERMUTATION = ".blink_maj_permutation.json"
+NOM_RESERVATION = ".blink_maj-installation"
+
+RestaurationIncomplete = maj_install.RestaurationIncomplete
 
 
-class RestaurationIncomplete(RuntimeError):
-    """La sauvegarde doit rester intacte jusqu'à une réparation explicite."""
+def _langue() -> str:
+    return runtime.lire_langue()
 
 
 @contextlib.contextmanager
 def _reservation_installation(installe: Path):
-    """Sérialise nettoyage et permutation, indépendamment du stockage.
-
-    Le verrou empêche un nettoyage concurrent de franchir le contrôle du
-    marqueur avant sa création. Le marqueur, lui, survit à un arrêt brutal.
-    """
-    with contextlib.ExitStack() as reservations:
-        try:
-            reservations.enter_context(runtime.verrou(
-                "maj-installation", "mise à jour", attente=0, racine=installe))
-        except (runtime.BusyError, OSError) as erreur:
-            raise RestaurationIncomplete(
-                "Installation non réservée ; aucun remplacement ni nettoyage "
-                f"autorisé ({erreur}).") from erreur
-        # Les erreurs du corps ne sont pas des échecs d'acquisition : les
-        # laisser suivre leur propre retour arrière, sans les requalifier.
+    """Sérialise nettoyage et permutation, indépendamment du stockage."""
+    with maj_install.reservation(installe, NOM_RESERVATION, langue=_langue()):
         yield
 
 
-def _effacer_element_programme(chemin: Path) -> None:
-    if chemin.is_dir() and not chemin.is_symlink():
-        shutil.rmtree(chemin)
-    else:
-        chemin.unlink(missing_ok=True)
-
-
 def _poser(source: Path, cible: Path) -> None:
-    """Installe un fichier ou un dossier neuf à sa place définitive.
-
-    Une copie, et non un déplacement : le programme qui exécute cette fonction
-    est celui du dossier neuf, ses bibliothèques sont chargées depuis
-    `_internal`, et Windows refuse de renommer un dossier dont un fichier est
-    mappé en mémoire. Copier ne demande rien d'exclusif sur la source. Le
-    dossier temporaire reste derrière, et le ménage se fait au passage
-    suivant."""
-    if source.is_dir():
-        # symlinks=True : les liens internes du bundle (validés à
-        # l'extraction) restent des liens au lieu d'être dupliqués ; la
-        # structure du framework Python sous macOS en dépend.
-        shutil.copytree(source, cible, symlinks=True)
-    else:
-        shutil.copy2(source, cible)
-        if os.name != "nt":
-            cible.chmod(0o755)
+    maj_install.poser(source, cible)
 
 
 def _permuter(neuf: Path, installe: Path) -> bool:
-    """Met les fichiers neufs à la place des anciens, ou remet tout en l'état.
-
-    Les anciens sont écartés avant d'être supprimés : si une copie échoue à
-    mi-chemin, on sait revenir en arrière, ce qu'un effacement préalable
-    rendrait impossible."""
-    with _reservation_installation(installe):
-        return _permuter_reserve(neuf, installe)
-
-
-def _permuter_reserve(neuf: Path, installe: Path) -> bool:
-    marqueur = installe / MARQUEUR_PERMUTATION
-    try:
-        # Création exclusive AVANT la première mutation : un arrêt brutal
-        # laisse aussi le garde-fou empêchant de purger la seule sauvegarde.
-        with marqueur.open("x", encoding="utf-8") as fichier:
-            json.dump({"elements": list(CONTENU_DU_PROGRAMME)}, fichier)
-    except FileExistsError as erreur:
-        raise RestaurationIncomplete(
-            msg("permutation_non_finalisee", marqueur=marqueur)) from erreur
-    except OSError as erreur:
-        if marqueur.exists():
-            raise RestaurationIncomplete(
-                msg("permutation_preparation_interrompue", marqueur=marqueur)) from erreur
-        print(msg("permutation_non_demarree", erreur=erreur), flush=True)
-        return False
-
-    touches = []
-    try:
-        for nom in CONTENU_DU_PROGRAMME:
-            source = neuf / nom
-            if not source.exists():
-                continue
-            ancien = installe / nom
-            retire = None
-            if ancien.exists():
-                retire = installe / f"{nom}.ancien"
-                _effacer_element_programme(retire)
-                os.replace(ancien, retire)
-            touches.append((retire, ancien))
-            _poser(source, installe / nom)
-        marqueur.unlink()
-        return True
-    except OSError as erreur:
-        print(msg("echec_remplacement", erreur=erreur))
-        echecs = []
-        for retire, ancien in reversed(touches):
-            try:
-                # Supprimer aussi un élément neuf qui n'existait pas avant.
-                _effacer_element_programme(ancien)
-                if retire is not None:
-                    os.replace(retire, ancien)
-            except OSError as restauration:
-                echecs.append(f"{ancien.name}: {restauration}")
-        if not echecs:
-            try:
-                marqueur.unlink()
-            except OSError as restauration:
-                echecs.append(str(restauration))
-        if echecs:
-            raise RestaurationIncomplete(
-                msg("restauration_incomplete", marqueur=marqueur,
-                    echecs=" ; ".join(echecs))) from erreur
-        return False
+    """Met les fichiers neufs à la place des anciens, ou remet tout en l'état
+    (maj_install.permuter)."""
+    return maj_install.permuter(
+        neuf, installe, CONTENU_DU_PROGRAMME, marqueur=MARQUEUR_PERMUTATION,
+        nom_reservation=NOM_RESERVATION, poser=lambda source, cible: _poser(source, cible),
+        ecrire=lambda message: print(message, flush=True), langue=_langue())
 
 
-def _nettoyer(installe: Path) -> None:
-    """Efface les restes d'une mise à jour précédente.
-
-    Ce ménage ne peut pas se faire à la fin de l'opération : le programme qui
-    permute tourne depuis ``update``, et sous Windows un exécutable ne peut pas
-    effacer le dossier dont il est issu. On le fait donc au début de la suivante,
-    quand plus personne n'y tient."""
-    with _reservation_installation(installe):
-        _nettoyer_reserve(installe)
-
-
-def _nettoyer_reserve(installe: Path) -> None:
-    if (installe / MARQUEUR_PERMUTATION).exists():
-        raise RestaurationIncomplete(msg("maj_precedente_non_finalisee"))
-    for nom in CONTENU_DU_PROGRAMME:
-        reste = installe / f"{nom}.ancien"
-        try:
-            shutil.rmtree(reste, ignore_errors=True) if reste.is_dir() \
-                else reste.unlink(missing_ok=True)
-        except OSError:
-            pass
+def _nettoyer_travail(installe: Path) -> None:
+    """Ce qui est propre à blink2video dans le ménage : le dossier de préparation
+    et les préparations créées à côté de l'installation par les versions
+    antérieures (elles portaient toutes ce préfixe réservé)."""
     travail = installe / DOSSIER_TRAVAIL
     if (travail / MARQUEUR_TRAVAIL).is_file():
         shutil.rmtree(travail, ignore_errors=True)
-    # Migration des préparations créées à côté de l'installation par les
-    # versions antérieures. Elles portaient toutes ce préfixe réservé.
     for reste in installe.parent.glob(f"{PREFIXE_TRAVAIL_HISTORIQUE}*"):
         shutil.rmtree(reste, ignore_errors=True)
+
+
+def _nettoyer(installe: Path) -> None:
+    """Efface les restes d'une mise à jour précédente, au début de la suivante :
+    le programme qui permute tourne depuis ``update``, et sous Windows un
+    exécutable ne peut pas effacer le dossier dont il est issu."""
+    maj_install.nettoyer_restes(
+        installe, CONTENU_DU_PROGRAMME, marqueur=MARQUEUR_PERMUTATION,
+        nom_reservation=NOM_RESERVATION, apres=_nettoyer_travail, langue=_langue())
 
 
 def _relancer(installe: Path, verbes: list) -> None:
@@ -684,10 +557,10 @@ def _relancer(installe: Path, verbes: list) -> None:
     On relance ce qui tournait, verbe pour verbe, plutôt que la composition
     recommandée : quelqu'un qui n'avait lancé que l'interface ne veut pas se
     retrouver avec quatre boucles."""
-    commande = _ligne(installe, *[mot for groupe in verbes for mot in groupe])
+    ligne = _ligne(installe, *[mot for groupe in verbes for mot in groupe])
     if not verbes:
-        commande.append("start")
-    print(msg("relance", commande=" ".join(commande)), flush=True)
+        ligne.append("start")
+    print(msg("relance", commande=" ".join(ligne)), flush=True)
     env = dict(os.environ)
     if env.pop("BLINK_UPDATE_AUTO_HOME", "") == "1":
         # Le finaliseur seul avait besoin d'une racine de données forcée.
@@ -699,11 +572,10 @@ def _relancer(installe: Path, verbes: list) -> None:
     # antérieure éloignerait l'instance relancée du dossier d'état, où stop
     # la cherchera ensuite.
     env.pop("BLINK_CONTROL_HOME", None)
-    runtime.demarrer(commande, cwd=str(installe),
-                     env=env,
-                     stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=(os.name != "nt"))
+    maj_install.relancer_verbes(
+        Path(ligne[0]), [ligne[1:]], cwd=installe, env=env,
+        demarrer=lambda commande, **options: runtime.demarrer(
+            commande, start_new_session=(os.name != "nt"), **options))
 
 
 def finaliser(cible: Path) -> int:
@@ -763,14 +635,8 @@ def finaliser(cible: Path) -> int:
                 os.environ[nom] = ancienne
 
 
-def _finaliser(cible: Path) -> int:
-    """Second temps, exécuté par la nouvelle version depuis son dossier
-    temporaire : arrêter, remplacer, relancer."""
-    installe = cible.resolve()
-    neuf = Path(sys.executable).resolve().parent if runtime.frozen() \
-        else Path(__file__).resolve().parent
-
-    # Ce qui tourne, noté avant l'arrêt : c'est ce qu'il faudra relancer.
+def _compositions_en_cours() -> list:
+    """Ce qui tourne, noté avant l'arrêt : c'est ce qu'il faudra relancer."""
     fiches = runtime.lire_instances()
     # Les enfants d'un superviseur (start) ont aussi leur fiche, mais c'est
     # lui qui les recrée : les relancer en plus doublait watch et download
@@ -789,52 +655,44 @@ def _finaliser(cible: Path) -> int:
             compositions.append(verbes)
     if not compositions:
         compositions.append([])  # Même repli sur start en l'absence d'instance.
+    return compositions
 
-    # L'ancienne version de stop ne connaît pas BLINK_CONTROL_HOME. Lui
-    # transmettre aussi cette racine via BLINK_HOME évite qu'elle cherche
-    # les fiches dans les données redirigées, puis annonce « rien ne tourne ».
-    env_arret = dict(os.environ, BLINK_HOME=str(runtime._dossier_controle()))
 
-    print(msg("arret_version_en_place"), flush=True)
-    arret = runtime.lancer(_ligne(installe, "stop"), cwd=str(installe),
-                           env=env_arret, stdin=subprocess.DEVNULL, check=False)
-    if arret.returncode != 0:
-        _conclure_sans_relance(msg("arret_echoue"))
-        return 1
+def _finaliser(cible: Path) -> int:
+    """Second temps, exécuté par la nouvelle version depuis son dossier
+    temporaire : arrêter, remplacer, relancer (maj_install.finaliser)."""
+    installe = cible.resolve()
+    neuf = Path(sys.executable).resolve().parent if runtime.frozen() \
+        else Path(__file__).resolve().parent
 
-    # Les fichiers restent tenus quelques instants après la mort du processus,
-    # le temps que le système referme ses poignées.
-    for essai in range(20):
-        # lire_instances garde aussi les fiches dont seul un enfant ou un
-        # ffmpeg survit : la mort du superviseur ne suffit pas.
-        vivants = runtime.lire_instances()
-        if not vivants:
-            break
-        time.sleep(1)
-    else:
-        _conclure_sans_relance(msg("instance_encore_active"))
-        return 1
+    def arreter() -> bool:
+        # L'ancienne version de stop ne connaît pas BLINK_CONTROL_HOME. Lui
+        # transmettre aussi cette racine via BLINK_HOME évite qu'elle cherche
+        # les fiches dans les données redirigées, puis annonce « rien ne tourne ».
+        env_arret = dict(os.environ, BLINK_HOME=str(runtime._dossier_controle()))
+        arret = runtime.lancer(_ligne(installe, "stop"), cwd=str(installe),
+                               env=env_arret, stdin=subprocess.DEVNULL, check=False)
+        return arret.returncode == 0
+
+    def dire(cle: str, echec: bool, **valeurs) -> None:
+        texte = valeurs["texte"] if cle == "brut" else msg(cle, **valeurs)
+        if echec:
+            _conclure_sans_relance(texte)
+        else:
+            print(texte, flush=True)
 
     # Depuis les sources, « git pull » a déjà mis les fichiers en place : il n'y
-    # a rien à permuter, seulement à relancer.
-    if neuf != installe:
-        for essai in range(15):
-            try:
-                reussi = _permuter(neuf, installe)
-            except RestaurationIncomplete as erreur:
-                print(str(erreur), flush=True)
-                return 1
-            if reussi:
-                break
-            time.sleep(2)
-        else:
-            print(msg("version_precedente_intacte"), flush=True)
-            _relancer_tout(installe, compositions)
-            return 1
-
-    print(msg("installe_dans", installe=installe), flush=True)
-    _relancer_tout(installe, compositions)
-    return 0
+    # a rien à permuter, seulement à relancer (neuf == installe).
+    return maj_install.finaliser(
+        installe, neuf, CONTENU_DU_PROGRAMME,
+        noter=_compositions_en_cours, arreter=arreter,
+        # lire_instances garde aussi les fiches dont seul un enfant ou un
+        # ffmpeg survit : la mort du superviseur ne suffit pas.
+        vivants=lambda: bool(runtime.lire_instances()),
+        relancer=lambda compositions: _relancer_tout(installe, compositions),
+        dire=dire, marqueur=MARQUEUR_PERMUTATION, nom_reservation=NOM_RESERVATION,
+        permutation=lambda source, destination: _permuter(source, destination),
+        dormir=lambda secondes: time.sleep(secondes), langue=_langue())
 
 
 def _relancer_tout(installe: Path, compositions: list) -> None:

@@ -117,7 +117,6 @@ class TestRestaurationMiseAJour(unittest.TestCase):
             self.assertFalse(maj._permuter(self.neuf, self.installe))
         self.assertEqual((self.installe / "blink2video.exe").read_bytes(), b"original")
         self.assertFalse(self.marqueur.exists())
-        self.assertFalse((self.installe / ".blink_maj-installation.lock").exists())
 
     def test_installateur_ne_nettoie_ni_ne_telecharge_apres_restauration_incomplete(self):
         self.marqueur.write_text("{}", encoding="utf-8")
@@ -220,7 +219,7 @@ class TestRestaurationMiseAJour(unittest.TestCase):
     def test_reservation_refusee_ne_modifie_ni_programme_ni_sauvegarde(self):
         sauvegarde = self.installe / "blink2video.exe.ancien"
         sauvegarde.write_bytes(b"sauvegarde precedente")
-        for erreur in (runtime.BusyError("mise à jour concurrente"),
+        for erreur in (TimeoutError("mise à jour concurrente"),
                        PermissionError("verrou inaccessible")):
             @contextlib.contextmanager
             def refuser(*_args, **_kwargs):
@@ -230,7 +229,8 @@ class TestRestaurationMiseAJour(unittest.TestCase):
             for operation in (lambda: maj._permuter(self.neuf, self.installe),
                               lambda: maj._nettoyer(self.installe)):
                 with self.subTest(erreur=type(erreur).__name__, operation=operation), \
-                        mock.patch.object(runtime, "verrou", side_effect=refuser):
+                        mock.patch.object(maj.maj_install.atomique, "verrou_inter_processus",
+                                          side_effect=refuser):
                     with self.assertRaises(maj.RestaurationIncomplete):
                         operation()
                     self.assertFalse(self.marqueur.exists())
@@ -251,11 +251,12 @@ class TestRestaurationMiseAJour(unittest.TestCase):
 
     def test_erreur_du_corps_n_est_pas_requalifiee_en_echec_d_acquisition(self):
         erreur = PermissionError("échec du corps réservé")
-        with mock.patch.object(maj, "_nettoyer_reserve", side_effect=erreur):
+        with mock.patch.object(maj, "_nettoyer_travail", side_effect=erreur):
             with self.assertRaises(PermissionError) as recue:
                 maj._nettoyer(self.installe)
         self.assertIs(recue.exception, erreur)
-        self.assertFalse((self.installe / ".blink_maj-installation.lock").exists())
+        # La réservation est rendue : un nettoyage suivant n'est pas refusé.
+        maj._nettoyer(self.installe)
 
     def test_finaliseur_concurrent_ne_reessaie_et_ne_relance_pas(self):
         # Sur POSIX, identite_processus interroge ps via runtime.lancer.

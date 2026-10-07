@@ -621,18 +621,24 @@ l'installation automatique (`maj_install`, `Installateur`, bandeau commun).
 Dans blink2video et watch2notif : téléchargement et extraction sûrs
 (`maj_archive`). Reste, par ordre d'intérêt :
 
-- **blink2video : remplacement de l'installation par `maj_install` (non fait,
-  par choix).** Les deux conceptions diffèrent par ce qu'elles savent faire,
-  pas par du code recopié. Celle de `maj.py` arrête toutes les instances et
-  tous les verbes, remplace élément par élément (`_poser`) sous une
-  réservation d'installation, garde un marqueur de permutation pour reprendre
-  après une coupure (`RestaurationIncomplete`), puis relance chaque composition
-  de verbes qui tournait (`_relancer_tout`, depuis le registre des instances).
-  L'assistant de `maj_install` relance une seule commande et son retour arrière
-  est un échange de dossiers sans marqueur de reprise. L'adopter ferait perdre
-  de la robustesse à l'application qu'on met le plus à jour. Y revenir si on
-  étend `maj_install` à plusieurs commandes de relance et à un marqueur de
-  reprise ; sinon garder la divergence, documentée ici.
+- **blink2video : remplacement de l'installation (fait le 2026-10-07, 0.19.2).**
+  `maj_install` a été étendu à ce que `maj.py` savait faire (plusieurs
+  processus à relancer, permutation élément par élément avec marqueur de
+  reprise, `RestaurationIncomplete`, réservation d'installation, ménage des
+  restes), et `maj.py` n'en garde que des enveloppes minces : `_permuter`,
+  `_nettoyer`, `_poser`, `_finaliser`. Les anciens tests de restauration, de
+  finalisation et d'arrêt (`test_maj_restauration`, `test_maj_finaliser_arret`,
+  `test_maj_instances_stockage`) ont rejoué tels quels, sauf six, adaptés parce
+  qu'ils visaient l'ancien verrou (un fichier créé en exclusif) : le verrou du
+  commun est celui du système, relâché à la mort du processus, et son fichier
+  `.blink_maj-installation.lock` reste en place, vide, entre deux mises à jour.
+  Reste local, par conception : la phase 1 (`installer`) et le passage de main
+  au binaire neuf, qui exécute lui-même `update --finaliser` depuis son dossier
+  de préparation (la stratégie « assistant » de `maj_install`, qui confie le
+  remplacement à un script, ne convient pas à une application qui arrête
+  plusieurs processus et en relance autant), le choix de ce qu'on relance (les
+  compositions lues dans le registre des instances) et la sortie du service
+  systemd.
 - **Amorçage des dépendances en mode sources.** Trois versions indépendantes :
   `runtime.bootstrap` (blink2video), `_bootstrap_*` de lidar2map (environ
   800 lignes) et `_bootstrap_*` de gpxsolar. Rien dans le commun. Grosse
