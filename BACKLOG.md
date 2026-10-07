@@ -1,21 +1,83 @@
 # Backlog
 
-Demandes venues de Reddit (ou d'ailleurs) pas encore traitees. But : ne pas
-les perdre, pas forcement les construire toutes.
+Ce qui est ouvert, rien d'autre : ce qui est fait est dans BACKLOG-FAIT.md, mot pour mot.
+Une piste notée ailleurs (rapport de mutualisation de nico579-commons, issues, mémoire de
+session) est aussi listée ici, avec un renvoi : le BACKLOG est l'endroit où l'on regarde pour
+savoir ce qui reste. Dernier nettoyage : 2026-10-07.
 
-- **Integration Home Assistant native.**
-  Source : reddit/MoneySquare6212, r/blinkcameras, 2026-08-19. Ecarte pour
-  l'instant (repondu sur Reddit) : un vrai chantier a part (config flow,
-  modele d'entites, HACS), pas une extension de ce qui existe. Note ici
-  pour ne pas l'oublier si la demande revient.
+## À étudier ou à décider
 
-- **Indicateur de mise a jour pas assez visible.**
-  Source : reddit/SR_gAr, r/blinkcameras, 2026-08-20. A dit avoir ete
-  "perdu dans toutes les infos" et ne pas avoir vu qu'une mise a jour etait
-  disponible, a cru manquer quelque chose. Signal faible (un seul retour)
-  mais a surveiller : si ca revient, revoir la visibilite du bouton/de la
-  bascule "Mettre a jour" dans reglages (et maintenant dans le menu de
-  l'icone tray, 28.58).
+- **Étude Electron pour les quatre applications.** Demande de Nico du 2026-10-02 :
+  Electron (https://www.electronjs.org/fr/) peut-il simplifier les quatre projets ? Aucune étude
+  n'est faite, rien n'est décidé. Cadre dans nico579-commons, ANALYSE-MUTUALISATION-2026-09-29.md,
+  §11 : ce qu'il remplacerait (serveur local et navigateur, icône et menu, raccourci et démarrage
+  automatique, installateur et mise à jour) et ce qu'il ne remplace pas (le moteur Python :
+  blinkpy, ffmpeg, aiortc, GPX, LiDAR). Avis préliminaire du 2026-10-07, à confirmer par une étude
+  écrite : non. Chaque application embarquerait son Chromium et son Node (de l'ordre de 150 à 200 Mo
+  de plus, quatre fois) sans rien retirer ; l'icône sous GNOME Wayland et la mise à jour automatique
+  sont déjà résolues par le commun ; la mise à jour d'Electron suppose des programmes signés (la
+  candidature SignPath est en attente) ; Electron ne tourne plus sous Windows 7, que l'édition
+  « legacy » vise. Seul vrai gain : une fenêtre à soi plutôt qu'un onglet, donc plus de navigateur
+  récent exigé pour le direct WebRTC. Alternative à comparer : un raccourci en mode application
+  du navigateur. À faire maintenant que la mutualisation est terminée.
+
+- **Audit du 2026-10-02 (0.15.7) : 13 constats restants, à décider par Nico.**
+  Le dossier est `Documents\blink\audit\2026-10-02` (ignoré par git, jamais `git add -A` ;
+  son `changements.patch` de 246 Ko est une donnée, à ne jamais appliquer sans ordre). Analysé le
+  2026-10-06 sur la 0.18.1 : les scripts de l'audit rejoués en mesure seule, rapport, aucune
+  correction. Déjà corrigés : B02 (PR #72), O04 (FFmpeg figé), O05 (clip USB réel), B03 et B13
+  (0.18.2), B10 (0.18.3). Restent, tous reproduits et
+  sans cas reel connu, a traiter si l'un se presente :
+  B01 reconstruction echouee qui reduit semaine/mois (se repare seul au passage
+  suivant reussi, verifie) ; B04 verrou vide ou `.purge` abandonne jamais repris ;
+  B05 reponse 416 sans Content-Length (client en attente) ; B06 sauvegarde
+  obsolete qui efface `source_deleted` ; B07 sessions HTTP non fermees apres une
+  reconnexion echouee ; B08 file WebRTC pleine qui perd le signal de fin ; B09
+  launchctl refuse annonce comme installe (macOS) ; B11 marqueurs de passage
+  concurrents qui se remplacent ; B12 deux preparations de mise a jour dont la
+  seconde efface la premiere ; B14 identite de processus illisible = verrou
+  repris (CHOIX ASSUME du 2026-09-29 pour les pannes apres redemarrage : ne pas
+  inverser sans accord) ; O01 types RTP > 127 au 9e profil H.264 ; O02 retour a
+  zero des PTS MPEG a 33 bits.
+  Mon avis : B05 (client bloqué sur une réponse 416 sans Content-Length) et B07 (sessions HTTP
+  non fermées après une reconnexion échouée) sont les plus plausibles en usage réel ; le reste peut
+  attendre qu'un cas se présente. Rien ne se corrige sans demande de Nico (audit veut dire rapport).
+
+- **Test hebdomadaire des fournisseurs de lidar2map en échec chaque semaine depuis le 2026-08-17,
+  et personne n'est prévenu.** Workflow « Smoke providers » (lundi). Dernier passage, le 2026-10-05 :
+  47 réussis, 3 en échec : ca-quebec (la dalle de téléchargement est absente), de-sh (
+  CERTIFICATE_VERIFY_FAILED, « unable to get local issuer certificate » : cause à établir, peut-être
+  un certificat intermédiaire que le magasin certifi ne complète pas) et fi-maanmittauslaitos
+  (HTTP 403 ; mes notes du 2026-09-26 y voyaient la clé d'API). Deux
+  décisions : réparer ou retirer ces trois fournisseurs, et faire que l'échec du workflow ouvre une
+  issue ou envoie un message, pour qu'une source cassée ne reste pas des semaines sans qu'on le sache.
+
+- **Signature de code des exécutables.** Candidature SignPath Foundation soumise le 2026-08-29, en
+  attente de réponse. Conditionne aussi les mises à jour automatiques d'Electron (voir ci-dessus).
+
+- **Brouillon de release v0.11.5, orphelin.** Les trois tentatives de publication de septembre ont
+  échoué (corrigé en v0.11.6, voir BACKLOG-FAIT.md) ; il reste un brouillon `v0.11.5` avec 6 fichiers
+  sur GitHub, sans tag. À supprimer si Nico est d'accord (décision laissée à lui, rien n'a été effacé).
+
+## En attente d'un retour ou d'un cas réel
+
+- **Issue #55 (Björn) : « USB storage only detects clips from one camera ».** Cause trouvée et
+  corrigée en 0.15.7 : le Sync Module écrit les noms de caméra en ASCII (le ü est supprimé) et
+  blinkpy les cherchait avec ü. La règle réelle pour les autres accents n'est pas confirmée ;
+  attendre le retour de Björn avant de fermer.
+
+- **Issue #40 (Markus) : le nombre d'images par ligne change d'une vue à l'autre à taille de
+  fenêtre égale.** Markus pense que cela dépend de la largeur de la ligne d'informations du haut. À
+  vérifier : si cela se confirme, c'est un défaut de mise en page, pas un choix. Tri, taille et
+  masquage sont en 0.16.0.
+
+- **Vignettes : une borne sur la file d'attente de serve.** Le reste de l'entrée, faite en 0.18.0 :
+  `send_thumb()` laisse chaque requête en attente occuper un fil du serveur. Le test à froid de Joël
+  sur ses vrais clips dira si elle est encore utile.
+
+- **Icône sous GNOME Wayland : la voir dans une vraie session.** Livrée en 0.18.0 et essayée dans la
+  VM Ubuntu 26.04 avec un gnome-shell sans écran (enregistrement auprès du watcher, GetLayout,
+  Event) ; le rendu dans une vraie session graphique n'a pas été vu.
 
 - **Tester-XR.exe affiche une "blink2video version" perimee dans son
   rapport.** Source : reddit/cutthin, auteur de la demande initiale de prise
@@ -34,662 +96,16 @@ les perdre, pas forcement les construire toutes.
   a ajouter au pipeline), ou faire lire au testeur la version reelle du
   blink2video.exe voisin plutot que sa propre runtime.VERSION figee au
   build.
+  Toujours ouvert au 2026-10-07 : `diagnostic_xr.py` lit encore `runtime.VERSION` figée au build, et
+  ni `deploy.py` ni les workflows ne reconstruisent le testeur.
 
-- **Latence du direct (MSE) : piste WebRTC construite, active derriere un
-  drapeau, validee en usage reel (2026-09-03).** Source : meme fil reddit/cutthin que l'entree Tester-XR.exe
-  ci-dessus (plainte initiale sur la lenteur du direct des cameras
-  eloignees), approfondi en session le 2026-09-03 apres que l'utilisateur a
-  mesure a la main Salon : 10s sur blink2video contre 3s sur l'appli
-  officielle Blink. Diagnostic instrumente (horodatage reel ajoute a
-  _journal_direct_mse/serve.py et au recv() patche de blink_engine.py,
-  direct.log) : l'essentiel du delai n'est pas cote Blink mais dans
-  blink2video meme, structurel au MSE - ffmpeg doit voir passer le SPS
-  avant de pouvoir ecrire un entete MP4 (empty_moov), pas une histoire de
-  reglage. Baisser -analyzeduration/-probesize (5000000 -> 1500000,
-  serve.py) a ete teste sans regression sur jardin (la camera batterie
-  lente a l'origine du reglage genereux), a garder.
+## À ne faire que si la demande revient
 
-  Prototype WebRTC (aiortc + blinkpy, venv isole, aucune modification du
-  process en direct) confirme un vrai gain, mesure deux fois par camera :
-  Salon 9,3s (MSE) -> 4,10s (WebRTC decodage+reencodage) -> 3,23s (WebRTC
-  passthrough, sans reencodage) ; jardin ~15,8s (MSE, mesure sur Terrasse1,
-  meme materiel) -> 6,81s -> 5,60s. Facteur 2,3 a 2,9x selon camera et
-  mode. Le mode passthrough (equivalent WebRTC du -c:v copy deja utilise en
-  MSE, evite le cout CPU du reencodage) a demande de monkey-patcher
-  aiortc.codecs.CODECS["video"] pour declarer le vrai profil H.264 de la
-  camera (High, 640028) : aiortc n'annonce que du Baseline en dur
-  (42001f/42e01f). Verifie qu'aucune solution officielle n'existe cote
-  aiortc (issue aiortc/aiortc#944, fermee sans suite ; la reserve du
-  mainteneur porte sur l'encodage, pas sur le passthrough, ne s'applique
-  pas a notre cas).
-
-  Construit dans le depot (pas juste un prototype jetable) : blink_webrtc.py
-  (module optionnel, DISPONIBLE=False proprement si aiortc absent), route
-  POST /live-webrtc/<name> dans serve.py, watchLive()/watchWebRTC() dans
-  serve_app.js avec repli automatique sur watchMse() si la negociation
-  echoue. Active par la variable d'environnement BLINK_DIRECT_WEBRTC=1, pas
-  encore un reglage de la page web. aiortc + cryptography/pyopenssl/cffi
-  plafonnes dans requirements.in (cffi<2 : le python systeme partage de
-  l'utilisateur porte aussi timezonefinder, sans rapport avec blink2video,
-  qui exige cffi<2 - non pertinent si ce depot passe un jour a un venv
-  dedie).
-
-  Incident reel a l'activation (2026-09-03) : premiere tentative restee
-  bloquee sur "Reconnexion...", .blink_hub.lock jamais libere (MODULE_SLOT
-  pareil), plus aucun direct possible - meme MSE, verrou partage. Cause :
-  RTCPeerConnection() sans configuration explicite retombe sur le defaut
-  d'aiortc (stun:stun.l.google.com:19302, aiortc/codecs/rtcicetransport.py
-  RTCIceGatherer.getDefaultIceServers), et setLocalDescription() attend la
-  fin de la collecte de candidats avant de rendre la main - un blocage
-  reseau/pare-feu dessus bloque tout indefiniment, jamais de
-  connectionstatechange donc jamais de nettoyage. Corrige : iceServers=[]
-  (navigateur et serveur sur le meme reseau local, un STUN n'a de toute
-  facon rien a apporter) plus deux plafonds durs dans blink_webrtc.py,
-  memes principes que LIVE_FIRST_FRAME_SECONDS/LIVE_MAX_SECONDS en MSE -
-  NEGOCIATION_MAX_SECONDS (15s, echoue proprement plutot que de bloquer) et
-  SESSION_MAX_SECONDS (300s, ferme une session jamais terminee proprement
-  cote client). Revalide ensuite par l'utilisateur : fonctionne, "beaucoup
-  plus rapide".
-
-  Reste ouvert : pas de reglage dans la page web (variable d'environnement
-  seulement) ; pas de reprise automatique si la connexion tombe apres la
-  premiere image (contrairement a connecterMse) ; detection du profil
-  H.264 verifiee sur deux modeles de camera seulement (Salon, jardin) ;
-  CODECS["video"] reste un detail d'implementation non documente d'aiortc
-  qu'une mise a jour peut casser sans avertissement (issue aiortc/aiortc#944
-  toujours sans solution officielle cote projet). A trancher avec
-  l'utilisateur : rendre ca un reglage visible, ou garder en drapeau
-  experimental encore un temps.
-
-  PyAV retire (2026-09-03), remplace par un demultiplexeur MPEG-TS/PES/NAL
-  maison, blink_ts_demux.py (~200 lignes, assez de ISO/IEC 13818-1 pour
-  isoler le flux elementaire H.264 : PAT -> PMT -> PID video -> decoupage en
-  NAL units des qu'une fin est vue, sans attendre un paquet PES ou une
-  image entiere complets). Motive par le retrait de la dependance PyAV elle
-  meme, pas par un bug precis d'origine ; a permis au passage de lire le PTS
-  reel encode par la camera plutot que de sonder les flux (extradata
-  SPS/PPS incomplet a probesize bas, cf. l'essai analyzeduration/probesize
-  abandonne plus haut). Valide hors-ligne contre une capture TS reelle
-  (373 NAL units, 0 pts=None, PTS = valeur de reference PyAV a l'identique).
-
-  Saccade signalee par l'utilisateur en usage reel (2026-09-03, "le debit
-  est plus saccade") apres activation de WebRTC : deux causes distinctes
-  trouvees et corrigees ensemble, aucune des deux liee a la latence de
-  demarrage deja mesuree plus haut.
-  1. PTS invente a la reception (horloge monotone locale) au lieu du PTS
-     reel encode par la camera dans l'entete PES (ITU-T H.222.0, 2.4.3.7) :
-     un reseau qui livre par rafales plutot qu'a cadence reguliere faisait
-     perdre au recepteur l'information de rythme necessaire pour lisser
-     l'affichage. Corrige par l'extraction PTS ci-dessus dans
-     blink_ts_demux.py (deja cadencee a 90 kHz, meme horloge que WebRTC
-     utilise pour la video RTP - aucune conversion requise).
-  2. `<video autoplay>` seul ne demarre pas toujours la lecture d'un
-     srcObject WebRTC (constate : video paused, currentTime bloque a 0,
-     100% des images decodees comptees perdues par
-     getVideoPlaybackQuality() jusqu'a un appel explicite video.play()).
-     watchWebRTC() dans serve_app.js n'avait jamais reproduit le geste
-     defensif que connecterMse() applique deja pour MSE (meme raison :
-     autoplay n'est pas fiable a 100%, seuls les evenements
-     loadeddata/playing prouvent qu'une image reelle est affichee).
-     Corrige par le meme appel video.play().catch(() => {}) dans
-     pc.ontrack.
-  Valide : suite complete (407 tests) verte, harnais e2e isole
-  (scratchpad, hors-depot) sur une fenetre fraiche de 4s apres le fix ->
-  0 image perdue, currentTime avance normalement. Redeploye en production,
-  webrtc:true confirme, verifie en reel sur Salon (paused:false,
-  currentTime avance au rythme reel). Le compteur d'images perdues n'a pas
-  pu etre revalide en conditions de prod via l'automatisation navigateur :
-  l'onglet controle passait document.hidden=true (throttling Chrome des
-  onglets non visibles), ce qui a lui seul suffit a faire compter comme
-  perdue toute image decodee, independamment de la qualite reelle du flux -
-  artefact de methode de test, pas un signal sur le code.
-
-  Confirme par l'utilisateur (2026-09-03) : Salon fluide, jardin encore
-  saccade mais differemment - longues periodes fluides puis saccade,
-  hypothese bande passante avancee par l'utilisateur. Diagnostic instrumente
-  a nouveau plutot que suppose : capture TS brute de jardin (45s) avec
-  horodatage reseau reel par lecture (scratchpad/capture_ts_timing.py),
-  rejouee hors-ligne a travers blink_ts_demux.py. Resultat net : le PTS
-  camera reste parfaitement regulier (30 fps sans le moindre saut) sur toute
-  la capture - la camera encode sans probleme - mais la livraison reseau
-  montre un trou d'environ 1,0s tres regulier (6 occurrences mesurees,
-  7,95s/8,95s/9,95s/10,95s/11,94s/12,95s - quasi exactement une par
-  seconde), 0,62 a 0,86s sans le moindre octet recu a chaque fois. Confirme
-  et precise l'hypothese bande passante de l'utilisateur : tres
-  probablement le wifi de la camera a pile qui s'endort par intervalles
-  pour economiser la batterie (Blink Outdoor, contrairement au Blink Mini
-  cable de Salon), pas un signal faible en continu.
-
-  Cause reelle : _PisteH264.recv() (blink_webrtc.py) renvoyait une image des
-  qu'elle etait demultiplexee, zero tampon - le moindre trou reseau se
-  voyait donc directement comme un arret de lecture. MSE n'a jamais ce
-  probleme par construction (SourceBuffer + <video> du navigateur
-  bufferisent deja plusieurs secondes d'avance par defaut), pas verifie en
-  reel une deuxieme fois pour ca, pas necessaire. Corrige par un tampon de
-  lecture (jitter buffer, meme principe que tout flux temps reel - RTP,
-  visio) : TAMPON_LECTURE_SECONDS = 1.2, recv() cadence chaque image sur son
-  PTS depuis une ancre posee a la premiere image plutot que de la renvoyer
-  des son arrivee. Applique uniformement (pas seulement aux cameras a pile)
-  pour rester simple ; Salon a largement la marge pour l'absorber (WebRTC y
-  reste tres au-dessus de MSE malgre le tampon).
-
-  Valide avant redeploiement (pas de nouveau reveil camera) : le VRAI
-  _PisteH264.recv() rejoue contre l'enregistrement reseau reel de jardin
-  (scratchpad/valide_tampon_lecture.py, FauxReader qui respecte les memes
-  horodatages d'arrivee que la capture) - les 6 trous de regime etabli
-  tombent tous a des ecarts normaux (~0,033s) apres le fix, seul un ecart de
-  0,89s subsiste, en tout debut de session (image #2, le temps que le
-  tampon se remplisse une premiere fois - inevitable, pas une resurgence du
-  probleme). Suite complete (407 tests) verte. Redeploye en production,
-  webrtc:true confirme. Confirme par l'utilisateur (2026-09-03) : "ca
-  marche" sur jardin.
-
-  Suite donnee par l'utilisateur (2026-09-03), deux demandes separees.
-
-  1. Reglage webrtc/mse dans la page (webrtc par defaut), a la place de la
-  variable d'environnement BLINK_DIRECT_WEBRTC. MJPEG (troisieme choix
-  propose par l'utilisateur) volontairement pas ajoute : deja compare a
-  MSE une fois (audit 28.15, MSE gagnant), code mort retire depuis en
-  deux temps (28.53, commit 7339f85, doctrine explicite "ne pas laisser de
-  code mort") - le reintroduire comme option sans raison nouvelle
-  reviendrait sur cette decision. runtime.py : nouveau champ
-  "live_protocol" (webrtc/mse) dans REGLAGES_DEFAUT, valide a la lecture
-  (PROTOCOLES_LIVE_VALIDES, retombe sur le defaut sinon, meme pattern que
-  timezone/booleens), accepte en parametre de ecrire_reglages(). serve.py :
-  WEBRTC_ACTIF lit desormais runtime.lire_reglages() au demarrage au lieu
-  de os.environ - meme moment de lecture que les autres reglages (redemarre
-  deja au changement, comme port/fuseau/etc.), meme validation cote
-  POST /api/reglages. Page web : select id=liveProtocol dans le fieldset
-  Video existant, deux options, cle i18n FR/EN. Tests : 7 appels
-  ecrire_reglages() dans test_runtime_reglages.py mis a jour (nouveau
-  parametre requis, pas de defaut - coherent avec le reste de la
-  signature), 2 nouveaux tests (valeur inconnue retombe sur webrtc, "mse"
-  respecte). 407 tests -> 409.
-
-  2. Changer de camera en direct sans cliquer Arreter ne marchait pas
-  ("il faudrait forcer un arret de la camera active"). Cause confirmee :
-  MODULE_SLOT (serve.py) est un Semaphore(1) global, partage par WebRTC et
-  MSE, acquis en mode non bloquant - la deuxieme camera tombe donc en 409
-  immediat. watchWebRTC() n'a aucune reprise (un seul essai, repli MSE) ;
-  watchMse() en a deja une, specifique au 409 (MSE_DELAI_MODULE_OCCUPE_MS
-  = 10000, jusqu'a MSE_BUDGET_TOTAL_MS = 10 min) - fonctionnelle mais
-  jamais concue pour ce cas : elle n'aboutit que quand la premiere camera
-  expire d'elle-meme (LIVE_MAX_SECONDS, jusqu'a 5 min), d'ou le "ca ne
-  marche pas" en pratique. Corrige cote page web uniquement (aucun
-  changement serveur necessaire) : watchLive() (serve_app.js) arrete
-  desormais explicitement toute autre camera active (WEBRTC_PC/MSE_ABORT)
-  avant de lancer la nouvelle - stopWatch() existait deja, seulement jamais
-  appele automatiquement ici. La boucle de reprise 409 deja presente dans
-  watchMse() absorbe le residu de course cote serveur (liberation pas
-  encore terminee au moment ou la nouvelle requete part) sans code
-  supplementaire.
-
-  Verifie en reel (Salon actif -> bascule vers jardin sans Arreter) :
-  Salon correctement arrete (revient a la vignette), jardin recoit son
-  tour immediatement (flux Blink ouvert quelques secondes apres, pas
-  bloque des minutes). Suite complete verte, redeploye, webrtc:true et
-  reglage confirmes en page (select prerempli sur "webrtc").
-
-  Observation separate en verifiant, non confirmee : la lecture MSE de
-  jardin, apres la bascule, est repassee plusieurs fois en paused avec
-  currentTime bloque a 0 malgre buffered non vide et readyState=4 (play()
-  manuel la debloque un instant, puis retombe) - pattern different du bug
-  play()/autoplay deja corrige cote WebRTC (connecterMse() appelle deja
-  video.play()). Piste non creusee : meme reseau bursty que celui
-  diagnostique et corrige cote WebRTC (jitter buffer, plus haut), mais
-  MSE n'a recu aucun correctif equivalent - purement hors perimetre de
-  cette demande (bascule de camera), pas cause par elle. A surveiller si
-  signale a nouveau.
-
-  Affine par l'utilisateur (2026-09-03) : "blink demande un certain temps
-  entre le passage d'une camera a une autre... on pourrait utiliser le
-  verrou de blink, sur le systeme occupe ?". Verifie dans le code source de
-  blinkpy (site-packages, pas suppose) avant de repondre : un vrai
-  mecanisme existe (LiveStreamAPI.poll(), livestream.py) - tant que la
-  connexion TCP vers le relais Blink n'a pas vu EOF, il continue
-  d'interroger api.request_command_status() en boucle ; seulement une fois
-  EOF vu, son bloc finally appelle api.request_command_done(). _stop_stream
-  (serve.py) attend deja cette tache dans son integralite avant de rendre
-  MODULE_SLOT - le serveur n'ecourte donc rien. Le vrai temps d'attente est
-  celui, reel, que met le relais Blink a repondre a la fermeture du flux
-  cote client (mesure en reel : ~8,8 s sur la bascule Salon -> jardin de
-  tout a l'heure) : ni instantane, ni infini, borne par les propres
-  timeouts internes de blinkpy (COMMAND_POLL_TIME=1s, MAX_RETRY=120). Ce
-  qui manquait n'etait donc pas d'attendre le bon signal (deja fait) mais
-  de le voir arriver plus vite cote client : MSE_DELAI_MODULE_OCCUPE_MS
-  (10 s) est un choix delibere et documente dans le code pour le cas
-  generique "un tiers inconnu tient le module" (patience justifiee, ETA
-  inconnue) - pas adapte au cas "je viens de declencher moi-meme cette
-  liberation, elle est deja en cours".
-
-  Premier correctif (serve_app.js uniquement, depasse par la suite - voir
-  plus bas) : delai court (1000 ms) specifique au 409 rencontre juste
-  apres une bascule, au lieu du delai generique de 10 s. Mesure en reel
-  sur une bascule Salon -> jardin : 8,76 s -> 1,65 s. Retire ensuite
-  entierement (cf. ci-dessous), la nouvelle mesure ayant montre que ce
-  1,65 s n'etait qu'un echantillon chanceux, pas une valeur stable.
-
-  Repousse par l'utilisateur (2026-09-03), deux retours factuels
-  precedant la conception finale :
-  1. "mon temps d'attente n'est pas de 1,65s entre salon et jardin;
-     plutot 10s" - le vrai temps de liberation cote Blink est variable
-     (deja 8,76 s vs 1,65 s dans les deux mesures precedentes), un delai
-     fixe, meme raccourci a 1 s, ne peut que mal deviner selon les jours.
-  2. "je trouve que c'est plus propre d'attendre une confirmation du
-     serveur, plutot que d'essayer en force" - jugement architecture
-     explicite en faveur d'un signal reel plutot qu'un delai calibre.
-  Et une contrainte produit supplementaire (meme session) : "on ne doit
-  pas basculer automatiquement de webrtc a mse ! il y a un reglage manuel
-  pour ca" - watchLive() retombait jusque-la sur watchMse() a la moindre
-  erreur WebRTC (comportement herite d'avant le reglage live_protocol,
-  jamais retire depuis) ; explique aussi pourquoi une bascule atterrissait
-  perceptiblement sur MSE malgre le reglage webrtc ("pourquoi MSE ? on
-  n'utilise pas webrtc maintenant ?", meme session) - watchWebRTC() n'a
-  qu'un seul essai, sans boucle de reprise, donc le moindre 409 pendant
-  une bascule le faisait echouer puis basculer vers MSE.
-
-  Conception finale : nouvelle route GET /api/attente-module (serve.py,
-  send_attente_module) qui attend reellement MODULE_SLOT.acquire(blocking=
-  True, timeout=ATTENTE_MODULE_MAX_SECONDS=25) puis le relache aussitot
-  (ne le retient pas pour elle-meme - seulement une confirmation, la
-  vraie tentative suit juste apres). Ne declenche aucun arret : stopWatch()
-  cote page l'a deja fait avant cet appel, ce serait redondant de le
-  refaire ici. watchLive() (serve_app.js) attend cette confirmation
-  (attendreModuleLibre()) avant de tenter quoi que ce soit, seulement
-  quand une autre camera etait active. Repli automatique WebRTC -> MSE
-  retire de watchLive() : un echec WebRTC affiche desormais une vraie
-  erreur (failWatch(), meme traitement que MSE) plutot que de substituer
-  silencieusement l'autre protocole - coherent avec le reglage
-  live_protocol, qui perdrait son sens si contourne en silence des le
-  premier accroc. Supprime au passage MSE_DELAI_MODULE_OCCUPE_APRES_
-  BASCULE_MS et le parametre viensDeBasculer (premier correctif,
-  desormais inutile - watchMse() retrouve son delai unique d'origine,
-  10 s, pour le seul cas qui lui reste : un tiers reellement inconnu).
-
-  Verifie en reel (Salon WebRTC actif -> bascule vers jardin sans
-  Arreter) : jardin atterrit desormais sur WebRTC (pas de repli MSE),
-  paused:false, currentTime avance normalement des la premiere tentative.
-  Delai total mesure entre la fin de session Salon et la premiere image
-  video de jardin (direct.log) : 2,73 s - integre cette fois le reveil de
-  la camera lui-meme, pas seulement la liberation du module (mesure pas
-  directement comparable aux 8,76 s / 1,65 s precedents, qui isolaient la
-  seule ouverture du flux Blink). Suite complete (409 tests) verte,
-  redeploye.
-
-  Regression signalee par l'utilisateur dans la foulee (2026-09-03) : "a
-  un moment, les 2 boutons sont a voir le direct, alors que celui de la
-  2eme camera aurait du changer de suite". Introduite par le changement
-  ci-dessus : watchWebRTC()/watchMse() ne touchent la case qu'apres
-  attendreModuleLibre(), qui peut prendre plusieurs secondes - la case de
-  la nouvelle camera restait donc sur "Voir en direct" tout ce temps,
-  comme si le clic n'avait rien declenche. Corrige (watchLive(),
-  serve_app.js) : la case affiche l'indice d'attente (repos() avec le
-  libelle "watch.waking") immediatement, avant meme d'arreter l'autre
-  camera ou d'attendre - meme texte que celui affiche juste apres par
-  watchWebRTC()/watchMse(), pas de changement visible au moment de la
-  relve. Verifie en reel : le bouton passe de "Voir en direct" a "Reveil
-  de la camera..." de facon synchrone des le clic (avant tout await),
-  pendant que l'ancienne camera revient a l'etat repos au meme instant.
-  Suite complete verte, redeploye.
-
-  "ca bloque sur le liveview jardin" (2026-09-03, apres publication de
-  v0.11.0). Direct.log : "echec (webrtc), TimeoutError:" suivi 24s plus
-  tard de "session rendue de force". Cause reelle, verifiee dans
-  blink_webrtc.py (pas supposee) : l'attente du SPS/PPS envoye par la
-  camera (track.sps_pps_pret.wait(), le vrai reveil materiel) partageait
-  NEGOCIATION_MAX_SECONDS (15s) avec les etapes de negociation SDP/DTLS
-  purement locales - alors que MSE accorde deja 40s a cette meme attente
-  (LIVE_FIRST_FRAME_SECONDS, serve.py) precisement parce qu'une camera a
-  pile doit se reveiller. 15s suffisait le plus souvent (d'ou tous les
-  succes vus dans ce meme direct.log), pas toujours. Corrige : nouvelle
-  constante PREMIERE_IMAGE_MAX_SECONDS = 40 (meme valeur et raison que
-  cote MSE), dediee a cette seule attente ; NEGOCIATION_MAX_SECONDS reste
-  a 15s pour la suite (SDP/DTLS, purement locale, aucune raison d'etre
-  aussi patiente).
-
-  Message d'erreur corrige au passage : un TimeoutError sans reponse
-  serveur avant plusieurs dizaines de secondes (negociation + jusqu'a 45s
-  de nettoyage cote send_offer_webrtc) s'affichait ensuite comme
-  "TimeoutError: " brut sur le bouton Reessayer, sans explication - meme
-  qualite de message que MSE desormais ("La camera n'a envoye aucune
-  image. Hors de portee du module, endormie, ou deja occupee par une
-  autre session.").
-
-  Confusion separee dans la foulee : "pourquoi mse??? on est sur
-  webrtc!" - le prefixe de journal "[direct-mse]" (nom herite de
-  l'epoque ou seul MSE existait) apparaissait sur CHAQUE ligne de
-  direct.log, y compris les echecs WebRTC ci-dessus, laissant croire a
-  une bascule silencieuse. Aucune bascule reelle (deja retiree, plus
-  haut) : juste un nom de prefixe reste generique par accident.
-  _journal_direct_mse() renommee _journal_direct() (serve.py, 12 sites
-  d'appel) ; meme prefixe "[direct]" reproduit dans blink_engine.py (son
-  propre point de journalisation, hors de portee de la fonction ci-dessus
-  pour eviter un import circulaire). Le protocole reste lisible dans le
-  texte de chaque message, jamais dans ce prefixe desormais neutre.
-
-  Suite complete (409 tests) verte, redeploye.
-
-  Toujours la, reconfirme par l'utilisateur (2026-09-03) : "ca bloque
-  toujours lors du passage salon a jardin; il faut attendre un moment".
-  Direct.log de cette nouvelle occurrence (pas suppose) : Salon arrete a
-  14:30:17.825, jardin echoue a 14:30:59.126 (41,3s - pile
-  PREMIERE_IMAGE_MAX_SECONDES=40, le nouveau plafond deja atteint), une
-  nouvelle tentative reussit a 14:31:41 (42s plus tard) - ~84s ressenties
-  au total pour cette seule bascule. Le plafond de 40s (juste corrige,
-  voir plus haut) n'etait donc pas mal calibre : jardin peut reellement
-  prendre plus de temps que ca a repondre, tout particulierement juste
-  apres une bascule depuis une autre camera (probable temps de reattache
-  materiel du module de synchronisation a une camera differente - non
-  verifiable depuis blink2video, hors de sa portee). Le vrai manque
-  restant : un seul essai de negociation WebRTC, sans reprise - MSE a
-  deja une boucle pour exactement ce cas depuis le debut
-  (MSE_MAX_ECHECS_A_VIDE), WebRTC ne l'avait jamais eue ("pas encore de
-  boucle de reprise pour ce chemin tout neuf, un nouveau clic suffit" -
-  ecrit a la construction initiale, jamais revisite jusqu'ici).
-
-  Corrige : boucle de reprise pour la negociation initiale
-  (watchWebRTC()/tenterWebRTC(), serve_app.js), symetrique a celle de
-  MSE - memes valeurs que les constantes MSE_* (WEBRTC_MAX_ECHECS=5,
-  WEBRTC_DELAI_RECONNEXION_MS=3000, WEBRTC_BUDGET_TOTAL_MS=10 min),
-  meme distinction compteur de secondes uniquement au tout premier essai
-  vs texte fixe "Reconnexion..." ensuite. Necessite une annulation
-  propre pour un essai en cours ET pour l'attente entre deux essais :
-  nouveau WEBRTC_ABORT (parallele a MSE_ABORT), verifie par stopWatch()
-  et par watchLive() (une camera "active" au sens de la bascule inclut
-  desormais une reprise en cours, meme sans RTCPeerConnection etablie
-  pour l'instant). Repli automatique vers MSE toujours absent (inchange,
-  demande explicite de l'utilisateur) : ceci reprend seulement au sein
-  du protocole choisi, jamais vers l'autre. Porte volontairement limitee
-  a la negociation initiale, comme documente des la premiere version :
-  une coupure apres la premiere image reste, elle, non reprise
-  automatiquement (portee differente).
-
-  Valide en reel avant redeploiement :
-  - chemin normal (Salon) inchange, succes du premier coup ;
-  - boucle de reprise verifiee sur Portail (camera reellement hors
-    ligne, echec rapide et repetable, contrairement a jardin) : indice
-    "Reconnexion..." visible entre les essais, WEBRTC_ABORT peuple
-    pendant la sequence, message d'erreur clair apres epuisement des 5
-    essais, meme qualite que le message KeyError deja existant
-    ("Blink n'a fourni aucune adresse de flux...") ;
-  - annulation en cours de reprise (bouton Arreter pendant l'attente
-    entre deux essais) : case revient proprement au repos, WEBRTC_ABORT/
-    WEBRTC_PC/MSE_ABORT tous vides ensuite, aucun etat residuel.
-  Suite complete verte, redeploye.
-
-- **"Interrogation du systeme Blink..." (mode Direct) plus lent que
-  necessaire (2026-09-03).** Question de l'utilisateur : une seule
-  requete, ou plusieurs qu'on pourrait paralleliser/differer ? Verifie
-  dans le code source de blinkpy avant de repondre (pas suppose) :
-  system_state() (serve.py) appelait _blink.refresh(force=True), qui
-  enchaine en serie get_homescreen() + par module get_network_info() +
-  update_local_storage_manifest() + check_new_videos() + par camera
-  get_camera_info()+update() (sync_module.py) - soit 1+1+1+1+N appels
-  reseau successifs pour ce compte (N=4 cameras ici). Or l'affichage de
-  cette page ne lit en realite que get_homescreen() (nom/batterie/
-  temperature/statut par camera) et network_info par module (armement) :
-  le reste (manifeste de stockage, nouveaux clips, detail par camera)
-  n'est jamais lu par cette route. sync.cameras lui-meme (identifiants
-  device_id/network_id, utilises pour rapprocher chaque camera de son
-  entree dans l'ecran d'accueil) est peuple une seule fois a la connexion
-  initiale (update_cameras(), appele par start(), jamais par refresh()) -
-  deja stable, pas besoin d'un nouvel appel pour ca non plus.
-
-  Pas de rendu "rapide puis enrichi" necessaire au final : juste retirer
-  ce qui ne sert a rien pour cette page precise. system_state() appelle
-  desormais get_homescreen() + get_network_info() par module seulement,
-  au lieu de refresh(force=True) complet. Meme donnees affichees,
-  verifie champ par champ en reel (armement, batterie, temperature,
-  hors-ligne, y compris Salon en null - Blink Mini, normal, deja le cas
-  avant). Mesure reelle avant/apres, meme session, dos a dos, dans un
-  script isole (scratchpad/comparer_system_state.py, pas suppose) :
-  nouvelle sequence 3,34s contre 7,42s pour l'ancienne (2,2x). Chiffre
-  exact variable d'un appel a l'autre (l'API Blink elle-meme varie,
-  constate plusieurs fois cette session) mais l'ecart structurel (2
-  appels reseau au lieu de 8) est solide. Suite complete verte,
-  redeploye.
-
-  Regression introduite par ce meme allegement, trouvee par un audit
-  general demande par l'utilisateur juste apres (2026-09-03), pas par
-  l'utilisateur lui-meme : describe_camera() (serve.py) lit battery/
-  battery_signal/voltage/temperature/wifi/firmware/kind/model depuis
-  camera.attributes (objet camera de blinkpy), pas depuis raw/info
-  (ecran d'accueil). attributes n'est mis a jour que par camera.update()
-  (extract_config_info(), camera.py), appele seulement par
-  sync_module.refresh() (une fois par camera, precisement ce que
-  l'allegement retire de system_state()) ou par update_cameras() au tout
-  premier demarrage. Consequence reelle : ces champs se figeaient
-  silencieusement a la valeur du demarrage du serveur, plus jamais
-  rafraichis ensuite - invisible sur le moment (le serveur venait de
-  redemarrer, tout etait encore frais), ne se serait vu qu'apres des
-  heures ou des jours d'activite, sans jamais se corriger seul. armed/
-  battery_signal/lfr n'etaient eux pas touches (deja lus depuis raw/
-  signals, verifie plus haut).
-
-  Corrige en verifiant d'abord (pas suppose) un ecran d'accueil reel
-  (scratchpad/inspecter_homescreen.py) : battery, fw_version, type et
-  signals.{wifi,temp,battery,lfr} y sont deja tous presents, per-camera,
-  sans aucun appel supplementaire. describe_camera() lit desormais ces
-  champs depuis info/signals, comme armed/battery_signal/lfr deja avant.
-  temperature recalculee depuis signals.temp (Fahrenheit brut, comme
-  Blink le rapporte) avec exactement la meme formule que camera.
-  temperature_c (blinkpy, camera.py) : round((f-32)/9*5, 1). Seul voltage
-  reste lu depuis attributes (donc perime apres le demarrage) : aucun
-  equivalent dans l'ecran d'accueil, et verifie non affiche cote page
-  (aucune occurrence dans serve_app.js) - perime sans consequence
-  visible, pas la peine d'y consacrer un appel reseau dedie.
-
-  Valide en reel : donnees correctes et fraiches par camera (Terrasse1
-  49,4 degC, Portail 28,3 degC - distinctes, pas une valeur figee
-  dupliquee -, coherentes avec l'ecran d'accueil brut inspecte juste
-  avant). Salon (Blink Mini) toujours a null pour battery/temp/wifi,
-  normal, deja le cas avant. Suite complete verte, redeploye.
-
-  Audit general par ailleurs : deux autres pistes remontees, pas encore
-  traitees, a trancher avec l'utilisateur.
-  - collect_videos() (serve.py) reprobe la duree de chaque video
-    assemblee a chaque appel de /api/videos (probe_duration() brut, non
-    mis en cache), alors que le meme fichier a deja le mecanisme qu'il
-    faudrait juste reutiliser : probe_duration_cached() (empreinte
-    taille+mtime), deja utilise pour les clips ecartes juste a cote, et
-    merge_daily.py a le meme motif pour les clips source. Gain probable,
-    risque faible, motif deja eprouve ailleurs dans ce depot.
-  - _telecharger_cloud() (blink_engine.py) telecharge les clips du cloud
-    strictement en sequence, un await complet avant le suivant. Gain de
-    temps total plausible sur un gros retard a rattraper, mais rien
-    n'indique que ce soit reellement ressenti comme lent (contrairement
-    a /api/system, jamais signale), et rendre ca concurrent demande de
-    revoir la progression SSE et l'ecriture du registre pour rester
-    correct a plusieurs telechargements en vol - a decider deliberement,
-    pas un gain evident au meme titre que le premier point.
-
-  Premier point traite, sur demande explicite de l'utilisateur ("le
-  premier seulement") : collect_videos() (serve.py) probait la duree de
-  chaque video journaliere/hebdomadaire/mensuelle via probe_duration()
-  brut - celui-ci a bien un cache, mais seulement en memoire (_DURATIONS,
-  module-level), qui ne survit pas a un redemarrage du serveur. Chaque
-  redemarrage relancait donc ffmpeg -i pour TOUTES les videos existantes
-  des la premiere ouverture de l'onglet Clips. Corrige en reutilisant
-  telle quelle la mecanique deja en place pour les clips ecartes
-  (probe_duration_cached, empreinte taille+mtime) : nouveau fichier
-  ASSEMBLED_DURATIONS ("assembled_durations.json", meme dossier "thumbs"
-  que EXCLUDED_DURATIONS), nouvelle load_assembled_durations() miroir de
-  load_excluded_durations(). Identite de cache = kind/camera/nom (pas
-  seulement camera/nom) : daily et weekly peuvent chacun contenir un
-  fichier du meme nom pour la meme camera, sans rapport entre eux -
-  couvert par un test dedie.
-
-  Trois tests dedies (test_serve_collect_videos_cache.py, nouveau
-  fichier - aucun test existant sur collect_videos avant ceci) : duree
-  sondee une seule fois a travers deux appels, fichier remplace re-sonde
-  (empreinte changee), meme nom dans deux periodes differentes sonde
-  separement. Suite complete (412 tests) verte, redeploye. Verifie en
-  reel : /api/videos repond correctement (27 quotidiennes, 7
-  hebdomadaires, 3 mensuelles chez l'utilisateur), rapide des le premier
-  appel post-redemarrage - ffprobe s'est avere deja tres rapide sur ces
-  fichiers, le vrai gain se verra surtout sur une bibliotheque nettement
-  plus grande ou un disque plus lent, mais le mecanisme est identique a
-  celui deja eprouve pour les clips ecartes.
-
-- **"Redemarrer" depuis l'icone de zone de notification arrete tout sans
-  jamais rien relancer (2026-09-03).** Signale par l'utilisateur en
-  usage reel : "j'ai fait redemarrer avec le systray, ca s'est arrete,
-  mais pas reparti". Pas une regression de cette session (aucun fichier
-  concerne touche avant cet incident) : un incident deja rencontre et
-  partiellement investigue, documente dans le code lui-meme (tray.py,
-  commentaire de blink_cli.py) - constate a l'epoque sur Windows 7,
-  "sans qu'on ait pu etablir pourquoi le second processus detache
-  n'aboutissait pas toujours". Cette fois reproduit et sa cause
-  exacte identifiee dans le code (pas supposee).
-
-  redemarrer()/arreter() (tray.py) lancent nettoyer() - et pour
-  redemarrer, _relancer() ensuite - sur un thread demon separe du
-  thread de la pompe de messages de l'icone (necessaire : le geler
-  empecherait icon.stop() d'etre traite a temps). Mais icon.run()
-  rendait la main des icon.stop(), sans jamais attendre ce thread demon.
-  blink_cli.py (l'appelant) fait ensuite son propre nettoyage (deja
-  present pour couvrir un crash sans passer par le menu, idempotent -
-  "l'appeler deux fois... ne coute qu'un aller-retour inutile si la
-  premiere a deja tout nettoye", commentaire deja en place) : rapide,
-  puisque les workers sont deja arretes par le premier passage. Course
-  reelle entre les deux : si ce second nettoyage (rapide, synchrone,
-  sur le thread principal) termine avant le thread demon (nettoyer()
-  peut prendre jusqu'a 15+5s), le thread principal termine et le
-  processus sort - tuant net le thread demon avant qu'il n'ait atteint
-  _relancer() (un thread demon ne survit jamais a la fin du thread
-  principal). "Redemarrer" arrete alors tout sans jamais rien relancer.
-  Timing-dependant, jamais garanti dans un sens ou l'autre : explique
-  le "pas toujours" de l'investigation d'origine.
-
-  Corrige : icon.run() (tray.py) attend desormais le thread lance par
-  redemarrer()/arreter() avant de rendre la main a l'appelant (nonlocal
-  thread_de_sortie, join(timeout=30) - 30s, au-dela des 15+5s que
-  nettoyer() s'accorde deja a elle-meme). Le processus ne peut plus
-  sortir avant que _relancer() ait eu sa chance de s'executer.
-
-  Nouveau fichier test_tray_redemarrer_race.py (aucun test existant sur
-  tray.py au-dela de disponible()=False avant ceci) : FauxIcon remplace
-  pystray.Icon sans aucun vrai backend graphique, run() simule un clic
-  en appelant directement l'item de menu vise (item(icon), signature
-  confirmee dans pystray/_base.py MenuItem.__call__). Verifie en
-  rouge-puis-vert (pas seulement vert) : le test echoue bien avant le
-  correctif (ordre == [], la fonction rend la main avant meme que
-  nettoyer() n'ait eu le temps de s'executer une seule fois), passe
-  apres. Suite complete (414 tests) verte, redeploye localement.
-
-  Confirme par l'utilisateur en cliquant reellement sur Redemarrer
-  depuis l'icone (2026-09-03) : "j'ai teste la, ca marche".
-
-- **Release v0.11.5 : "publier la release" echoue systematiquement, 3
-  tentatives identiques (2026-09-03).** Chaque nouvelle version depuis
-  le debut de cette session (v0.11.0 a v0.11.4) avait publie sans
-  probleme : premiere fois que ceci se produit. Diagnostic instrumente
-  (logs reels de chaque tentative via gh run view --log-failed, pas
-  suppose) : les 3 fois, exactement le meme artefact echoue au
-  telechargement ("Artifact download failed after 5 retries"), les 4
-  autres (blink2video-windows7-x86_64-experimental, -windows-x86_64,
-  -linux-x86_64, -macos-arm64) reussissent a chaque fois - pas un alea
-  reseau generique, un artefact precis et reproductible.
-
-  Cause reelle : docker/build-push-action@v6 (job "publier l'image
-  Docker") depose automatiquement, en plus de l'image poussee sur
-  Docker Hub (push: true, deja suffisant en soi), un artefact de
-  provenance/attestation nomme "<compte>~<repo>~<id>.dockerbuild" -
-  jamais nomme explicitement par ce workflow, comportement par defaut
-  de l'action depuis la v5/v6. actions/download-artifact@v4 (job
-  "publier la release"), sans filtre, telecharge TOUS les artefacts du
-  run, y compris celui-la - qui echoue systematiquement a l'extraction
-  (format different, jamais concu pour etre un fichier de release).
-
-  Corrige (.github/workflows/release.yml) : pattern: blink2video-* sur
-  le download-artifact de "publier la release" - n'inclut que les 4
-  vrais binaires, exclut l'artefact d'attestation Docker sans jamais
-  toucher a la publication de l'image elle-meme (deja faite par push:
-  true, aucun rapport avec cet artefact). Tag v0.11.5 laisse tel quel,
-  orphelin (aucune vraie release jamais publiee pour lui, les 3
-  tentatives ont toutes echoue avant l'etape Publier) - pas nettoye
-  d'office, decision laissee a l'utilisateur. Nouvelle version (v0.11.6)
-  tentee ensuite avec le correctif en place.
-
-## Mutualisation restante entre les quatre applications (2026-10-06)
-
-Ce qui est dans nico579-commons et branché dans les quatre : icône et menu,
-raccourci de bureau, recherche de version, relance, environnement système,
-écritures atomiques, dossiers d'état, serveur web et garde d'hôte, démarrage
-automatique (`demarrage`, 0.4.4). Dans gpxsolar, lidar2map et watch2notif :
-l'installation automatique (`maj_install`, `Installateur`, bandeau commun).
-Dans blink2video et watch2notif : téléchargement et extraction sûrs
-(`maj_archive`). Reste, par ordre d'intérêt :
-
-- **blink2video : remplacement de l'installation (fait le 2026-10-07, 0.19.2).**
-  `maj_install` a été étendu à ce que `maj.py` savait faire (plusieurs
-  processus à relancer, permutation élément par élément avec marqueur de
-  reprise, `RestaurationIncomplete`, réservation d'installation, ménage des
-  restes), et `maj.py` n'en garde que des enveloppes minces : `_permuter`,
-  `_nettoyer`, `_poser`, `_finaliser`. Les anciens tests de restauration, de
-  finalisation et d'arrêt (`test_maj_restauration`, `test_maj_finaliser_arret`,
-  `test_maj_instances_stockage`) ont rejoué tels quels, sauf six, adaptés parce
-  qu'ils visaient l'ancien verrou (un fichier créé en exclusif) : le verrou du
-  commun est celui du système, relâché à la mort du processus, et son fichier
-  `.blink_maj-installation.lock` reste en place, vide, entre deux mises à jour.
-  Reste local, par conception : la phase 1 (`installer`) et le passage de main
-  au binaire neuf, qui exécute lui-même `update --finaliser` depuis son dossier
-  de préparation (la stratégie « assistant » de `maj_install`, qui confie le
-  remplacement à un script, ne convient pas à une application qui arrête
-  plusieurs processus et en relance autant), le choix de ce qu'on relance (les
-  compositions lues dans le registre des instances) et la sortie du service
-  systemd.
-- **Amorçage des dépendances en mode sources (fait le 2026-10-07, 0.20.0).**
-  Trois versions indépendantes, fondues en une : `nico579_commons.amorcage`
-  (0.4.6). Comme il tourne avant l'installation du commun, chaque application en
-  garde une copie octet pour octet, `_amorcage.py`, que son test
-  `test_amorcage_commun.py` compare au paquet installé : une dérive fait échouer
-  la CI. Reste local à chaque application : l'appel (`Amorcage("nom", racine,
-  ...)`), la désinstallation et le ménage de l'ancien lanceur (lidar2map et
-  gpxsolar), le contexte TLS (lidar2map). Garder la copie à jour : après une
-  nouvelle version du commun qui touche `amorcage.py`, recopier le fichier du
-  paquet dans les trois dépôts et monter l'épingle.
-- **Petits jumeaux (traités le 2026-10-07).** `single_instance` de watch2notif
-  est une enveloppe sur `atomique.verrou_inter_processus` (même fichier et même
-  octet : une ancienne version encore en cours reste exclue). `send_json` est celui
-  du commun (UTF-8 lisible et flush, commun 0.4.7) : l'override de blink2video a
-  disparu. Laissés à part, à dessein : les deux TLS (`blink_tls.py` passe un
-  contexte strict avec le bundle certifi à blinkpy, `_bootstrap_tls.py` de
-  lidar2map remplace la fabrique HTTPS de tout le processus avant l'amorçage : deux
-  mécanismes, et `AGENTS.md` demande la prudence sur le TLS de blink2video),
-  `end_headers` de blink2video (CSP à nonce, absente des autres) et `web_bridge.js`
-  (un helper de 12 lignes et sept méthodes communes ; le reste est l'API de
-  chaque application).
-
-## Revue de code du 2026-08-20 (commit 0eab463)
-
-Les onze bugs numerotes de la revue sont tous traites (28.59 a 28.68) :
-Dockerfile CMD start, autostart.py quoi manquant, CSRF/Origin, verrou
-disque a double proprietaire, validation MP4/adoption, trois copies
-divergentes de safe_name, plafond cloud silencieux, course a la
-sauvegarde de session, reglages JSON mal types, surveillance watch.py
-(batterie au premier passage + clips ecartes). Restent deux points
-reformules ci-dessous, volontairement pas ceux d'origine - chacun touche
-une decision de conception plutot qu'un simple oubli, a trancher avec
-l'utilisateur - et le lot d'optimisations, non urgentes.
-
-- **Journalieres/hebdo/mensuelles sans distinction si deux cameras se
-  nettoient pareil.** FAIT le 2026-10-05 (decision de Nico : oui). Deux noms
-  differents qui donnent le meme dossier par safe_name ("Garage" / "Garage!",
-  ou "Salon" / "salon" sous Windows et macOS) recoivent maintenant des cles
-  distinctes, comme les homonymes de deux reseaux : le nom deja propre garde
-  son dossier, les autres prennent " (2)", " (3)"... (merge_daily.
-  _cles_camera_par_collision). Registre reel de production : aucune
-  collision, rien ne change pour les installations existantes.
-
-- **Silence d'une camera n'ayant jamais enregistre.** FAIT le 2026-10-05
-  (decision de Nico : oui). watch.py garde dans WATCH_STATE ("first_seen") la
-  date du premier releve de chaque camera qui n'a encore aucun clip, et
-  alerte une seule fois quand elle atteint SILENCE_DAYS, en ligne et armee,
-  comme le controle de silence existant. Une camera qui obtient un clip, ou
-  disparait de l'installation, sort du suivi ; une camera en sourdine ne
-  declenche rien. Le premier releve ne declenche jamais d'alerte (camera
-  fraichement installee).
+- **Integration Home Assistant native.**
+  Source : reddit/MoneySquare6212, r/blinkcameras, 2026-08-19. Ecarte pour
+  l'instant (repondu sur Reddit) : un vrai chantier a part (config flow,
+  modele d'entites, HACS), pas une extension de ce qui existe. Note ici
+  pour ne pas l'oublier si la demande revient.
 
 - **Optimisations identifiees (pas des bugs, pas urgentes).**
   Registre reecrit en entier a chaque clip (quadratique sur un lot) ;
@@ -716,18 +132,6 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
   deux directs en meme temps sur deux systemes, et go2rtc branche sur
   /live-mse. Mis de cote par Nico pour plus tard.
 
-- **Idees d'affichage de Markus (issue #40) : trier les cameras, taille des
-  images reglable, masquer des cameras.**
-  Source : MarkusKress, issue #40 "Ideas", 2026-09-29. Reponse publiee le
-  meme jour. Classement : tri des cameras et taille des images, faciles (la
-  page seule) ; masquer des cameras dans les reglages avec une case sur la
-  page pour les reafficher un instant, moyen (liste stockee, les cameras
-  masquees doivent continuer d'enregistrer). Priorite a fixer par Nico.
-  A verifier en meme temps : le nombre d'images par ligne change d'une vue a
-  l'autre a taille de fenetre egale, Markus pense que cela depend de la
-  largeur de la ligne d'informations du haut ; s'il se confirme, c'est un
-  defaut de mise en page, pas un choix.
-
 - **Armement par camera et par horaire (issue #40), pas retenu pour
   l'instant.**
   Source : MarkusKress, 2026-09-29, lui-meme "tres specifique, sans
@@ -739,156 +143,16 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
   posee a Markus : que fait sa solution quand une camera ne repond pas a
   l'heure d'armement. A ne construire que si la demande se repete.
 
-- **Webhooks pour scripts (issue #40) : etat des cameras et armement, a la
-  place d'un planning integre.**
-  Source : MarkusKress, issue #40, 2026-09-30, demande confirmee ("would
-  really be a nice feature", pour les utilisateurs avances qui scriptent leur
-  propre planification, chez lui ioBroker + Telegram). Precise l'entree sur
-  l'armement par horaire : au lieu d'un planning dans blink2video, exposer
-  des URL. (1) Etat de toutes les cameras en JSON (en ligne, arme, batterie
-  en statut ok/low et tension si Blink la donne, temperature, wifi,
-  firmware) : la page lit deja ces champs (describe_camera, serve.py).
-  (2) Armer/desarmer par camera et par Sync Module, avec LE MEME secret que
-  le webhook d'image (decision du 2026-09-30 : j'avais propose un secret
-  distinct, Nico a suivi Markus, tout tourne sur sa machine et le risque est
-  le meme ; un secret separe reste facile a ajouter si ca gene un jour).
-  (3) Camera hors ligne : rendre son etat et une erreur nette plutot
-  qu'attendre un timeout. JSON : champs tels que Blink les donne, null
-  quand une camera ne les rapporte pas, dit dans la doc (Markus : les
-  capteurs ne rapportent pas tous les memes informations). Hors de portee : la sonnerie de la
-  Doorbell, blinkpy n'a aucun evenement de sonnerie (verifie le 2026-09-30).
-  Reponse publiee, "pas cette semaine" ; a grouper avec les autres codages
-  de confort (Nico les traitera fin de semaine ou semaine suivante).
+## Différences voulues entre les applications (à ne pas « corriger »)
 
-- **FFmpeg du paquet Linux : figer la version et verifier son empreinte.**
-  Source : analyse de l'issue #49 (BjoernD000), 2026-09-30 ; decision de Nico
-  le meme jour, a faire avec la 0.15.5 (semaine du 2026-10-05). Sous Windows
-  et macOS, ffmpeg vient de imageio-ffmpeg, fige par le verrou
-  (requirements-build.txt, 0.6.0 a empreintes). Sous Linux, celui de
-  imageio-ffmpeg n'a pas drawtext : build.py (FFMPEG_SECOURS) telecharge alors
-  a chaque construction la compilation nocturne de BtbN
-  (ffmpeg-master-latest-linux64-gpl), sans version fixee ni SHA-256 verifie,
-  et en tire aussi le ffprobe qui valide chaque clip telecharge. La 0.15.4
-  embarque ainsi N-126965-gd85cdd2597-20260929. Deux releases Linux
-  construites a un jour d'ecart peuvent donc livrer deux FFmpeg differents, et
-  le comportement change sans une ligne de code. Precedent : issue #10, 1041
-  clips sur 1041 refuses sous Linux seul, contourne en passant la validation a
-  ffprobe, cause jamais etablie. C'est aussi un executable telecharge a la
-  construction et livre aux utilisateurs sans verification d'empreinte. A
-  faire : pointer une archive precise (plutot une branche de release que
-  master) et verifier son SHA-256 avant extraction, comme les verrous d'uv le
-  font pour les dependances Python. A verifier avant de choisir : combien de
-  temps BtbN garde ses archives datees ; si elles disparaissent, garder une
-  copie de l'archive retenue dans une release du depot.
-
-- **Validation MP4 : test de non-regression sur un vrai clip Blink USB.**
-  Source : issue #49 (BjoernD000), 2026-09-30 ; decision de Nico le meme jour,
-  semaine du 2026-10-05, avec la ligne de diagnostic du chemin USB. La CI n'a
-  jamais vu ce bug, present depuis la 0.12.29 : le job « chaine video » a un
-  vrai ffprobe (FFmpeg d'Ubuntu), mais ses clips sont fabriques par FFmpeg et
-  n'ont pas l'unite d'acces H.264 sans image que produit le Sync Module, et
-  les tests de valid_mp4_complet simulent la reponse de ffprobe au lieu de
-  l'executer. A faire (Nico : « c'est important d'avoir un vrai clip Blink
-  de test sur GitHub ») : un VRAI clip USB du Sync Module, enregistre expres
-  sur une scene neutre (mur, feuille de papier : rien de prive, le depot
-  est public), court (quelques secondes), verifie avant commit : ffprobe y
-  ecrit bien « missing picture in access unit ». Un clip cloud neutre en
-  plus pour comparer. Test en CI Linux : le vrai valid_mp4_complet sur ces
-  clips (acceptes) et sur des copies tronquees (refusees). Un clip
-  synthetique seulement si le vrai clip ne peut pas etre publie. Les 104 clips reels de Nico restent dans la VM de test pour
-  comparer, jamais dans le depot (images privees, depot public).
-  FAIT le 2026-10-05 : un vrai clip USB neutre de Nico (bureau, 21,5 s, 1,6 Mo,
-  audio = bruit de micro seulement) est dans fixtures/ avec son empreinte, et
-  test_validation_clip_usb_reel.py le passe a la vraie validation. Verifie dans
-  une VM avec le vrai ffprobe : 5 tests verts, et 2 echouent des qu'on retire le
-  filtre du bruit (l'ancien comportement). Le job Linux de la CI le joue avec
-  l'ffprobe d'apt.
-
-- **Icone de zone de notification sous GNOME Wayland : menu absent (voie
-  StatusNotifierItem).**
-  Source : essai de Nico dans sa VM Ubuntu 26.04 (GNOME, Wayland), 2026-10-01.
-  Le paquet Linux affiche l'icone, le clic gauche ouvre la page, le clic
-  droit n'ouvre aucun menu. Diagnostic : la session a l'extension
-  ubuntu-appindicators et un hote StatusNotifierWatcher actifs, mais
-  blink2video n'y est pas enregistre (trois icones seulement, toutes
-  d'Ubuntu). Le paquet n'a pas gi (PyGObject) et le processus n'a charge
-  aucune bibliotheque d'icone : pystray retombe tres probablement sur son
-  mode X11 (XEmbed, python-xlib, Python pur), dont le menu est une fenetre X11
-  que Wayland n'ouvre pas. Meme avec le Python du systeme, le mode
-  AppIndicator echouerait sur une Ubuntu standard : le typelib
-  gir1.2-ayatanaappindicator3-0.1 n'est pas installe (« Namespace
-  AyatanaAppIndicator3 not available »), donc embarquer gi seul ne suffit pas.
-  Touche aussi lidar2map, gpxsolar et watch2notif (menu commun, nico579_commons.tray).
-  Voies : (1) documenter, l'icone a menu marche sous KDE, XFCE, X11 ; page et
-  raccourci du Bureau suffisent ailleurs ; (2) embarquer GTK et AppIndicator
-  (+40 a 60 Mo, CI plus lourde, fragile selon les distributions) ; (3) CHOIX DE
-  NICO : parler directement le protocole StatusNotifierItem (standard
-  freedesktop de GNOME, KDE...) avec une petite bibliotheque D-Bus en Python
-  pur, dans nico579_commons.tray, sans rien exiger d'installe sur la machine,
-  une centaine a deux cents lignes dont un menu dbusmenu, testable dans la VM
-  (verification par gdbus : enregistrement aupres du watcher, GetLayout, Event).
-  A faire dans la vague de mutualisation sur la zone de notification, apres
-  les codages de confort ; prototype dans la VM refuse pour l'instant (quota).
-
-- **Vignettes : les fabriquer au telechargement du clip, et ne pas travailler
-  pour une requete abandonnee.**
-  Source : test a froid de Joel sur la PR #59, 2026-10-02 (2 672 clips reels,
-  cache de vignettes vide). Avant le chargement paresseux : 2 672 requetes de
-  vignettes, 2 673 lancements de ffmpeg, 47 s de CPU, 83 s avant la derniere
-  reponse. La PR ramene cela a 12 requetes et 12 ffmpeg pour une ouverture, ce
-  qui regle le cas courant. Reste cote serveur : send_thumb() (serve.py)
-  fabrique chaque vignette a la demande par ffmpeg, au plus min(8, coeurs) a la
-  fois (THUMB_SLOTS), et chaque requete en attente occupe un fil du serveur et
-  une des six connexions HTTP/1.1 du navigateur. Il ne s'apercoit pas qu'un
-  client est parti : dans le defilement complet a froid de Joel, 359 requetes
-  de vignettes sans statut (annulees quand les lecteurs sont liberes) ont
-  garde leur place dans la file et fait travailler ffmpeg pour rien, et une
-  requete /api/status a echoue, absente a chaud (indice d'une famine, pas une
-  preuve). A faire : fabriquer la vignette au moment ou le clip est telecharge
-  (le cache est alors toujours chaud, la fabrication a la demande ne sert plus
-  qu'aux anciens clips), et ne pas lancer ffmpeg pour une requete dont le
-  client est parti ; a evaluer : une borne sur la file d'attente. Hors de la
-  PR #59, a faire apres les issues en cours.
-  FAIT le 2026-10-05 : plus de ffmpeg pour une requete dont le navigateur est
-  parti (serve._client_parti, controle apres l'attente du creneau).
-  FAIT le 2026-10-05 (demande de Nico) : le telechargeur fabrique la vignette de
-  chaque clip qui arrive (blink_engine._preparer_vignettes, avant la
-  notification, 40 par passage au plus), avec la meme extraction que serve.py
-  (merge_daily.extraire_vignette) et au meme chemin de cache : la page trouve
-  la vignette prete. Mesure sur le vrai clip USB : 0,14 s. Limites connues :
-  avec --thumbs personnalise la vignette faite au telechargement est
-  inutilisee ; une vignette est refaite par serve.py quand la version
-  normalisee du clip (avec l'horodatage incruste) est plus recente. RESTE : une
-  borne sur la file d'attente de serve ; le test a froid de Joel sur les vrais
-  clips dira si elle est encore utile.
-
-- **Sourdine d'un Sync Module dans watch.** FAIT le 2026-10-05 (demande de
-  Nico). `watch --ignore-module REF...` et `--unignore-module REF...` ; REF =
-  identifiant Blink du module, identifiant de reseau, nom, ou libelle
-  « nom (reseau) ». Un nom partage par deux modules (le nom par defaut est
-  identique) est refuse comme ambigu, avec la liste des identifiants, et rien
-  n'est ecrit. Comme une camera en sourdine : ni alerte ni retour a la
-  normale. La fenetre « Module hors ligne » propose maintenant la commande
-  --ignore-module avec l'identifiant du module concerne. Etat :
-  WATCH_STATE["ignored_modules"]. La boucle d'alerte elle-meme (deux modules
-  homonymes) etait corrigee en 0.16.3.
-
-- **Audit du 2026-10-02 (0.15.7) : constats restants, rejoues sur la 0.18.1.**
-  Rejoues le 2026-10-06 par les scripts de l'audit (assertions transformees en
-  mesures). FAITS en 0.18.3 : B10 (raccourci Linux, signale par Nico dans la VM le
-  2026-10-06 : le Bureau s'appelle ~/Bureau, pas ~/Desktop). FAITS en 0.18.2 : B03 (`--from cloud --hub` ne prenait rien) et B13
-  (bouton de mise a jour grise apres une requete echouee). FAITS avant : B02
-  (PR #72), O04 (FFmpeg fige), O05 (clip USB reel). RESTENT, tous reproduits et
-  sans cas reel connu, a traiter si l'un se presente :
-  B01 reconstruction echouee qui reduit semaine/mois (se repare seul au passage
-  suivant reussi, verifie) ; B04 verrou vide ou `.purge` abandonne jamais repris ;
-  B05 reponse 416 sans Content-Length (client en attente) ; B06 sauvegarde
-  obsolete qui efface `source_deleted` ; B07 sessions HTTP non fermees apres une
-  reconnexion echouee ; B08 file WebRTC pleine qui perd le signal de fin ; B09
-  launchctl refuse annonce comme installe (macOS) ; B11 marqueurs de passage
-  concurrents qui se remplacent ; B12 deux preparations de mise a jour dont la
-  seconde efface la premiere ; B14 identite de processus illisible = verrou
-  repris (CHOIX ASSUME du 2026-09-29 pour les pannes apres redemarrage : ne pas
-  inverser sans accord) ; O01 types RTP > 127 au 9e profil H.264 ; O02 retour a
-  zero des PTS MPEG a 33 bits. Pieces : Documentslinkudit6-10-02.
-
+- **Deux contextes TLS.** `blink_tls.py` donne à blinkpy un contexte strict avec le bundle certifi ;
+  `_bootstrap_tls.py` de lidar2map remplace la fabrique HTTPS de tout le processus avant l'amorçage :
+  deux mécanismes. `AGENTS.md` demande la prudence sur le TLS de blink2video (le relais du direct
+  présente un certificat auto-signé, exception à ne jamais étendre).
+- **`end_headers` de blink2video** : CSP à nonce, absente des autres applications.
+- **`web_bridge.js`** : un helper de 12 lignes et sept méthodes communes, le reste est l'API de chaque
+  application.
+- **Phase 1 de `installer` de blink2video**, passage de main au binaire neuf, compositions lues du
+  registre, sortie du service systemd : propres à blink2video par conception.
+- **B14 de l'audit** : identité de processus illisible = verrou repris, choix assumé du 2026-09-29 pour
+  les pannes après redémarrage, à ne pas inverser sans accord.
