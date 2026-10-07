@@ -35,7 +35,8 @@ class TestsDeclarationDeLaBibliotheque(unittest.TestCase):
         # Une seule liste : celle de requirements.in, plus de seconde dans runtime.
         self.assertTrue(any(ligne.startswith("nico579-commons>=")
                             for ligne in lignes_utiles("requirements.in")))
-        moteur = runtime.amorcage()
+        with mock.patch.object(runtime.sys, "version_info", (3, 11, 0, "final", 0)):
+            moteur = runtime.amorcage()
         self.assertEqual(moteur.fichier_dependances, RACINE / "requirements.in")
         self.assertEqual(moteur.fichier_verrou, RACINE / "requirements.txt")
         self.assertIn("nico579-commons", runtime._amorcage.dependances_directes(
@@ -76,6 +77,7 @@ class TestsMessageDuModeNone(unittest.TestCase):
     def test_le_mode_none_explique_ce_qui_manque_et_sort(self):
         sortie = io.StringIO()
         with mock.patch.object(runtime, "frozen", return_value=False), \
+                mock.patch.object(runtime.sys, "version_info", (3, 11, 0, "final", 0)), \
                 mock.patch.dict(runtime.os.environ, {"BLINK_BOOTSTRAP": "none"}), \
                 mock.patch.object(sys, "argv", ["blink2video"]), \
                 mock.patch.object(runtime._amorcage, "dependances_absentes",

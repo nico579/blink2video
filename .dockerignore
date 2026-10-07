@@ -9,6 +9,9 @@
 
 !*.py
 !requirements.txt
+# Le moteur d'amorçage (_amorcage.py) y lit les dépendances directes, même quand
+# tout est déjà installé : sans lui, le conteneur ne démarre pas.
+!requirements.in
 !serve_style.css
 !serve_app.js
 !assets
