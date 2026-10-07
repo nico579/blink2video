@@ -40,7 +40,7 @@ import _amorcage
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.20.4"
+VERSION = "0.21.0"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 

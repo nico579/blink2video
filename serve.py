@@ -4770,6 +4770,11 @@ __CSS__
         <option value="tres_grandes" data-i18n="reglages.tailleCartes.tres_grandes">Très grandes</option>
       </select>
     </div>
+    <label id="barrePaginationLabel" data-i18n-title="reglages.barrePagination.title"
+           title="Masquée, la barre du bas de la liste reste disponible pour changer de page. Propre à ce navigateur.">
+      <input type="checkbox" id="barrePagination"> <span data-i18n="reglages.barrePagination">Afficher la barre de
+      pagination en haut de la liste</span>
+    </label>
     <fieldset>
       <legend data-i18n="reglages.masquees">Caméras masquées</legend>
       <p class="sub tiny" data-i18n="reglages.masquees.hint">Une caméra masquée disparaît des listes de cette page mais continue d'enregistrer et de télécharger. Réglage propre à ce navigateur.</p>

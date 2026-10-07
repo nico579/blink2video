@@ -222,6 +222,8 @@ const I18N = {
     "reglages.tailleCartes": "Taille des vignettes",
     "reglages.tailleCartes.petites": "Petites", "reglages.tailleCartes.moyennes": "Moyennes",
     "reglages.tailleCartes.grandes": "Grandes", "reglages.tailleCartes.tres_grandes": "Très grandes",
+    "reglages.barrePagination": "Afficher la barre de pagination en haut de la liste",
+    "reglages.barrePagination.title": "Masquée, la barre du bas de la liste reste disponible pour changer de page. Propre à ce navigateur.",
     "reglages.masquees": "Caméras masquées",
     "reglages.masquees.hint": "Une caméra masquée disparaît des listes de cette page (clips, vidéos, photos, direct) mais continue d'enregistrer et de télécharger. Réglage propre à ce navigateur.",
     "masquees.none": "Aucune caméra connue pour l'instant.",
@@ -413,6 +415,8 @@ const I18N = {
     "reglages.tailleCartes": "Thumbnail size",
     "reglages.tailleCartes.petites": "Small", "reglages.tailleCartes.moyennes": "Medium",
     "reglages.tailleCartes.grandes": "Large", "reglages.tailleCartes.tres_grandes": "Extra large",
+    "reglages.barrePagination": "Show the pagination bar at the top of the list",
+    "reglages.barrePagination.title": "When hidden, the bar at the bottom of the list stays available to change page. Specific to this browser.",
     "reglages.masquees": "Hidden cameras",
     "reglages.masquees.hint": "A hidden camera disappears from the lists on this page (clips, videos, pictures, live) but keeps recording and downloading. This setting is specific to this browser.",
     "masquees.none": "No known camera yet.",
@@ -2292,6 +2296,13 @@ const CLIPS_PAR_PAGE = 50;
 const TAILLES_PAGE_CLIPS = [25, 50, 100, 0];
 const CLE_TAILLE_PAGE_CLIPS = "blink2video.clipsParPage";
 let pageClips = 0;
+// La barre du haut (figée sous l'en-tête) prend de la place et n'intéresse pas tout le monde : une
+// case du panneau Réglages la masque, propre à ce navigateur comme la taille des vignettes. Celle du
+// bas de la liste reste, pour changer de page.
+const CLE_BARRE_PAGINATION = "blink2video.barrePagination";
+let barrePaginationHaute = (() => {
+  try { return localStorage.getItem(CLE_BARRE_PAGINATION) !== "0"; } catch (erreur) { return true; }
+})();
 let clipsParPage = restaurerTaillePageClips();
 let nettoyerLecteursClips = () => {};
 
@@ -2390,7 +2401,7 @@ function renderClips() {
   const tranche = clips.slice(pageClips * taille, (pageClips + 1) * taille);
   const navigation = navigationClips(clips.length, pages);
   const days = [...new Set(tranche.map((c) => c.day))];
-  $("list").innerHTML = navigation + days.map((day) => `
+  $("list").innerHTML = (barrePaginationHaute ? navigation : "") + days.map((day) => `
     <h2>${h(day)}</h2>
     <div class="grid">${tranche.filter((c) => c.day === day).map(card).join("")}</div>
   `).join("") + navigation;
@@ -3062,6 +3073,11 @@ $("showHidden").onchange = () => {
   fill($("camera"), camerasConnues(), t("filter.allcameras"));
   render();
 };
+$("barrePagination").onchange = () => {
+  barrePaginationHaute = $("barrePagination").checked;
+  try { localStorage.setItem(CLE_BARRE_PAGINATION, barrePaginationHaute ? "1" : "0"); } catch (erreur) {}
+  render();
+};
 $("tailleCartes").onchange = () => {
   tailleCartes = $("tailleCartes").value;
   try { localStorage.setItem(CLE_TAILLE_CARTES, tailleCartes); } catch (erreur) {}
@@ -3217,6 +3233,7 @@ async function ouvrirReglages(configurationInitiale = false) {
   configurerDialogueReglages(configurationInitiale);
   chargerCamerasMasquees();
   $("tailleCartes").value = tailleCartes;
+  $("barrePagination").checked = barrePaginationHaute;
   chargerSourdine();
   chargerSuppressionAuto();
   $("reglages").showModal();

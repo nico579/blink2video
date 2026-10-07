@@ -83,6 +83,22 @@ console.log(JSON.stringify({html:$('list').innerHTML,page:pageClips,size:clipsPa
         self.assertIn('&quot;pages&quot;:33', sortie["html"])
         self.assertEqual(sortie["size"], 50)
 
+    def test_barre_du_haut_masquee_garde_celle_du_bas(self):
+        # La coche « Afficher la barre de pagination en haut de la liste » (panneau Réglages,
+        # propre au navigateur) : masquée, il reste la barre du bas pour changer de page.
+        visible = self.executer()
+        masquee = self.executer(stockage={"blink2video.barrePagination": "0"})
+        self.assertEqual(visible["html"].count('<option value="50" selected>'), 2)
+        self.assertEqual(masquee["html"].count('<option value="50" selected>'), 1)
+        self.assertTrue(visible["html"].lstrip().startswith("<nav"))
+        self.assertFalse(masquee["html"].lstrip().startswith("<nav"))
+        self.assertTrue(masquee["html"].rstrip().endswith("</nav>"))
+        self.assertEqual(self.identities(masquee), self.identities(visible))     # les clips, eux, restent
+
+    def test_barre_visible_par_defaut_meme_sans_stockage(self):
+        sortie = self.executer(stockage_indisponible=True)
+        self.assertEqual(sortie["html"].count('<option value="50" selected>'), 2)
+
     def test_taille_par_le_vrai_gestionnaire_et_retour_premiere_page(self):
         for taille, pages in ((25, 65), (100, 17), (0, 1)):
             sortie = self.executer(f"pageClips=31; $('list').change({{target:{{closest(){{return {{dataset:{{action:'clip-page-size'}},value:'{taille}'}};}}}}}});")
@@ -278,6 +294,15 @@ class TestsBarrePagination(unittest.TestCase):
         main = re.search(r"main \{ padding:([^;]*);", css).group(1)
         self.assertTrue(main.startswith("0 "), main)
         self.assertIn("#list > :first-child:not(.pagination) { margin-top:20px; }", css)
+
+    def test_la_coche_du_panneau_reglages_commande_la_barre(self):
+        serve = Path(__file__).with_name("serve.py").read_text(encoding="utf-8")
+        js = Path(__file__).with_name("serve_app.js").read_text(encoding="utf-8")
+        self.assertIn('id="barrePagination"', serve)
+        self.assertIn('$("barrePagination").onchange', js)
+        self.assertIn('$("barrePagination").checked = barrePaginationHaute', js)
+        for cle in ("reglages.barrePagination", "reglages.barrePagination.title"):
+            self.assertEqual(js.count(f'"{cle}":'), 2, cle)       # français et anglais
 
     def test_la_hauteur_de_l_entete_est_publiee_en_variable_css(self):
         js = Path(__file__).with_name("serve_app.js").read_text(encoding="utf-8")
