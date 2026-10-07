@@ -639,11 +639,16 @@ Dans blink2video et watch2notif : téléchargement et extraction sûrs
   plusieurs processus et en relance autant), le choix de ce qu'on relance (les
   compositions lues dans le registre des instances) et la sortie du service
   systemd.
-- **Amorçage des dépendances en mode sources.** Trois versions indépendantes :
-  `runtime.bootstrap` (blink2video), `_bootstrap_*` de lidar2map (environ
-  800 lignes) et `_bootstrap_*` de gpxsolar. Rien dans le commun. Grosse
-  refonte d'un mécanisme qui marche : à faire seulement si un quatrième
-  besoin apparaît.
+- **Amorçage des dépendances en mode sources (fait le 2026-10-07, 0.20.0).**
+  Trois versions indépendantes, fondues en une : `nico579_commons.amorcage`
+  (0.4.6). Comme il tourne avant l'installation du commun, chaque application en
+  garde une copie octet pour octet, `_amorcage.py`, que son test
+  `test_amorcage_commun.py` compare au paquet installé : une dérive fait échouer
+  la CI. Reste local à chaque application : l'appel (`Amorcage("nom", racine,
+  ...)`), la désinstallation et le ménage de l'ancien lanceur (lidar2map et
+  gpxsolar), le contexte TLS (lidar2map). Garder la copie à jour : après une
+  nouvelle version du commun qui touche `amorcage.py`, recopier le fichier du
+  paquet dans les trois dépôts et monter l'épingle.
 - **Petits jumeaux.** Verrou d'instance de watch2notif (`single_instance.py`,
   61 lignes, même mécanisme que `atomique.verrou_inter_processus`) ; contexte
   TLS de blink2video (`blink_tls.py`) face à celui de lidar2map
