@@ -36,10 +36,13 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from nico579_commons import maj_install
-
 import runtime
 from blink_tls import contexte_tls
+
+try:
+    from nico579_commons import maj_install
+except ImportError:  # ce module doit rester importable sans dépendance (python -S)
+    maj_install = None
 
 LIBELLES = {
     "fr": {
@@ -144,8 +147,9 @@ LIBELLES = {
 
 # Les messages de la permutation (arrêt, remplacement, restauration) viennent du
 # commun : un seul texte pour les quatre applications.
-for _langue, _textes in maj_install.LIBELLES_PERMUTATION.items():
-    LIBELLES[_langue].update(_textes)
+if maj_install is not None:
+    for _langue, _textes in maj_install.LIBELLES_PERMUTATION.items():
+        LIBELLES[_langue].update(_textes)
 
 
 def msg(cle: str, **valeurs) -> str:
@@ -504,7 +508,10 @@ CONTENU_DU_PROGRAMME = ("blink2video.exe", "blink2video", "_internal")
 MARQUEUR_PERMUTATION = ".blink_maj_permutation.json"
 NOM_RESERVATION = ".blink_maj-installation"
 
-RestaurationIncomplete = maj_install.RestaurationIncomplete
+# Sans le commun (python -S), rien ne permute : la classe n'existe que pour que
+# les « except » de ce module restent valides.
+RestaurationIncomplete = (maj_install.RestaurationIncomplete if maj_install
+                          else type("RestaurationIncomplete", (RuntimeError,), {}))
 
 
 def _langue() -> str:
