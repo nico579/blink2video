@@ -18,7 +18,7 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
   workflow échoue (issue automatique ou message : non décidé).
 
 - **Signature de code des exécutables.** Candidature SignPath Foundation soumise le 2026-08-29, en
-  attente de réponse. Conditionne aussi les mises à jour automatiques d'Electron (voir ci-dessus).
+  attente de réponse.
 
 ## En attente d'un retour ou d'un cas réel
 
