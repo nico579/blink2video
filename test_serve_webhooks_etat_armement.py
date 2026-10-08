@@ -216,6 +216,61 @@ class WebhookArmement(_Base):
         self.assertEqual(corps["system"], {"name": "Loft", "armed": True})
         self.assertIs(corps["applied"], True)
 
+    def test_changed_dit_si_l_etat_a_vraiment_change(self):
+        # Retour de Markus (issue #40) : une camera deja desarmee rendait « applied: true »
+        # sans dire qu'il n'y avait rien eu a faire.
+        self.h.system_state.side_effect = [ETAT, self.apres(True)]
+        self.appeler(f"camera=Cave&armed=false&token={self.jeton}")      # Cave deja desarmee
+        self.assertIs(self.reponse()[0]["changed"], False)
+        self.h.system_state.side_effect = [ETAT, self.apres(True)]
+        self.appeler(f"camera=Cave&armed=true&token={self.jeton}")
+        self.assertIs(self.reponse()[0]["changed"], True)
+        self.h.system_state.side_effect = [ETAT, ETAT]
+        self.appeler(f"system=Maison&armed=true&token={self.jeton}")       # Maison deja armee
+        self.assertIs(self.reponse()[0]["changed"], False)
+
+    def test_plusieurs_cameras_en_un_appel(self):
+        apres = etat(systeme("Maison", [camera("Salon", armed=False), camera("Cave", armed=False)]))
+        self.h.system_state.side_effect = [ETAT, apres, apres]
+        self.appeler(f"camera=Salon&camera=Cave&armed=off&token={self.jeton}")
+        corps, statut = self.reponse()
+        self.assertEqual(statut, 200)
+        self.assertEqual(corps["scope"], "cameras")
+        self.assertIs(corps["ok"], True)
+        self.assertEqual([r["name"] for r in corps["cameras"]], ["Salon", "Cave"])
+        salon, cave = corps["cameras"]
+        self.assertEqual((salon["ok"], salon["changed"], salon["applied"]), (True, True, True))
+        self.assertEqual((cave["ok"], cave["changed"], cave["applied"]), (True, False, True))
+        self.assertEqual(self.h.set_armed.call_args_list,
+                         [mock.call("camera", "cle-Salon", False), mock.call("camera", "cle-Cave", False)])
+        self.assertEqual(self.journal().count("armed=false"), 2)
+
+    def test_une_camera_hors_ligne_ou_inconnue_n_arrete_pas_les_autres(self):
+        self.h.system_state.side_effect = [ETAT, self.apres(True)]
+        self.appeler(f"camera=Grenier&camera=Inconnue&camera=Cave&armed=on&token={self.jeton}")
+        corps, statut = self.reponse()
+        self.assertEqual(statut, 200)
+        self.assertIs(corps["ok"], False)                  # pas toutes reussies
+        resultats = {r["name"]: r for r in corps["cameras"]}
+        self.assertEqual(resultats["Grenier"]["status_code"], 409)
+        self.assertIs(resultats["Grenier"]["ok"], False)
+        self.assertIn("camera", resultats["Grenier"])      # son etat, pour reagir
+        self.assertEqual(resultats["Inconnue"]["status_code"], 404)
+        self.assertIs(resultats["Cave"]["ok"], True)
+        self.h.set_armed.assert_called_once_with("camera", "cle-Cave", True)
+
+    def test_une_camera_repetee_n_est_armee_qu_une_fois(self):
+        self.h.system_state.side_effect = [ETAT, self.apres(True)]
+        self.appeler(f"camera=Cave&camera=Cave&armed=on&token={self.jeton}")
+        corps, _ = self.reponse()
+        self.assertEqual(corps["scope"], "camera")         # une seule cible : forme simple
+        self.h.set_armed.assert_called_once()
+
+    def test_cameras_et_systeme_ensemble_refuses(self):
+        self.appeler(f"camera=Salon&camera=Cave&system=Maison&armed=on&token={self.jeton}")
+        self.assertEqual(self.reponse()[1], 400)
+        self.h.set_armed.assert_not_called()
+
     def test_secret_absent_ou_faux_refuse_sans_toucher_a_blink(self):
         for query in ("camera=Salon&armed=true", "camera=Salon&armed=true&token=faux",
                       f"camera=Salon&armed=true&token={self.jeton}x"):

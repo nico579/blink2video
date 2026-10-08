@@ -2724,9 +2724,12 @@ class Handler(serveweb.Handler):
         if not self._secret_webhook_valide(requete):
             self.send_error(403)
             return
-        camera = (requete.get("camera") or [""])[0].strip()
+        # Plusieurs caméras d'un coup en répétant le paramètre (camera=A&camera=B,
+        # issue #40) ; les doublons ne sont armés qu'une fois.
+        cameras = list(dict.fromkeys(
+            nom.strip() for nom in requete.get("camera") or [] if nom.strip()))
         systeme = (requete.get("system") or [""])[0].strip()
-        if bool(camera) == bool(systeme):
+        if bool(cameras) == bool(systeme):
             self.send_json({"error": msg("webhook_cible")}, 400)
             return
         voulu = _booleen_webhook((requete.get("armed") or [""])[0])
@@ -2737,56 +2740,79 @@ class Handler(serveweb.Handler):
         if etat is None:
             self.send_json({"error": erreur}, 503)
             return
-        if camera:
-            portee, nom = "camera", camera
+        if systeme:
+            corps, code = self._armer_une_cible(etat, "system", systeme, voulu)
+            self.send_json(corps, code)
+            return
+        if len(cameras) == 1:
+            corps, code = self._armer_une_cible(etat, "camera", cameras[0], voulu)
+            self.send_json(corps, code)
+            return
+        # Une réponse par caméra : une caméra hors ligne ou inconnue n'empêche pas
+        # les autres. « ok » global n'est vrai que si toutes ont réussi.
+        resultats = []
+        for nom in cameras:
+            corps, code = self._armer_une_cible(etat, "camera", nom, voulu)
+            resultat = {"name": nom, "status_code": code}
+            resultat.update(corps)
+            resultat["ok"] = code == 200
+            resultats.append(resultat)
+        self.send_json({"ok": all(r["ok"] for r in resultats), "scope": "cameras",
+                        "requested": voulu, "cameras": resultats})
+
+    def _armer_une_cible(self, etat: dict, portee: str, nom: str, voulu: bool):
+        """Arme ou désarme une caméra ou un système nommé ; rend (réponse, code HTTP).
+
+        `changed` dit si l'état connu de blink2video avant l'appel était différent
+        de la demande ; `applied`, si l'état relu après l'appel correspond à la
+        demande (pour une caméra, blink2video suit la commande jusqu'à ce que Blink
+        la confirme)."""
+        if portee == "camera":
             candidats = [(s, c) for s in etat.get("systems") or [] for c in s.get("cameras") or []
-                         if str(c.get("name") or "").strip() == camera]
+                         if str(c.get("name") or "").strip() == nom]
         else:
-            portee, nom = "system", systeme
             candidats = [(s, None) for s in etat.get("systems") or []
-                         if str(s.get("name") or "").strip() == systeme]
+                         if str(s.get("name") or "").strip() == nom]
         if not candidats:
-            cle = "webhook_camera_inconnue" if camera else "webhook_systeme_inconnu"
-            self.send_json({"error": msg(cle, camera=nom, systeme=nom)}, 404)
-            return
+            cle = "webhook_camera_inconnue" if portee == "camera" else "webhook_systeme_inconnu"
+            return {"error": msg(cle, camera=nom, systeme=nom)}, 404
         if len(candidats) > 1:
-            self.send_json({"error": msg("webhook_nom_ambigu", nom=nom)}, 409)
-            return
+            return {"error": msg("webhook_nom_ambigu", nom=nom)}, 409
         systeme_trouve, camera_trouvee = candidats[0]
         if camera_trouvee is not None and camera_trouvee.get("offline"):
-            self.send_json({
+            return {
                 "error": msg("webhook_camera_hors_ligne", camera=nom),
                 "camera": _camera_pour_webhook(camera_trouvee, systeme_trouve.get("name")),
-            }, 409)
-            return
-        identite = (camera_trouvee or systeme_trouve)["key"]
+            }, 409
+        cible = camera_trouvee or systeme_trouve
+        avant = cible.get("armed")
         try:
-            self.set_armed(portee, identite, voulu)
+            self.set_armed(portee, cible["key"], voulu)
         except RuntimeError as erreur_blink:
-            self.send_json({"error": str(erreur_blink)}, 503)
-            return
+            return {"error": str(erreur_blink)}, 503
         except Exception as erreur_blink:
-            self.send_json({"error": f"{type(erreur_blink).__name__}: {erreur_blink}"}, 503)
-            return
+            return {"error": f"{type(erreur_blink).__name__}: {erreur_blink}"}, 503
         horodatage = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         client = self.client_address[0] if getattr(self, "client_address", None) else "?"
         runtime.ajouter_ligne(
             "armement-webhook.log",
             f"{horodatage} {portee} \u00ab {nom} \u00bb armed={str(voulu).lower()} depuis {client}")
-        apres, erreur = self._etat_pour_webhook()
-        reponse = {"ok": True, "scope": portee, "requested": voulu}
+        reponse = {"ok": True, "scope": portee, "requested": voulu,
+                   "changed": None if avant is None else bool(avant) != voulu}
+        apres, _erreur = self._etat_pour_webhook()
         if apres is not None:
-            lu = etat_webhook(apres, camera) if camera else None
-            if camera and lu:
-                reponse["camera"] = lu["systems"][0]["cameras"][0]
-                reponse["applied"] = reponse["camera"]["armed"] == voulu
-            elif not camera:
+            if portee == "camera":
+                lu = etat_webhook(apres, nom)
+                if lu:
+                    reponse["camera"] = lu["systems"][0]["cameras"][0]
+                    reponse["applied"] = reponse["camera"]["armed"] == voulu
+            else:
                 courant = next((s for s in apres.get("systems") or []
-                                if str(s.get("name") or "").strip() == systeme), None)
+                                if str(s.get("name") or "").strip() == nom), None)
                 if courant is not None:
                     reponse["system"] = {"name": courant.get("name"), "armed": courant.get("armed")}
                     reponse["applied"] = courant.get("armed") == voulu
-        self.send_json(reponse)
+        return reponse, 200
 
     def send_camera_thumb(self, identity: str, refresh: bool = False) -> None:
         """Sert la dernière vignette connue d'une caméra.
