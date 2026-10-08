@@ -237,11 +237,31 @@ class TestTraduireLibelles(unittest.TestCase):
         self._regler_langue("en")
         try:
             raise maj.RestaurationIncomplete(
-                maj.msg("maj_precedente_non_finalisee"))
+                maj.msg("maj_precedente_non_finalisee", marqueur="MARQUEUR"))
         except maj.RestaurationIncomplete as erreur:
-            self.assertEqual(
-                str(erreur),
-                "Previous update not finalized: backups and preparation kept.")
+            # Issue #95 : le message dit aussi quel fichier supprimer (le marqueur, nomme).
+            self.assertTrue(str(erreur).startswith(
+                "Previous update not finalized: backups and preparation kept."))
+            self.assertIn("delete the file MARQUEUR", str(erreur))
+
+    def test_issue_95_le_refus_nomme_le_marqueur_et_supprimer_lui_seul_suffit(self):
+        # « I did a manual install of the latest version but now every time I try to update I
+        # get "Previous update not finalized". What do I need to delete? » : le marqueur laissé
+        # par l'installation interrompue. Il est nomme ; le supprimer debloque la mise a jour,
+        # qui efface elle-meme les sauvegardes .ancien.
+        self._regler_langue("en")
+        with tempfile.TemporaryDirectory() as dossier:
+            installe = Path(dossier)
+            marqueur = installe / maj.MARQUEUR_PERMUTATION
+            marqueur.write_text("{}", encoding="utf-8")
+            (installe / "blink2video.exe.ancien").write_bytes(b"ancienne version")
+            with self.assertRaises(maj.RestaurationIncomplete) as ctx:
+                maj._nettoyer(installe)
+            self.assertIn(str(marqueur), str(ctx.exception))
+            self.assertTrue((installe / "blink2video.exe.ancien").exists())   # rien de purge
+            marqueur.unlink()
+            maj._nettoyer(installe)
+            self.assertFalse((installe / "blink2video.exe.ancien").exists())
 
     # Issue #16 : les messages propres à runtime.py (bootstrap, --loop) étaient
     # restés hors traduction.
