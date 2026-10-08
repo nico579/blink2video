@@ -244,24 +244,31 @@ class TestTraduireLibelles(unittest.TestCase):
                 "Previous update not finalized: backups and preparation kept."))
             self.assertIn("delete the file MARQUEUR", str(erreur))
 
-    def test_issue_95_le_refus_nomme_le_marqueur_et_supprimer_lui_seul_suffit(self):
+    def test_issue_95_une_mise_a_jour_interrompue_est_reprise_sans_rien_supprimer(self):
         # « I did a manual install of the latest version but now every time I try to update I
-        # get "Previous update not finalized". What do I need to delete? » : le marqueur laissé
-        # par l'installation interrompue. Il est nomme ; le supprimer debloque la mise a jour,
-        # qui efface elle-meme les sauvegardes .ancien.
+        # get "Previous update not finalized". What do I need to delete? » : plus rien. Le
+        # nettoyage ne purge pas la sauvegarde tant que la permutation interrompue n'est pas
+        # reprise, et la permutation suivante la reprend sans toucher a la sauvegarde.
         self._regler_langue("en")
         with tempfile.TemporaryDirectory() as dossier:
-            installe = Path(dossier)
-            marqueur = installe / maj.MARQUEUR_PERMUTATION
-            marqueur.write_text("{}", encoding="utf-8")
+            racine = Path(dossier)
+            installe, neuf = racine / "installe", racine / "neuf"
+            installe.mkdir()
+            (neuf / "_internal").mkdir(parents=True)
+            (neuf / "blink2video.exe").write_bytes(b"neuf")
+            (neuf / "_internal" / "lib").write_bytes(b"lib-neuve")
+            (installe / maj.MARQUEUR_PERMUTATION).write_text("{}", encoding="utf-8")
             (installe / "blink2video.exe.ancien").write_bytes(b"ancienne version")
-            with self.assertRaises(maj.RestaurationIncomplete) as ctx:
-                maj._nettoyer(installe)
-            self.assertIn(str(marqueur), str(ctx.exception))
-            self.assertTrue((installe / "blink2video.exe.ancien").exists())   # rien de purge
-            marqueur.unlink()
-            maj._nettoyer(installe)
+            (installe / "blink2video.exe").write_bytes(b"a moitie")
+            maj._nettoyer(installe)                                   # aucun refus
+            self.assertEqual((installe / "blink2video.exe.ancien").read_bytes(), b"ancienne version")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertTrue(maj._permuter(neuf, installe))
+            self.assertEqual((installe / "blink2video.exe").read_bytes(), b"neuf")
+            self.assertFalse((installe / maj.MARQUEUR_PERMUTATION).exists())
+            maj._nettoyer(installe)                                   # menage de la suivante
             self.assertFalse((installe / "blink2video.exe.ancien").exists())
+            self.assertFalse((installe / "blink2video.exe.reprise").exists())
 
     # Issue #16 : les messages propres à runtime.py (bootstrap, --loop) étaient
     # restés hors traduction.

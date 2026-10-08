@@ -1,6 +1,7 @@
 """Échecs de copie/restauration sur une installation entièrement factice."""
 
 import contextlib
+import io
 import os
 from pathlib import Path
 import tempfile
@@ -56,17 +57,21 @@ class TestRestaurationMiseAJour(unittest.TestCase):
             with self.assertRaises(maj.RestaurationIncomplete):
                 maj._permuter(self.neuf, self.installe)
 
-    def test_restauration_incomplete_preserve_original_et_bloque_tous_reessais(self):
+    def test_restauration_incomplete_preserve_original_et_la_reprise_le_garde(self):
+        # Depuis nico579-commons 0.4.14 (issue #95), la mise à jour suivante reprend au lieu
+        # de refuser ; la sauvegarde de l'original n'est jamais touchée avant un succès.
         self.provoquer_retour_incomplet()
         sauvegarde = self.installe / "blink2video.exe.ancien"
         self.assertEqual(sauvegarde.read_bytes(), b"original")
         self.assertTrue(self.marqueur.exists())
-        for _ in range(3):
-            with self.assertRaises(maj.RestaurationIncomplete):
-                maj._permuter(self.neuf, self.installe)
-            with self.assertRaises(maj.RestaurationIncomplete):
-                maj._nettoyer(self.installe)
+        maj._nettoyer(self.installe)                      # interrompue : rien de purgé
         self.assertEqual(sauvegarde.read_bytes(), b"original")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(maj._permuter(self.neuf, self.installe))
+        self.assertEqual(sauvegarde.read_bytes(), b"original")
+        self.assertEqual((self.installe / "blink2video.exe").read_bytes(), b"neuf")
+        self.assertEqual((self.installe / "_internal" / "lib").read_bytes(), b"lib-neuve")
+        self.assertFalse(self.marqueur.exists())
         self.assertEqual((self.installe / "clip.mp4").read_bytes(), b"clip conserve")
 
     def test_finaliseur_ne_reessaie_et_ne_relance_pas_apres_retour_incomplet(self):
@@ -96,14 +101,15 @@ class TestRestaurationMiseAJour(unittest.TestCase):
         self.assertEqual((self.installe / "blink2video.exe").read_bytes(), b"original")
         self.assertFalse(self.marqueur.exists())
 
-    def test_arret_brutal_preserve_la_marque_et_le_nettoyage_refuse(self):
+    def test_arret_brutal_preserve_la_marque_et_le_nettoyage_ne_purge_rien(self):
         with mock.patch.object(maj, "_poser", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 maj._permuter(self.neuf, self.installe)
         self.assertTrue(self.marqueur.exists())
         self.assertEqual((self.installe / "blink2video.exe.ancien").read_bytes(), b"original")
-        with self.assertRaises(maj.RestaurationIncomplete):
-            maj._nettoyer(self.installe)
+        maj._nettoyer(self.installe)
+        self.assertTrue(self.marqueur.exists())
+        self.assertEqual((self.installe / "blink2video.exe.ancien").read_bytes(), b"original")
 
     def test_marqueur_refuse_ne_modifie_aucun_fichier(self):
         ouvrir = Path.open
@@ -118,16 +124,22 @@ class TestRestaurationMiseAJour(unittest.TestCase):
         self.assertEqual((self.installe / "blink2video.exe").read_bytes(), b"original")
         self.assertFalse(self.marqueur.exists())
 
-    def test_installateur_ne_nettoie_ni_ne_telecharge_apres_restauration_incomplete(self):
+    def test_installateur_reprend_apres_interruption_sans_purger_la_sauvegarde(self):
+        # Issue #95 : une mise à jour interrompue ne bloque plus les suivantes. L'installateur
+        # continue (il cherche la nouvelle version) ; la sauvegarde et le marqueur restent
+        # jusqu'à ce que la permutation reprise réussisse.
         self.marqueur.write_text("{}", encoding="utf-8")
+        sauvegarde = self.installe / "blink2video.exe.ancien"
+        sauvegarde.write_bytes(b"original")
         with mock.patch.object(runtime, "frozen", return_value=True), \
                 mock.patch.object(runtime, "build_windows7", return_value=False), \
                 mock.patch.object(maj.sys, "executable", str(self.installe / "blink2video.exe")), \
-                mock.patch.object(maj, "disponible") as disponible, \
+                mock.patch.object(maj, "disponible", return_value=None) as disponible, \
                 mock.patch.object(maj, "_conclure_sans_relance"):
-            self.assertEqual(maj.installer(), 1)
-        disponible.assert_not_called()
+            self.assertEqual(maj.installer(), 0)                  # « déjà à jour », sans refus
+        disponible.assert_called_once()
         self.assertTrue(self.marqueur.exists())
+        self.assertEqual(sauvegarde.read_bytes(), b"original")
 
     def test_nettoyage_en_cours_empeche_le_debut_d_une_permutation(self):
         marqueur_lu = threading.Event()
@@ -212,8 +224,7 @@ class TestRestaurationMiseAJour(unittest.TestCase):
         self.assertEqual(len(erreurs), 1)
         self.assertIsInstance(erreurs[0], maj.RestaurationIncomplete)
         self.assertTrue(self.marqueur.exists())
-        with self.assertRaises(maj.RestaurationIncomplete):
-            maj._nettoyer(self.installe)
+        maj._nettoyer(self.installe)                      # interrompue : rien de purgé
         self.assertEqual(sauvegarde.read_bytes(), b"original")
 
     def test_reservation_refusee_ne_modifie_ni_programme_ni_sauvegarde(self):
