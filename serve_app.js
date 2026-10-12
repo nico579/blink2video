@@ -2716,18 +2716,24 @@ async function load() {
   __chargementEnCours?.abort();
   const controleur = new AbortController();
   __chargementEnCours = controleur;
-  let answer, videoAnswer;
+  let nouvellesDonnees, nouvellesVideos;
   try {
-    [answer, videoAnswer] = await Promise.all([
+    const [answer, videoAnswer] = await Promise.all([
       fetch(`/api/clips${paramsPourPlage()}`, { signal: controleur.signal }),
       fetch("/api/videos", { signal: controleur.signal }),
     ]);
+    // La lecture des corps aussi : l'annulation peut tomber après les
+    // en-têtes, pendant la lecture, et l'AbortError s'échappait alors en
+    // rejet non traité (deux changements de vue rapprochés, vu par le test
+    // de la page dans un vrai navigateur, 2026-10-12).
+    nouvellesDonnees = await lireJSON(answer);
+    nouvellesVideos = await lireJSON(videoAnswer);
   } catch (erreur) {
     if (erreur.name === "AbortError") return; // une requête plus récente a pris le relais
     throw erreur;
   }
-  data = await lireJSON(answer);
-  videos = await lireJSON(videoAnswer);
+  data = nouvellesDonnees;
+  videos = nouvellesVideos;
   if (data.error) { $("log").style.display = "block"; $("log").textContent = data.error; return; }
   // État de la sélection : à zéro à chaque rechargement, il reflète l'état
   // réel qu'on vient de relire, pas une intention encore en attente.
