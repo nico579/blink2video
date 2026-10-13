@@ -77,6 +77,9 @@ LIBELLES = {
             "Ces sources ne viennent pas d'un dépôt git : rien à tirer. "
             "Téléchargez l'archive publiée, ou clonez le dépôt.",
         "deja_a_jour": "blink2video {version} est à jour.",
+        "maj_commun": "Mise à jour par l'installateur commun.",
+        "maj_ancien_chemin": "Installateur commun impossible ici ({raison}) : mise à jour élément par élément.",
+        "echec_maj_commun": "La mise à jour a échoué : {erreur}",
         "maj_git_pull": "Mise à jour {ancienne} vers {neuve} (git pull)",
         "git_pull_refuse":
             "« git pull » a refusé : des modifications locales attendent "
@@ -126,6 +129,9 @@ LIBELLES = {
             "These sources don't come from a git repository: nothing to pull. "
             "Download the published archive, or clone the repository.",
         "deja_a_jour": "blink2video {version} is up to date.",
+        "maj_commun": "Updating with the common installer.",
+        "maj_ancien_chemin": "Common installer not possible here ({raison}): updating file by file.",
+        "echec_maj_commun": "The update failed: {erreur}",
         "maj_git_pull": "Updating {ancienne} to {neuve} (git pull)",
         "git_pull_refuse":
             "« git pull » refused: local changes may be pending. "
@@ -549,11 +555,13 @@ def _nettoyer_travail(installe: Path) -> None:
         shutil.rmtree(reste, ignore_errors=True)
 
 
-def _nettoyer(installe: Path) -> None:
+def _nettoyer(installe: Path) -> bool:
     """Efface les restes d'une mise à jour précédente, au début de la suivante :
     le programme qui permute tourne depuis ``update``, et sous Windows un
-    exécutable ne peut pas effacer le dossier dont il est issu."""
-    maj_install.nettoyer_restes(
+    exécutable ne peut pas effacer le dossier dont il est issu. Rend vrai si une
+    permutation à l'ancienne a été interrompue : elle sera reprise par l'ancien
+    chemin, le seul qui sache la finir."""
+    return maj_install.nettoyer_restes(
         installe, CONTENU_DU_PROGRAMME, marqueur=MARQUEUR_PERMUTATION,
         nom_reservation=NOM_RESERVATION, apres=_nettoyer_travail, langue=_langue())
 
@@ -768,10 +776,23 @@ def installer(force: bool = False) -> int:
 
     installe = Path(sys.executable).resolve().parent
     try:
-        _nettoyer(installe)
+        interrompue = _nettoyer(installe)
     except RestaurationIncomplete as erreur:
         _conclure_sans_relance(str(erreur))
         return 1
+
+    # Depuis la 0.23, l'installateur commun (le même que lidar2map, gpxsolar et
+    # watch2notif : échange du dossier entier par un assistant externe, vérification de
+    # la nouvelle version après la relance, verrou entre processus). Deux cas gardent
+    # l'ancienne permutation élément par élément : une permutation interrompue, qu'elle
+    # seule sait reprendre, et une installation que le commun refuse de remplacer
+    # (dossier parent protégé en écriture, contenu inattendu) : la permutation n'a
+    # besoin que du dossier d'installation.
+    if not interrompue:
+        possible, raison = _possible_commun()
+        if possible:
+            return _lancer_installateur_commun()
+        print(msg("maj_ancien_chemin", raison=raison))
 
     neuve = disponible(force=True)
     if not neuve:
@@ -833,6 +854,118 @@ def installer(force: bool = False) -> int:
     return 0
 
 
+# ------------------------------------------------- installateur commun (0.23)
+
+def _application_commune():
+    """Ce que l'installateur commun doit savoir de blink2video. Ses données vivent hors
+    du dossier d'installation depuis la 0.14 : rien à recopier. Les noms tolérés sont les
+    restes possibles de l'ancien mécanisme. Le service systemd ou l'agent launchd sont
+    ceux sous lesquels CE processus tourne (le nom dépend de la composition lancée) :
+    l'assistant les relance alors par leur nom."""
+    import autostart
+    label = os.environ.get("XPC_SERVICE_NAME", "")
+    return maj_install.Application(
+        "blink2video",
+        noms_toleres=(f"{NOM_RESERVATION}.lock", NOM_RESERVATION, DOSSIER_TRAVAIL),
+        unite_systemd=autostart.unite_systemd() if sys.platform.startswith("linux") else "",
+        label_launchd=label if label.startswith("com.nico579.blink2video") else "",
+        fenetre="Minimized")
+
+
+def _disposition_commune(app=None):
+    """Disposition de l'installation courante. Les noms d'archives suivent la convention
+    commune (blink2video-<système>-<arch>), mais leur dossier racine s'appelle
+    simplement « blink2video » sur tous les systèmes."""
+    app = app or _application_commune()
+    fichier, genre, _racine = maj_install.archive_standard(
+        "blink2video", racine_macos="blink2video")
+    return maj_install.disposition(app, asset_name=fichier, archive_kind=genre,
+                                   racine_attendue="blink2video")
+
+
+def _possible_commun() -> tuple:
+    """(vrai, "") si l'installateur commun peut remplacer cette installation."""
+    if maj_install is None:
+        return False, "source_mode"
+    return maj_install.possible(_disposition_commune)
+
+
+def _lancer_installateur_commun() -> int:
+    """Premier temps : se relancer détaché, puis rendre la main aussitôt. Lancé par
+    « serve » (bouton de la page) ou par le menu de l'icône, ce processus fait partie de
+    l'arbre que « stop » va abattre (taskkill /T sous Windows) : le second temps, dont
+    le parent a déjà disparu, lui échappe et peut conduire l'arrêt jusqu'au bout."""
+    runtime.demarrer(
+        runtime.self_command("update", "--commun"), cwd=str(runtime.app_dir()),
+        stdin=subprocess.DEVNULL,
+        stdout=(runtime.app_dir() / "maj.log").open("ab"), stderr=subprocess.STDOUT,
+        start_new_session=(os.name != "nt"))
+    return 0
+
+
+def _pids_en_cours() -> list:
+    """Tous les processus de blink2video notés dans les fiches (superviseurs et leurs
+    enfants) : l'assistant attend la fin de chacun avant d'échanger les dossiers."""
+    pids = []
+    for fiche in runtime.lire_instances():
+        for pid in [fiche.get("pid"), *(fiche.get("enfants") or [])]:
+            if isinstance(pid, int) and pid > 0 and pid != os.getpid():
+                pids.append(pid)
+    return list(dict.fromkeys(pids))
+
+
+def _verbes_a_relancer() -> list:
+    """Ce qui tournait, une ligne de commande par composition, comme _relancer() :
+    les verbes d'une composition à la suite, « start » si rien ne tournait."""
+    return [[mot for groupe in verbes for mot in groupe] or ["start"]
+            for verbes in _compositions_en_cours()]
+
+
+def _arreter_tout(installe: Path) -> None:
+    """Arrête toutes les instances, comme le finaliseur de l'ancien chemin."""
+    runtime.lancer(_ligne(installe, "stop"), cwd=str(installe), stdin=subprocess.DEVNULL,
+                   check=False)
+
+
+def _installer_commun() -> int:
+    """Second temps : l'installateur commun conduit tout (verrou, droits, ménage,
+    téléchargement vérifié, auto-test de la nouvelle version, assistant externe), puis
+    blink2video s'arrête ; l'assistant attend la fin de chaque processus, échange les
+    dossiers, relance ce qui tournait et vérifie que la nouvelle version tient, sinon
+    remet l'ancienne."""
+    installe = Path(sys.executable).resolve().parent
+    app = _application_commune()
+    verificateur = _verificateur()
+    print(msg("maj_commun"), flush=True)
+    installateur = maj_install.Installateur(
+        app, DEPOT, verificateur, lambda: _disposition_commune(app),
+        quitter=lambda: _arreter_tout(installe), contexte=contexte_tls(),
+        ecrire=lambda message: print(message, flush=True),
+        verbes_relance=_verbes_a_relancer, pids_a_attendre=_pids_en_cours)
+    if not installateur.demarrer():
+        return 1
+    # La page suit le même canal qu'avant : la barre de téléchargement, puis
+    # l'installation, puis la disparition et le retour du serveur.
+    while installateur._fil is not None and installateur._fil.is_alive():
+        etat = installateur.etat()
+        if etat["etat"] == "telechargement" and etat["total"]:
+            runtime.travail(
+                f"Téléchargement de la mise à jour ({etat['recu'] // (1024 * 1024)} Mo)",
+                etat["recu"] / (1024 * 1024), etat["total"] / (1024 * 1024),
+                cle="phase.update_download")
+        time.sleep(0.5)
+    etat = installateur.etat()
+    if etat["etat"] == "redemarrage":
+        return 0
+    if etat["etat"] == "erreur":
+        erreur = etat["erreur"] or {}
+        texte = (erreur.get("message") or {}).get(_langue()) or str(erreur)
+        _conclure_sans_relance(msg("echec_maj_commun", erreur=texte))
+        return 1
+    _conclure_sans_relance(msg("deja_a_jour", version=runtime.VERSION))
+    return 0
+
+
 def main() -> int:
     analyseur = argparse.ArgumentParser(
         prog="blink2video update",
@@ -840,10 +973,16 @@ def main() -> int:
     analyseur.add_argument("--check", action="store_true", help=msg("aide_check"))
     analyseur.add_argument("--finaliser", metavar="DOSSIER",
                            help=argparse.SUPPRESS)  # usage interne
+    analyseur.add_argument("--commun", action="store_true",
+                           help=argparse.SUPPRESS)  # usage interne
     arguments = analyseur.parse_args()
 
     if arguments.finaliser:
+        # Encore appelé par une version ≤ 0.22 qui installe celle-ci : elle télécharge,
+        # puis passe la main à la nouvelle avec « update --finaliser » (transition).
         return finaliser(Path(arguments.finaliser))
+    if arguments.commun:
+        return _installer_commun()
     if runtime.build_windows7():
         print(msg("message_windows7"))
         return 0

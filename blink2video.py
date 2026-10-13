@@ -28,6 +28,14 @@ import time  # noqa: F401
 
 import runtime
 
+if __name__ == "__main__" and sys.argv[1:2] == ["--self-test-version"]:
+    # La mise à jour commune (nico579_commons.maj_install) lance ainsi la version
+    # téléchargée, depuis son dossier de préparation, avant de l'installer : 0 si elle
+    # se reconnaît, 1 sinon. Tout en haut, avant preparer_etat() : ce lancement ne doit
+    # toucher à aucun dossier d'état ni de sorties.
+    attendue = (sys.argv[2] if len(sys.argv) > 2 else "").strip().lstrip("vV")
+    raise SystemExit(0 if attendue == runtime.VERSION else 1)
+
 if __name__ == "__main__":
     # Avant blink_cli : ses modules tirent des constantes du dossier d'état
     # et de celui des sorties dès leur import. Reprend, une fois, l'état

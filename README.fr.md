@@ -438,9 +438,14 @@ hors ligne ne prévient qu'une fois.
 
 Quand une version plus récente est publiée, l'interface affiche un bouton
 **Installer 0.x.y**. Il s'occupe de tout : téléchargement, arrêt, remplacement,
-relance des mêmes verbes. Rien n'est remplacé tant que la nouvelle version n'a
-pas démarré et annoncé son numéro, et les fichiers précédents sont gardés de
-côté jusqu'à ce que la permutation aboutisse.
+relance des mêmes verbes. La version téléchargée doit d'abord démarrer et
+annoncer son numéro ; le dossier entier est alors échangé, et si la nouvelle
+version ne tient pas après la relance, l'ancienne est remise en place.
+
+Si une coupure de courant tombe au mauvais moment et que le dossier
+`blink2video` a disparu, l'ancienne version attend à côté, sous le nom
+`.blink2video.backup-…` : renommez ce dossier en `blink2video` et relancez.
+Vos réglages et vos clips n'en dépendent pas, ils vivent ailleurs.
 
 ## Où vont les fichiers
 

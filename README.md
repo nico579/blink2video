@@ -403,9 +403,14 @@ only, so a camera you knowingly leave offline warns you once.
 
 When a newer release exists, the interface shows an **Install 0.x.y** button.
 It does everything: download, stop, replace, start again, with whatever verbs
-were running. Nothing is replaced until the new version has started and stated
-its own version number, and the previous files are kept aside until the swap
-succeeds.
+were running. The downloaded version must first start and state its own
+version number; the whole folder is then swapped, and if the new version does
+not hold after the restart, the previous one is put back.
+
+If a power cut strikes at the wrong moment and the `blink2video` folder is gone,
+the previous version is waiting next to it as `.blink2video.backup-…`: rename
+that folder to `blink2video` and start again. Your settings and clips do not
+depend on it, they live elsewhere.
 
 ## Where files go
 

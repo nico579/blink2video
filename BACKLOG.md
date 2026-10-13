@@ -135,8 +135,12 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
 - **`end_headers` de blink2video** : CSP à nonce, absente des autres applications.
 - **`web_bridge.js`** : un helper de 12 lignes et sept méthodes communes, le reste est l'API de chaque
   application.
-- **Phase 1 de `installer` de blink2video**, passage de main au binaire neuf, compositions lues du
-  registre, sortie du service systemd : propres à blink2video par conception.
+- **Mise à jour de blink2video** : depuis la 0.23, l'installateur commun (phase 2 du plan
+  `PLAN-INSTALLATEUR-COMMUN-2026-10-08.md`). Restent propres à blink2video : le second temps
+  détaché (`update --commun`), les processus à attendre lus des fiches, les compositions à
+  relancer. L'ancienne permutation et `update --finaliser` restent pour la transition (une
+  0.22 qui installe la 0.23, une permutation interrompue, un dossier parent protégé) ; à retirer
+  en phase 3, vers janvier 2027.
 - **B14 de l'audit** : identité de processus illisible = verrou repris, choix assumé du 2026-09-29 pour
   les pannes après redémarrage, à ne pas inverser sans accord.
 - **Sélecteur FR / EN et panneau Réglages de blink2video** (décision du 2026-10-07). Les trois autres
