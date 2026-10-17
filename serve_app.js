@@ -846,7 +846,11 @@ function montrerTravail(travail) {
   $("work").classList.add("on");
   const total = travail.total || 0;
   const fait = travail.fait || 0;
-  const quoi = travail.cle === "phase.update_download"
+  // Le téléchargement de la mise à jour avance en mégaoctets décimaux, pas en
+  // éléments comptés : des entiers, et pas de « +1 » de rang (« 77.5/
+  // 82.67831420898438 », vu en vrai le 2026-10-17).
+  const enMo = travail.cle === "phase.update_download";
+  const quoi = enMo
     ? libellePhase(travail.cle, travail.quoi, { mo: Math.round(total) })
     : libellePhase(travail.cle, travail.quoi);
   // total === 1 : un pas unique, pas une mesure de progression (ex. « déjà à
@@ -855,9 +859,10 @@ function montrerTravail(travail) {
   if (total > 1) {
     $("bar").max = total;
     $("bar").value = fait;
-    const courant = fait >= total ? total : fait + 1;
+    const plafond = enMo ? Math.round(total) : total;
+    const courant = fait >= total ? plafond : (enMo ? Math.floor(fait) : fait + 1);
     $("phase").textContent =
-      `${quoi} ${courant}/${total} (${Math.round((fait / total) * 100)} %)`;
+      `${quoi} ${courant}/${plafond} (${Math.round((fait / total) * 100)} %)`;
   } else {
     $("bar").removeAttribute("value");
     $("phase").textContent = quoi;
