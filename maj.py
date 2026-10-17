@@ -914,10 +914,28 @@ def _pids_en_cours() -> list:
     return list(dict.fromkeys(pids))
 
 
+def _sans_hote_vide(groupe: list) -> list:
+    """Le groupe sans « --trusted-host "" », que serve retrouve par défaut.
+
+    L'assistant de mise à jour de nico579-commons 0.5.0 perd les arguments
+    vides : le mot suivant devenait la valeur de l'option (2026-10-17, voir
+    runtime._hote_vide_perdu). Ne lui en confier aucun."""
+    resultat = []
+    indice = 0
+    while indice < len(groupe):
+        if (groupe[indice] == "--trusted-host" and indice + 1 < len(groupe)
+                and groupe[indice + 1] == ""):
+            indice += 2
+            continue
+        resultat.append(groupe[indice])
+        indice += 1
+    return resultat
+
+
 def _verbes_a_relancer() -> list:
     """Ce qui tournait, une ligne de commande par composition, comme _relancer() :
     les verbes d'une composition à la suite, « start » si rien ne tournait."""
-    return [[mot for groupe in verbes for mot in groupe] or ["start"]
+    return [[mot for groupe in verbes for mot in _sans_hote_vide(groupe)] or ["start"]
             for verbes in _compositions_en_cours()]
 
 

@@ -40,7 +40,7 @@ import _amorcage
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.24.0"
+VERSION = "0.24.1"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -2321,6 +2321,23 @@ _OPTIONS_VALEUR_UNIQUE = frozenset((
 _OPTIONS_VALEURS_MULTIPLES = frozenset(("--exclude", "--include", "--ignore", "--unignore"))
 
 
+def _hote_vide_perdu(arguments: list, indice: int) -> bool:
+    """Vrai si la valeur vide de --trusted-host manque devant `arguments[indice]`.
+
+    L'assistant de mise à jour de nico579-commons 0.5.0 (blink2video 0.23.0 à
+    0.24.0) perd les arguments vides en relançant : « --trusted-host "" watch
+    --loop 10 » revenait « --trusted-host watch --loop 10 », et la relève
+    devenait l'hôte de serve (vu en vrai le 2026-10-17). Un nom d'hôte ne
+    commence jamais par un tiret ; et un hôte nommé comme un verbe (audit I-11)
+    est suivi du verbe que standard() place après lui, ou de rien, alors que
+    dans la ligne abîmée le verbe est suivi de ses propres options."""
+    suivant = arguments[indice]
+    if suivant.startswith("-"):
+        return True
+    return (suivant in VERBES and indice + 1 < len(arguments)
+            and arguments[indice + 1] not in VERBES)
+
+
 def decouper_verbes(arguments) -> list:
     """Découpe « watch --loop download --loop merge » en groupes.
 
@@ -2348,7 +2365,10 @@ def decouper_verbes(arguments) -> list:
             raise ValueError(f"« {element} » n'est pas un verbe")
         groupes[-1].append(element)
         indice += 1
-        if element in _OPTIONS_VALEUR_UNIQUE and indice < total:
+        if (element == "--trusted-host" and indice < total
+                and _hote_vide_perdu(arguments, indice)):
+            groupes[-1].append("")
+        elif element in _OPTIONS_VALEUR_UNIQUE and indice < total:
             groupes[-1].append(arguments[indice])
             indice += 1
         elif element in _OPTIONS_VALEURS_MULTIPLES:
