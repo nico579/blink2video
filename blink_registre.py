@@ -15,6 +15,8 @@ import os
 import stat as stat_module
 from pathlib import Path
 
+from nico579_commons import atomique
+
 import runtime
 
 from blink_models import (
@@ -30,14 +32,30 @@ OUTPUT = runtime.dossier_sorties() / "Blink_Clips"
 STATE_FILENAME = ".blink_download_state.json"
 STATE_V1_BACKUP_FILENAME = ".blink_download_state.v1.backup.json"
 
+# Registre absent : distinct de tout contenu JSON possible, « null » compris.
+_ABSENT = object()
+
 
 def load_download_state(output: Path) -> dict:
-    """Charge le registre incrémental placé dans le dossier de destination."""
+    """Charge le registre incrémental placé dans le dossier de destination.
+
+    Absent, il est vide : c'est une installation neuve. Présent mais
+    momentanément inaccessible, il ne l'est surtout pas. Sous Windows, une
+    lecture échoue en PermissionError pendant qu'un autre processus remplace
+    le fichier (la boucle cloud le réécrit chaque minute), et ce refus passait
+    ici pour une corruption : le 2026-10-17, une passe USB a ainsi vu un
+    registre vide, puis retéléchargé et annoncé comme nouveaux six clips déjà
+    acquis. nico579_commons.atomique.lire_json réessaie ce refus passager et
+    lève s'il persiste : une passe interrompue (_faire_passage le signale, la
+    suivante réessaie) vaut mieux qu'un registre vide, qui fait tout
+    retélécharger et, relu avant une écriture, effacerait l'historique.
+
+    Seul un contenu invalide suit encore la stratégie du registre vide (I-10)."""
     state_file = output / STATE_FILENAME
-    if not state_file.exists():
-        return {"version": 1, "clips": {}}
     try:
-        state = json.loads(state_file.read_text(encoding="utf-8"))
+        state = atomique.lire_json(state_file, _ABSENT, tolerer_corrompu=False)
+        if state is _ABSENT:
+            return {"version": 1, "clips": {}}
         if not isinstance(state, dict):
             raise ValueError("la racine JSON doit être un objet")
         if state.get("version") not in (1, 2) or not isinstance(state.get("clips"), dict):
@@ -88,8 +106,6 @@ def load_download_state(output: Path) -> dict:
         state["clips"] = valides
         state["version"] = 2
         return state
-    except OSError:
-        categorie = "fichier"
     except json.JSONDecodeError:
         categorie = "données JSON"
     except ValueError:
@@ -123,13 +139,18 @@ def save_download_state(output: Path, state: dict) -> None:
 def _sauvegarder_registre_v1(state_file: Path) -> None:
     """Conserve une copie unique du registre v1 avant sa première migration."""
     backup = state_file.with_name(STATE_V1_BACKUP_FILENAME)
-    if not state_file.exists():
+    # Même lecture retentée que load_download_state(). Un refus qui persiste
+    # remonte tel quel : rien ne dit alors qu'une migration était en jeu.
+    try:
+        ancien = atomique.lire_json(state_file, None, tolerer_corrompu=False)
+    except json.JSONDecodeError as erreur:
+        raise OSError(
+            "migration v2 annulée : sauvegarde du registre v1 impossible"
+        ) from erreur
+    if not isinstance(ancien, dict) or ancien.get("version") != 1:
         return
     try:
         brut = state_file.read_bytes()
-        ancien = json.loads(brut)
-        if not isinstance(ancien, dict) or ancien.get("version") != 1:
-            return
         if backup.exists():
             sauvegarde = backup.read_bytes()
             chargee = json.loads(sauvegarde)
@@ -203,10 +224,9 @@ def _ecrire_registre(state_file: Path, state: dict) -> None:
     fusionne["version"] = max(
         2, int(disque.get("version") or 1), int(state.get("version") or 1),
     )
-    temporary = state_file.with_suffix(".tmp")
-    temporary.write_text(json.dumps(fusionne, indent=2, ensure_ascii=False),
-                         encoding="utf-8")
-    temporary.replace(state_file)
+    # Remplacement retenté : sous Windows, il est refusé tant qu'un lecteur
+    # (la page, l'autre boucle) tient le registre ouvert.
+    atomique.ecrire_json(state_file, fusionne)
     _invalider_index_registre(state)
     state["version"] = fusionne["version"]
     state["clips"] = fusionne.get("clips", state.get("clips"))
