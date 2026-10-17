@@ -4707,6 +4707,8 @@ __CSS__
   </select>
   <button id="filtreButton" data-i18n="filtre.button" data-i18n-title="filtre.button.title"
           title="Filtrer">🔍 Filtre</button>
+  <button id="rondeButton" data-i18n="ronde.button" data-i18n-title="ronde.button.title"
+          title="Les directs en plein écran, une caméra après l'autre" hidden>▶ Ronde…</button>
   <span class="filtreResume" id="filtreResume"></span>
   <span class="filtreResume" id="filtreCompte"></span>
   <span class="count" id="count"></span>
@@ -5031,6 +5033,41 @@ __CSS__
     <button id="filtreClose" data-i18n="reglages.close">Fermer</button>
   </div>
 </dialog>
+
+<dialog id="rondeReglages">
+  <h3 data-i18n="ronde.titre">Ronde des directs</h3>
+  <p data-i18n="ronde.explication">Plein écran, une caméra après l'autre : chacune reste à l'écran le temps choisi, compté à partir de sa première image.</p>
+  <p class="sub tiny" data-i18n="ronde.cameras">Caméras de la ronde</p>
+  <div id="rondeCameras"></div>
+  <div class="champCadence">
+    <label for="rondeSecondes" data-i18n="ronde.secondes">Secondes par caméra</label>
+    <input type="number" id="rondeSecondes" min="10" max="300" step="5">
+  </div>
+  <div class="champCadenceDouble">
+    <label for="rondeDebut" data-i18n="ronde.plage">Seulement de</label>
+    <input type="time" id="rondeDebut">
+    <label for="rondeFin" data-i18n="ronde.plage.a">à</label>
+    <input type="time" id="rondeFin">
+  </div>
+  <p class="sub tiny" data-i18n="ronde.plage.aide">Laissez les heures vides pour toute la journée.</p>
+  <p class="sub tiny" data-i18n="ronde.batterie">Chaque passage réveille la caméra : sur batterie, la ronde l'use vite. Tant qu'elle tourne, la relève du stockage local (clé USB) attend sa pause ou son arrêt.</p>
+  <div class="row row-boutons">
+    <button class="primary" id="rondeDemarrer" data-i18n="ronde.demarrer">Démarrer</button>
+    <button id="rondeFermer" data-i18n="reglages.close">Fermer</button>
+  </div>
+</dialog>
+
+<!-- Ronde des directs : couvre toute la fenêtre, plein écran quand le
+     navigateur l'accorde ; les cases de direct y passent tour à tour. -->
+<div id="ronde" hidden>
+  <div class="rondeBarre">
+    <span id="rondeTitre"></span>
+    <button id="rondeSuivante" data-i18n="ronde.suivante">Suivante ⏭</button>
+    <button id="rondeArreter" data-i18n="ronde.arreter">■ Arrêter</button>
+  </div>
+  <p id="rondeMessage" hidden></p>
+  <div id="rondeScene"></div>
+</div>
 <script nonce="__SCRIPT_NONCE__">
 __APP_JS__
 </script>

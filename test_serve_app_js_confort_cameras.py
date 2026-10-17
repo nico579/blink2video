@@ -61,6 +61,7 @@ let _lang = "fr";
 let data = {{ clips: [], cameras: [] }}, videos = {{ daily: [] }}, snapshots = [];
 let system = {json.dumps(systeme)};
 const nomsDirectsActifs = () => [];
+const ronde = {{ boite: null }};
 const t = (cle) => cle, tf = (cle, p) => cle + JSON.stringify(p), h = (s) => String(s);
 const cameraCard = (c) => `<card ${{c.name}}>`;
 let rafraichirVignettes = false;

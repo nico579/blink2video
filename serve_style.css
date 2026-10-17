@@ -115,6 +115,27 @@
      on la remonte au-dessus et on la rend transparente aux événements. */
   .live .hint.overlay { position:absolute; bottom:56px; left:0; right:0;
                          pointer-events:none; }
+  /* Ronde des directs : toute la fenêtre, au-dessus de l'en-tête collant,
+     plein écran ou non (l'iPhone ne l'accorde pas à un simple bloc). */
+  #ronde { position:fixed; inset:0; z-index:100; background:#000;
+           display:flex; flex-direction:column; }
+  .rondeBarre { position:absolute; top:0; left:0; right:0; z-index:1;
+                display:flex; align-items:center; gap:10px; padding:10px 14px;
+                background:linear-gradient(rgba(0,0,0,.7), transparent); }
+  #rondeTitre { margin-right:auto; font-weight:600; }
+  #rondeMessage { margin:auto; color:var(--dim); text-align:center; padding:0 20px;
+                  font-size:18px; }
+  #rondeScene { flex:1; min-height:0; display:flex; }
+  #rondeScene:empty { display:none; }
+  #rondeScene .live { flex:1; aspect-ratio:auto; }
+  /* Les boutons d'une carte n'agissent plus hors de la grille (les clics y
+     sont délégués à #list) : la ronde a les siens. */
+  #rondeScene .watch { display:none; }
+  /* La plage horaire tient sur une ligne : « Seulement de », deux heures, « à ». */
+  #rondeReglages { width:min(420px, 92vw); }
+  #rondeCameras label { margin-bottom:8px; }
+  #rondeReglages .champCadence input { width:80px; margin-bottom:0; text-align:right; }
+  #rondeReglages .champCadenceDouble input { width:110px; margin-bottom:0; flex:none; }
   dialog { background:var(--card); color:var(--text); border:1px solid var(--line);
            border-radius:12px; padding:24px; width:min(380px, 92vw); position:relative; }
   dialog::backdrop { background:rgba(0,0,0,.6); }

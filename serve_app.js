@@ -202,6 +202,16 @@ const I18N = {
     "live.fullscreen.title.exit": "Quitter le plein écran",
     "live.record.start": "Enregistrer", "live.record.stop": "Arrêter l'enregistrement",
     "live.record.title": "Enregistre ce direct sur le disque (dossier Blink_Direct)",
+    "ronde.button": "▶ Ronde…", "ronde.button.title": "Les directs en plein écran, une caméra après l'autre",
+    "ronde.titre": "Ronde des directs",
+    "ronde.explication": "Plein écran, une caméra après l'autre : chacune reste à l'écran le temps choisi, compté à partir de sa première image.",
+    "ronde.cameras": "Caméras de la ronde", "ronde.secondes": "Secondes par caméra",
+    "ronde.plage": "Seulement de", "ronde.plage.a": "à",
+    "ronde.plage.aide": "Laissez les heures vides pour toute la journée.",
+    "ronde.batterie": "Chaque passage réveille la caméra : sur batterie, la ronde l'use vite. Tant qu'elle tourne, la relève du stockage local (clé USB) attend sa pause ou son arrêt.",
+    "ronde.demarrer": "Démarrer", "ronde.suivante": "Suivante ⏭", "ronde.arreter": "■ Arrêter",
+    "ronde.pause": "Ronde en pause jusqu'à {debut}.",
+    "ronde.aucune": "Aucune caméra en ligne dans la ronde.",
     "watch.noimage": "Aucune image reçue. La caméra n'a pas répondu.",
     "watch.interrupted": "Le direct s'est interrompu. Vous pouvez le relancer.",
     "watch.refused": "Le flux a été refusé par le serveur.",
@@ -395,6 +405,16 @@ const I18N = {
     "live.fullscreen.title.exit": "Exit fullscreen",
     "live.record.start": "Record", "live.record.stop": "Stop recording",
     "live.record.title": "Records this live view to disk (Blink_Direct folder)",
+    "ronde.button": "▶ Rotation…", "ronde.button.title": "Live views in fullscreen, one camera after another",
+    "ronde.titre": "Rotating live view",
+    "ronde.explication": "Fullscreen, one camera after another: each one stays on screen for the chosen time, counted from its first image.",
+    "ronde.cameras": "Cameras in the rotation", "ronde.secondes": "Seconds per camera",
+    "ronde.plage": "Only from", "ronde.plage.a": "to",
+    "ronde.plage.aide": "Leave the hours empty for the whole day.",
+    "ronde.batterie": "Each turn wakes the camera: on battery, the rotation drains it quickly. While it runs, local storage (USB) downloads wait for a pause or the end.",
+    "ronde.demarrer": "Start", "ronde.suivante": "Next ⏭", "ronde.arreter": "■ Stop",
+    "ronde.pause": "Rotation paused until {debut}.",
+    "ronde.aucune": "No online camera in the rotation.",
     "watch.noimage": "No image received. The camera did not respond.",
     "watch.interrupted": "The live view was interrupted. You can restart it.",
     "watch.refused": "The stream was refused by the server.",
@@ -716,6 +736,9 @@ function render() {
   // (/api/clips, les deux depuis data.clips) : daily/weekly/monthly ne la
   // lisent toujours pas.
   $("filtreButton").hidden = kind === "live";
+  // La ronde n'a de sens que dans le direct, et ne lui survit pas.
+  $("rondeButton").hidden = kind !== "live";
+  if (kind !== "live") arreterRonde();
   $("periodeSection").hidden = !carteClips;
   // Grouper par jour n'a de sens que pour les journalieres : hebdomadaires
   // et mensuelles n'ont qu'un seul fichier par semaine/mois et par camera,
@@ -746,7 +769,7 @@ async function loadSystem(force) {
   // DOM que si Direct est encore affiché, sinon la réponse tardive
   // écraserait une liste de clips déjà à l'écran sans que le menu déroulant
   // ne le laisse deviner.
-  if ($("view").value === "live" && !nomsDirectsActifs().length) {
+  if ($("view").value === "live" && !nomsDirectsActifs().length && !ronde.boite) {
     $("list").innerHTML = `<p class="empty">${t("live.querying")}</p>`;
     $("count").textContent = "";
   }
@@ -1049,8 +1072,10 @@ function renderLive() {
   // un DOM tout neuf qui ne les référence plus (vu en vrai : un clip qui
   // arrive en tâche de fond suffit à déclencher ce rafraîchissement pendant
   // qu'un direct tourne, qui semble alors s'arrêter sans jamais reprendre).
-  // Un direct actif gèle donc la grille jusqu'à ce qu'il s'arrête.
-  if (nomsDirectsActifs().length) return;
+  // Un direct actif gèle donc la grille jusqu'à ce qu'il s'arrête. De même
+  // une case prêtée à la ronde : redessinée en son absence, la grille en
+  // aurait deux du même identifiant, même après l'échec de son direct.
+  if (nomsDirectsActifs().length || ronde.boite) return;
   if (!system) return loadSystem(false);
   if (system.error) {
     $("list").innerHTML = `<p class="empty">${h(system.error)}</p>`;
@@ -2157,6 +2182,278 @@ function syncExpandButtons() {
 }
 document.addEventListener("fullscreenchange", syncExpandButtons);
 document.addEventListener("webkitfullscreenchange", syncExpandButtons);
+
+// --- Ronde des directs (issue #40, demande de MCas86 du 2026-10-17) ---
+// Les directs en plein écran, une caméra après l'autre : chacune reste à
+// l'écran le temps choisi, compté à partir de sa première image, puis cède
+// la place à la suivante, et la ronde recommence. Un navigateur n'accorde le
+// plein écran qu'au clic : un seul conteneur (#ronde) y entre, une fois, et
+// la case de direct de chaque caméra (#live-…) y passe à son tour avant de
+// regagner sa carte. watchLive() fait le reste comme pour une bascule à la
+// main : il arrête le direct précédent et attend que le module se libère
+// (MODULE_SLOT ne relaie qu'un direct à la fois). Réglages retenus dans ce
+// navigateur, comme la taille des vignettes : un écran mural n'a pas ceux
+// d'un téléphone.
+const CLE_RONDE = "blink2video.ronde";
+const RONDE_SECONDES_DEFAUT = 30;
+const RONDE_SECONDES_MIN = 10;
+// Le relais de Blink coupe de lui-même au bout d'environ six minutes de
+// vidéo (mesuré le 2026-09-28) : au-delà de cinq, la ronde montrerait un
+// direct interrompu jusqu'à la fin du tour.
+const RONDE_SECONDES_MAX = 300;
+// Une caméra qui ne montre rien dans ce délai cède son tour ; après un échec
+// déclaré, la suivante vient plus vite.
+const RONDE_ATTENTE_IMAGE_MS = 60 * 1000;
+const RONDE_APRES_ECHEC_MS = 5 * 1000;
+// Hors plage horaire ou sans caméra, la ronde se revérifie à ce rythme.
+const RONDE_REVERIFICATION_MS = 30 * 1000;
+
+// `tour` numérote les passages : un rappel parti pour un tour révolu (la fin
+// d'un direct déjà remplacé) ne décide plus rien.
+const ronde = {
+  active: false, pleinEcran: false, position: -1, tour: 0,
+  cle: null, boite: null, ancre: null, image: false, minuterie: null,
+};
+let reglagesRonde = lireReglagesRonde();
+
+function normaliserReglagesRonde(brut) {
+  const r = brut && typeof brut === "object" ? brut : {};
+  const secondes = Number.parseInt(r.secondes, 10);
+  const heure = (v) => (typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : "");
+  return {
+    // Les caméras écartées plutôt que les retenues : une caméra ajoutée plus
+    // tard entre d'elle-même dans la ronde.
+    exclues: Array.isArray(r.exclues) ? r.exclues.filter((cle) => typeof cle === "string") : [],
+    secondes: Number.isFinite(secondes)
+      ? Math.min(RONDE_SECONDES_MAX, Math.max(RONDE_SECONDES_MIN, secondes))
+      : RONDE_SECONDES_DEFAUT,
+    debut: heure(r.debut),
+    fin: heure(r.fin),
+  };
+}
+
+function lireReglagesRonde() {
+  try {
+    return normaliserReglagesRonde(JSON.parse(localStorage.getItem(CLE_RONDE) || "null"));
+  } catch (erreur) {
+    return normaliserReglagesRonde(null);
+  }
+}
+
+function enregistrerReglagesRonde() {
+  try {
+    localStorage.setItem(CLE_RONDE, JSON.stringify(reglagesRonde));
+  } catch (erreur) { /* stockage indisponible : réglages valables pour cette page */ }
+}
+
+// Vrai si `maintenant` (heure locale du navigateur) tombe dans [debut, fin[.
+// Sans plage complète, ou debut égal à fin, toute la journée ; une plage qui
+// passe minuit (22:00 à 06:00) est comprise.
+function dansPlageRonde(reglages, maintenant) {
+  const { debut, fin } = reglages;
+  if (!debut || !fin || debut === fin) return true;
+  const minutes = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+  const m = maintenant.getHours() * 60 + maintenant.getMinutes();
+  const d = minutes(debut), f = minutes(fin);
+  return d < f ? m >= d && m < f : m >= d || m < f;
+}
+
+// Caméras de la grille, dans son ordre : les visibles seulement, une caméra
+// masquée n'ayant pas de case de direct.
+function camerasGrille() {
+  if (!system || system.error || !system.systems) return [];
+  return system.systems.flatMap((s) => s.cameras
+    .filter((c) => !estMasquee(c.name))
+    .sort((a, b) => comparerNoms(a.name, b.name)));
+}
+
+// Celles de la ronde : en ligne (réveiller une caméra hors ligne ne mène qu'à
+// une attente) et non écartées dans ses réglages.
+function camerasRonde(reglages) {
+  return camerasGrille().filter((c) => !c.offline && !reglages.exclues.includes(c.key));
+}
+
+function afficherMessageRonde(texte) {
+  $("rondeMessage").textContent = texte;
+  $("rondeMessage").hidden = !texte;
+  if (texte) $("rondeTitre").textContent = t("ronde.titre");
+}
+
+function armerTourRonde(delaiMs) {
+  clearTimeout(ronde.minuterie);
+  ronde.minuterie = setTimeout(tourDeRonde, delaiMs);
+}
+
+// Le direct de la caméra en cours montre-t-il encore des images ?
+function imageEnCoursRonde() {
+  const video = ronde.boite && ronde.boite.querySelector("video");
+  return Boolean(video && !video.paused && !video.ended && video.readyState >= 2);
+}
+
+// Rend la case de direct à sa carte, son direct arrêté : stopWatch() la remet
+// au repos là où elle se trouve, avant son retour.
+function rendreCaseRonde() {
+  const { cle, boite, ancre } = ronde;
+  Object.assign(ronde, { cle: null, boite: null, ancre: null, image: false });
+  if (!boite) return;
+  stopWatch(cle);
+  if (ancre.isConnected) ancre.replaceWith(boite);
+  else boite.remove();
+}
+
+// Un tour : la caméra suivante prend l'écran, ou un message dit pourquoi
+// aucune ne le prend.
+function tourDeRonde() {
+  if (!ronde.active) return;
+  const tour = ++ronde.tour;
+  clearTimeout(ronde.minuterie);
+  const cameras = camerasRonde(reglagesRonde);
+  if (!cameras.length || !dansPlageRonde(reglagesRonde, new Date())) {
+    rendreCaseRonde();
+    afficherMessageRonde(cameras.length
+      ? tf("ronde.pause", { debut: reglagesRonde.debut }) : t("ronde.aucune"));
+    armerTourRonde(RONDE_REVERIFICATION_MS);
+    return;
+  }
+  ronde.position = (ronde.position + 1) % cameras.length;
+  const camera = cameras[ronde.position];
+  // Seule de sa ronde, une caméra qui montre encore des images garde l'écran.
+  if (camera.key === ronde.cle && imageEnCoursRonde()) {
+    armerTourRonde(reglagesRonde.secondes * 1000);
+    return;
+  }
+  rendreCaseRonde();
+  // Grille pas encore dessinée, ou effacée par une relecture du système
+  // pendant qu'elle prêtait une case : la redessiner avant de renoncer.
+  if (!$("live-" + cssId(camera.key))) renderLive();
+  const boite = $("live-" + cssId(camera.key));
+  if (!boite) {
+    // Système encore en cours de chargement.
+    afficherMessageRonde(t("ronde.aucune"));
+    armerTourRonde(RONDE_APRES_ECHEC_MS);
+    return;
+  }
+  const ancre = document.createComment("ronde");
+  boite.replaceWith(ancre);
+  $("rondeScene").appendChild(boite);
+  Object.assign(ronde, { cle: camera.key, boite, ancre, image: false });
+  afficherMessageRonde("");
+  $("rondeTitre").textContent = `${camera.name} · ${ronde.position + 1}/${cameras.length}`;
+  armerTourRonde(RONDE_ATTENTE_IMAGE_MS);
+  watchLive(camera.key).finally(() => {
+    // Direct fini sans la moindre image, échec déclaré : inutile d'attendre
+    // le délai entier.
+    if (ronde.active && ronde.tour === tour && !ronde.image) armerTourRonde(RONDE_APRES_ECHEC_MS);
+  });
+}
+
+// Première image de la caméra en cours : son temps d'antenne commence.
+// « playing » ne remonte pas vers les parents, d'où l'écoute en phase de
+// capture sur la scène.
+function surImageRonde(event) {
+  if (!ronde.active || ronde.image || !ronde.boite || !ronde.boite.contains(event.target)) return;
+  ronde.image = true;
+  armerTourRonde(reglagesRonde.secondes * 1000);
+}
+
+function demarrerRonde() {
+  if (ronde.active) return;
+  Object.assign(ronde, { active: true, pleinEcran: false, position: -1 });
+  const conteneur = $("ronde");
+  conteneur.hidden = false;
+  // Sans API plein écran (iPhone), #ronde couvre déjà toute la fenêtre.
+  const entrer = conteneur.requestFullscreen || conteneur.webkitRequestFullscreen;
+  if (entrer) {
+    try {
+      const promesse = entrer.call(conteneur);
+      if (promesse && promesse.catch) promesse.catch(() => {});
+    } catch (erreur) { /* refusé : la fenêtre entière fait l'affaire */ }
+  }
+  tourDeRonde();
+}
+
+function arreterRonde() {
+  if (!ronde.active) return;
+  ronde.active = false;
+  ronde.tour++;
+  clearTimeout(ronde.minuterie);
+  rendreCaseRonde();
+  $("ronde").hidden = true;
+  if ((document.fullscreenElement || document.webkitFullscreenElement) === $("ronde")) {
+    const sortir = document.exitFullscreen || document.webkitExitFullscreen;
+    try {
+      const promesse = sortir.call(document);
+      if (promesse && promesse.catch) promesse.catch(() => {});
+    } catch (erreur) { /* déjà sorti */ }
+  }
+  ronde.pleinEcran = false;
+  // La grille, gelée tant qu'elle prêtait une case, rattrape ce qu'elle a
+  // manqué ; seulement dans le direct, une autre vue la remplace déjà.
+  if ($("view").value === "live") renderLive();
+}
+
+// Quitter le plein écran (Échap, geste du système) arrête la ronde, qui
+// tournerait sinon derrière la page.
+function surPleinEcranRonde() {
+  const actif = document.fullscreenElement || document.webkitFullscreenElement || null;
+  if (actif === $("ronde")) ronde.pleinEcran = true;
+  else if (ronde.active && ronde.pleinEcran) arreterRonde();
+}
+
+function ouvrirReglagesRonde() {
+  const conteneur = $("rondeCameras");
+  const cameras = camerasGrille();
+  conteneur.replaceChildren();
+  if (!cameras.length) conteneur.textContent = t("ronde.aucune");
+  for (const c of cameras) {
+    const label = document.createElement("label");
+    const case_ = document.createElement("input");
+    case_.type = "checkbox";
+    case_.value = c.key;
+    case_.checked = !reglagesRonde.exclues.includes(c.key);
+    label.appendChild(case_);
+    label.append(` ${c.name}${c.offline ? ` (${t("camera.offline")})` : ""}`);
+    conteneur.appendChild(label);
+  }
+  $("rondeSecondes").value = String(reglagesRonde.secondes);
+  $("rondeDebut").value = reglagesRonde.debut;
+  $("rondeFin").value = reglagesRonde.fin;
+  $("rondeReglages").showModal();
+}
+
+// Le clic sur Démarrer est le geste qui autorise le plein écran : la ronde
+// part de ce même clic, la fenêtre des réglages à peine refermée.
+function demarrerRondeDepuisReglages() {
+  const cases = [...$("rondeCameras").querySelectorAll('input[type="checkbox"]')];
+  const listees = new Set(cases.map((c) => c.value));
+  reglagesRonde = normaliserReglagesRonde({
+    // Une caméra écartée mais absente de la liste (masquée) le reste.
+    exclues: [
+      ...reglagesRonde.exclues.filter((cle) => !listees.has(cle)),
+      ...cases.filter((c) => !c.checked).map((c) => c.value),
+    ],
+    secondes: $("rondeSecondes").value,
+    debut: $("rondeDebut").value,
+    fin: $("rondeFin").value,
+  });
+  enregistrerReglagesRonde();
+  $("rondeReglages").close();
+  demarrerRonde();
+}
+
+$("rondeButton").onclick = ouvrirReglagesRonde;
+$("rondeDemarrer").onclick = demarrerRondeDepuisReglages;
+$("rondeFermer").onclick = () => $("rondeReglages").close();
+$("rondeSuivante").onclick = () => tourDeRonde();
+$("rondeArreter").onclick = arreterRonde;
+$("rondeScene").addEventListener("playing", surImageRonde, true);
+document.addEventListener("fullscreenchange", surPleinEcranRonde);
+document.addEventListener("webkitfullscreenchange", surPleinEcranRonde);
+// En plein écran, Échap revient au navigateur (surPleinEcranRonde) ; sans
+// plein écran accordé, la ronde l'écoute elle-même.
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && ronde.active) arreterRonde();
+});
 
 // Comme expandBtn : posé dans repos() ET dans watchWebRTC()/watchMse(), mais
 // seul un direct effectivement lancé a un flux à enregistrer - repos() ne

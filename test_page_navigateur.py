@@ -136,6 +136,77 @@ class PageBlink2video(unittest.TestCase):
         self.page.locator("#view").select_option("clips")
         expect(self.page.locator("#view")).to_have_value("clips")
 
+    def test_la_ronde_des_directs(self):
+        # Issue #40. Toujours sans Blink : /api/system et les vignettes sont
+        # simulés, et watchLive() montre un flux tiré d'un canvas, qui émet de
+        # vrais « playing ». Ce que Node ne voit pas est ici réel : les cases
+        # déplacées dans le DOM, les clics, la mise en page. Le plein écran
+        # dépend du navigateur et n'est pas exigé.
+        systeme = {"webrtc": True, "passages": {}, "systems": [
+            {"name": "Dehors", "key": "dehors", "armed": True, "cameras": [
+                {"name": "jardin", "key": "k-jardin", "armed": True},
+                {"name": "Terrasse", "key": "k-terrasse", "armed": False},
+                {"name": "Garage", "key": "k-garage", "armed": True, "offline": True}]}]}
+        self.page.route("**/api/system", lambda route: route.fulfill(json=systeme))
+        self.page.route("**/camthumb/**", lambda route: route.fulfill(
+            status=200, content_type="image/gif", body=GIF_1X1))
+        self.page.evaluate(DIRECT_SIMULE)
+        self.page.locator("#view").select_option("live")
+        expect(self.page.locator("#rondeButton")).to_be_visible()
+        expect(self.page.locator("#list .live")).to_have_count(3)
+
+        self.page.locator("#rondeButton").click()
+        expect(self.page.locator("#rondeCameras label")).to_have_count(3)
+        self.page.locator("#rondeSecondes").fill("10")
+        self.page.locator("#rondeDemarrer").click()
+        expect(self.page.locator("#ronde")).to_be_visible()
+        # Garage, hors ligne, est sauté.
+        expect(self.page.locator("#rondeTitre")).to_have_text("jardin · 1/2")
+        expect(self.page.locator("#rondeScene #live-k-jardin video")).to_have_count(1)
+        self.page.wait_for_function("() => ronde.image")
+
+        self.page.locator("#rondeSuivante").click()
+        expect(self.page.locator("#rondeTitre")).to_have_text("Terrasse · 2/2")
+        expect(self.page.locator("#list #live-k-jardin")).to_have_count(1)
+
+        self.page.locator("#rondeArreter").click()
+        expect(self.page.locator("#ronde")).to_be_hidden()
+        expect(self.page.locator("#list .live")).to_have_count(3)
+        expect(self.page.locator("#rondeScene > *")).to_have_count(0)
+
+        # Échap arrête aussi, plein écran accordé ou non.
+        self.page.locator("#rondeButton").click()
+        self.page.locator("#rondeDemarrer").click()
+        expect(self.page.locator("#rondeTitre")).to_have_text("jardin · 1/2")
+        self.page.keyboard.press("Escape")
+        expect(self.page.locator("#ronde")).to_be_hidden()
+        expect(self.page.locator("#list .live")).to_have_count(3)
+
+
+GIF_1X1 = (b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00"
+           b"\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;")
+
+# Remplace le direct par un flux de canvas : aucune requête vers le serveur.
+DIRECT_SIMULE = """() => {
+  watchLive = (cle) => {
+    const toile = document.createElement("canvas");
+    toile.width = 320; toile.height = 180;
+    const dessin = toile.getContext("2d");
+    setInterval(() => { dessin.fillStyle = "#" + (Date.now() % 4096).toString(16).padStart(3, "0");
+                        dessin.fillRect(0, 0, 320, 180); }, 100);
+    const video = document.createElement("video");
+    video.muted = true; video.autoplay = true; video.playsInline = true;
+    video.srcObject = toile.captureStream(10);
+    const boite = document.getElementById("live-" + cssId(cle));
+    boite.replaceChildren(video);
+    return new Promise(() => {});
+  };
+  stopWatch = (cle) => {
+    const boite = document.getElementById("live-" + cssId(cle));
+    if (boite) boite.innerHTML = repos(cle, t("watch.live"));
+  };
+}"""
+
 
 if __name__ == "__main__":
     unittest.main()
