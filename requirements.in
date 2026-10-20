@@ -28,9 +28,11 @@ platformdirs
 # Briques communes aux quatre applications : ici la sortie du service systemd
 # (autostart.py). Sans l'extra « tray », la bibliothèque n'exige rien de plus
 # que la bibliothèque standard : l'icône (pystray, Pillow) reste facultative
-# depuis les sources, et absente de l'image Docker. Fourchette : une version
-# incompatible ne peut pas entrer dans le verrou.
-nico579-commons>=0.5.1,<0.6
+# depuis les sources, et absente de l'image Docker. Fourchette jusqu'à la 1.0
+# (décision du 2026-09-29) : une version mineure du commun n'oblige plus à
+# republier l'application ; c'est le verrou, version exacte et empreinte, qui
+# fixe ce qui est installé.
+nico579-commons>=0.5.1,<1
 
 # aiortc tire par defaut cryptography>=49 (donc cffi>=2). Sans venv dedie,
 # ce depot s'installe sur le python systeme partage avec d'autres outils

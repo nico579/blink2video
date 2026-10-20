@@ -26,7 +26,10 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
   fait mourir un enfant avec son application, de quelque façon qu'elle meure : job Windows, ligne de vie
   et groupe de processus sous Linux et macOS, éprouvé en CI sur les quatre systèmes.
   `enfants.demarrer()` remplace `subprocess.Popen`, `enfants.lancer()` remplace `subprocess.run`.
-  Chaque projet relève d'abord sa borne du commun (`<0.6` aujourd'hui, `<0.7` pour la 0.6).
+  Les bornes du commun vont jusqu'à `<1` depuis le 2026-10-20 (décision 7 du 2026-09-29) : adopter
+  le module, c'est monter son verrou à 0.6.0 (`uv pip compile ... --upgrade-package nico579-commons`).
+  Seul gpx2elev 0.6.4, déjà sur PyPI, dit encore `<0.7` : sa borne `<1` y arrivera avec sa prochaine
+  release.
   hike2gpx est le premier branché (BRouter, créateur de tuiles, import Geofabrik), fait le
   2026-10-20 (hike2gpx #15 ; gpx2elev 0.6.4 a dû relever sa borne du commun, `<0.7`, pour que les
   deux s'installent ensemble). Relevé du même jour pour les autres : blink2video, les ffmpeg de `merge_daily.py`
