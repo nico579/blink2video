@@ -20,6 +20,21 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
 - **Signature de code des exécutables.** Candidature SignPath Foundation soumise le 2026-08-29, en
   attente de réponse.
 
+- **Enfants qui meurent avec leur application : brancher `nico579_commons.enfants` dans tous les projets.**
+  Demandé par Nico le 2026-10-20, après trois moteurs BRouter de hike2gpx restés orphelins (console
+  fermée, processus tué), jusqu'à 768 Mo chacun. Le module du commun (0.6.0, PR nico579-commons #24)
+  fait mourir un enfant avec son application, de quelque façon qu'elle meure : job Windows, ligne de vie
+  et groupe de processus sous Linux et macOS, éprouvé en CI sur les quatre systèmes.
+  `enfants.demarrer()` remplace `subprocess.Popen`, `enfants.lancer()` remplace `subprocess.run`.
+  hike2gpx est le premier branché (BRouter, créateur de tuiles, import Geofabrik), en cours le
+  2026-10-20. Relevé du même jour pour les autres : blink2video, les ffmpeg de `merge_daily.py`
+  (`runtime.demarrer` et les `runtime.lancer` des fusions ; même vocabulaire, seul le module change), et
+  les verbes que lance le superviseur « start » (`blink_cli.py`), à décider ; gpxsolar, le calcul lancé
+  par `subprocess.Popen` (`self._proc`, déjà dans son propre groupe pour le bouton Arrêter) ; lidar2map
+  et gpx2elev ne lancent aucun processus ; watch2notif seulement des commandes brèves (pare-feu,
+  appairage). Ne jamais y passer ce qui doit survivre à l'application : Redémarrer (`relance`), le
+  démarrage automatique, la mise à jour, le navigateur.
+
 ## En attente d'un retour ou d'un cas réel
 
 - **Audit du 2026-10-02 (0.15.7) : 13 constats restants, aucun correctif prévu.**
