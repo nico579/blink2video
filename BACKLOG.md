@@ -26,8 +26,10 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
   fait mourir un enfant avec son application, de quelque façon qu'elle meure : job Windows, ligne de vie
   et groupe de processus sous Linux et macOS, éprouvé en CI sur les quatre systèmes.
   `enfants.demarrer()` remplace `subprocess.Popen`, `enfants.lancer()` remplace `subprocess.run`.
-  hike2gpx est le premier branché (BRouter, créateur de tuiles, import Geofabrik), en cours le
-  2026-10-20. Relevé du même jour pour les autres : blink2video, les ffmpeg de `merge_daily.py`
+  Chaque projet relève d'abord sa borne du commun (`<0.6` aujourd'hui, `<0.7` pour la 0.6).
+  hike2gpx est le premier branché (BRouter, créateur de tuiles, import Geofabrik), fait le
+  2026-10-20 (hike2gpx #15 ; gpx2elev 0.6.4 a dû relever sa borne du commun, `<0.7`, pour que les
+  deux s'installent ensemble). Relevé du même jour pour les autres : blink2video, les ffmpeg de `merge_daily.py`
   (`runtime.demarrer` et les `runtime.lancer` des fusions ; même vocabulaire, seul le module change), et
   les verbes que lance le superviseur « start » (`blink_cli.py`), à décider ; gpxsolar, le calcul lancé
   par `subprocess.Popen` (`self._proc`, déjà dans son propre groupe pour le bouton Arrêter) ; lidar2map
