@@ -20,6 +20,31 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
 - **Signature de code des exécutables.** Candidature SignPath Foundation soumise le 2026-08-29, en
   attente de réponse.
 
+- **Recherche de ville commune, avec autocomplétion (lidar2map, hike2gpx).** Demandé par Nico le
+  2026-10-22 : aligner hike2gpx sur lidar2map, avec autocomplétion, dans le commun, et favoriser les
+  villes proches de la zone affichée. Aujourd'hui, les deux applications font chacune la leur.
+  lidar2map complète au fil de la saisie : en France par la Géoplateforme
+  (`data.geopf.fr/geocodage`, `autocomplete=1`), ailleurs par Nominatim, restreint au pays choisi.
+  hike2gpx (0.2.3, PR hike2gpx#28) cherche à la validation seulement : les communes françaises par
+  `geo.api.gouv.fr`, puis Nominatim pour le reste du monde. gpxsolar ne fait que du géocodage
+  inverse et n'est pas concerné.
+  Point à corriger au passage : la politique de Nominatim interdit l'autocomplétion sur son service
+  public (« you must not implement such a service on the client side using the API »). lidar2map
+  l'enfreint hors de France. L'outil courant pour ça est Photon (`photon.komoot.io`), le géocodeur
+  OSM de Komoot conçu pour la saisie au fil de l'eau.
+  Proposition :
+  - un module du commun, côté serveur, qui relaie (User-Agent identifiable, pas de dépendance au
+    CORS) : la Géoplateforme en France, Photon ailleurs ;
+  - un composant de page commun (`/nico579-ville.js`, comme le bandeau de mise à jour), avec
+    délai de frappe, réponses périmées ignorées et petit cache ;
+  - la proximité comme priorité, pas comme filtre : la page envoie le centre de la carte, et les deux
+    services savent faire remonter les lieux proches (`lat`/`lon`). Depuis le Var, « Mad » propose
+    alors Madriat avant Madrid, mais « Madrid » reste trouvable. Restreindre aux pays voisins aurait
+    caché Madrid à quelqu'un qui prépare un voyage depuis chez lui ; lidar2map garde en plus son
+    sélecteur de pays, qui reste un vrai filtre ;
+  - Nominatim reste possible pour une recherche validée, une requête à la fois, jamais à la frappe.
+  Ordre : le commun d'abord, puis hike2gpx, puis lidar2map, lors de la passe finale sur les projets.
+
 - **Enfants qui meurent avec leur application : brancher `nico579_commons.enfants` dans tous les projets.**
   Demandé par Nico le 2026-10-20, après trois moteurs BRouter de hike2gpx restés orphelins (console
   fermée, processus tué), jusqu'à 768 Mo chacun. Le module du commun (0.6.0, PR nico579-commons #24)
