@@ -105,6 +105,8 @@
   .watch.stop { position:absolute; right:10px; bottom:10px; opacity:.85; }
   .watch.record { position:absolute; left:10px; bottom:10px; opacity:.85; }
   .watch.record.active { background:#4a2320; border-color:var(--out); color:#ffb3ab; }
+  .watch.audio { position:absolute; left:10px; top:10px; opacity:.9; }
+  .watch.audio.active { background:#2a4a35; border-color:var(--in); color:#a8e6c0; }
   .watch.expand { position:absolute; right:10px; top:10px; opacity:.85;
                   padding:5px 9px; font-size:16px; line-height:1; }
   .live { flex-direction:column; gap:12px; }

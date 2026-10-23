@@ -29,6 +29,21 @@ class TestsReglages(unittest.TestCase):
         self.patch.stop()
         self.temporaire.cleanup()
 
+    def test_audio_setting_roundtrip_and_older_writer_preserve_selection(self):
+        parameters = dict(runtime.REGLAGES_DEFAUT)
+        parameters.update(camera_audio_enabled=True, camera_audio_track=1)
+        runtime.ecrire_reglages(**parameters)
+        stored = runtime.lire_reglages()
+        self.assertTrue(stored["camera_audio_enabled"])
+        self.assertEqual(stored["camera_audio_track"], 1)
+        parameters.pop("camera_audio_enabled")
+        parameters.pop("camera_audio_track")
+        runtime.ecrire_reglages(**parameters)
+        self.assertTrue(runtime.lire_reglages()["camera_audio_enabled"])
+        self.assertEqual(runtime.lire_reglages()["camera_audio_track"], 1)
+        runtime.ecrire_reglages(**parameters, camera_audio_enabled=False, camera_audio_track=0)
+        self.assertFalse(runtime.lire_reglages()["camera_audio_enabled"])
+
     def test_fichier_absent_rend_les_valeurs_par_defaut(self):
         self.assertEqual(runtime.lire_reglages(), dict(runtime.REGLAGES_DEFAUT))
 
@@ -95,6 +110,7 @@ class TestsReglages(unittest.TestCase):
             {"usb_minutes": 7, "cloud_minutes": 2, "port": 8899, "timestamp": False,
              "timezone": "America/New_York", "merge_jour": True, "merge_semaine": False,
              "merge_mois": False, "download_auto": False, "live_protocol": "mse",
+             "camera_audio_enabled": False, "camera_audio_track": 0,
              "font_size": 40, "font_color": "yellow", "box_opacity": 0.3,
              "trusted_host": "100.101.194.5",
              "webhook_notif_url": "https://exemple.invalid/notif",
@@ -115,6 +131,8 @@ class TestsReglages(unittest.TestCase):
              "merge_mois": runtime.REGLAGES_DEFAUT["merge_mois"],
              "download_auto": runtime.REGLAGES_DEFAUT["download_auto"],
              "live_protocol": runtime.REGLAGES_DEFAUT["live_protocol"],
+             "camera_audio_enabled": runtime.REGLAGES_DEFAUT["camera_audio_enabled"],
+             "camera_audio_track": runtime.REGLAGES_DEFAUT["camera_audio_track"],
              "font_size": runtime.REGLAGES_DEFAUT["font_size"],
              "font_color": runtime.REGLAGES_DEFAUT["font_color"],
              "box_opacity": runtime.REGLAGES_DEFAUT["box_opacity"],

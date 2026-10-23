@@ -71,6 +71,7 @@ REGLAGES = "blink_reglages.json"
 REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timestamp": False,
                    "timezone": "Europe/Paris", "merge_jour": True, "merge_semaine": False,
                    "merge_mois": False, "download_auto": True, "live_protocol": "webrtc",
+                   "camera_audio_enabled": False, "camera_audio_track": 0,
                    "font_size": None, "font_color": "white", "box_opacity": 0.55,
                    "trusted_host": "", "webhook_notif_url": "",
                    "live_auto_stop_seconds": 0,
@@ -191,6 +192,9 @@ def lire_reglages() -> dict:
         "download_auto": _booleen(valeurs, "download_auto", REGLAGES_DEFAUT["download_auto"]),
         "live_protocol": valeurs.get("live_protocol") if valeurs.get("live_protocol")
         in PROTOCOLES_LIVE_VALIDES else REGLAGES_DEFAUT["live_protocol"],
+        "camera_audio_enabled": _booleen(valeurs, "camera_audio_enabled",
+                                         REGLAGES_DEFAUT["camera_audio_enabled"]),
+        "camera_audio_track": _entier_borne(valeurs, "camera_audio_track", 0, 0, 1),
         "font_size": _entier_optionnel_borne(valeurs, "font_size",
                                              REGLAGES_DEFAUT["font_size"], 8, 500),
         "font_color": str(valeurs.get("font_color", REGLAGES_DEFAUT["font_color"])) or
@@ -234,6 +238,8 @@ def _ecrire_texte_atomique(cible: Path, contenu: str) -> None:
 def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: bool,
                     timezone: str, merge_jour: bool, merge_semaine: bool,
                     merge_mois: bool, download_auto: bool, live_protocol: str, *,
+                    camera_audio_enabled: bool | None = None,
+                    camera_audio_track: int | None = None,
                     font_size: int | None = None, font_color: str = "white",
                     box_opacity: float = 0.55, trusted_host: str = "",
                     webhook_notif_url: str = "",
@@ -241,21 +247,31 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
                     dossier_sorties: str | None = None,
                     dossier: Path | None = None) -> None:
     cible = (app_dir() if dossier is None else dossier) / REGLAGES
+    try:
+        actuel = json.loads(cible.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        actuel = {}
+    if not isinstance(actuel, dict):
+        actuel = {}
+
     if dossier_sorties is None:
         # Absent de l'appel : garder celui déjà enregistré. Le remettre à vide
         # renverrait en silence les clips suivants vers le dossier par défaut.
-        try:
-            actuel = json.loads(cible.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            actuel = {}
-        dossier_sorties = str(actuel.get("dossier_sorties") or "") \
-            if isinstance(actuel, dict) else ""
+        dossier_sorties = str(actuel.get("dossier_sorties") or "")
+
+    if camera_audio_enabled is None:
+        camera_audio_enabled = _booleen(actuel, "camera_audio_enabled", False)
+    if camera_audio_track is None:
+        camera_audio_track = _entier_borne(actuel, "camera_audio_track", 0, 0, 1)
+
     _ecrire_texte_atomique(cible, json.dumps({
         "usb_minutes": int(usb_minutes), "cloud_minutes": int(cloud_minutes),
         "port": int(port), "timestamp": bool(timestamp),
         "timezone": str(timezone), "merge_jour": bool(merge_jour),
         "merge_semaine": bool(merge_semaine), "merge_mois": bool(merge_mois),
         "download_auto": bool(download_auto), "live_protocol": str(live_protocol),
+        "camera_audio_enabled": bool(camera_audio_enabled),
+        "camera_audio_track": int(camera_audio_track),
         "font_size": int(font_size) if font_size is not None else None,
         "font_color": str(font_color), "box_opacity": float(box_opacity),
         "trusted_host": str(trusted_host).strip(),

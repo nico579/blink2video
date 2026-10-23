@@ -58,12 +58,14 @@ globalThis.setTimeout = (fonction, delai) => {
 globalThis.clearTimeout = (id) => { temporisations.delete(id); };
 const elements = Object.fromEntries(Object.entries({
   usbMinutes: '5', cloudMinutes: '15', port: '5000', timezone: 'Europe/Paris',
+  cameraAudioTrack: '1',
   storageDir: ' clips ', liveProtocol: 'mse',
   fontSize: '', fontColor: 'white', boxOpacity: '0.55',
   trustedHost: '100.101.194.5', webhookNotifUrl: 'https://exemple.invalid/notif',
   liveAutoStopSeconds: '0',
 }).map(([id, value]) => [id, {value}]));
 for (const [id, checked] of Object.entries({
+  cameraAudioEnabled: true,
   timestamp: true, mergeJour: true, mergeSemaine: false,
   mergeMois: true, downloadAuto: false,
 })) elements[id] = {checked};
@@ -226,6 +228,7 @@ function instantane() {
         self.assertEqual(json.loads(post["options"]["body"]), {
             "usb_minutes": 3, "cloud_minutes": 12, "port": 5000,
             "storage_dir": "C:\\Mes vidéos\\", "timezone": "Europe/Paris",
+            "camera_audio_enabled": True, "camera_audio_track": 1,
             "timestamp": True, "live_protocol": "mse", "merge_jour": True,
             "merge_semaine": False, "merge_mois": True, "download_auto": False,
             "font_size": None, "font_color": "white", "box_opacity": 0.55,

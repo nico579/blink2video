@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_serve_app_js_audio import audio_source
+
 
 class TestsLecteurMse(unittest.TestCase):
     @classmethod
@@ -54,6 +56,7 @@ class TestsLecteurMse(unittest.TestCase):
                 raise AssertionError(f"constante MSE introuvable : {original}")
             bloc = bloc.replace(original, court)
         cls.bloc_mse = bloc
+        cls.bloc_mse = audio_source(source) + "\n" + cls.bloc_mse
 
     def _executer(self, scenario: str) -> dict:
         script = r"""
@@ -68,6 +71,7 @@ const scenario = process.argv[2];
 let horloge = 0, numeroTimer = 0, horlogeArretee = false;
 const timers = new Map();
 Object.defineProperty(globalThis, 'performance', {value:{now:()=>horloge}, configurable:true});
+globalThis.crypto = globalThis.crypto || require('node:crypto').webcrypto || require('node:crypto');
 globalThis.setTimeout = (fn, ms=0, ...args) => {
   const id = ++numeroTimer;
   timers.set(id, {fn:()=>fn(...args), at:horloge+Math.max(0,ms), interval:0});
@@ -145,7 +149,7 @@ class FauxSourceBuffer extends CibleEvenements {
     if (scenario === "pending_update") return;
     setTimeout(() => {
       this.updating = false;
-      if (scenario === "decoded") video.emettre("loadeddata");
+      if (scenario === "decoded" || scenario === "decoded_audio") video.emettre("loadeddata");
       this.emettre("updateend");
     }, 0);
   }
@@ -164,7 +168,7 @@ class FausseMediaSource extends CibleEvenements {
       }, 0);
     }
   }
-  addSourceBuffer(_mime) { return new FauxSourceBuffer(); }
+  addSourceBuffer(mime) { this.mime = mime; return new FauxSourceBuffer(); }
   endOfStream() { this.readyState = "ended"; }
 }
 FausseMediaSource.isTypeSupported = () => true;
@@ -218,7 +222,9 @@ globalThis.fetch = (url, options = {}) => {
   return Promise.resolve({
     ok: true,
     status: 200,
-    headers: {get: (nom) => nom === "X-Codec" ? "avc1.42E01E" : null},
+    headers: {get: (nom) => nom === "X-Codec"
+      ? (scenario === "decoded_audio" ? "avc1.42E01E, mp4a.40.2" : "avc1.42E01E")
+      : nom === "X-Audio" ? (scenario === "decoded_audio" ? "1" : "0") : null},
     body: {
       getReader: () => reader,
       cancel: () => { bodyCancelled += 1; return Promise.resolve(); },
@@ -226,6 +232,8 @@ globalThis.fetch = (url, options = {}) => {
   });
 };
 
+const document={querySelectorAll:()=>[]};
+let system={camera_audio_enabled:false};
 const cssId = (name) => name;
 const h = (value) => String(value);
 const textes = {
@@ -304,6 +312,9 @@ function stopWatch(name) {
     videoListeners: video.nombreEcouteurs(),
     mediaSourceListeners: mediaSources[0] && mediaSources[0].nombreEcouteurs(),
     metricType: typeof window.__mseMetric,
+    mime: mediaSources[0]?.mime,
+    mode: sourceBuffers[0]?.mode,
+    audio: video.blinkAudioDisponible,
   }));
 })().catch((error) => {
   console.error(error && error.stack || error);
@@ -339,6 +350,16 @@ function stopWatch(name) {
         self.assertGreaterEqual(resultat["mediaSourceCount"], 2)
         self.assertEqual(resultat["revokeCount"], resultat["mediaSourceCount"])
         self.assertEqual(resultat["hintText"], "Reconnecting")
+
+    def test_audio_codec_and_camera_timestamps_reach_sourcebuffer(self):
+        audio = self._executer("decoded_audio")
+        self.assertTrue(audio["valeur"])
+        self.assertTrue(audio["audio"])
+        self.assertEqual(audio["mime"], 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"')
+        self.assertEqual(audio["mode"], "segments")
+        silent = self._executer("decoded")
+        self.assertFalse(silent["audio"])
+        self.assertEqual(silent["mode"], "sequence")
 
     def test_segment_initial_sans_image_decodee_reste_un_echec(self):
         resultat = self._executer("init_only")
