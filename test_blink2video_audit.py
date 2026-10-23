@@ -1477,8 +1477,12 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resultat.downloaded, 1)
         self.assertTrue(blink_engine.md.valid_mp4(cible))
 
-    async def test_I05_fichier_cloud_absent_est_repare(self):
-        """I-05 : registre sans média n'est pas un doublon définitif."""
+    async def test_I05_fichier_cloud_absent_repare_sur_demande(self):
+        """I-05 : un média absent est purgé, pas perdu ; --overwrite le répare.
+
+        Une entrée n'entre au registre qu'après un téléchargement réussi : son
+        média absent a donc été supprimé, et le retélécharger d'office
+        annoncerait de faux nouveaux clips après une purge de Blink_Clips."""
         sortie = self.home / "clips"
         sortie.mkdir()
         clip = FauxClip()
@@ -1503,10 +1507,16 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
              mock.patch.object(blink_engine.md, "valid_mp4_complet",
                                side_effect=blink_engine.md.valid_mp4):
             with contextlib.redirect_stdout(io.StringIO()):
-                resultat = await blink_engine.traiter_cloud(
+                ignore = await blink_engine.traiter_cloud(
                     object(), self.arguments(command="download", output=sortie), [],
                 )
-        self.assertEqual(resultat, blink_engine.CloudResult(1, 0, 0, 0))
+                repare = await blink_engine.traiter_cloud(
+                    object(),
+                    self.arguments(command="download", output=sortie, overwrite=True),
+                    [],
+                )
+        self.assertEqual(ignore, blink_engine.CloudResult(0, 0, 1, 0))
+        self.assertEqual(repare, blink_engine.CloudResult(1, 0, 0, 0))
 
     async def test_I09_compte_cloud_only_accepte_login(self):
         """I-09 : login ne dépend pas de la présence d'un Sync Module."""
