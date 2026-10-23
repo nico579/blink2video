@@ -1,5 +1,5 @@
 """Registre incrémental des clips acquis : chargement, fusion, identité,
-corrélation USB/cloud, réparation d'un média absent ou tronqué.
+corrélation USB/cloud et historique durable des téléchargements.
 
 Extrait de blink2video.py à l'étape 8 (AUDIT-2026-08-13.md, section 20, 8.3).
 Ne connaît ni la session Blink, ni comment un clip se télécharge : uniquement
@@ -32,6 +32,11 @@ OUTPUT = runtime.dossier_sorties() / "Blink_Clips"
 STATE_FILENAME = ".blink_download_state.json"
 STATE_V1_BACKUP_FILENAME = ".blink_download_state.v1.backup.json"
 
+
+def _copie_registre(output: Path) -> Path:
+    """Copie hors du dossier de bruts, qui peut être purgé entièrement."""
+    return output.parent / f".{output.name}{STATE_FILENAME}"
+
 # Registre absent : distinct de tout contenu JSON possible, « null » compris.
 _ABSENT = object()
 
@@ -50,12 +55,18 @@ def load_download_state(output: Path) -> dict:
     suivante réessaie) vaut mieux qu'un registre vide, qui fait tout
     retélécharger et, relu avant une écriture, effacerait l'historique.
 
+    Si le dossier de bruts a été supprimé, la copie placée à côté fournit
+    l'historique ; le prochain enregistrement recrée le registre principal.
     Seul un contenu invalide suit encore la stratégie du registre vide (I-10)."""
     state_file = output / STATE_FILENAME
     try:
         state = atomique.lire_json(state_file, _ABSENT, tolerer_corrompu=False)
         if state is _ABSENT:
-            return {"version": 1, "clips": {}}
+            state = atomique.lire_json(
+                _copie_registre(output), _ABSENT, tolerer_corrompu=False,
+            )
+            if state is _ABSENT:
+                return {"version": 1, "clips": {}}
         if not isinstance(state, dict):
             raise ValueError("la racine JSON doit être un objet")
         if state.get("version") not in (1, 2) or not isinstance(state.get("clips"), dict):
@@ -134,6 +145,9 @@ def save_download_state(output: Path, state: dict) -> None:
     with runtime.verrou("registre", "ecriture", stale_after=60, attente=10):
         _sauvegarder_registre_v1(state_file)
         _ecrire_registre(state_file, state)
+        # La copie survit à la suppression du dossier Blink_Clips. L'écriture
+        # atomique et le même verrou empêchent une copie partielle ou ancienne.
+        atomique.ecrire_json(_copie_registre(output), state)
 
 
 def _sauvegarder_registre_v1(state_file: Path) -> None:
@@ -666,4 +680,11 @@ def _entree_acquise(output: Path, entree: dict) -> bool:
     annoncee = entree.get("bytes")
     return taille > 0 and (
         not isinstance(annoncee, int) or annoncee <= 0 or taille == annoncee
+    )
+
+
+def _entree_deja_traitee(entree: dict) -> bool:
+    """Un clip déjà téléchargé reste connu même après une purge des bruts."""
+    return isinstance(entree, dict) and (
+        bool(entree.get("excluded")) or bool(entree.get("path"))
     )

@@ -45,6 +45,8 @@ and the main settings.
 - Incremental download of motion-detection clips from the module's local storage
   (Sync Module 2 USB stick or Sync Module XR microSD card)
   and from the subscription cloud, never fetching the same recording twice.
+  Download history is also kept beside `Blink_Clips`, so deleting that folder
+  does not download old recordings again or announce them as new.
 - Camera state at a glance: battery, temperature, signal, model and firmware
   for each camera.
 - Date and time burned into the picture, so any player keeps it. Size,
@@ -567,7 +569,7 @@ assembles, while `serve`, or any verb given `--loop`, holds its own process unti
 | `--camera NAME` | keep only this camera |
 | `--since DAYS` | keep only clips from the last N days |
 | `--output FOLDER` | destination of raw clips (default `Blink_Clips`) |
-| `--overwrite` | replace existing files of a different size |
+| `--overwrite` | redownload previously processed clips, including after a purge |
 | `--from usb\|cloud\|all` | where to look for clips: local storage (USB or microSD), the subscription cloud, or both (default); `usb` is retained as the historical CLI name |
 | `--loop [MINUTES]` | repeat instead of acting once (default 10) |
 

@@ -465,7 +465,7 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
     # alors que le registre garde la trace de tout ce qui a été rapatrié.
     acquises = [
         (cle, entree) for cle, entree in state["clips"].items()
-        if blink_registre._entree_acquise(output, entree)
+        if blink_registre._entree_deja_traitee(entree)
     ]
     connus = [blink_registre._ClipConnu(entree) for _, entree in acquises]
     tombstones = [
@@ -662,7 +662,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
             )
             if (
                 isinstance(entree_connue, dict)
-                and blink_registre._entree_acquise(output, entree_connue)
+                and blink_registre._entree_deja_traitee(entree_connue)
                 and not args.overwrite
             ):
                 consommees.add(cle_connue)
@@ -968,7 +968,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                 continue
             if (
                 isinstance(entree_connue, dict)
-                and blink_registre._entree_acquise(output, entree_connue)
+                and blink_registre._entree_deja_traitee(entree_connue)
                 and not args.overwrite
             ):
                 continue

@@ -51,6 +51,8 @@ lancement et les principaux réglages.
   stockage local du module (clé USB du Sync Module 2 ou carte microSD du XR) et
   depuis le cloud de l'abonnement, sans jamais rapatrier deux
   fois le même enregistrement.
+  L'historique des clips traités est conservé à côté de `Blink_Clips` : purger
+  ce dossier ne déclenche pas leur téléchargement ni une nouvelle notification.
 - Affichage de l'état des caméras : batterie, température, signal, modèle et
   micrologiciel de chaque caméra.
 - Incrustation de la date et heure dans l'image, donc conservée par n'importe
@@ -609,7 +611,7 @@ occupe son propre processus jusqu'à `blink2video stop`.
 | `--camera NOM` | ne garder que cette caméra |
 | `--since JOURS` | ne garder que les clips des N derniers jours |
 | `--output DOSSIER` | destination des clips bruts (défaut `Blink_Clips`) |
-| `--overwrite` | remplacer les fichiers existants de taille différente |
+| `--overwrite` | retélécharger volontairement les clips déjà traités, même après une purge |
 | `--from usb\|cloud\|all` | où chercher les clips : le stockage local (USB ou microSD), le cloud de l'abonnement, ou les deux (défaut) ; `usb` reste le nom historique de l'option |
 | `--loop [MINUTES]` | répéter au lieu d'agir une fois (défaut 10) |
 
