@@ -100,6 +100,82 @@ LIBELLES = {
         "webhook_cible": "Indiquez exactement une cible : camera ou system.",
         "webhook_armed_invalide": "Paramètre armed attendu : true ou false.",
         "webhook_camera_hors_ligne": "La caméra « {camera} » est hors ligne : armement non tenté.",
+        "module_occupe": "Le module est déjà occupé (direct ou actualisation).",
+        "module_occupe_par": "Le module est déjà occupé : {quoi}{cible}, depuis {depuis} s.",
+        "occupation_reveil": "réveil",
+        "occupation_photo": "photo",
+        "occupation_direct": "direct",
+        "occupation_actualisation": "actualisation",
+        "occupation_suppression": "suppression manuelle",
+        "video_identite_invalide": "Identité de vidéo invalide.",
+        "video_chemin_inaccessible": "Chemin de vidéo inaccessible.",
+        "video_hors_directs": "Vidéo hors du dossier des directs.",
+        "selection_videos_invalide": "Sélection de vidéos invalide.",
+        "video_chemin_modifie": "Chemin de vidéo modifié pendant la sélection.",
+        "avcc_introuvable": "avcC introuvable dans le segment d'initialisation MP4 (profil illisible).",
+        "flux_annule_avant_fin": "flux annulé avant confirmation de fin",
+        "erreur_inconnue": "erreur inconnue",
+        "exception_boucle": "exception non rattrapée sur BLINK.loop, {detail}",
+        "armement_refuse": "Blink a refusé la commande d'armement de la caméra.",
+        "armement_non_confirme": "Blink n'a pas confirmé l'armement de la caméra.",
+        "session_occupee": "La session Blink est occupée.",
+        "session_absente_expiree": "Session Blink absente ou expirée. Reconnectez-vous depuis le bouton Actualiser.",
+        "camera_id_duplique": "Identifiant de caméra dupliqué dans le compte Blink.",
+        "camera_nom_ambigu": "Nom de caméra ambigu : {identite}. Utilisez son identifiant stable.",
+        "camera_inconnue_id": "Caméra inconnue : {identite}",
+        "systeme_nom_ambigu": "Nom de système ambigu : {identite}",
+        "systeme_inconnu_id": "Système inconnu : {identite}",
+        "sync_introuvable": "Sync Module introuvable (réseau {reseau}, module {module}).",
+        "sync_ambigu": "Sync Module ambigu (réseau {reseau}, module {module}).",
+        "identifiants_refuses": "Identifiants ou code refusés.",
+        "aucune_connexion": "Aucune connexion en cours.",
+        "delai_depasse": "Délai dépassé.",
+        "powershell_echec": "PowerShell a échoué",
+        "hote_confiance_invalide": "Hôte de confiance invalide : « {entree} ». Un ou plusieurs noms d'hôte, adresses IP ou sous-réseaux CIDR (192.168.1.0/24), séparés par des virgules.",
+        "sous_reseau_invalide": "Sous-réseau invalide : « {entree} ». Format attendu : 192.168.1.0/24.",
+        "reglage_cadences_invalides": "Les cadences doivent être des nombres de minutes d'au moins 1, et le port un nombre entre 1 et 65535.",
+        "reglage_police_invalide": "La taille de police doit être un nombre entre 8 et 500, ou vide pour la taille automatique.",
+        "reglage_opacite_invalide": "L'opacité du bandeau doit être un nombre entre 0.0 et 1.0.",
+        "reglage_url_notif_invalide": "URL de notification invalide : « {url} ». Une adresse http:// ou https:// complète, ou vide pour désactiver.",
+        "reglage_arret_direct_invalide": "L'arrêt automatique du direct doit être un nombre de secondes entre 0 (désactivé) et {maximum} (le plafond de tout direct).",
+        "journal_acces_refuse": "\n--- {date} accès refusé ---\nraison: {raison}\nHost reçu: {host}\nOrigin reçu: {origin}\nIP cliente: {ip}\ntrusted_host configuré: {trusted}\n",
+        "arret_impossible": "Impossible de lancer l'arrêt : {erreur}",
+        "reveil_refuse": "Blink a refusé la commande de réveil.",
+        "reveil_non_confirme": "Blink n'a pas confirmé le réveil de la caméra.",
+        "camera_aucune_image": "La caméra n'a envoyé aucune image.",
+        "camera_sans_reponse": "La caméra n'a pas répondu (Blink signale « {detail} »). Hors de portée du module, endormie, ou déjà occupée par une autre session.",
+        "echec_liberation_verrou": "échec de libération du verrou disque, {erreur}",
+        "echec_fermeture_blink": "échec de fermeture Blink, {erreur}",
+        "tentative_annulee": "Tentative annulée.",
+        "aucune_adresse_flux": "Blink n'a fourni aucune adresse de flux. La caméra est indisponible ou le module est occupé.",
+        "relais_arrete_avant_image": "Le relais Blink s'est arrêté avant la première image.",
+        "webrtc_negocie": "direct WebRTC négocié",
+        "echec_webrtc": "échec (webrtc), {message}",
+        "aucune_adresse_flux_camera": "Blink n'a fourni aucune adresse de flux pour « {camera} ». La caméra est probablement hors de portée du module de synchronisation, éteinte, ou sa batterie est vide.",
+        "format_non_pris_en_charge": "Cette caméra diffuse dans un format non pris en charge ({erreur}).",
+        "enregistrement_impossible": "enregistrement impossible, {erreur}",
+        "reglages_initiaux_requis": "Validez d'abord les réglages initiaux.",
+        "actualisation_en_cours": "Une actualisation est déjà en cours.",
+        "un_calcul": "Un calcul",
+        "calcul_en_cours": "{quoi} est déjà en cours. Attendez la fin de la barre, puis réessayez.",
+        "module_occupe_detail": "Module occupé : {erreur}.",
+        "etape_telechargement": "Téléchargement",
+        "etape_fusion": "Fusion",
+        "session_absente_login": "Session Blink absente ({fichier}). Lancez « blink2video login » dans un terminal pour vous connecter.",
+        "reconstruction_seule": "Reconstruction des vidéos seule.",
+        "aucun_traitement_fusion_off": "Aucun traitement lancé : la fusion est désactivée.",
+        "phase_silencieuse": "{phase} : arrêtée, silencieuse depuis plus de {secondes} s",
+        "phase_echec": "{phase} : échec (code {code})",
+        "reglages_deja_en_cours": "Une modification des réglages est déjà en cours : {erreur}",
+        "reglages_echec": "Impossible d'enregistrer les réglages : {erreur}",
+        "camera_nom_manquant": "Nom de caméra manquant.",
+        "camera_inconnue": "Caméra inconnue.",
+        "suppression_auto_echec": "Impossible d'enregistrer la suppression automatique : {erreur}",
+        "direct_inactif": "Cette session de direct n'est plus active.",
+        "fermeture_demandee": "session {session}, fermeture demandée",
+        "aucune_version": "Aucune version plus récente.",
+        "conclusion_maj_occupee": "La conclusion de la mise à jour précédente est encore occupée. Réessayez.",
+        "autostart_echec": "Échec de la modification du démarrage automatique.",
     },
     "en": {
         "aide_desc": "Local interface to watch Blink clips, discard some and bring them back.",
@@ -143,6 +219,82 @@ LIBELLES = {
         "webhook_cible": "Give exactly one target: camera or system.",
         "webhook_armed_invalide": "Parameter armed must be true or false.",
         "webhook_camera_hors_ligne": "Camera \u201c{camera}\u201d is offline: arming not attempted.",
+        "module_occupe": "The module is already busy (live view or refresh).",
+        "module_occupe_par": "The module is already busy: {quoi}{cible}, for {depuis} s.",
+        "occupation_reveil": "wake-up",
+        "occupation_photo": "snapshot",
+        "occupation_direct": "live view",
+        "occupation_actualisation": "refresh",
+        "occupation_suppression": "manual deletion",
+        "video_identite_invalide": "Invalid video identity.",
+        "video_chemin_inaccessible": "Video path not accessible.",
+        "video_hors_directs": "Video outside the live recordings folder.",
+        "selection_videos_invalide": "Invalid video selection.",
+        "video_chemin_modifie": "Video path changed during the selection.",
+        "avcc_introuvable": "avcC not found in the MP4 initialisation segment (unreadable profile).",
+        "flux_annule_avant_fin": "stream cancelled before its end was confirmed",
+        "erreur_inconnue": "unknown error",
+        "exception_boucle": "uncaught exception on BLINK.loop, {detail}",
+        "armement_refuse": "Blink refused the command to arm the camera.",
+        "armement_non_confirme": "Blink did not confirm that the camera was armed.",
+        "session_occupee": "The Blink session is busy.",
+        "session_absente_expiree": "No Blink session, or it has expired. Sign in again from the Refresh button.",
+        "camera_id_duplique": "Duplicate camera identifier in the Blink account.",
+        "camera_nom_ambigu": "Ambiguous camera name: {identite}. Use its stable identifier.",
+        "camera_inconnue_id": "Unknown camera: {identite}",
+        "systeme_nom_ambigu": "Ambiguous system name: {identite}",
+        "systeme_inconnu_id": "Unknown system: {identite}",
+        "sync_introuvable": "Sync Module not found (network {reseau}, module {module}).",
+        "sync_ambigu": "Ambiguous Sync Module (network {reseau}, module {module}).",
+        "identifiants_refuses": "Credentials or code refused.",
+        "aucune_connexion": "No sign-in in progress.",
+        "delai_depasse": "Timed out.",
+        "powershell_echec": "PowerShell failed",
+        "hote_confiance_invalide": "Invalid trusted host: “{entree}”. One or more host names, IP addresses or CIDR subnets (192.168.1.0/24), separated by commas.",
+        "sous_reseau_invalide": "Invalid subnet: “{entree}”. Expected format: 192.168.1.0/24.",
+        "reglage_cadences_invalides": "Intervals must be a number of minutes of at least 1, and the port a number between 1 and 65535.",
+        "reglage_police_invalide": "The font size must be a number between 8 and 500, or empty for automatic size.",
+        "reglage_opacite_invalide": "The banner opacity must be a number between 0.0 and 1.0.",
+        "reglage_url_notif_invalide": "Invalid notification URL: “{url}”. A full http:// or https:// address, or empty to turn it off.",
+        "reglage_arret_direct_invalide": "Live view auto-stop must be a number of seconds between 0 (off) and {maximum} (the ceiling of any live view).",
+        "journal_acces_refuse": "\n--- {date} access refused ---\nreason: {raison}\nHost received: {host}\nOrigin received: {origin}\nClient IP: {ip}\ntrusted_host set to: {trusted}\n",
+        "arret_impossible": "Could not start the shutdown: {erreur}",
+        "reveil_refuse": "Blink refused the wake-up command.",
+        "reveil_non_confirme": "Blink did not confirm that the camera woke up.",
+        "camera_aucune_image": "The camera sent no picture.",
+        "camera_sans_reponse": "The camera did not answer (Blink reports “{detail}”). Out of the module's range, asleep, or already busy with another session.",
+        "echec_liberation_verrou": "could not release the disk lock, {erreur}",
+        "echec_fermeture_blink": "could not close Blink, {erreur}",
+        "tentative_annulee": "Attempt cancelled.",
+        "aucune_adresse_flux": "Blink gave no stream address. The camera is unavailable or the module is busy.",
+        "relais_arrete_avant_image": "The Blink relay stopped before the first picture.",
+        "webrtc_negocie": "WebRTC live view negotiated",
+        "echec_webrtc": "failed (webrtc), {message}",
+        "aucune_adresse_flux_camera": "Blink gave no stream address for “{camera}”. The camera is probably out of the Sync Module's range, switched off, or its battery is empty.",
+        "format_non_pris_en_charge": "This camera streams in an unsupported format ({erreur}).",
+        "enregistrement_impossible": "recording failed, {erreur}",
+        "reglages_initiaux_requis": "Confirm the initial settings first.",
+        "actualisation_en_cours": "A refresh is already running.",
+        "un_calcul": "A computation",
+        "calcul_en_cours": "{quoi} is already running. Wait until the bar finishes, then try again.",
+        "module_occupe_detail": "Module busy: {erreur}.",
+        "etape_telechargement": "Download",
+        "etape_fusion": "Merge",
+        "session_absente_login": "No Blink session ({fichier}). Run “blink2video login” in a terminal to sign in.",
+        "reconstruction_seule": "Rebuilding the videos only.",
+        "aucun_traitement_fusion_off": "Nothing started: merging is turned off.",
+        "phase_silencieuse": "{phase}: stopped, silent for more than {secondes} s",
+        "phase_echec": "{phase}: failed (code {code})",
+        "reglages_deja_en_cours": "Settings are already being changed: {erreur}",
+        "reglages_echec": "Could not save the settings: {erreur}",
+        "camera_nom_manquant": "Camera name missing.",
+        "camera_inconnue": "Unknown camera.",
+        "suppression_auto_echec": "Could not save automatic deletion: {erreur}",
+        "direct_inactif": "This live view session is no longer active.",
+        "fermeture_demandee": "session {session}, close requested",
+        "aucune_version": "No newer version.",
+        "conclusion_maj_occupee": "The previous update is still being finalised. Try again.",
+        "autostart_echec": "Could not change automatic startup.",
     },
 }
 
@@ -180,6 +332,29 @@ PROGRESS = re.compile(r"\[(\d+)/(\d+)\]")
 # Ligne d'avancement à l'intérieur d'un clip : « [3/24] 45% », rien d'autre.
 INNER = re.compile(r"^\s*\[\d+/\d+\]\s+(\d+)%\s*$")
 HEADING = re.compile(r"^=== (.+?) ===$")
+
+
+def _titre_section(cle: str, langue: str, **valeurs) -> str:
+    """Titre de section de blink_engine dans une langue donnée, sans les
+    « === » ni le saut de ligne : la langue de l'enfant download n'est pas
+    forcément celle du moment où la ligne est lue ici."""
+    # Pas de removeprefix() : Python 3.8 pour la version Windows 7.
+    texte = blink_engine.LIBELLES[langue][cle].format(**valeurs).strip()
+    return texte[len("=== "):-len(" ===")]
+
+
+_TITRES_CLOUD = {_titre_section("cloud_section_titre", langue)
+                 for langue in ("fr", "en")}
+
+
+def _hub_section_usb(titre: str):
+    """Nom du hub d'un titre « stockage local » de blink_engine, dans l'une
+    ou l'autre langue ; None si ce n'en est pas un."""
+    for langue in ("fr", "en"):
+        prefixe = _titre_section("stockage_local_titre", langue, nom="")
+        if titre.startswith(prefixe):
+            return titre[len(prefixe):].strip()
+    return None
 
 # Limite le nombre d'extractions de vignettes simultanées (voir send_thumb) :
 # le navigateur les réclame toutes d'un coup à chaque changement de filtre, un
@@ -345,12 +520,29 @@ def _slot_rendu() -> None:
 def _slot_occupe_message() -> str:
     quoi = MODULE_SLOT_INFO.get("quoi")
     if not quoi:
-        return "Le module est deja occupe (direct ou actualisation)."
+        return msg("module_occupe")
     depuis = time.monotonic() - MODULE_SLOT_INFO.get("depuis", time.monotonic())
     camera = MODULE_SLOT_INFO.get("camera") or ""
     cible = f" ({camera})" if camera else ""
-    return (f"Le module est deja occupe : {quoi}{cible}, depuis "
-            f"{depuis:.0f}s.")
+    return msg("module_occupe_par", quoi=_libelle_occupation(quoi),
+               cible=cible, depuis=f"{depuis:.0f}")
+
+
+# Ce qui occupe le module : identifiant interne (comparé tel quel, cf.
+# « direct MSE » dans do_POST) d'un côté, libellé traduit de l'autre.
+_OCCUPATIONS = {
+    "reveil": "occupation_reveil",
+    "snapshot": "occupation_photo",
+    "direct WebRTC": "occupation_direct",
+    "direct MSE": "occupation_direct",
+    "actualisation": "occupation_actualisation",
+    "suppression manuelle": "occupation_suppression",
+}
+
+
+def _libelle_occupation(quoi: str) -> str:
+    cle = _OCCUPATIONS.get(quoi)
+    return msg(cle) if cle else quoi
 # Plafond d'une session de direct. Blink la ferme lui-même au bout d'environ
 # six minutes de vidéo : son relais coupe la connexion, mesuré le 2026-09-28
 # sur une Mini et une Outdoor (356 à 375 s de flux, 6:01 selon ffmpeg), sans
@@ -631,14 +823,14 @@ def _identite_selection_valide(identity: str) -> bool:
 
 def _chemin_direct_confine(racine: Path, identity: str) -> Path:
     if not _identite_selection_valide(identity):
-        raise ValueError("Identité de vidéo invalide")
+        raise ValueError(msg("video_identite_invalide"))
     try:
         racine = racine.resolve()
         chemin = (racine / identity).resolve()
     except (OSError, RuntimeError) as erreur:
-        raise ValueError("Chemin de vidéo inaccessible") from erreur
+        raise ValueError(msg("video_chemin_inaccessible")) from erreur
     if not runtime.est_relatif_a(chemin, racine):
-        raise ValueError("Vidéo hors du dossier des directs")
+        raise ValueError(msg("video_hors_directs"))
     return chemin
 
 
@@ -713,10 +905,10 @@ def _lire_selection_videos(payload: dict) -> _SelectionVideos:
     listes = [payload.get(champ) or [] for champ in ("exclure", "inclure", "supprimer")]
     for identites in listes:
         if not isinstance(identites, list):
-            raise ValueError("Sélection de vidéos invalide.")
+            raise ValueError(msg("selection_videos_invalide"))
         for identite in identites:
             if not isinstance(identite, str) or not _identite_selection_valide(identite):
-                raise ValueError("Sélection de vidéos invalide.")
+                raise ValueError(msg("selection_videos_invalide"))
     return _SelectionVideos(*listes)
 
 
@@ -1269,7 +1461,7 @@ def h264_mime_codec_from_moov(segment: bytes) -> str:
     avcc = walk(segment)
     if avcc is None or len(avcc) < 4:
         raise RuntimeError(
-            "avcC introuvable dans le segment d'initialisation MP4 (profil illisible).")
+            msg("avcc_introuvable"))
     profile_idc, constraint, level_idc = avcc[1], avcc[2], avcc[3]
     return f"avc1.{profile_idc:02x}{constraint:02x}{level_idc:02x}"
 
@@ -1392,7 +1584,7 @@ async def _stop_stream(stream, feed) -> str:
             # l'attend. Une annulation du nettoyeur lui-même se propage.
             if not feed.cancelled():
                 raise
-            erreurs.append("flux annulé avant confirmation de fin")
+            erreurs.append(msg("flux_annule_avant_fin"))
         except Exception as error:
             erreurs.append(f"flux : {type(error).__name__}: {error}")
 
@@ -1429,9 +1621,9 @@ def _erreur_boucle_asyncio(loop, contexte: dict) -> None:
     callbacks aiortc sur cette boucle)."""
     exception = contexte.get("exception")
     detail = f"{type(exception).__name__}: {exception}" if exception else contexte.get(
-        "message", "erreur inconnue"
+        "message", msg("erreur_inconnue")
     )
-    _journal_direct("asyncio", f"exception non rattrapée sur BLINK.loop, {detail}")
+    _journal_direct("asyncio", msg("exception_boucle", detail=detail))
 
 
 # Attente de la confirmation de Blink apres un armement de camera (voir
@@ -1457,7 +1649,7 @@ async def _confirmer_armement_camera(blink, camera, reponse, armed: bool) -> Non
     from blinkpy import api
 
     if not isinstance(reponse, dict) or not reponse.get("id"):
-        raise RuntimeError("Blink a refusé la commande d'armement de la caméra.")
+        raise RuntimeError(msg("armement_refuse"))
     commande = dict(reponse)
     commande.setdefault("network_id", camera.network_id)
     try:
@@ -1466,7 +1658,7 @@ async def _confirmer_armement_camera(blink, camera, reponse, armed: bool) -> Non
     except asyncio.TimeoutError:
         confirme = False
     if not confirme:
-        raise RuntimeError("Blink n'a pas confirmé l'armement de la caméra.")
+        raise RuntimeError(msg("armement_non_confirme"))
     camera.motion_enabled = bool(armed)
 
 
@@ -1500,7 +1692,7 @@ class BlinkSession:
         si besoin. Lève RuntimeError si aucune session valable n'existe."""
         echeance = time.monotonic() + timeout
         if not self.lock.acquire(timeout=max(0.0, timeout)):
-            raise concurrent.futures.TimeoutError("La session Blink est occupée.")
+            raise concurrent.futures.TimeoutError(msg("session_occupee"))
         try:
             loop = self._ensure_loop()
             finished = threading.Event()
@@ -1511,10 +1703,7 @@ class BlinkSession:
                         self.session = blink_auth.session_http()
                         self.blink = await blink_auth.connect_saved(self.session)
                     if self.blink is None:
-                        raise RuntimeError(
-                            "Session Blink absente ou expirée. Reconnectez-vous "
-                            "depuis le bouton Actualiser."
-                        )
+                        raise RuntimeError(msg("session_absente_expiree"))
                     return await coroutine_factory(self.blink)
                 finally:
                     finished.set()
@@ -1563,14 +1752,12 @@ class BlinkSession:
         if len(by_key) == 1:
             return by_key[0]
         if len(by_key) > 1:
-            raise RuntimeError("Identifiant de caméra dupliqué dans le compte Blink.")
+            raise RuntimeError(msg("camera_id_duplique"))
         if len(by_name) == 1:
             return by_name[0]
         if len(by_name) > 1:
-            raise RuntimeError(
-                f"Nom de caméra ambigu : {identity}. Utilisez son identifiant stable."
-            )
-        raise RuntimeError(f"Caméra inconnue : {identity}")
+            raise RuntimeError(msg("camera_nom_ambigu", identite=identity))
+        raise RuntimeError(msg("camera_inconnue_id", identite=identity))
 
     def find_system(self, blink, identity: str):
         by_name = []
@@ -1582,8 +1769,8 @@ class BlinkSession:
         if len(by_name) == 1:
             return by_name[0]
         if len(by_name) > 1:
-            raise RuntimeError(f"Nom de système ambigu : {identity}")
-        raise RuntimeError(f"Système inconnu : {identity}")
+            raise RuntimeError(msg("systeme_nom_ambigu", identite=identity))
+        raise RuntimeError(msg("systeme_inconnu_id", identite=identity))
 
     def find_sync_module(self, blink, entry: dict):
         """Résout le module d'un clip par ses IDs persistés.
@@ -1608,14 +1795,10 @@ class BlinkSession:
             if len(matches) == 1:
                 return matches[0]
             if not matches:
-                raise RuntimeError(
-                    f"Sync Module introuvable (réseau {network_id or '?'}, "
-                    f"module {sync_id or '?'})."
-                )
-            raise RuntimeError(
-                f"Sync Module ambigu (réseau {network_id or '?'}, "
-                f"module {sync_id or '?'})."
-            )
+                raise RuntimeError(msg("sync_introuvable", reseau=network_id or "?",
+                                       module=sync_id or "?"))
+            raise RuntimeError(msg("sync_ambigu", reseau=network_id or "?",
+                                   module=sync_id or "?"))
 
         camera = str(entry.get("camera") or "").strip()
         sync, _camera = self.find_camera(blink, camera)
@@ -1678,7 +1861,7 @@ class LoginFlow:
             except Exception as error:  # remonter la cause plutôt que planter le serveur
                 return {"status": "error", "message": f"{type(error).__name__}: {error}"}
             if blink is None:
-                return {"status": "error", "message": "Identifiants ou code refusés."}
+                return {"status": "error", "message": msg("identifiants_refuses")}
             return {"status": "ok"}
         finally:
             # Signale la fin RÉELLE du nettoyage (fermeture de la session HTTP
@@ -1696,7 +1879,7 @@ class LoginFlow:
     def submit_code(self, code: str) -> dict:
         with self._verrou:
             if self.loop is None or self.queue is None:
-                return {"status": "error", "message": "Aucune connexion en cours."}
+                return {"status": "error", "message": msg("aucune_connexion")}
             self.asked.clear()
             loop, queue, future = self.loop, self.queue, self.future
         loop.call_soon_threadsafe(queue.put_nowait, code)
@@ -1719,7 +1902,7 @@ class LoginFlow:
                 return {"status": "2fa"}
             time.sleep(0.1)
         self._fermer_si_courante(future)
-        return {"status": "error", "message": "Délai dépassé."}
+        return {"status": "error", "message": msg("delai_depasse")}
 
     def close(self) -> None:
         with self._verrou:
@@ -1805,7 +1988,7 @@ def _choisir_dossier_windows(initial: str) -> str:
         text=True, errors="replace", check=False,
     )
     if resultat.returncode != 0:
-        raise RuntimeError((resultat.stderr or "").strip() or "PowerShell a échoué")
+        raise RuntimeError((resultat.stderr or "").strip() or msg("powershell_echec"))
     return resultat.stdout.strip()
 
 
@@ -1833,17 +2016,12 @@ def normaliser_hotes_confiance(valeur: str) -> str:
         # argparse lirait « --trusted-host -x » comme une option sans valeur :
         # serve refuserait alors de démarrer au lancement suivant.
         if not _ENTREE_CONFIANCE_RE.match(entree) or entree.startswith("-"):
-            raise ValueError(
-                f"Hôte de confiance invalide : « {entree} ». Un ou plusieurs "
-                "noms d'hôte, adresses IP ou sous-réseaux CIDR (192.168.1.0/24), "
-                "séparés par des virgules.")
+            raise ValueError(msg("hote_confiance_invalide", entree=entree))
         if "/" in entree:
             try:
                 ipaddress.ip_network(entree, strict=False)
             except ValueError as erreur:
-                raise ValueError(
-                    f"Sous-réseau invalide : « {entree} ». Format attendu : "
-                    "192.168.1.0/24.") from erreur
+                raise ValueError(msg("sous_reseau_invalide", entree=entree)) from erreur
     return ",".join(entrees)
 
 
@@ -1881,9 +2059,7 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
         if not 1 <= port <= 65535:
             raise ValueError
     except (TypeError, ValueError) as erreur:
-        raise _ReglagesInvalides(
-            "Les cadences doivent être des nombres de minutes d'au "
-            "moins 1, et le port un nombre entre 1 et 65535.") from erreur
+        raise _ReglagesInvalides(msg("reglage_cadences_invalides")) from erreur
 
     dossier = str(payload.get("storage_dir", "")).strip()
     _verifier_dossier_reglages(dossier)
@@ -1916,9 +2092,7 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
             if not 8 <= font_size <= 500:
                 raise ValueError
         except (TypeError, ValueError) as erreur:
-            raise _ReglagesInvalides(
-                "La taille de police doit être un nombre entre 8 et 500, "
-                "ou vide pour la taille automatique.") from erreur
+            raise _ReglagesInvalides(msg("reglage_police_invalide")) from erreur
     reglages["font_size"] = font_size
 
     font_color = str(payload.get("font_color") or "white").strip() or "white"
@@ -1931,8 +2105,7 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
         if not 0.0 <= box_opacity <= 1.0:
             raise ValueError
     except (TypeError, ValueError) as erreur:
-        raise _ReglagesInvalides(
-            "L'opacité du bandeau doit être un nombre entre 0.0 et 1.0.") from erreur
+        raise _ReglagesInvalides(msg("reglage_opacite_invalide")) from erreur
     reglages["box_opacity"] = box_opacity
 
     try:
@@ -1954,9 +2127,8 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
             # façon sans plus de protection qu'ici avant ce correctif.
             schema_valide = False
         if not schema_valide:
-            raise _ReglagesInvalides(
-                f"URL de notification invalide : « {webhook_notif_url} ». Une "
-                "adresse http:// ou https:// complète, ou vide pour désactiver.")
+            raise _ReglagesInvalides(msg("reglage_url_notif_invalide",
+                                         url=webhook_notif_url))
     reglages["webhook_notif_url"] = webhook_notif_url
 
     # Plafonné à LIVE_MAX_SECONDS : le serveur coupe de toute façon chaque
@@ -1967,10 +2139,8 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
         if not 0 <= live_auto_stop_seconds <= LIVE_MAX_SECONDS:
             raise ValueError
     except (TypeError, ValueError) as erreur:
-        raise _ReglagesInvalides(
-            "L'arrêt automatique du direct doit être un nombre de secondes "
-            f"entre 0 (désactivé) et {LIVE_MAX_SECONDS} (le plafond de tout "
-            "direct).") from erreur
+        raise _ReglagesInvalides(msg("reglage_arret_direct_invalide",
+                                     maximum=LIVE_MAX_SECONDS)) from erreur
     reglages["live_auto_stop_seconds"] = live_auto_stop_seconds
 
     return dossier, reglages
@@ -2016,13 +2186,13 @@ class Handler(serveweb.Handler):
         try:
             with (runtime.app_dir() / "serve_erreurs.log").open(
                     "a", encoding="utf-8") as journal:
-                journal.write(
-                    f"\n--- {dt.datetime.now().isoformat()} accès refusé ---\n"
-                    f"raison: {raison}\n"
-                    f"Host reçu: {self.headers.get('Host')!r}\n"
-                    f"Origin reçu: {self.headers.get('Origin')!r}\n"
-                    f"IP cliente: {getattr(self, 'client_address', ('?', 0))[0]}\n"
-                    f"trusted_host configuré: {self.trusted_host!r}\n")
+                journal.write(msg(
+                    "journal_acces_refuse",
+                    date=dt.datetime.now().isoformat(), raison=raison,
+                    host=repr(self.headers.get("Host")),
+                    origin=repr(self.headers.get("Origin")),
+                    ip=getattr(self, "client_address", ("?", 0))[0],
+                    trusted=repr(self.trusted_host)))
         except OSError:
             pass
 
@@ -2105,7 +2275,7 @@ class Handler(serveweb.Handler):
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.STDOUT, start_new_session=(os.name != "nt"))
         except OSError as erreur:
-            self.send_json({"error": f"Impossible de lancer l'arrêt : {erreur}"}, 500)
+            self.send_json({"error": msg("arret_impossible", erreur=erreur)}, 500)
             return
         self.send_json({"ok": True, "accepted": True})
 
@@ -2475,7 +2645,7 @@ class Handler(serveweb.Handler):
                 _, camera = BLINK.find_camera(_blink, identity)
                 reponse = await camera.snap_picture()
                 if not isinstance(reponse, dict) or not reponse.get("id"):
-                    raise RuntimeError("Blink a refuse la commande de reveil.")
+                    raise RuntimeError(msg("reveil_refuse"))
                 # blinkpy attend deja la commande, mais ignore le resultat
                 # de wait_for_command() et renvoie la reponse initiale meme
                 # lors d'un refus ou d'un delai depasse. Un seul GET confirme
@@ -2487,7 +2657,7 @@ class Handler(serveweb.Handler):
                 if (not isinstance(statut, dict)
                         or statut.get("status_code") != 908
                         or statut.get("complete") is not True):
-                    raise RuntimeError("Blink n'a pas confirme le reveil de la camera.")
+                    raise RuntimeError(msg("reveil_non_confirme"))
             return run()
 
         if not MODULE_SLOT.acquire(blocking=False):
@@ -2863,7 +3033,7 @@ class Handler(serveweb.Handler):
         failed » quand la caméra est hors de portée ou endormie). blinkpy le
         journalise mais ne le remonte pas : on interroge donc nous-mêmes."""
         if stream is None:
-            return "La caméra n'a envoyé aucune image."
+            return msg("camera_aucune_image")
         def ask(blink):
             async def run(_blink=blink):
                 from blinkpy import api
@@ -2874,7 +3044,7 @@ class Handler(serveweb.Handler):
         try:
             status = BLINK.call(ask, timeout=30) or {}
         except Exception:
-            return "La caméra n'a envoyé aucune image."
+            return msg("camera_aucune_image")
 
         message = str(status.get("status_msg") or "").strip()
         commands = status.get("commands") or []
@@ -2883,10 +3053,8 @@ class Handler(serveweb.Handler):
             if command.get("id") == stream.command_id:
                 condition = str(command.get("state_condition") or "")
         if message.lower() == "live view failed" or condition == "error":
-            return ("La caméra n'a pas répondu (Blink signale « "
-                    f"{message or condition} »). Hors de portée du module, "
-                    "endormie, ou déjà occupée par une autre session.")
-        return message or "La caméra n'a envoyé aucune image."
+            return msg("camera_sans_reponse", detail=message or condition)
+        return message or msg("camera_aucune_image")
 
     def send_attente_module(self) -> None:
         """Attend que MODULE_SLOT soit réellement libre, sans le retenir.
@@ -2945,7 +3113,7 @@ class Handler(serveweb.Handler):
                 if verrou is not None and holder.get("lock_entered"):
                     verrou.__exit__(None, None, None)
             except Exception as error:
-                journal(f"échec de libération du verrou disque, {type(error).__name__}: {error}")
+                journal(msg("echec_liberation_verrou", erreur=f"{type(error).__name__}: {error}"))
             finally:
                 with DIRECT_WEBRTC_SESSION_LOCK:
                     if DIRECT_WEBRTC_SESSION.get("session") is holder:
@@ -2962,7 +3130,7 @@ class Handler(serveweb.Handler):
                 if stream is not None:
                     journal(await _stop_stream(stream, holder.get("feed")))
             except Exception as error:
-                journal(f"échec de fermeture Blink, {type(error).__name__}: {error}")
+                journal(msg("echec_fermeture_blink", erreur=f"{type(error).__name__}: {error}"))
             finally:
                 _rendre_verrous()
 
@@ -2994,7 +3162,7 @@ class Handler(serveweb.Handler):
                 DIRECT_WEBRTC_SESSION["session"] = holder
         if annulee:
             MODULE_SLOT.release()
-            self.send_json({"error": "Tentative annulée."}, 409)
+            self.send_json({"error": msg("tentative_annulee")}, 409)
             return
 
         def _attendre_nettoyage_http():
@@ -3031,10 +3199,7 @@ class Handler(serveweb.Handler):
                             try:
                                 stream = await camera.init_livestream()
                             except KeyError as error:
-                                raise RuntimeError(
-                                    "Blink n'a fourni aucune adresse de flux. "
-                                    "La caméra est indisponible ou le module est occupé."
-                                ) from error
+                                raise RuntimeError(msg("aucune_adresse_flux")) from error
                             except NotImplementedError as error:
                                 raise RuntimeError(f"Format de direct non pris en charge ({error}).") from error
                             holder["stream"] = stream
@@ -3062,7 +3227,7 @@ class Handler(serveweb.Handler):
                                 # feed.auth peut échouer avant son finally
                                 # amont, en laissant le TCP local ouvert. Ne
                                 # pas attendre 40 s un SPS qui n'arrivera pas.
-                                raise RuntimeError("Le relais Blink s'est arrêté avant la première image.")
+                                raise RuntimeError(msg("relais_arrete_avant_image"))
                             # Une négociation en échec ferme elle-même feed
                             # via on_close avant de remonter son exception.
                             # Attendre ce nettoyage conserve la vraie cause.
@@ -3084,13 +3249,13 @@ class Handler(serveweb.Handler):
                 return run()
 
             answer_sdp, answer_type = BLINK.call(start, timeout=WEBRTC_START_MAX_SECONDS)
-            journal("direct WebRTC négocié")
+            journal(msg("webrtc_negocie"))
         except Exception as error:
-            message = "Tentative annulée." if isinstance(error, concurrent.futures.CancelledError) else (
+            message = msg("tentative_annulee") if isinstance(error, concurrent.futures.CancelledError) else (
                 str(error) if isinstance(error, RuntimeError) else f"{type(error).__name__}: {error}"
             )
             _memoriser_erreur_direct(name, message, 503)
-            journal(f"échec (webrtc), {message}")
+            journal(msg("echec_webrtc", message=message))
             try:
                 _attendre_nettoyage_http()
             except Exception as error:
@@ -3180,16 +3345,10 @@ class Handler(serveweb.Handler):
                         stream = await camera.init_livestream()
                     except KeyError as error:
                         raise RuntimeError(
-                            f"Blink n'a fourni aucune adresse de flux pour "
-                            f"« {name} ». La caméra est probablement hors de "
-                            f"portée du module de synchronisation, éteinte, ou "
-                            f"sa batterie est vide."
-                        ) from error
+                            msg("aucune_adresse_flux_camera", camera=name)) from error
                     except NotImplementedError as error:
                         raise RuntimeError(
-                            f"Cette caméra diffuse dans un format non pris en "
-                            f"charge ({error})."
-                        ) from error
+                            msg("format_non_pris_en_charge", erreur=error)) from error
                     _journal_direct(
                         name, f"init_livestream en "
                               f"{time.monotonic() - t_flux:.1f}s"
@@ -3361,10 +3520,9 @@ class Handler(serveweb.Handler):
                         holder["fichier_direct"] = fichier_direct
                     except OSError as error:
                         fichier_direct = None
-                        _journal_direct(
-                            name, f"enregistrement impossible, "
-                                  f"{type(error).__name__}: {error}"
-                        )
+                        _journal_direct(name, msg(
+                            "enregistrement_impossible",
+                            erreur=f"{type(error).__name__}: {error}"))
                 elif not desire and fichier_direct is not None:
                     try:
                         fichier_direct.close()
@@ -3468,10 +3626,9 @@ class Handler(serveweb.Handler):
                 try:
                     verrou.__exit__(None, None, None)
                 except Exception as error:
-                    journaux_nettoyage.append(
-                        f"echec de liberation du verrou disque, "
-                        f"{type(error).__name__}: {error}"
-                    )
+                    journaux_nettoyage.append(msg(
+                        "echec_liberation_verrou",
+                        erreur=f"{type(error).__name__}: {error}"))
             # Publier l'échec avant de rendre le jeton empêche une nouvelle
             # tentative d'effacer LAST_LIVE_ERROR puis de voir cet ancien
             # diagnostic réapparaître sous ses pieds. La réponse HTTP reste,
@@ -3846,7 +4003,7 @@ class Handler(serveweb.Handler):
                 # Défense côté serveur, pas seulement dialogue modal : même
                 # une requête manuelle ne peut rapatrier un clip avant la
                 # validation du dossier et du fuseau.
-                self.send_json({"error": "Validez d'abord les réglages initiaux."}, 409)
+                self.send_json({"error": msg("reglages_initiaux_requis")}, 409)
                 return
             self.stream_refresh()
             return
@@ -3885,7 +4042,7 @@ class Handler(serveweb.Handler):
         self.end_headers()
 
         if not self.lock.acquire(blocking=False):
-            self.send_event({"line": "Une actualisation est déjà en cours."})
+            self.send_event({"line": msg("actualisation_en_cours")})
             self.send_event({"done": True, "ok": False})
             return
         # Un calcul lancé par les boucles de fond occupe déjà ffmpeg et le
@@ -3893,10 +4050,8 @@ class Handler(serveweb.Handler):
         # de longues minutes, en donnant l'impression d'un blocage.
         en_cours = runtime.travail_en_cours()
         if en_cours:
-            self.send_event({"line": (
-                f"{en_cours.get('quoi', 'Un calcul')} est déjà en cours. "
-                "Attendez la fin de la barre, puis réessayez."
-            )})
+            self.send_event({"line": msg(
+                "calcul_en_cours", quoi=en_cours.get("quoi") or msg("un_calcul"))})
             self.send_event({"done": True, "ok": False})
             self.lock.release()
             return
@@ -3920,7 +4075,7 @@ class Handler(serveweb.Handler):
                 # par ce serveur ; le verrou enfant couvre les autres processus.
                 self.run_refresh()
             except blink_engine.BusyError as error:
-                self.send_event({"line": f"Module occupé : {error}."})
+                self.send_event({"line": msg("module_occupe_detail", erreur=error)})
                 self.send_event({"done": True, "ok": False})
             finally:
                 _slot_rendu()
@@ -3944,10 +4099,10 @@ class Handler(serveweb.Handler):
         # merge_jour est l'interrupteur général de l'assemblage : Actualiser
         # ne doit pas le réactiver implicitement.
         options_merge = runtime.options_fusion(reglages)
-        etapes = [("Téléchargement", "phase.step_download",
+        etapes = [(msg("etape_telechargement"), "phase.step_download",
                   runtime.self_command("download", *hub_args))]
         if reglages["merge_jour"]:
-            etapes.append(("Fusion", "phase.step_merge",
+            etapes.append((msg("etape_fusion"), "phase.step_merge",
                            runtime.self_command("merge", *options_merge)))
         if not auth.is_file():
             # Le téléchargement demanderait l'e-mail, le mot de passe et le code
@@ -3955,10 +4110,9 @@ class Handler(serveweb.Handler):
             # processus resterait bloqué. On le dit et on se contente
             # d'assembler ce qui est déjà là.
             self.send_event({"line": (
-                f"Session Blink absente ({auth.name}). Lancez « blink2video login » "
-                "dans un terminal pour vous connecter. "
-                + ("Reconstruction des vidéos seule." if reglages["merge_jour"]
-                   else "Aucun traitement lancé : la fusion est désactivée.")
+                msg("session_absente_login", fichier=auth.name) + " "
+                + msg("reconstruction_seule" if reglages["merge_jour"]
+                      else "aucun_traitement_fusion_off")
             )})
             etapes = etapes[1:]
 
@@ -4031,11 +4185,12 @@ class Handler(serveweb.Handler):
                     # sous cette forme (voir traiter_cloud/un_passage) : une clé
                     # stable permet à la page de les traduire, le nom du hub
                     # (donnée de l'utilisateur, jamais traduisible) passant à part.
-                    if titre == "CLOUD DE L'ABONNEMENT":
+                    hub_usb = _hub_section_usb(titre)
+                    if titre in _TITRES_CLOUD:
                         event["phase_key"] = "phase.cloud_section"
-                    elif titre.startswith("STOCKAGE LOCAL : "):
+                    elif hub_usb is not None:
                         event["phase_key"] = "phase.usb_section"
-                        event["phase_hub"] = titre[len("STOCKAGE LOCAL : "):].strip()
+                        event["phase_hub"] = hub_usb
                 if not self.send_event(event):
                     process.terminate()
                     process.wait()
@@ -4045,12 +4200,12 @@ class Handler(serveweb.Handler):
             chien_de_garde.join(timeout=5)
         process.wait()
         if tue_par_silence:
-            self.send_event({"line": f"{phase} : arrêtée, silencieuse depuis "
-                                      f"plus de {int(md.SILENCE_MAX)} s"})
+            self.send_event({"line": msg("phase_silencieuse", phase=phase,
+                                         secondes=int(md.SILENCE_MAX))})
             self.send_event({"done": True, "ok": False})
             return False
         if process.returncode != 0:
-            self.send_event({"line": f"{phase} : échec (code {process.returncode})"})
+            self.send_event({"line": msg("phase_echec", phase=phase, code=process.returncode)})
             self.send_event({"done": True, "ok": False})
             return False
         return True
@@ -4071,12 +4226,12 @@ class Handler(serveweb.Handler):
                     dossier, reglages=reglages, configuration_initiale=self.initial_setup)
         except runtime.BusyError as erreur:
             self.send_json(
-                {"error": f"Une modification des réglages est déjà en cours : {erreur}"},
+                {"error": msg("reglages_deja_en_cours", erreur=erreur)},
                 409)
             return
         except OSError as erreur:
             self.send_json(
-                {"error": f"Impossible d'enregistrer les réglages : {erreur}"}, 500)
+                {"error": msg("reglages_echec", erreur=erreur)}, 500)
             return
         if self.initial_setup:
             # Le parent start détient encore le verrou de démarrage : il voit
@@ -4093,7 +4248,7 @@ class Handler(serveweb.Handler):
         camera = str(payload.get("camera", "")).strip()
         ignored = bool(payload.get("ignored"))
         if not camera:
-            self.send_json({"error": "Nom de caméra manquant."}, 400)
+            self.send_json({"error": msg("camera_nom_manquant")}, 400)
             return
         # watch relit son état à chaque passage de sa propre boucle
         # (voir _controler) : contrairement aux autres réglages, la
@@ -4127,7 +4282,7 @@ class Handler(serveweb.Handler):
                 libelle = next((nom for nom in surveillees
                                 if nom.strip().casefold() == camera.casefold()), None)
                 if not camera or libelle is None:
-                    self.send_json({"error": "Caméra inconnue."}, 400)
+                    self.send_json({"error": msg("camera_inconnue")}, 400)
                     return
                 # Le nom affiché résout les identités internes persistées.
                 cles = {
@@ -4141,10 +4296,10 @@ class Handler(serveweb.Handler):
                     cameras -= cles
                 runtime.ecrire_suppression_auto(cameras)
         except runtime.BusyError as erreur:
-            self.send_json({"error": f"Une modification des réglages est déjà en cours : {erreur}"}, 409)
+            self.send_json({"error": msg("reglages_deja_en_cours", erreur=erreur)}, 409)
             return
         except OSError as erreur:
-            self.send_json({"error": f"Impossible d'enregistrer la suppression automatique : {erreur}"}, 500)
+            self.send_json({"error": msg("suppression_auto_echec", erreur=erreur)}, 500)
             return
         self.send_json({"ok": True})
         return
@@ -4392,7 +4547,7 @@ class Handler(serveweb.Handler):
                 try:
                     chemin = _chemin_direct_confine(racine_direct, identite)
                     if chemin != chemins_directs[identite]:
-                        raise ValueError("Chemin de vidéo modifié pendant la sélection")
+                        raise ValueError(msg("video_chemin_modifie"))
                     chemin.unlink()
                     resultats[identite] = "supprime"
                     exclusion_directe.discard(identite)
@@ -4589,7 +4744,7 @@ class Handler(serveweb.Handler):
                     else:
                         ENREGISTREMENT_DIRECT_ACTIF.clear()
             if not autorise:
-                self.send_json({"error": "Cette session de direct n'est plus active."}, 409)
+                self.send_json({"error": msg("direct_inactif")}, 409)
                 return
             self.send_json({"actif": ENREGISTREMENT_DIRECT_ACTIF.is_set()})
             return
@@ -4601,7 +4756,7 @@ class Handler(serveweb.Handler):
                 return
             arrete = _demander_arret_direct(session_id)
             if arrete:
-                _journal_direct("arreter-direct", f"session {session_id[:8]}, fermeture demandée")
+                _journal_direct("arreter-direct", msg("fermeture_demandee", session=session_id[:8]))
             # L'attente éventuelle du polling Blink se poursuit sur sa boucle.
             # /api/attente-module reste la confirmation de libération réelle.
             self.send_json({"ok": True, "stopped": arrete, "session_id": session_id})
@@ -4619,10 +4774,10 @@ class Handler(serveweb.Handler):
         if route == "/api/update":
             neuve = maj.disponible(reseau=False)
             if not neuve:
-                self.send_json({"error": "Aucune version plus récente."}, 409)
+                self.send_json({"error": msg("aucune_version")}, 409)
                 return
             if not runtime.effacer_conclusion_travail("phase.update_noop"):
-                self.send_json({"error": "La conclusion de la mise à jour précédente est encore occupée. Réessayez."}, 409)
+                self.send_json({"error": msg("conclusion_maj_occupee")}, 409)
                 return
             # Détaché, et volontairement sans attendre : ce processus fait
             # partie de ce que la mise à jour va arrêter. Elle rend compte dans
@@ -4643,7 +4798,7 @@ class Handler(serveweb.Handler):
             code = autostart.appliquer("on" if payload.get("actif") else "off")
             if code != 0:
                 self.send_json(
-                    {"error": "Échec de la modification du démarrage automatique."}, 500)
+                    {"error": msg("autostart_echec")}, 500)
                 return
             # Relu plutôt que renvoyé tel quel : si le mécanisme de la
             # plateforme n'a pas vraiment pris (droits, service absent...),

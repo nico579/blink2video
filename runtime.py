@@ -314,12 +314,42 @@ _LIBELLES_RUNTIME = {
         "tour_interrompu": "Tour interrompu par une erreur, nouvel essai au prochain : {erreur}",
         "arret": "\nArrêt.",
         "aide_loop": "répéter toutes les N minutes au lieu d'agir une fois (défaut 10)",
+        "reprise_reportee": "Reprise de l'état reportée : {erreur}",
+        "echec_marqueur_restauration": "Échec du marqueur initial et de la restauration des réglages : {detail}",
+        "arret_en_cours": "arrêt en cours",
+        "purge_verrou_en_cours": "purge du verrou déjà en cours pour « {owner} »",
+        "verrou_reserve": "déjà réservé par « {owner} » (pid {pid}) depuis {age} s",
+        "pas_un_verbe": "« {element} » n'est pas un verbe",
+        "cadence_entiere": "la cadence doit être un nombre entier de minutes",
+        "cadence_positive": "la cadence doit être strictement supérieure à zéro",
+        "jours_entier": "le nombre de jours doit être un entier",
+        "jours_positifs": "le nombre de jours doit être positif ou nul",
+        "port_entier": "le port doit être un nombre entier",
+        "port_plage": "le port doit être compris entre 1 et 65535",
+        "journal_repetition": "répétition toutes les {minutes} min",
+        "journal_tour_interrompu": "tour interrompu par une erreur, nouvel essai au prochain : {erreur}",
+        "journal_arret_repetition": "arrêt de la répétition",
     },
     "en": {
         "repetition": "Repeating every {minutes} min. Ctrl+C to stop.",
         "tour_interrompu": "Run interrupted by an error, retrying next time: {erreur}",
         "arret": "\nStopped.",
         "aide_loop": "repeat every N minutes instead of running once (default 10)",
+        "reprise_reportee": "State recovery postponed: {erreur}",
+        "echec_marqueur_restauration": "Initial marker failed and settings could not be restored: {detail}",
+        "arret_en_cours": "shutting down",
+        "purge_verrou_en_cours": "lock cleanup already in progress for “{owner}”",
+        "verrou_reserve": "already reserved by “{owner}” (pid {pid}) for {age} s",
+        "pas_un_verbe": "“{element}” is not a verb",
+        "cadence_entiere": "the interval must be a whole number of minutes",
+        "cadence_positive": "the interval must be greater than zero",
+        "jours_entier": "the number of days must be a whole number",
+        "jours_positifs": "the number of days must be zero or more",
+        "port_entier": "the port must be a whole number",
+        "port_plage": "the port must be between 1 and 65535",
+        "journal_repetition": "repeating every {minutes} min",
+        "journal_tour_interrompu": "run interrupted by an error, retrying next time: {erreur}",
+        "journal_arret_repetition": "repetition stopped",
     },
 }
 
@@ -704,7 +734,7 @@ def preparer_etat() -> None:
             if not (etat / MARQUEUR_MIGRATION).is_file():
                 _migrer_etat_historique(etat)
     except (OSError, BusyError) as erreur:
-        ajouter_ligne("migration.log", f"Reprise de l'état reportée : {erreur}")
+        ajouter_ligne("migration.log", _msg("reprise_reportee", erreur=erreur))
 
 
 def _copier_si_absent(source: Path, cible: Path) -> bool:
@@ -891,9 +921,8 @@ def ecrire_dossier_stockage(chemin: str, *, reglages: dict | None = None,
             try:
                 _publier_octets(fichier, precedents)
             except OSError as restauration:
-                raise OSError(
-                    "Échec du marqueur initial et de la restauration des réglages : "
-                    f"{restauration}") from erreur
+                raise OSError(_msg("echec_marqueur_restauration",
+                                   detail=restauration)) from erreur
             raise
 
 
@@ -1320,7 +1349,7 @@ def inscrire_instance(entrees: list, enfants=None) -> Path:
     # encore reconnue, appartient forcément à une session précédente.
     if arret_demande():
         if instances_vivantes:
-            raise BusyError("arrêt en cours")
+            raise BusyError(_msg("arret_en_cours"))
         effacer_arret_demande()
 
     dossier = _dossier_controle() / INSTANCES
@@ -1975,8 +2004,8 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
                 # rarement, y est mort avant son finally) : `limite` reste le
                 # seul garde-fou contre une attente indéfinie, même ici.
                 if time.monotonic() >= limite:
-                    raise BusyError(f"purge du verrou déjà en cours pour "
-                                    f"« {presente.get('owner')} »")
+                    raise BusyError(_msg("purge_verrou_en_cours",
+                                         owner=presente.get("owner")))
                 time.sleep(0.05)
                 continue
             try:
@@ -1989,8 +2018,8 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
 
         if time.monotonic() >= limite:
             age = time.time() - float(presente.get("at") or 0)
-            raise BusyError(f"déjà réservé par « {presente.get('owner')} » "
-                            f"(pid {presente.get('pid')}) depuis {int(age)} s")
+            raise BusyError(_msg("verrou_reserve", owner=presente.get("owner"),
+                                 pid=presente.get("pid"), age=int(age)))
         time.sleep(1)
 
     try:
@@ -2163,8 +2192,9 @@ def travail(quoi: str, fait: float = 0, total: int = 0, cle: str | None = None) 
     le seul point où elle peut apprendre qu'un calcul occupe la machine, et où
     il en est. Écrit à chaque clip, effacé à la fin.
 
-    `quoi` reste le texte français en dur, pour les appelants qui n'affichent
-    rien (journaux, terminal) : ne pas leur imposer de traduction. `cle` est
+    `quoi` arrive déjà traduit par l'appelant (msg(), langue de la page au
+    moment de l'écriture), pour qui le lit sans dictionnaire : serveur,
+    journaux, terminal (issue #121, il restait en français). `cle` est
     une étiquette stable, optionnelle, que la page web utilise pour retrouver
     l'équivalent anglais dans son propre dictionnaire (I18N) sans que ce
     fichier n'ait besoin d'en connaître la traduction lui-même - un texte
@@ -2362,7 +2392,7 @@ def decouper_verbes(arguments) -> list:
             indice += 1
             continue
         if not groupes:
-            raise ValueError(f"« {element} » n'est pas un verbe")
+            raise ValueError(_msg("pas_un_verbe", element=element))
         groupes[-1].append(element)
         indice += 1
         if (element == "--trusted-host" and indice < total
@@ -2390,11 +2420,11 @@ def cadence_positive(valeur: str) -> int:
         minutes = int(valeur)
     except (TypeError, ValueError) as exc:
         raise argparse.ArgumentTypeError(
-            "la cadence doit être un nombre entier de minutes"
+            _msg("cadence_entiere")
         ) from exc
     if minutes <= 0:
         raise argparse.ArgumentTypeError(
-            "la cadence doit être strictement supérieure à zéro"
+            _msg("cadence_positive")
         )
     return minutes
 
@@ -2405,11 +2435,11 @@ def jours_non_negatifs(valeur: str) -> int:
         jours = int(valeur)
     except (TypeError, ValueError) as exc:
         raise argparse.ArgumentTypeError(
-            "le nombre de jours doit être un entier"
+            _msg("jours_entier")
         ) from exc
     if jours < 0:
         raise argparse.ArgumentTypeError(
-            "le nombre de jours doit être positif ou nul"
+            _msg("jours_positifs")
         )
     return jours
 
@@ -2420,11 +2450,11 @@ def port_valide(valeur: str) -> int:
         port = int(valeur)
     except (TypeError, ValueError) as exc:
         raise argparse.ArgumentTypeError(
-            "le port doit être un nombre entier"
+            _msg("port_entier")
         ) from exc
     if not 1 <= port <= 65535:
         raise argparse.ArgumentTypeError(
-            "le port doit être compris entre 1 et 65535"
+            _msg("port_plage")
         )
     return port
 
@@ -2460,7 +2490,7 @@ def repeter(travail, minutes, journal=None) -> int:
         return int(travail() or 0)
     print(_msg("repetition", minutes=minutes))
     if journal:
-        journal(f"repetition toutes les {minutes} min")
+        journal(_msg("journal_repetition", minutes=minutes))
     periode = minutes * 60
     try:
         while not arret_demande():
@@ -2472,7 +2502,7 @@ def repeter(travail, minutes, journal=None) -> int:
                 # sa forme technique habituelle comme ses autres entrées ici.
                 print(_msg("tour_interrompu", erreur=erreur))
                 if journal:
-                    journal(f"tour interrompu par une erreur, on reessaie au prochain : {erreur}")
+                    journal(_msg("journal_tour_interrompu", erreur=erreur))
             # Sommeil scindé en tranches courtes : sans ça, un arrêt demandé
             # pendant l'attente entre deux tours ne serait vu qu'à l'échéance
             # complète (jusqu'à `minutes` d'attente), pas dans la seconde
@@ -2484,7 +2514,7 @@ def repeter(travail, minutes, journal=None) -> int:
                 time.sleep(min(1.0, reste))
     except KeyboardInterrupt:
         if journal:
-            journal("arret de la repetition")
+            journal(_msg("journal_arret_repetition"))
         print(_msg("arret"))
     else:
         if journal:

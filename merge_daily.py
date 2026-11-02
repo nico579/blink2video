@@ -145,6 +145,12 @@ LIBELLES = {
             "@opacité (ex. white@0.8).",
         "taille_police_invalide": "Taille de police invalide : {valeur!r} (8 à 500).",
         "opacite_invalide": "Opacité invalide : {valeur!r} (0.0 à 1.0).",
+        "motif_structure_mp4": "structure=boite MP4 absente, tronquee ou pas une video",
+        "motif_outil_absent": "outil=aucun ffprobe ni ffmpeg disponible",
+        "motif_aucun": "aucune (le fichier est valide)",
+        "motif_diagnostic_impossible": "diagnostic impossible ({erreur})",
+        "travail_preparation_clips": "Préparation des clips",
+        "travail_assemblage_videos": "Assemblage des vidéos",
     },
     "en": {
         "aide_desc":
@@ -248,6 +254,12 @@ LIBELLES = {
             "@opacity (e.g. white@0.8).",
         "taille_police_invalide": "Invalid font size: {valeur!r} (8 to 500).",
         "opacite_invalide": "Invalid opacity: {valeur!r} (0.0 to 1.0).",
+        "motif_structure_mp4": "structure=MP4 box missing, truncated or not a video",
+        "motif_outil_absent": "tool=neither ffprobe nor ffmpeg available",
+        "motif_aucun": "none (the file is valid)",
+        "motif_diagnostic_impossible": "diagnosis impossible ({erreur})",
+        "travail_preparation_clips": "Preparing clips",
+        "travail_assemblage_videos": "Assembling videos",
     },
 }
 
@@ -462,10 +474,10 @@ def _motif_refus_mp4_complet(path: Path) -> str:
     booléen, ``raison_refus_mp4`` rend le texte. Les motifs sont des mots-clés
     stables plus, quand la sonde s'est exprimée, sa première ligne utile."""
     if not valid_mp4(path):
-        return "structure=boite MP4 absente, tronquee ou pas une video"
+        return msg("motif_structure_mp4")
     outil = _outil_validation_media()
     if outil is None:
-        return "outil=aucun ffprobe ni ffmpeg disponible"
+        return msg("motif_outil_absent")
     genre, executable = outil
     if genre == "ffprobe":
         commande = [
@@ -527,9 +539,9 @@ def raison_refus_mp4(path: Path) -> str:
     doit pas transformer un échec en plantage. Relance le contrôle, donc à ne
     demander qu'après un refus."""
     try:
-        return _motif_refus_mp4_complet(path) or "aucune (le fichier est valide)"
+        return _motif_refus_mp4_complet(path) or msg("motif_aucun")
     except Exception as erreur:
-        return f"diagnostic impossible ({type(erreur).__name__})"
+        return msg("motif_diagnostic_impossible", erreur=type(erreur).__name__)
 
 
 def load_json(path: Path, default: dict) -> dict:
@@ -2037,7 +2049,7 @@ def _normaliser_plan(args, plan: dict, pending: set, registry: dict,
                 position += 1
                 print(f"  [{position}/{total}] {identity}", flush=True)
                 report = progress_printer(f"[{position}/{total}]")
-                runtime.travail("Préparation des clips", position - 1, total,
+                runtime.travail(msg("travail_preparation_clips"), position - 1, total,
                                 cle="phase.prepare_clips")
             ok, error, did_encode = normalize_clip(
                 ffmpeg, timezone, registry, normalized_dir, identity, info,
@@ -2223,7 +2235,7 @@ def _executer(args) -> int:
 
         print(msg("jour_assemblage", index=index, total=len(todo), jour=day,
                   camera=camera, clips=len(segments)))
-        runtime.travail("Assemblage des vidéos", index - 1, len(todo),
+        runtime.travail(msg("travail_assemblage_videos"), index - 1, len(todo),
                         cle="phase.assemble_videos")
         ok, error = merge_group(ffmpeg, segments, destination)
         if not ok:

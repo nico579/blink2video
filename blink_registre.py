@@ -68,7 +68,7 @@ def load_download_state(output: Path) -> dict:
             if state is _ABSENT:
                 return {"version": 1, "clips": {}}
         if not isinstance(state, dict):
-            raise ValueError("la racine JSON doit être un objet")
+            raise ValueError(msg("registre_racine_objet"))
         if state.get("version") not in (1, 2) or not isinstance(state.get("clips"), dict):
             raise ValueError("format inconnu")
         valides = {}
@@ -118,13 +118,10 @@ def load_download_state(output: Path) -> dict:
         state["version"] = 2
         return state
     except json.JSONDecodeError:
-        categorie = "données JSON"
+        categorie = msg("registre_categorie_donnees")
     except ValueError:
-        categorie = "schéma JSON"
-    print(
-        f"  ! État incrémental illisible [{categorie}] ; "
-        "les fichiers existants seront vérifiés."
-    )
+        categorie = msg("registre_categorie_schema")
+    print(msg("registre_illisible", categorie=categorie))
     return {"version": 1, "clips": {}}
 
 
@@ -158,9 +155,7 @@ def _sauvegarder_registre_v1(state_file: Path) -> None:
     try:
         ancien = atomique.lire_json(state_file, None, tolerer_corrompu=False)
     except json.JSONDecodeError as erreur:
-        raise OSError(
-            "migration v2 annulée : sauvegarde du registre v1 impossible"
-        ) from erreur
+        raise OSError(msg("registre_migration_annulee")) from erreur
     if not isinstance(ancien, dict) or ancien.get("version") != 1:
         return
     try:
@@ -175,11 +170,9 @@ def _sauvegarder_registre_v1(state_file: Path) -> None:
         temporaire.write_bytes(brut)
         temporaire.replace(backup)
         if backup.read_bytes() != brut:
-            raise OSError("sauvegarde v1 non vérifiable")
+            raise OSError(msg("registre_sauvegarde_non_verifiable"))
     except (OSError, json.JSONDecodeError) as erreur:
-        raise OSError(
-            "migration v2 annulée : sauvegarde du registre v1 impossible"
-        ) from erreur
+        raise OSError(msg("registre_migration_annulee")) from erreur
 
 
 def _exclusion_a_retenir(precedente: dict, entree: dict) -> tuple:

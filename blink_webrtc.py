@@ -247,10 +247,8 @@ if DISPONIBLE:
                     for pts, nal in self._demux.alimenter(morceau):
                         self._traiter_nal(pts, nal)
             except Exception as error:
-                self._journal(
-                    f"lecture du flux interrompue, "
-                    f"{type(error).__name__}: {error}"
-                )
+                self._journal(msg("flux_interrompu",
+                                  erreur=f"{type(error).__name__}: {error}"))
             finally:
                 # Toutes les fins du flux (EOF, reset, silence, annulation)
                 # doivent fermer aussi WebRTC ; arrêter la piste seule ne
@@ -300,7 +298,7 @@ if DISPONIBLE:
                 self._unite_a_vcl = True
             self._unite_courante_octets += len(nal)
             if self._unite_courante_octets > FILE_IMAGES_MAX_OCTETS:
-                raise RuntimeError("Unité d'accès H.264 sans fin détectable")
+                raise RuntimeError(msg("nal_sans_fin"))
             self._unite_courante.append(nal)
             if type_ in (7, 8) and not self.sps_pps_pret.is_set():
                 self.sps_pps += nal
@@ -320,7 +318,7 @@ if DISPONIBLE:
         def _mettre_unite(self, pts, unite: bytes) -> None:
             if (self._file.full()
                     or self._file_octets + len(unite) > FILE_IMAGES_MAX_OCTETS):
-                raise RuntimeError("Le navigateur ne consomme plus le flux vidéo")
+                raise RuntimeError(msg("navigateur_ne_consomme_plus"))
             self._file.put_nowait((pts, unite))
             self._file_octets += len(unite)
 
@@ -418,7 +416,7 @@ if DISPONIBLE:
                 # les unités reçues dans cet intervalle doivent suivre l'IDR.
                 if (self._recorder_attente_octets + len(unite)
                         > TAMPON_ENREGISTREMENT_MAX_OCTETS):
-                    self._journal("enregistrement arrêté : lancement trop lent")
+                    self._journal(msg("enregistrement_trop_lent"))
                     self._arreter_enregistrement()
                     return
                 self._recorder_attente.append(unite)
@@ -543,10 +541,8 @@ if DISPONIBLE:
                 # exception ne serait de toute façon jamais vue nulle part
                 # sans cette ligne : c'est exactement le cas que ce
                 # journal doit désormais rendre visible.
-                self._journal(
-                    f"echec d'arret de l'enregistrement pendant la "
-                    f"fermeture, {type(error).__name__}: {error}"
-                )
+                self._journal(msg("echec_arret_enregistrement",
+                                  erreur=f"{type(error).__name__}: {error}"))
 
     async def _attendre_fin_enregistrement(processus) -> None:
         """Laisse ffmpeg vider son tampon et sortir de lui-meme une fois
@@ -639,6 +635,38 @@ if DISPONIBLE:
         ]
 
 
+LIBELLES = {
+    "fr": {
+        "flux_interrompu": "lecture du flux interrompue, {erreur}",
+        "nal_sans_fin": "Unité d'accès H.264 sans fin détectable",
+        "navigateur_ne_consomme_plus": "Le navigateur ne consomme plus le flux vidéo",
+        "enregistrement_trop_lent": "enregistrement arrêté : lancement trop lent",
+        "echec_arret_enregistrement": "échec d'arrêt de l'enregistrement pendant la fermeture, {erreur}",
+        "aiortc_absent": "aiortc n'est pas installé (pip install -r requirements.txt)",
+        "flux_arrete_avant_image": "Le flux Blink s'est arrêté avant la première image.",
+        "aucune_image": "La caméra n'a envoyé aucune image. Hors de portée du module, endormie, ou déjà occupée par une autre session.",
+        "h264_negocie": "H.264 source {source}, décodeur négocié {reception}, sans réencodage",
+        "flux_arrete_negociation": "Le flux Blink s'est arrêté pendant la négociation.",
+    },
+    "en": {
+        "flux_interrompu": "stream reading interrupted, {erreur}",
+        "nal_sans_fin": "H.264 access unit with no detectable end",
+        "navigateur_ne_consomme_plus": "The browser no longer consumes the video stream",
+        "enregistrement_trop_lent": "recording stopped: too slow to start",
+        "echec_arret_enregistrement": "could not stop the recording while closing, {erreur}",
+        "aiortc_absent": "aiortc is not installed (pip install -r requirements.txt)",
+        "flux_arrete_avant_image": "The Blink stream stopped before the first picture.",
+        "aucune_image": "The camera sent no picture. Out of the module's range, asleep, or already busy with another session.",
+        "h264_negocie": "H.264 source {source}, negotiated decoder {reception}, no re-encoding",
+        "flux_arrete_negociation": "The Blink stream stopped during negotiation.",
+    },
+}
+
+
+def msg(cle: str, **valeurs) -> str:
+    return runtime.traduire(LIBELLES, cle, **valeurs)
+
+
 async def fermer_connexion(pc) -> None:
     """Ferme WebRTC et attend la libération du flux Blink associé.
 
@@ -674,9 +702,7 @@ async def negocier(
     répond vrai - piloté par le bouton de la page (voir
     _PisteH264._synchroniser_enregistrement)."""
     if not DISPONIBLE:
-        raise RuntimeError(
-            "aiortc n'est pas installe (pip install -r requirements.txt)"
-        )
+        raise RuntimeError(msg("aiortc_absent"))
     journal = journal or (lambda _message: None)
 
     host, port_str = stream_url.replace("tcp://", "").split(":")
@@ -746,7 +772,7 @@ async def negocier(
                 if not terminees:
                     raise asyncio.TimeoutError
                 if track._tache.done():
-                    raise RuntimeError("Le flux Blink s'est arrêté avant la première image.")
+                    raise RuntimeError(msg("flux_arrete_avant_image"))
             finally:
                 attente_sps.cancel()
                 with suppress(asyncio.CancelledError):
@@ -756,10 +782,7 @@ async def negocier(
             # (constate en reel, 2026-09-03) - RuntimeError s'affiche tel
             # quel cote page (send_offer_webrtc, serve.py), meme traitement
             # que les messages MSE deja clairs pour ce cas.
-            raise RuntimeError(
-                "La camera n'a envoye aucune image. Hors de portee du "
-                "module, endormie, ou deja occupee par une autre session."
-            ) from None
+            raise RuntimeError(msg("aucune_image")) from None
 
         # iceServers=[] : sans ceci, aiortc retombe sur son defaut
         # (stun:stun.l.google.com:19302, RTCIceGatherer.getDefaultIceServers)
@@ -787,7 +810,7 @@ async def negocier(
         if profil:
             profil_reception = _profil_reception_h264(offer_sdp, profil)
             if profil_reception != profil:
-                journal(f"H.264 source {profil}, décodeur négocié {profil_reception}, sans réencodage")
+                journal(msg("h264_negocie", source=profil, reception=profil_reception))
             profil = profil_reception
             _enregistrer_profil_h264(profil)
             transceiver = next(
@@ -821,7 +844,7 @@ async def negocier(
             _echanger_sdp(), timeout=NEGOCIATION_MAX_SECONDS
         )
         if tache_fermeture is not None:
-            raise RuntimeError("Le flux Blink s'est arrêté pendant la négociation.")
+            raise RuntimeError(msg("flux_arrete_negociation"))
     except (Exception, asyncio.CancelledError):
         # CancelledError n'hérite pas d'Exception. L'expiration du budget
         # extérieur doit aussi fermer le TCP et rendre le module.
