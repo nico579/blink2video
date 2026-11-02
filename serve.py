@@ -591,13 +591,9 @@ _OCCUPATIONS = {
 def _libelle_occupation(quoi: str) -> str:
     cle = _OCCUPATIONS.get(quoi)
     return msg(cle) if cle else quoi
-# Plafond d'une session de direct. Blink la ferme lui-même au bout d'environ
-# six minutes de vidéo : son relais coupe la connexion, mesuré le 2026-09-28
-# sur une Mini et une Outdoor (356 à 375 s de flux, 6:01 selon ffmpeg), sans
-# qu'il faille jamais « Continuer ». Sept minutes le laissent aller au bout,
-# et restent un filet si ce relais ne fermait jamais. Au-delà, la case
-# « Direct continu » de la page ouvre une nouvelle session.
-LIVE_MAX_SECONDS = 420
+# Plafond d'une session de direct : voir runtime.DIRECT_MAX_SECONDES, la
+# source unique, que relit aussi la lecture des réglages.
+LIVE_MAX_SECONDS = runtime.DIRECT_MAX_SECONDES
 # Délai accordé à la première image. Une caméra sur batterie doit se réveiller,
 # donc on est patient ; au-delà on considère qu'elle ne répondra pas.
 LIVE_FIRST_FRAME_SECONDS = 40
