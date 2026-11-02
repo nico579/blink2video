@@ -226,6 +226,13 @@ def _ecrire_registre(state_file: Path, state: dict) -> None:
                 entree["excluded"] = excluded
                 if excluded_at is not None:
                     entree["excluded_at"] = excluded_at
+            # Purge par la conservation (issue #120, merge_daily.purger_anciens) :
+            # le brut n'existe plus, le marqueur ne doit jamais reculer devant
+            # une copie de téléchargeur antérieure à la purge.
+            purge = precedente.get("purged_at")
+            if purge and not entree.get("purged_at"):
+                entree = dict(entree)
+                entree["purged_at"] = purge
         clips[cle] = entree
     fusionne["clips"] = clips
     fusionne["version"] = max(

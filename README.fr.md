@@ -485,6 +485,30 @@ version 0.13 ou antérieure, le premier lancement y recopie les réglages et la
 session, et les vidéos restent où elles sont : le dossier des vidéos pointe
 vers elles.
 
+### Ne garder les fichiers qu'un temps
+
+Par défaut, rien n'est jamais effacé. Dans les Réglages, « Conservation »
+donne à chaque catégorie son nombre de jours : clips bruts, vidéos
+journalières, hebdomadaires et mensuelles, directs enregistrés et photos.
+0 veut dire garder toujours. Par exemple, bruts 30, journalières 90,
+mensuelles 0 garde un mois de clips bruts, trois mois de journées, et chaque
+mois pour de bon.
+
+Les vidéos assemblées sont faites les unes des autres, ce qui impose un
+ordre. Une journalière est refaite tant que ses clips bruts existent, une
+hebdomadaire ou une mensuelle tant que ses journalières existent : chacune ne
+peut donc s'effacer qu'après ce dont elle est faite. Les bruts partent par
+journée entière, et seulement une fois la journalière faite ; une journalière
+part une fois ses bruts effacés et les hebdomadaires et mensuelles qui la
+contiennent présentes ; une hebdomadaire ou une mensuelle part quand il ne
+reste plus aucune de ses journalières. Les Réglages refusent un ordre qui ne
+tiendrait pas. Directs et photos suivent simplement la date de chaque
+fichier.
+
+Le ménage passe avec l'assemblage, toutes les cinq minutes, et seul quand
+l'assemblage quotidien est désactivé. Les clips effacés restent dans
+l'historique des téléchargements : ils ne sont pas retéléchargés.
+
 <details>
 <summary>Comment ça marche</summary>
 
@@ -626,6 +650,8 @@ occupe son propre processus jusqu'à `blink2video stop`.
 | `--force` | tout reconstruire même si rien n'a changé |
 | `--no-weekly` | ne pas reconstruire les agrégats hebdomadaires |
 | `--no-monthly` | ne pas reconstruire les agrégats mensuels |
+| `--keep-clips-days N`, `--keep-daily-days N`, `--keep-weekly-days N`, `--keep-monthly-days N`, `--keep-live-days N`, `--keep-snapshots-days N` | conservation par catégorie en jours, 0 garde toujours (défaut) ; voir « Ne garder les fichiers qu'un temps » |
+| `--purge-only` | appliquer seulement la conservation, sans rien assembler |
 | `--no-timestamp` | ne pas incruster la date et l'heure dans l'image |
 | `--preset NOM` | preset libx264, d'`ultrafast` à `veryslow` (défaut `veryfast`) |
 | `--crf N` | qualité, 0 à 51, plus bas est meilleur (défaut 21) |

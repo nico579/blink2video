@@ -21,6 +21,12 @@ REGLAGES = {
     "trusted_host": "100.101.194.5",
     "webhook_notif_url": "https://exemple.invalid/notif",
     "live_auto_stop_seconds": 300,
+    "conservation_clips": 1,
+    "conservation_jour": 2,
+    "conservation_semaine": 3,
+    "conservation_mois": 4,
+    "conservation_directs": 5,
+    "conservation_photos": 6,
 }
 
 
@@ -65,6 +71,7 @@ const ids = [
   'initialSetupHint', 'reglagesClose', 'stopButton', 'reglages', 'reglagesButton',
   'webhookUrl', 'webhookRegenerer', 'fontSize', 'fontColor', 'boxOpacity',
   'trustedHost', 'webhookNotifUrl', 'liveAutoStopSeconds', 'redemarrerButton',
+  'conservationClips', 'conservationJour', 'conservationSemaine', 'conservationMois', 'conservationDirects', 'conservationPhotos',
   'tabGeneral', 'tabVideo', 'tabAcces', 'tabAlertes', 'tailleCartes', 'barrePagination',
   'panelGeneral', 'panelVideo', 'panelAcces', 'panelAlertes',
 ];
@@ -188,6 +195,12 @@ function capturer() {
             "fontSize": "font_size", "fontColor": "font_color", "boxOpacity": "box_opacity",
             "trustedHost": "trusted_host", "webhookNotifUrl": "webhook_notif_url",
             "liveAutoStopSeconds": "live_auto_stop_seconds",
+            "conservationClips": "conservation_clips",
+            "conservationJour": "conservation_jour",
+            "conservationSemaine": "conservation_semaine",
+            "conservationMois": "conservation_mois",
+            "conservationDirects": "conservation_directs",
+            "conservationPhotos": "conservation_photos",
         }
         cases = {
             "timestamp": "timestamp", "mergeJour": "merge_jour", "mergeSemaine": "merge_semaine",

@@ -25,6 +25,12 @@ DEFAUTS = {
     "font_size": None, "font_color": "white", "box_opacity": 0.55,
     "trusted_host": "", "webhook_notif_url": "",
     "live_auto_stop_seconds": 0,
+    "conservation_clips": 0,
+    "conservation_jour": 0,
+    "conservation_semaine": 0,
+    "conservation_mois": 0,
+    "conservation_directs": 0,
+    "conservation_photos": 0,
 }
 CHAMPS_BOOLEENS = (
     "timestamp", "merge_jour", "merge_semaine", "merge_mois", "download_auto")
@@ -120,6 +126,12 @@ class TestsValidationReglagesHttp(unittest.TestCase):
             "font_size": None, "font_color": "white", "box_opacity": 0.55,
             "trusted_host": "", "webhook_notif_url": "",
             "live_auto_stop_seconds": 0,
+            "conservation_clips": 0,
+            "conservation_jour": 0,
+            "conservation_semaine": 0,
+            "conservation_mois": 0,
+            "conservation_directs": 0,
+            "conservation_photos": 0,
         }, "archives locales")
         self.chemin.assert_called_once_with("archives locales")
 
@@ -469,6 +481,31 @@ class TestsValidationReglagesHttp(unittest.TestCase):
             with self.subTest(valeur=valeur):
                 self.assert_refuse(
                     self.requete(self.payload(live_auto_stop_seconds=valeur)), message)
+
+    def test_conservation_hors_plage_refusee(self):
+        maximum = serve.runtime.CONSERVATION_MAX_JOURS
+        message = serve.msg("conservation_invalide", maximum=maximum)
+        for valeur in (-1, maximum + 1, "longtemps"):
+            with self.subTest(valeur=valeur):
+                self.assert_refuse(
+                    self.requete(self.payload(conservation_photos=valeur)), message)
+
+    def test_conservation_dans_le_desordre_refusee(self):
+        """Issue #120 : une journalière gardée moins longtemps que ses bruts
+        serait refaite à chaque passage."""
+        message = serve.msg("conservation_ordre",
+                            niveau=serve.msg("libelle_conservation_jour"),
+                            source=serve.msg("libelle_conservation_clips"))
+        for clips in (0, 90):
+            with self.subTest(clips=clips):
+                self.assert_refuse(self.requete(self.payload(
+                    conservation_clips=clips, conservation_jour=30)), message)
+
+    def test_conservation_dans_l_ordre_enregistree(self):
+        valeurs = {"conservation_clips": 30, "conservation_jour": 90,
+                   "conservation_mois": 365, "conservation_photos": 7}
+        handler = self.requete(self.payload(**valeurs))
+        self.assert_enregistre(handler, {**DEFAUTS, **valeurs})
 
     def test_arret_auto_direct_bornes_incluses_acceptees(self):
         for valeur in (0, serve.LIVE_MAX_SECONDS):
