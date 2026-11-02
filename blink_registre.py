@@ -229,10 +229,14 @@ def _ecrire_registre(state_file: Path, state: dict) -> None:
             # Purge par la conservation (issue #120, merge_daily.purger_anciens) :
             # le brut n'existe plus, le marqueur ne doit jamais reculer devant
             # une copie de téléchargeur antérieure à la purge.
+            # Une purge manuelle (merge_daily.suivre_purges_manuelles) garde sa
+            # marque avec elle : c'est ce qui la rend réversible.
             purge = precedente.get("purged_at")
             if purge and not entree.get("purged_at"):
                 entree = dict(entree)
                 entree["purged_at"] = purge
+                if precedente.get("purge_manuelle"):
+                    entree["purge_manuelle"] = True
         clips[cle] = entree
     fusionne["clips"] = clips
     fusionne["version"] = max(
