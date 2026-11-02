@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 import threading
@@ -102,7 +103,7 @@ class ReveilCameraTests(unittest.TestCase):
         for reponse in (None, False, {}, {"message": "System is busy"}):
             with self.subTest(reponse=reponse):
                 self.camera.snap_picture.return_value = reponse
-                with self.assertRaisesRegex(RuntimeError, "refuse"):
+                with self.assertRaisesRegex(RuntimeError, re.escape(serve.msg("reveil_refuse"))):
                     self.handler.reveiller_camera("Salon")
                 self.verifier_liberation()
         self.status.assert_not_awaited()
@@ -112,7 +113,8 @@ class ReveilCameraTests(unittest.TestCase):
                        {"status_code": 101, "complete": True}):
             with self.subTest(statut=statut):
                 self.status.return_value = statut
-                with self.assertRaisesRegex(RuntimeError, "pas confirme"):
+                with self.assertRaisesRegex(RuntimeError,
+                                            re.escape(serve.msg("reveil_non_confirme"))):
                     self.handler.reveiller_camera("Salon")
                 self.verifier_liberation()
 
