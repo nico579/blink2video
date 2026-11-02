@@ -76,6 +76,32 @@ REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timesta
                    "live_auto_stop_seconds": 0,
                    # Vide : dossier par défaut, voir dossier_sorties().
                    "dossier_sorties": ""}
+# Conservation par catégorie, en jours (issue #120) : 0 garde pour toujours,
+# le comportement de toujours, donc la valeur par défaut. La purge elle-même
+# est dans merge_daily.purger_anciens().
+CONSERVATION = ("conservation_clips", "conservation_jour", "conservation_semaine",
+                "conservation_mois", "conservation_directs", "conservation_photos")
+CONSERVATION_MAX_JOURS = 3650
+REGLAGES_DEFAUT.update({champ: 0 for champ in CONSERVATION})
+# Chaque vidéo assemblée est refaite à partir de ce dont elle est faite tant
+# que cette matière existe : une journalière effacée alors que ses clips
+# bruts sont encore là revient au passage suivant, une mensuelle effacée
+# alors que ses journalières restent aussi. Un niveau ne peut donc pas être
+# gardé moins longtemps que sa source, et suppose qu'elle soit purgée.
+SOURCE_CONSERVATION = {"conservation_jour": "conservation_clips",
+                       "conservation_semaine": "conservation_jour",
+                       "conservation_mois": "conservation_jour"}
+
+
+def ordre_conservation_invalide(reglages: dict):
+    """(niveau, source) du premier niveau gardé moins longtemps que sa
+    source, ou dont la source est gardée pour toujours ; None si l'ordre
+    tient."""
+    for champ, source in SOURCE_CONSERVATION.items():
+        jours = int(reglages.get(champ) or 0)
+        if jours and not 0 < int(reglages.get(source) or 0) <= jours:
+            return champ, source
+    return None
 # Remplace la variable d'environnement BLINK_DIRECT_WEBRTC (experimentale,
 # BACKLOG.md 2026-09-03) une fois WebRTC valide en usage reel : un vrai
 # reglage, pas juste une variable a poser avant de lancer le serveur. "mse"
@@ -207,6 +233,8 @@ def lire_reglages() -> dict:
             valeurs, "live_auto_stop_seconds",
             REGLAGES_DEFAUT["live_auto_stop_seconds"], 0, 300),
         "dossier_sorties": str(valeurs.get("dossier_sorties") or "").strip(),
+        **{champ: _entier_borne(valeurs, champ, 0, 0, CONSERVATION_MAX_JOURS)
+           for champ in CONSERVATION},
     }
 
 
@@ -239,7 +267,11 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
                     webhook_notif_url: str = "",
                     live_auto_stop_seconds: int = 0,
                     dossier_sorties: str | None = None,
-                    dossier: Path | None = None) -> None:
+                    dossier: Path | None = None,
+                    **conservation) -> None:
+    inconnus = set(conservation) - set(CONSERVATION)
+    if inconnus:
+        raise TypeError(f"ecrire_reglages: {sorted(inconnus)}")
     cible = (app_dir() if dossier is None else dossier) / REGLAGES
     if dossier_sorties is None:
         # Absent de l'appel : garder celui déjà enregistré. Le remettre à vide
@@ -262,6 +294,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
         "webhook_notif_url": str(webhook_notif_url).strip(),
         "live_auto_stop_seconds": int(live_auto_stop_seconds),
         "dossier_sorties": str(dossier_sorties).strip(),
+        **{champ: int(conservation.get(champ, 0) or 0) for champ in CONSERVATION},
     }))
 
 
@@ -449,7 +482,22 @@ def options_fusion(reglages: dict) -> list:
         options.append("--no-weekly")
     if not reglages["merge_mois"]:
         options.append("--no-monthly")
+    # Seulement les durées choisies : sans conservation, la ligne de
+    # commande reste exactement celle d'avant ce réglage.
+    for champ, option in OPTIONS_CONSERVATION.items():
+        if reglages.get(champ):
+            options += [option, str(reglages[champ])]
     return options
+
+
+OPTIONS_CONSERVATION = {
+    "conservation_clips": "--keep-clips-days",
+    "conservation_jour": "--keep-daily-days",
+    "conservation_semaine": "--keep-weekly-days",
+    "conservation_mois": "--keep-monthly-days",
+    "conservation_directs": "--keep-live-days",
+    "conservation_photos": "--keep-snapshots-days",
+}
 
 
 def standard() -> tuple:
@@ -469,6 +517,10 @@ def standard() -> tuple:
     merge = []
     if c["merge_jour"]:
         merge = ["merge", "--loop", "5", *options_fusion(c)]
+    elif any(c[champ] for champ in CONSERVATION):
+        # Assemblage désactivé mais une durée de conservation choisie : la
+        # même boucle, réduite à la purge (issue #120).
+        merge = ["merge", "--loop", "5", "--purge-only", *options_fusion(c)]
     download = []
     if c["download_auto"]:
         # Un seul worker inventorie d'abord les deux sources : la barre connaît

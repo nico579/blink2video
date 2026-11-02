@@ -127,6 +127,11 @@ const I18N = {
     "reglages.downloadAuto.hint": "Décochée, aucun clip n'est plus récupéré ni stocké : utile pour ne garder que le direct. Les cadences ci-dessous n'ont alors plus d'effet.",
     "reglages.mergeJour": "Quotidienne",
     "reglages.mergeSemaine": "Hebdomadaire", "reglages.mergeMois": "Mensuelle",
+    "reglages.conservation": "Conservation (jours, 0 = toujours)",
+    "reglages.conservation.hint": "Une vidéo assemblée est refaite tant que ce dont elle est faite existe : les clips bruts s'effacent par journée entière une fois la journalière faite, une journalière une fois ses bruts effacés, une hebdomadaire ou une mensuelle une fois ses journalières effacées. Chaque durée doit donc être au moins celle de sa source.",
+    "reglages.conservation.clips": "Clips bruts", "reglages.conservation.jour": "Journalières",
+    "reglages.conservation.semaine": "Hebdomadaires", "reglages.conservation.mois": "Mensuelles",
+    "reglages.conservation.directs": "Directs", "reglages.conservation.photos": "Photos",
     "reglages.archivage.hint": "Hebdomadaire et mensuelle sont assemblées à partir de la quotidienne : décocher « Quotidienne » désactive aussi les deux autres.",
     "reglages.alertes": "Mise en sourdine des alertes",
     "reglages.suppressionAuto": "Suppression automatique après téléchargement",
@@ -331,6 +336,11 @@ const I18N = {
     "reglages.downloadAuto.hint": "Unchecked, no clip is fetched or stored anymore: useful to keep only the live view. The cadences below then have no effect.",
     "reglages.mergeJour": "Daily",
     "reglages.mergeSemaine": "Weekly", "reglages.mergeMois": "Monthly",
+    "reglages.conservation": "Retention (days, 0 = forever)",
+    "reglages.conservation.hint": "An assembled video is rebuilt as long as what it is made of exists: raw clips are deleted a whole day at a time once the daily video is made, a daily video once its raw clips are gone, a weekly or monthly video once its daily videos are gone. Each period must therefore be at least that of its source.",
+    "reglages.conservation.clips": "Raw clips", "reglages.conservation.jour": "Daily videos",
+    "reglages.conservation.semaine": "Weekly videos", "reglages.conservation.mois": "Monthly videos",
+    "reglages.conservation.directs": "Live recordings", "reglages.conservation.photos": "Snapshots",
     "reglages.archivage.hint": "Weekly and Monthly are assembled from the Daily: unchecking \u201cDaily\u201d also disables the other two.",
     "reglages.alertes": "Mute alerts",
     "reglages.suppressionAuto": "Automatic deletion after download",
@@ -3519,6 +3529,12 @@ $("autostart").onchange = async () => {
 };
 
 let portActuel = null;   // relu à chaque ouverture, comparé à l'envoi
+// Conservation par catégorie (issue #120) : champ de la page, réglage serveur.
+const CHAMPS_CONSERVATION = [
+  ["conservationClips", "conservation_clips"], ["conservationJour", "conservation_jour"],
+  ["conservationSemaine", "conservation_semaine"], ["conservationMois", "conservation_mois"],
+  ["conservationDirects", "conservation_directs"], ["conservationPhotos", "conservation_photos"],
+];
 
 function afficherFormulaireReglages(reglages) {
   $("usbMinutes").value = reglages.usb_minutes;
@@ -3529,6 +3545,7 @@ function afficherFormulaireReglages(reglages) {
   $("trustedHost").value = reglages.trusted_host || "";
   $("webhookNotifUrl").value = reglages.webhook_notif_url || "";
   $("liveAutoStopSeconds").value = reglages.live_auto_stop_seconds || "";
+  for (const [id, champ] of CHAMPS_CONSERVATION) $(id).value = reglages[champ] || "";
   $("timestamp").checked = reglages.timestamp;
   $("fontSize").value = reglages.font_size ?? "";
   $("fontColor").value = reglages.font_color;
@@ -3804,6 +3821,8 @@ async function envoyerFormulaireReglages({ usb, cloud, port, timezone }) {
       trusted_host: $("trustedHost").value.trim(),
       webhook_notif_url: $("webhookNotifUrl").value.trim(),
       live_auto_stop_seconds: Number($("liveAutoStopSeconds").value) || 0,
+      ...Object.fromEntries(CHAMPS_CONSERVATION.map(
+        ([id, champ]) => [champ, Number($(id).value) || 0])),
       timestamp: $("timestamp").checked, timezone,
       live_protocol: $("liveProtocol").value,
       merge_jour: $("mergeJour").checked,

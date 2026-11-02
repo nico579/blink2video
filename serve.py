@@ -194,6 +194,12 @@ LIBELLES = {
         "identifiants_requis": "Adresse e-mail et mot de passe requis.",
         "code_requis": "Code requis.",
         "session_requise": "Identifiant de session requis.",
+        "conservation_invalide": "Les durées de conservation doivent être des nombres de jours entre 0 (garder toujours) et {maximum}.",
+        "conservation_ordre": "La conservation des {niveau} ne peut pas être plus courte que celle des {source}, ni réglée quand celle des {source} vaut 0 (garder toujours) : elles en seraient refaites à chaque passage.",
+        "libelle_conservation_clips": "clips bruts",
+        "libelle_conservation_jour": "vidéos journalières",
+        "libelle_conservation_semaine": "vidéos hebdomadaires",
+        "libelle_conservation_mois": "vidéos mensuelles",
     },
     "en": {
         "aide_desc": "Local interface to watch Blink clips, discard some and bring them back.",
@@ -331,6 +337,12 @@ LIBELLES = {
         "identifiants_requis": "Email address and password required.",
         "code_requis": "Code required.",
         "session_requise": "Session identifier required.",
+        "conservation_invalide": "Retention periods must be a number of days between 0 (keep forever) and {maximum}.",
+        "conservation_ordre": "Retention for {niveau} can't be shorter than for {source}, nor set while {source} are kept forever (0): they would be rebuilt from them on every pass.",
+        "libelle_conservation_clips": "raw clips",
+        "libelle_conservation_jour": "daily videos",
+        "libelle_conservation_semaine": "weekly videos",
+        "libelle_conservation_mois": "monthly videos",
     },
 }
 
@@ -2178,6 +2190,23 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
         raise _ReglagesInvalides(msg("reglage_arret_direct_invalide",
                                      maximum=LIVE_MAX_SECONDS)) from erreur
     reglages["live_auto_stop_seconds"] = live_auto_stop_seconds
+
+    # Conservation par catégorie (issue #120), en jours, 0 = garder toujours.
+    for champ in runtime.CONSERVATION:
+        try:
+            jours = int(payload.get(champ, 0) or 0)
+            if not 0 <= jours <= runtime.CONSERVATION_MAX_JOURS:
+                raise ValueError
+        except (TypeError, ValueError) as erreur:
+            raise _ReglagesInvalides(msg(
+                "conservation_invalide",
+                maximum=runtime.CONSERVATION_MAX_JOURS)) from erreur
+        reglages[champ] = jours
+    ordre = runtime.ordre_conservation_invalide(reglages)
+    if ordre:
+        niveau, source = ordre
+        raise _ReglagesInvalides(msg("conservation_ordre", niveau=msg("libelle_" + niveau),
+                                     source=msg("libelle_" + source)))
 
     return dossier, reglages
 
@@ -5099,6 +5128,40 @@ __CSS__
         <label id="mergeMoisLabel">
           <input type="checkbox" id="mergeMois"> <span data-i18n="reglages.mergeMois">Mensuelle</span>
         </label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend data-i18n="reglages.conservation">Conservation (jours, 0 = toujours)</legend>
+      <p class="sub tiny" data-i18n="reglages.conservation.hint">
+        Une vidéo assemblée est refaite tant que ce dont elle est faite existe :
+        les clips bruts s'effacent par journée entière une fois la journalière
+        faite, une journalière une fois ses bruts effacés, une hebdomadaire ou
+        une mensuelle une fois ses journalières effacées. Chaque durée doit donc
+        être au moins celle de sa source.
+      </p>
+      <div class="champCadence">
+        <label for="conservationClips" data-i18n="reglages.conservation.clips">Clips bruts</label>
+        <input type="number" id="conservationClips" min="0" max="3650" placeholder="0">
+      </div>
+      <div class="champCadence">
+        <label for="conservationJour" data-i18n="reglages.conservation.jour">Journalières</label>
+        <input type="number" id="conservationJour" min="0" max="3650" placeholder="0">
+      </div>
+      <div class="champCadence">
+        <label for="conservationSemaine" data-i18n="reglages.conservation.semaine">Hebdomadaires</label>
+        <input type="number" id="conservationSemaine" min="0" max="3650" placeholder="0">
+      </div>
+      <div class="champCadence">
+        <label for="conservationMois" data-i18n="reglages.conservation.mois">Mensuelles</label>
+        <input type="number" id="conservationMois" min="0" max="3650" placeholder="0">
+      </div>
+      <div class="champCadence">
+        <label for="conservationDirects" data-i18n="reglages.conservation.directs">Directs</label>
+        <input type="number" id="conservationDirects" min="0" max="3650" placeholder="0">
+      </div>
+      <div class="champCadence">
+        <label for="conservationPhotos" data-i18n="reglages.conservation.photos">Photos</label>
+        <input type="number" id="conservationPhotos" min="0" max="3650" placeholder="0">
       </div>
     </fieldset>
   </div>
