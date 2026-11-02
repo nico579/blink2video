@@ -82,6 +82,14 @@ REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timesta
 CONSERVATION = ("conservation_clips", "conservation_jour", "conservation_semaine",
                 "conservation_mois", "conservation_directs", "conservation_photos")
 CONSERVATION_MAX_JOURS = 3650
+# Plafond d'une session de direct (serve.LIVE_MAX_SECONDS le reprend). Blink
+# la ferme lui-même au bout d'environ six minutes de vidéo : son relais coupe
+# la connexion, mesuré le 2026-09-28 sur une Mini et une Outdoor (356 à 375 s
+# de flux, 6:01 selon ffmpeg), sans qu'il faille jamais « Continuer ». Sept
+# minutes le laissent aller au bout, et restent un filet si ce relais ne
+# fermait jamais. Au-delà, la case « Direct continu » de la page ouvre une
+# nouvelle session.
+DIRECT_MAX_SECONDES = 420
 REGLAGES_DEFAUT.update({champ: 0 for champ in CONSERVATION})
 # Chaque vidéo assemblée est refaite à partir de ce dont elle est faite tant
 # que cette matière existe : une journalière effacée alors que ses clips
@@ -227,11 +235,12 @@ def lire_reglages() -> dict:
             "trusted_host", REGLAGES_DEFAUT["trusted_host"])).strip(),
         "webhook_notif_url": str(valeurs.get(
             "webhook_notif_url", REGLAGES_DEFAUT["webhook_notif_url"])).strip(),
-        # 300 = LIVE_MAX_SECONDS (serve.py), le plafond dur qui coupe de
-        # toute façon chaque direct : au-delà, le réglage serait inopérant.
+        # Le plafond dur qui coupe de toute façon chaque direct : au-delà, le
+        # réglage serait inopérant. Une copie à 300 en dur ici, restée quand
+        # le plafond est passé à 420, relisait 301 à 420 s comme 0.
         "live_auto_stop_seconds": _entier_borne(
             valeurs, "live_auto_stop_seconds",
-            REGLAGES_DEFAUT["live_auto_stop_seconds"], 0, 300),
+            REGLAGES_DEFAUT["live_auto_stop_seconds"], 0, DIRECT_MAX_SECONDES),
         "dossier_sorties": str(valeurs.get("dossier_sorties") or "").strip(),
         **{champ: _entier_borne(valeurs, champ, 0, 0, CONSERVATION_MAX_JOURS)
            for champ in CONSERVATION},

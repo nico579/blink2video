@@ -57,6 +57,18 @@ class TestsReglages(unittest.TestCase):
         self.assertEqual(reglages["timestamp"], runtime.REGLAGES_DEFAUT["timestamp"])
         self.assertEqual(reglages["merge_jour"], runtime.REGLAGES_DEFAUT["merge_jour"])
 
+    def test_arret_auto_du_direct_relu_jusqu_au_plafond_du_serveur(self):
+        """Un 300 en dur ici, resté quand le plafond est passé à 420,
+        relisait comme 0 tout arrêt automatique réglé entre 301 et 420 s."""
+        for valeur in (301, 400, runtime.DIRECT_MAX_SECONDES):
+            with self.subTest(valeur=valeur):
+                (self.dossier / runtime.REGLAGES).write_text(
+                    f'{{"live_auto_stop_seconds": {valeur}}}', encoding="utf-8")
+                self.assertEqual(runtime.lire_reglages()["live_auto_stop_seconds"], valeur)
+        (self.dossier / runtime.REGLAGES).write_text(
+            f'{{"live_auto_stop_seconds": {runtime.DIRECT_MAX_SECONDES + 1}}}', encoding="utf-8")
+        self.assertEqual(runtime.lire_reglages()["live_auto_stop_seconds"], 0)
+
     def test_port_hors_plage_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text('{"port": 99999}', encoding="utf-8")
         self.assertEqual(runtime.lire_reglages()["port"], runtime.REGLAGES_DEFAUT["port"])

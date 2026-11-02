@@ -161,6 +161,7 @@ LIBELLES = {
         "purge_echec": "Conservation non appliquée à ce passage : {erreur}",
         "jour_purge_fige": "Figée (clips déjà effacés par la conservation) : {nom}",
         "purge_resume": "Conservation : {n} fichier(s) effacé(s)",
+        "purges_manuelles": "Clips bruts effacés ou revenus à la main : {n} (journalières gardées telles quelles)",
     },
     "en": {
         "aide_desc":
@@ -280,6 +281,7 @@ LIBELLES = {
         "purge_echec": "Retention not applied on this pass: {erreur}",
         "jour_purge_fige": "Kept as is (clips already deleted by retention): {nom}",
         "purge_resume": "Retention: {n} file(s) deleted",
+        "purges_manuelles": "Raw clips deleted or brought back by hand: {n} (daily videos kept as they are)",
     },
 }
 
@@ -1893,6 +1895,56 @@ def journees_purgees(input_dir: Path, timezone: ZoneInfo) -> set:
     return jours
 
 
+def suivre_purges_manuelles(input_dir: Path) -> int:
+    """Note comme purgés les bruts effacés à la main, et lève la note de ceux
+    qui sont revenus ; rend le nombre de changements.
+
+    Vider Blink_Clips à la main est permis depuis #118 : le téléchargement ne
+    les reprend pas. Mais l'assemblage prenait chaque brut absent pour une
+    source débranchée : un échec à chaque passage, et plus jamais
+    d'hebdomadaire ni de mensuelle. Un brut absent alors que son dossier est
+    là est traité comme une purge de la conservation (journalière figée,
+    agrégats protégés), avec la marque purge_manuelle qui la rend
+    réversible : un dossier déplacé puis remis en place retrouve ses clips au
+    passage suivant. Un fichier présent mais illisible reste une source
+    indisponible."""
+    if not input_dir.is_dir():
+        return 0
+    state_path = input_dir / DOWNLOAD_STATE
+    root = input_dir.resolve()
+    changes = 0
+    # Même verrou et même lecture-écriture d'un tenant que set_excluded().
+    with runtime.verrou("registre", "purge manuelle", stale_after=60, attente=10):
+        clips = read_registry(state_path)
+        maintenant = dt.datetime.now(dt.timezone.utc).isoformat()
+        for entry in clips.values():
+            if not isinstance(entry, dict) or entry.get("excluded") or not entry.get("path"):
+                continue
+            try:
+                source = (root / entry["path"]).resolve()
+            except (TypeError, OSError):
+                continue
+            if not runtime.est_relatif_a(source, root):
+                continue
+            present = source.exists()
+            if entry.get("purge_manuelle"):
+                if present:
+                    entry.pop("purged_at", None)
+                    entry.pop("purge_manuelle", None)
+                    changes += 1
+            elif not entry.get("purged_at") and not present:
+                entry["purged_at"] = maintenant
+                entry["purge_manuelle"] = True
+                changes += 1
+        if changes:
+            state = load_json(state_path, {})
+            state["clips"] = clips
+            save_json(state_path, state)
+    if changes:
+        print(msg("purges_manuelles", n=changes))
+    return changes
+
+
 def fin_de_periode(label: str, period: str):
     """Dernier jour d'une période (« 2026-W07 », « 2026-02 »), None si
     l'étiquette n'en est pas une."""
@@ -2365,6 +2417,7 @@ def _executer(args) -> int:
             setattr(args, nom, defaut)
     if not (args.date or args.camera):
         try:
+            suivre_purges_manuelles(args.input.resolve())
             purger_anciens(args, ZoneInfo(args.timezone))
         except (OSError, runtime.BusyError, ZoneInfoNotFoundError) as erreur:
             print(msg("purge_echec", erreur=erreur))

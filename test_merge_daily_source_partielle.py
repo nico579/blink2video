@@ -48,16 +48,46 @@ class TestsSourcePartielle(unittest.TestCase):
             fusion.assert_called_once()
             self.assertEqual(periodes.call_count, 2)
         else:
-            self.assertEqual(code, 1)
+            # Jamais de journalière refaite avec les seuls clips restants.
             fusion.assert_not_called()
-            periodes.assert_not_called()
             self.assertEqual(state_path.read_bytes(), state_original)
             if quotidienne_presente:
                 self.assertEqual(daily.read_bytes(), b'quotidienne-complete')
             else:
                 self.assertFalse(daily.exists())
+            if invalide:
+                # Fichier là mais illisible : source indisponible, échec, agrégats reportés.
+                self.assertEqual(code, 1)
+                periodes.assert_not_called()
+            else:
+                # Fichier absent : effacé à la main (#118), noté comme purgé.
+                # Pas un échec, et les agrégats continuent d'être faits.
+                self.assertEqual(code, 0)
+                self.assertEqual(periodes.call_count, 2)
+                registre = json.loads((args.input / md.DOWNLOAD_STATE).read_text(encoding='utf-8'))
+                self.assertTrue(registre['clips']['b'].get('purge_manuelle'))
+                self.assertNotIn('purged_at', registre['clips']['a'])
 
-    def test_un_brut_manquant_preserve_la_journaliere_et_son_etat(self):
+    def test_un_brut_efface_a_la_main_revient_s_il_est_remis(self):
+        fixture = fixtures.TestsSauvegardeIncrementale()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        racine = fixture._args().input
+        etat = racine / md.DOWNLOAD_STATE
+        etat.write_text(json.dumps({'clips': {'b': {
+            'path': 'b.mp4', 'camera': 'Salon', 'created_at': '2026-09-07T10:00:00+00:00'}}}),
+            encoding='utf-8')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(md.suivre_purges_manuelles(racine), 1)
+            self.assertTrue(json.loads(etat.read_text(encoding='utf-8'))['clips']['b']['purge_manuelle'])
+            (racine / 'b.mp4').write_bytes(fixtures.mp4_structurel())
+            self.assertEqual(md.suivre_purges_manuelles(racine), 1)
+            self.assertEqual(md.suivre_purges_manuelles(racine), 0)
+        entree = json.loads(etat.read_text(encoding='utf-8'))['clips']['b']
+        self.assertNotIn('purged_at', entree)
+        self.assertNotIn('purge_manuelle', entree)
+
+    def test_un_brut_efface_a_la_main_preserve_la_journaliere_sans_echec(self):
         self.verifier()
 
     def test_un_brut_invalide_preserve_la_journaliere(self):
