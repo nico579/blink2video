@@ -40,8 +40,10 @@ EXCEPTIONS = {
     ("maj.py", "Répertoire temporaire de mise à jour.\n"),
 }
 
-ACCENTS = re.compile(r"[éèêëàâùûüçôöîïœÉÈÊÀÂÇÔÎ]")
-MOTS = re.compile(r"\b(le|la|les|des|du|une|est|pas|aucun|aucune|sans|avec|pour|dans)\b",
+# Les guillemets « » ne s'écrivent qu'en français (l'anglais prend “ ”).
+ACCENTS = re.compile(r"[éèêëàâùûüçôöîïœÉÈÊÀÂÇÔÎ«»]")
+MOTS = re.compile(r"\b(le|la|les|de|des|du|une|est|pas|aucun|aucune|sans|avec|pour|dans|"
+                  r"inconnu|inconnue|invalide|introuvable|absent|absente)\b",
                   re.IGNORECASE)
 
 

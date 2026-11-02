@@ -329,6 +329,9 @@ _LIBELLES_RUNTIME = {
         "journal_repetition": "répétition toutes les {minutes} min",
         "journal_tour_interrompu": "tour interrompu par une erreur, nouvel essai au prochain : {erreur}",
         "journal_arret_repetition": "arrêt de la répétition",
+        "verrou_inaccessible": "verrou en cours de suppression ou inaccessible : {fichier}",
+        "publication_en_cours": "publication de progression en cours",
+        "verbe_inconnu": "verbe inconnu : {verbe}",
     },
     "en": {
         "repetition": "Repeating every {minutes} min. Ctrl+C to stop.",
@@ -350,6 +353,9 @@ _LIBELLES_RUNTIME = {
         "journal_repetition": "repeating every {minutes} min",
         "journal_tour_interrompu": "run interrupted by an error, retrying next time: {erreur}",
         "journal_arret_repetition": "repetition stopped",
+        "verrou_inaccessible": "lock being removed or not accessible: {fichier}",
+        "publication_en_cours": "progress publication in progress",
+        "verbe_inconnu": "unknown verb: {verbe}",
     },
 }
 
@@ -1913,8 +1919,7 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
             if os.name != "nt":
                 raise
             if time.monotonic() >= limite:
-                raise BusyError(f"verrou en cours de suppression ou "
-                                f"inaccessible : {fichier}") from erreur
+                raise BusyError(_msg("verrou_inaccessible", fichier=fichier)) from erreur
             time.sleep(0.05)
             continue
         else:
@@ -2137,7 +2142,7 @@ def _verrou_travail(cible: Path, attente: float = 0.25):
         pile.enter_context(atomique.verrou_inter_processus(
             cible.parent / TRAVAIL.stem, delai_s=max(0, attente)))
     except TimeoutError as exc:
-        raise BusyError("publication de progression en cours") from exc
+        raise BusyError(_msg("publication_en_cours")) from exc
     with pile:
         yield
 
@@ -2543,7 +2548,7 @@ def self_command(verb: str, *arguments: str) -> list:
     if frozen():
         return [sys.executable, verb, *arguments]
     if verb not in VERBES:
-        raise ValueError(f"verbe inconnu : {verb}")
+        raise ValueError(_msg("verbe_inconnu", verbe=verb))
     module = VERBES[verb].module
     base = [sys.executable, "-u",
             str(Path(__file__).resolve().parent / f"{module}.py")]

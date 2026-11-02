@@ -176,6 +176,24 @@ LIBELLES = {
         "aucune_version": "Aucune version plus récente.",
         "conclusion_maj_occupee": "La conclusion de la mise à jour précédente est encore occupée. Réessayez.",
         "autostart_echec": "Échec de la modification du démarrage automatique.",
+        "session_rendue_de_force": "session rendue de force",
+        "dossier_stockage_inaccessible": "Dossier de stockage inaccessible : {erreur}",
+        "fuseau_inconnu": "Fuseau horaire inconnu : « {fuseau} ».",
+        "protocole_inconnu": "Protocole de direct inconnu : « {protocole} ».",
+        "couleur_invalide": "Couleur d'horodatage invalide : « {couleur} ».",
+        "module_type": "module « {type} »",
+        "journal_armement": "{horodatage} {portee} « {nom} » armed={armed} depuis {client}",
+        "offre_sdp_invalide": "Offre SDP ou identifiant de session invalide.",
+        "format_direct_non_pris_en_charge": "Format de direct non pris en charge ({erreur}).",
+        "echec_fermeture_enregistrement": "échec de fermeture de l'enregistrement, {erreur}",
+        "echec_ffmpeg": "échec de {etape} ffmpeg, {erreur}",
+        "echec_fermeture": "échec de fermeture, {erreur}",
+        "diagnostic_indisponible": "diagnostic d'échec indisponible, {erreur}",
+        "echec_direct": "échec, {erreur}",
+        "plage_dates_invalide": "Plage de dates invalide.",
+        "identifiants_requis": "Adresse e-mail et mot de passe requis.",
+        "code_requis": "Code requis.",
+        "session_requise": "Identifiant de session requis.",
     },
     "en": {
         "aide_desc": "Local interface to watch Blink clips, discard some and bring them back.",
@@ -295,6 +313,24 @@ LIBELLES = {
         "aucune_version": "No newer version.",
         "conclusion_maj_occupee": "The previous update is still being finalised. Try again.",
         "autostart_echec": "Could not change automatic startup.",
+        "session_rendue_de_force": "session released by force",
+        "dossier_stockage_inaccessible": "Storage folder not accessible: {erreur}",
+        "fuseau_inconnu": "Unknown time zone: “{fuseau}”.",
+        "protocole_inconnu": "Unknown live view protocol: “{protocole}”.",
+        "couleur_invalide": "Invalid timestamp colour: “{couleur}”.",
+        "module_type": "module “{type}”",
+        "journal_armement": "{horodatage} {portee} “{nom}” armed={armed} from {client}",
+        "offre_sdp_invalide": "Invalid SDP offer or session identifier.",
+        "format_direct_non_pris_en_charge": "Unsupported live view format ({erreur}).",
+        "echec_fermeture_enregistrement": "could not close the recording, {erreur}",
+        "echec_ffmpeg": "ffmpeg {etape} failed, {erreur}",
+        "echec_fermeture": "could not close, {erreur}",
+        "diagnostic_indisponible": "failure diagnosis unavailable, {erreur}",
+        "echec_direct": "failed, {erreur}",
+        "plage_dates_invalide": "Invalid date range.",
+        "identifiants_requis": "Email address and password required.",
+        "code_requis": "Code required.",
+        "session_requise": "Session identifier required.",
     },
 }
 
@@ -1596,7 +1632,7 @@ async def _stop_stream(stream, feed) -> str:
                 stream.camera.sync.blink, stream.camera.network_id, stream.command_id
             ), timeout=10,
         )
-        return "session rendue de force" + (" | " + " ; ".join(erreurs) if erreurs else "")
+        return msg("session_rendue_de_force") + (" | " + " ; ".join(erreurs) if erreurs else "")
     except Exception as error:
         return f"session peut-etre restee ouverte : {type(error).__name__}"
 
@@ -2041,7 +2077,7 @@ def _verifier_dossier_reglages(dossier: str) -> None:
             sonde.write("blink2video")
             sonde.flush()
     except OSError as erreur:
-        raise _ReglagesInvalides(f"Dossier de stockage inaccessible : {erreur}") from erreur
+        raise _ReglagesInvalides(msg("dossier_stockage_inaccessible", erreur=erreur)) from erreur
 
 
 def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
@@ -2068,7 +2104,7 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
     try:
         ZoneInfo(timezone)
     except (ZoneInfoNotFoundError, ValueError) as erreur:
-        raise _ReglagesInvalides(f"Fuseau horaire inconnu : « {timezone} ».") from erreur
+        raise _ReglagesInvalides(msg("fuseau_inconnu", fuseau=timezone)) from erreur
 
     reglages = {
         "usb_minutes": usb_minutes, "cloud_minutes": cloud_minutes, "port": port,
@@ -2080,7 +2116,7 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
     }
     protocole = str(payload.get("live_protocol", "webrtc"))
     if protocole not in runtime.PROTOCOLES_LIVE_VALIDES:
-        raise _ReglagesInvalides(f"Protocole de direct inconnu : « {protocole} ».")
+        raise _ReglagesInvalides(msg("protocole_inconnu", protocole=protocole))
     reglages["live_protocol"] = protocole
 
     font_size = payload.get("font_size")
@@ -2097,7 +2133,7 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
 
     font_color = str(payload.get("font_color") or "white").strip() or "white"
     if not md.COULEUR_FFMPEG_RE.match(font_color):
-        raise _ReglagesInvalides(f"Couleur d'horodatage invalide : « {font_color} ».")
+        raise _ReglagesInvalides(msg("couleur_invalide", couleur=font_color))
     reglages["font_color"] = font_color
 
     try:
@@ -2588,7 +2624,7 @@ class Handler(serveweb.Handler):
                         "key": system_key(name, sync),
                         "armed": bool(sync.arm),
                         "module": MODULE_MODELS.get(module.get("type"))
-                                  or (f"module « {module.get('type')} »"
+                                  or (msg("module_type", type=module.get("type"))
                                       if module.get("type") else None),
                         "module_firmware": module.get("fw_version"),
                         "module_serial": module.get("serial"),
@@ -2966,7 +3002,8 @@ class Handler(serveweb.Handler):
         client = self.client_address[0] if getattr(self, "client_address", None) else "?"
         runtime.ajouter_ligne(
             "armement-webhook.log",
-            f"{horodatage} {portee} \u00ab {nom} \u00bb armed={str(voulu).lower()} depuis {client}")
+            msg("journal_armement", horodatage=horodatage, portee=portee, nom=nom,
+                armed=str(voulu).lower(), client=client))
         reponse = {"ok": True, "scope": portee, "requested": voulu,
                    "changed": None if avant is None else bool(avant) != voulu}
         apres, _erreur = self._etat_pour_webhook()
@@ -3086,7 +3123,7 @@ class Handler(serveweb.Handler):
         session_id = str(payload.get("session_id") or "")
         essai = payload.get("essai")
         if not offer_sdp or offer_type != "offer" or not DIRECT_SESSION_ID.fullmatch(session_id):
-            self.send_json({"error": "Offre SDP ou identifiant de session invalide."}, 400)
+            self.send_json({"error": msg("offre_sdp_invalide")}, 400)
             return
 
         if not MODULE_SLOT.acquire(blocking=False):
@@ -3201,7 +3238,7 @@ class Handler(serveweb.Handler):
                             except KeyError as error:
                                 raise RuntimeError(msg("aucune_adresse_flux")) from error
                             except NotImplementedError as error:
-                                raise RuntimeError(f"Format de direct non pris en charge ({error}).") from error
+                                raise RuntimeError(msg("format_direct_non_pris_en_charge", erreur=error)) from error
                             holder["stream"] = stream
                             journal(f"init_livestream en {time.monotonic() - t_flux:.1f}s")
                             t_start = time.monotonic()
@@ -3527,10 +3564,9 @@ class Handler(serveweb.Handler):
                     try:
                         fichier_direct.close()
                     except OSError as error:
-                        _journal_direct(
-                            name, f"echec de fermeture de l'enregistrement, "
-                                  f"{type(error).__name__}: {error}"
-                        )
+                        _journal_direct(name, msg(
+                            "echec_fermeture_enregistrement",
+                            erreur=f"{type(error).__name__}: {error}"))
                     holder["fichier_direct"] = None
                 elif fichier_direct is not None:
                     try:
@@ -3586,31 +3622,27 @@ class Handler(serveweb.Handler):
                 try:
                     process.terminate()
                 except Exception as error:
-                    journaux_nettoyage.append(
-                        f"echec de terminate ffmpeg, {type(error).__name__}: {error}"
-                    )
+                    journaux_nettoyage.append(msg(
+                        "echec_ffmpeg", etape="terminate", erreur=f"{type(error).__name__}: {error}"))
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     try:
                         process.kill()
                     except Exception as error:
-                        journaux_nettoyage.append(
-                            f"echec de kill ffmpeg, {type(error).__name__}: {error}"
-                        )
+                        journaux_nettoyage.append(msg(
+                            "echec_ffmpeg", etape="kill", erreur=f"{type(error).__name__}: {error}"))
                 except Exception as error:
-                    journaux_nettoyage.append(
-                        f"echec d'attente ffmpeg, {type(error).__name__}: {error}"
-                    )
+                    journaux_nettoyage.append(msg(
+                        "echec_ffmpeg", etape="wait", erreur=f"{type(error).__name__}: {error}"))
             fichier_direct = holder.get("fichier_direct")
             if fichier_direct is not None:
                 try:
                     fichier_direct.close()
                 except OSError as error:
-                    journaux_nettoyage.append(
-                        f"echec de fermeture de l'enregistrement, "
-                        f"{type(error).__name__}: {error}"
-                    )
+                    journaux_nettoyage.append(msg(
+                        "echec_fermeture_enregistrement",
+                        erreur=f"{type(error).__name__}: {error}"))
             stream = holder.get("stream")
             if stream is not None:
                 try:
@@ -3619,7 +3651,7 @@ class Handler(serveweb.Handler):
                         timeout=45,
                     )
                 except Exception as error:
-                    verdict = f"echec de fermeture, {type(error).__name__}: {error}"
+                    verdict = msg("echec_fermeture", erreur=f"{type(error).__name__}: {error}")
                 journaux_nettoyage.append(verdict)
             verrou = holder.get("lock")
             if verrou is not None and holder.get("lock_entered"):
@@ -3637,10 +3669,8 @@ class Handler(serveweb.Handler):
                 try:
                     _memoriser_erreur_direct(name, erreur_direct, 503)
                 except Exception as error:
-                    journaux_nettoyage.append(
-                        f"diagnostic d'echec indisponible, "
-                        f"{type(error).__name__}: {error}"
-                    )
+                    journaux_nettoyage.append(msg(
+                        "diagnostic_indisponible", erreur=f"{type(error).__name__}: {error}"))
             # Ces deux libérations mémoire sont la dernière ceinture : aucune
             # erreur de fermeture de ffmpeg/Blink/verrou disque, ni aucun
             # diagnostic, ne doit pouvoir les sauter.
@@ -3677,7 +3707,7 @@ class Handler(serveweb.Handler):
             # Le client ne voit ce 503 qu'une fois ffmpeg arrêté, la session
             # Blink fermée et les verrous rendus. Sa prochaine tentative ne
             # peut donc plus consommer ses reprises sur nos propres 409.
-            _journal_direct(name, f"echec, {erreur_direct}")
+            _journal_direct(name, msg("echec_direct", erreur=erreur_direct))
             if not reponse_commencee:
                 try:
                     self.send_error(503, "Live stream unavailable")
@@ -3938,7 +3968,7 @@ class Handler(serveweb.Handler):
                             jusqua = dt.datetime.fromisoformat(jusqua_brut) \
                                 .replace(tzinfo=self.timezone)
                     except ValueError:
-                        self.send_json({"error": "Plage de dates invalide."}, 400)
+                        self.send_json({"error": msg("plage_dates_invalide")}, 400)
                         return
                 else:
                     depuis = maintenant - dt.timedelta(hours=RANGE_PRESETS_HOURS["month"])
@@ -4662,7 +4692,7 @@ class Handler(serveweb.Handler):
             password = str(payload.get("password", ""))
             if not username or not password:
                 self.send_json({"status": "error",
-                                "message": "Adresse e-mail et mot de passe requis."})
+                                "message": msg("identifiants_requis")})
                 return
             self.send_json(self.login_flow.start(username, password))
             return
@@ -4670,7 +4700,7 @@ class Handler(serveweb.Handler):
         if route == "/api/2fa":
             code = str(payload.get("code", "")).strip()
             if not code:
-                self.send_json({"status": "error", "message": "Code requis."})
+                self.send_json({"status": "error", "message": msg("code_requis")})
                 return
             self.send_json(self.login_flow.submit_code(code))
             return
@@ -4752,7 +4782,7 @@ class Handler(serveweb.Handler):
         if route == "/api/arreter-direct":
             session_id = str(payload.get("session_id") or "")
             if not DIRECT_SESSION_ID.fullmatch(session_id):
-                self.send_json({"error": "Identifiant de session requis."}, 400)
+                self.send_json({"error": msg("session_requise")}, 400)
                 return
             arrete = _demander_arret_direct(session_id)
             if arrete:

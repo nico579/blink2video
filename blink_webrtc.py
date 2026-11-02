@@ -457,10 +457,8 @@ if DISPONIBLE:
                 # Permet un nouvel essai au prochain passage a "desire" :
                 # sans ceci, un seul echec (ffmpeg introuvable...) bloquerait
                 # tout enregistrement pour le reste de la session.
-                self._journal(
-                    f"echec de demarrage de l'enregistrement disque, "
-                    f"{type(error).__name__}: {error}"
-                )
+                self._journal(msg("echec_demarrage_enregistrement",
+                                  erreur=f"{type(error).__name__}: {error}"))
                 self._recorder_demande = False
                 self._recorder_attente.clear()
                 self._recorder_attente_octets = 0
@@ -647,6 +645,8 @@ LIBELLES = {
         "aucune_image": "La caméra n'a envoyé aucune image. Hors de portée du module, endormie, ou déjà occupée par une autre session.",
         "h264_negocie": "H.264 source {source}, décodeur négocié {reception}, sans réencodage",
         "flux_arrete_negociation": "Le flux Blink s'est arrêté pendant la négociation.",
+        "echec_demarrage_enregistrement": "échec de démarrage de l'enregistrement disque, {erreur}",
+        "filet_declenche": "filet de {secondes}s déclenché, connectionState restait à {etat}",
     },
     "en": {
         "flux_interrompu": "stream reading interrupted, {erreur}",
@@ -659,6 +659,8 @@ LIBELLES = {
         "aucune_image": "The camera sent no picture. Out of the module's range, asleep, or already busy with another session.",
         "h264_negocie": "H.264 source {source}, negotiated decoder {reception}, no re-encoding",
         "flux_arrete_negociation": "The Blink stream stopped during negotiation.",
+        "echec_demarrage_enregistrement": "could not start the disk recording, {erreur}",
+        "filet_declenche": "{secondes}s safety net triggered, connectionState was still {etat}",
     },
 }
 
@@ -859,10 +861,8 @@ async def negocier(
     async def _plafond_duree() -> None:
         await asyncio.sleep(SESSION_MAX_SECONDS)
         if pc.connectionState not in ("closed", "failed"):
-            journal(
-                f"filet de {SESSION_MAX_SECONDS}s declenche, connectionState "
-                f"restait a {pc.connectionState!r}"
-            )
+            journal(msg("filet_declenche", secondes=SESSION_MAX_SECONDS,
+                        etat=repr(pc.connectionState)))
             await fermer_connexion(pc)
 
     tache_plafond = asyncio.create_task(_plafond_duree())

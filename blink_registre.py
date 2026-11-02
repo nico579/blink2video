@@ -70,7 +70,7 @@ def load_download_state(output: Path) -> dict:
         if not isinstance(state, dict):
             raise ValueError(msg("registre_racine_objet"))
         if state.get("version") not in (1, 2) or not isinstance(state.get("clips"), dict):
-            raise ValueError("format inconnu")
+            raise ValueError(msg("registre_format_inconnu"))
         valides = {}
         ignores = 0
         for cle, entree in state["clips"].items():
@@ -164,7 +164,7 @@ def _sauvegarder_registre_v1(state_file: Path) -> None:
             sauvegarde = backup.read_bytes()
             chargee = json.loads(sauvegarde)
             if not isinstance(chargee, dict) or chargee.get("version") != 1:
-                raise OSError("sauvegarde v1 invalide")
+                raise OSError(msg("registre_sauvegarde_invalide"))
             return
         temporaire = backup.with_suffix(backup.suffix + ".tmp")
         temporaire.write_bytes(brut)
