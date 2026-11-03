@@ -728,13 +728,16 @@ def nombre_clips_connus(entries: dict) -> int:
     la page compare les deux pour annoncer les nouveaux clips (audit du
     26/09/2026, B03). Compter aussi une entrée illisible, que la galerie
     ignore, annoncerait un « nouveau » clip à chaque sondage et relancerait
-    sans fin l'actualisation automatique."""
+    sans fin l'actualisation automatique. Un clip purgé (purged_at : effacé
+    par la conservation ou à la main) n'est pas compté, comme dans collect()."""
     total = 0
     for entry in entries.values():
         try:
             entry["path"]
             md.parse_created_at(entry["created_at"])
         except (KeyError, TypeError, ValueError):
+            continue
+        if entry.get("purged_at"):
             continue
         total += 1
     return total
@@ -1157,6 +1160,12 @@ def collect(paths: dict, timezone: ZoneInfo, ffmpeg: str = "",
             created = md.parse_created_at(entry["created_at"])
             camera = str(entry.get("camera") or "camera").strip() or "camera"
         except (KeyError, TypeError, ValueError):
+            continue
+        if entry.get("purged_at"):
+            # Effacé par la conservation ou à la main : le registre le garde
+            # pour ne pas le retélécharger (#118, #120), la galerie ne doit
+            # plus le montrer ni le compter (issue #120, MarkusKress : plus
+            # de 4 600 entrées vides après la purge).
             continue
 
         local = created.astimezone(timezone)
