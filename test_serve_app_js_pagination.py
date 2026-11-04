@@ -8,7 +8,8 @@ import unittest
 from pathlib import Path
 
 
-class TestsPaginationClips(unittest.TestCase):
+class HarnaisClips(unittest.TestCase):
+    """Extrait de serve_app.js ce qui peint la liste des clips et l'exécute sous node."""
     @classmethod
     def setUpClass(cls):
         cls.node = shutil.which("node")
@@ -16,7 +17,9 @@ class TestsPaginationClips(unittest.TestCase):
             raise unittest.SkipTest("node introuvable")
         source = Path(__file__).with_name("serve_app.js").read_text(encoding="utf-8")
         fragments = []
-        for nom in ("visible", "duration", "restaurerTaillePageClips", "navigationClips", "changerPageClips", "renderClips", "card", "load", "appliquerFiltre"):
+        for nom in ("visible", "duration", "restaurerTaillePageClips", "navigationClips", "changerPageClips", "renderClips", "card", "load", "appliquerFiltre",
+                    "suppressionProposee", "casesPage", "barreSelectionPage", "majSelectionPage", "stagerPage",
+                    "stagerExclusion", "stagerSuppression"):
             match = re.search(rf"^(?:async )?function {nom}\(.*?^\}}", source, re.MULTILINE | re.DOTALL)
             if match is None:
                 raise AssertionError(f"fonction introuvable : {nom}")
@@ -66,6 +69,7 @@ const render = () => renderClips();
 """.replace("TOTAL", str(total)).replace("STOCKAGE", json.dumps(stockage or {})).replace("INDISPONIBLE", str(stockage_indisponible).lower()) + self.constants + "\n" + self.code + "\n" + self.click + "\n" + self.submit + "\n" + self.change + "\n" + actions + """
 renderClips();
 console.log(JSON.stringify({html:$('list').innerHTML,page:pageClips,size:clipsParPage,transitions,lifecycle,ordre,stockage,
+ extra:globalThis.lireExtra ? globalThis.lireExtra() : null,
  selected:data.clips.filter(c=>c.excludedStaged||c.supprimerStaged).map(c=>c.identity)}));
 })().catch(e=>{console.error(e);process.exitCode=1;});
 """
@@ -76,6 +80,8 @@ console.log(JSON.stringify({html:$('list').innerHTML,page:pageClips,size:clipsPa
     def identities(self, sortie):
         return re.findall(r'src="/media/clip/([^" ]+)"', sortie["html"])
 
+
+class TestsPaginationClips(HarnaisClips):
     def test_premiere_page_bornee_et_ordre_conserve(self):
         sortie = self.executer()
         self.assertEqual(self.identities(sortie), [f"clip-{i}" for i in range(50)])
@@ -270,6 +276,81 @@ changerPageClips(1);
         sortie = self.executer("changerPageClips(12); $('camera').value='B'; await appliquerFiltre();")
         self.assertEqual(sortie["page"], 0)
         self.assertEqual(self.identities(sortie), [f'clip-{i}' for i in range(1,100,2)])
+
+
+class TestsSelectionPage(HarnaisClips):
+    """« Cette page : Tout écarter / Tout supprimer » (issue #40, rmoosreiner) : cocher d'un
+    geste les cartes de la page affichée, et elles seules."""
+
+    # Un #list qui relit le HTML rendu : les cases maîtresses et celles des cartes y sont
+    # retrouvées par leur data-action, comme le ferait querySelector dans la vraie page.
+    FAUX_DOM = r"""
+const maitres = {}, cartes = {};
+$('list').querySelector = sel => {
+  const m = sel.match(/data-action="(stage-page-[a-z]+)"/);
+  if (!m || !$('list').innerHTML.includes(m[0])) return null;
+  return maitres[m[1]] ??= {checked:false, indeterminate:false};
+};
+$('list').querySelectorAll = sel => {
+  const m = sel.match(/data-action="(stage-[a-z]+)"/);
+  if (!m) return [];
+  const re = new RegExp(`data-action="${m[1]}" data-identity="([^"]+)"`, 'g');
+  return [...$('list').innerHTML.matchAll(re)].map(x => cartes[m[1] + ':' + x[1]] ??= {dataset:{identity:x[1]}, checked:false});
+};
+const cocher = (action, checked, identity) => $('list').change({target:{closest(){
+  return {dataset:{action, identity}, checked};}}});
+globalThis.lireExtra = () => ({maitres, cochees:Object.entries(cartes).filter(([,c]) => c.checked).map(([k]) => k)});
+"""
+
+    def test_barre_affichee_avec_les_deux_cases(self):
+        sortie = self.executer(self.FAUX_DOM)
+        self.assertEqual(sortie["html"].count('class="selectionPage"'), 1)
+        self.assertIn('data-action="stage-page-exclusion"', sortie["html"])
+        self.assertIn('data-action="stage-page-suppression"', sortie["html"])
+        # Sous la barre de pagination figée, pas à sa place : elle reste la première.
+        self.assertTrue(sortie["html"].lstrip().startswith("<nav"))
+
+    def test_pas_de_barre_sans_clip(self):
+        sortie = self.executer(self.FAUX_DOM, total=0)
+        self.assertNotIn("selectionPage", sortie["html"])
+
+    def test_tout_supprimer_ne_coche_que_la_page_affichee(self):
+        sortie = self.executer(self.FAUX_DOM + "pageClips=1; renderClips(); cocher('stage-page-suppression', true);")
+        self.assertEqual(sortie["selected"], [f"clip-{i}" for i in range(50, 100)])
+        self.assertEqual(len([k for k in sortie["extra"]["cochees"] if k.startswith("stage-suppression:")]), 50)
+        self.assertTrue(sortie["extra"]["maitres"]["stage-page-suppression"]["checked"])
+        self.assertFalse(sortie["extra"]["maitres"]["stage-page-exclusion"]["checked"])
+
+    def test_decocher_la_page_annule_tout(self):
+        sortie = self.executer(self.FAUX_DOM + "renderClips(); cocher('stage-page-exclusion', true); cocher('stage-page-exclusion', false);")
+        self.assertEqual(sortie["selected"], [])
+        self.assertFalse(sortie["extra"]["maitres"]["stage-page-exclusion"]["checked"])
+        self.assertFalse(sortie["extra"]["maitres"]["stage-page-exclusion"]["indeterminate"])
+
+    def test_case_maitresse_a_moitie_apres_une_carte(self):
+        sortie = self.executer(self.FAUX_DOM + "renderClips(); cocher('stage-suppression', true, 'clip-3');")
+        maitre = sortie["extra"]["maitres"]["stage-page-suppression"]
+        self.assertFalse(maitre["checked"])
+        self.assertTrue(maitre["indeterminate"])
+        # Et l'état revient tel quel au rendu suivant (changement de page aller-retour).
+        retour = self.executer(self.FAUX_DOM + "renderClips(); cocher('stage-suppression', true, 'clip-3'); changerPageClips(1); changerPageClips(0);")
+        self.assertTrue(retour["extra"]["maitres"]["stage-page-suppression"]["indeterminate"])
+
+    def test_clips_deja_supprimes_ou_en_suppression_auto_ignores(self):
+        sortie = self.executer(self.FAUX_DOM + "data.clips[0].sourceDeleted=true; renderClips(); cocher('stage-page-suppression', true);")
+        self.assertNotIn("clip-0", sortie["selected"])
+        self.assertEqual(len(sortie["selected"]), 49)
+        self.assertTrue(sortie["extra"]["maitres"]["stage-page-suppression"]["checked"])
+        auto = self.executer(self.FAUX_DOM + "data.suppressionAuto=['key'];")
+        self.assertIn('data-action="stage-page-exclusion"', auto["html"])
+        self.assertNotIn('data-action="stage-page-suppression"', auto["html"])
+        self.assertNotIn('data-action="stage-suppression"', auto["html"])
+
+    def test_textes_en_francais_et_en_anglais(self):
+        js = Path(__file__).with_name("serve_app.js").read_text(encoding="utf-8")
+        for cle in ("selection.page", "selection.page.discard", "selection.page.discard.title",
+                    "selection.page.delete", "selection.page.delete.title"):
+            self.assertEqual(js.count(f'"{cle}":'), 2, cle)
 
 
 class TestsBarrePagination(unittest.TestCase):
