@@ -192,6 +192,11 @@ const I18N = {
     "reglages.downloadAuto.hint": "Décochée, aucun clip n'est plus récupéré ni stocké : utile pour ne garder que le direct. Les cadences ci-dessous n'ont alors plus d'effet.",
     "reglages.mergeJour": "Quotidienne",
     "reglages.mergeSemaine": "Hebdomadaire", "reglages.mergeMois": "Mensuelle",
+    "reglages.conservation": "Conservation (jours, 0 = toujours)",
+    "reglages.conservation.hint": "Une vidéo assemblée est refaite tant que ce dont elle est faite existe : les clips bruts s'effacent par journée entière une fois la journalière faite, une journalière une fois ses bruts effacés, une hebdomadaire ou une mensuelle une fois ses journalières effacées. Chaque durée doit donc être au moins celle de sa source.",
+    "reglages.conservation.clips": "Clips bruts", "reglages.conservation.jour": "Journalières",
+    "reglages.conservation.semaine": "Hebdomadaires", "reglages.conservation.mois": "Mensuelles",
+    "reglages.conservation.directs": "Directs", "reglages.conservation.photos": "Photos",
     "reglages.archivage.hint": "Hebdomadaire et mensuelle sont assemblées à partir de la quotidienne : décocher « Quotidienne » désactive aussi les deux autres.",
     "reglages.alertes": "Mise en sourdine des alertes",
     "reglages.suppressionAuto": "Suppression automatique après téléchargement",
@@ -277,6 +282,7 @@ const I18N = {
     "ronde.demarrer": "Démarrer", "ronde.suivante": "Suivante ⏭", "ronde.arreter": "■ Arrêter",
     "ronde.pause": "Ronde en pause jusqu'à {debut}.",
     "ronde.aucune": "Aucune caméra en ligne dans la ronde.",
+    "ronde.waiting": "En attente de connexion",
     "watch.noimage": "Aucune image reçue. La caméra n'a pas répondu.",
     "watch.interrupted": "Le direct s'est interrompu. Vous pouvez le relancer.",
     "watch.refused": "Le flux a été refusé par le serveur.",
@@ -403,6 +409,11 @@ const I18N = {
     "reglages.downloadAuto.hint": "Unchecked, no clip is fetched or stored anymore: useful to keep only the live view. The cadences below then have no effect.",
     "reglages.mergeJour": "Daily",
     "reglages.mergeSemaine": "Weekly", "reglages.mergeMois": "Monthly",
+    "reglages.conservation": "Retention (days, 0 = forever)",
+    "reglages.conservation.hint": "An assembled video is rebuilt as long as what it is made of exists: raw clips are deleted a whole day at a time once the daily video is made, a daily video once its raw clips are gone, a weekly or monthly video once its daily videos are gone. Each period must therefore be at least that of its source.",
+    "reglages.conservation.clips": "Raw clips", "reglages.conservation.jour": "Daily videos",
+    "reglages.conservation.semaine": "Weekly videos", "reglages.conservation.mois": "Monthly videos",
+    "reglages.conservation.directs": "Live recordings", "reglages.conservation.photos": "Snapshots",
     "reglages.archivage.hint": "Weekly and Monthly are assembled from the Daily: unchecking \u201cDaily\u201d also disables the other two.",
     "reglages.alertes": "Mute alerts",
     "reglages.suppressionAuto": "Automatic deletion after download",
@@ -488,6 +499,7 @@ const I18N = {
     "ronde.demarrer": "Start", "ronde.suivante": "Next ⏭", "ronde.arreter": "■ Stop",
     "ronde.pause": "Rotation paused until {debut}.",
     "ronde.aucune": "No online camera in the rotation.",
+    "ronde.waiting": "Waiting for connection",
     "watch.noimage": "No image received. The camera did not respond.",
     "watch.interrupted": "The live view was interrupted. You can restart it.",
     "watch.refused": "The stream was refused by the server.",
@@ -2298,6 +2310,8 @@ const RONDE_REVERIFICATION_MS = 30 * 1000;
 const ronde = {
   active: false, pleinEcran: false, position: -1, tour: 0,
   cle: null, boite: null, ancre: null, image: false, minuterie: null,
+  // Visible dwell countdown (setInterval); cleared on next camera / stop.
+  decompte: null,
 };
 let reglagesRonde = lireReglagesRonde();
 
@@ -2364,6 +2378,55 @@ function afficherMessageRonde(texte) {
   if (texte) $("rondeTitre").textContent = t("ronde.titre");
 }
 
+function arreterDecompteRonde() {
+  if (ronde.decompte) clearInterval(ronde.decompte);
+  ronde.decompte = null;
+}
+
+// Title line: "Name · n/m" plus waiting (red) or "(seconds)" after first frame.
+// Prefer a <strong class="ronde-countdown"> when the DOM supports it; fall
+// back to plain textContent for the headless ronde test harness.
+function peindreTitreRonde(camera, total, attenteOuSecondes) {
+  const base = `${camera.name} · ${ronde.position + 1}/${total}`;
+  const el = $("rondeTitre");
+  if (!el) return;
+  const suffixe = attenteOuSecondes === "waiting"
+    ? t("ronde.waiting")
+    : `(${attenteOuSecondes})`;
+  const classe = attenteOuSecondes === "waiting"
+    ? "ronde-countdown waiting"
+    : "ronde-countdown";
+  if (typeof document !== "undefined" && document.createElement
+      && typeof el.replaceChildren === "function") {
+    const marqueur = document.createElement("strong");
+    marqueur.className = classe;
+    marqueur.textContent = suffixe;
+    el.replaceChildren(document.createTextNode(base + " "), marqueur);
+    return;
+  }
+  el.textContent = `${base} ${suffixe}`;
+}
+
+function demarrerDecompteRonde(secondesTotales) {
+  arreterDecompteRonde();
+  let restant = Math.max(0, Math.ceil(secondesTotales));
+  const camera = camerasRonde(reglagesRonde)[ronde.position];
+  const total = camerasRonde(reglagesRonde).length;
+  const peindre = () => {
+    if (!ronde.active || !camera) return;
+    peindreTitreRonde(camera, total, restant);
+  };
+  peindre();
+  ronde.decompte = setInterval(() => {
+    restant -= 1;
+    if (restant < 0) {
+      arreterDecompteRonde();
+      return;
+    }
+    peindre();
+  }, 1000);
+}
+
 function armerTourRonde(delaiMs) {
   clearTimeout(ronde.minuterie);
   ronde.minuterie = setTimeout(tourDeRonde, delaiMs);
@@ -2379,6 +2442,7 @@ function imageEnCoursRonde() {
 // au repos là où elle se trouve, avant son retour.
 function rendreCaseRonde() {
   const { cle, boite, ancre } = ronde;
+  arreterDecompteRonde();
   Object.assign(ronde, { cle: null, boite: null, ancre: null, image: false });
   if (!boite) return;
   stopWatch(cle);
@@ -2423,7 +2487,7 @@ function tourDeRonde() {
   $("rondeScene").appendChild(boite);
   Object.assign(ronde, { cle: camera.key, boite, ancre, image: false });
   afficherMessageRonde("");
-  $("rondeTitre").textContent = `${camera.name} · ${ronde.position + 1}/${cameras.length}`;
+  peindreTitreRonde(camera, cameras.length, "waiting");
   armerTourRonde(RONDE_ATTENTE_IMAGE_MS);
   watchLive(camera.key).finally(() => {
     // Direct fini sans la moindre image, échec déclaré : inutile d'attendre
@@ -2438,6 +2502,7 @@ function tourDeRonde() {
 function surImageRonde(event) {
   if (!ronde.active || ronde.image || !ronde.boite || !ronde.boite.contains(event.target)) return;
   ronde.image = true;
+  demarrerDecompteRonde(reglagesRonde.secondes);
   armerTourRonde(reglagesRonde.secondes * 1000);
 }
 
@@ -2462,6 +2527,7 @@ function arreterRonde() {
   ronde.active = false;
   ronde.tour++;
   clearTimeout(ronde.minuterie);
+  arreterDecompteRonde();
   rendreCaseRonde();
   $("ronde").hidden = true;
   if ((document.fullscreenElement || document.webkitFullscreenElement) === $("ronde")) {
@@ -3544,6 +3610,12 @@ $("autostart").onchange = async () => {
 };
 
 let portActuel = null;   // relu à chaque ouverture, comparé à l'envoi
+// Conservation par catégorie (issue #120) : champ de la page, réglage serveur.
+const CHAMPS_CONSERVATION = [
+  ["conservationClips", "conservation_clips"], ["conservationJour", "conservation_jour"],
+  ["conservationSemaine", "conservation_semaine"], ["conservationMois", "conservation_mois"],
+  ["conservationDirects", "conservation_directs"], ["conservationPhotos", "conservation_photos"],
+];
 
 function afficherFormulaireReglages(reglages) {
   $("usbMinutes").value = reglages.usb_minutes;
@@ -3554,6 +3626,7 @@ function afficherFormulaireReglages(reglages) {
   $("trustedHost").value = reglages.trusted_host || "";
   $("webhookNotifUrl").value = reglages.webhook_notif_url || "";
   $("liveAutoStopSeconds").value = reglages.live_auto_stop_seconds || "";
+  for (const [id, champ] of CHAMPS_CONSERVATION) $(id).value = reglages[champ] || "";
   $("timestamp").checked = reglages.timestamp;
   $("fontSize").value = reglages.font_size ?? "";
   $("fontColor").value = reglages.font_color;
@@ -3839,6 +3912,8 @@ async function envoyerFormulaireReglages({ usb, cloud, port, timezone }) {
       trusted_host: $("trustedHost").value.trim(),
       webhook_notif_url: $("webhookNotifUrl").value.trim(),
       live_auto_stop_seconds: Number($("liveAutoStopSeconds").value) || 0,
+      ...Object.fromEntries(CHAMPS_CONSERVATION.map(
+        ([id, champ]) => [champ, Number($(id).value) || 0])),
       timestamp: $("timestamp").checked, timezone,
       live_protocol: $("liveProtocol").value,
       camera_audio_enabled: $("cameraAudioEnabled").checked,

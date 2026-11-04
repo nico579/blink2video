@@ -20,6 +20,59 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
 - **Signature de code des exécutables.** Candidature SignPath Foundation soumise le 2026-08-29, en
   attente de réponse.
 
+- **Recherche de ville commune, avec autocomplétion (lidar2map, hike2gpx).** Demandé par Nico le
+  2026-10-22 : aligner hike2gpx sur lidar2map, avec autocomplétion, dans le commun, et favoriser les
+  villes proches de la zone affichée. Aujourd'hui, les deux applications font chacune la leur.
+  lidar2map complète au fil de la saisie : en France par la Géoplateforme
+  (`data.geopf.fr/geocodage`, `autocomplete=1`), ailleurs par Nominatim, restreint au pays choisi.
+  hike2gpx (0.2.3, PR hike2gpx#28) cherche à la validation seulement : les communes françaises par
+  `geo.api.gouv.fr`, puis Nominatim pour le reste du monde. gpxsolar ne fait que du géocodage
+  inverse et n'est pas concerné.
+  Point à corriger au passage : la politique de Nominatim interdit l'autocomplétion sur son service
+  public (« you must not implement such a service on the client side using the API »). lidar2map
+  l'enfreint hors de France. L'outil courant pour ça est Photon (`photon.komoot.io`), le géocodeur
+  OSM de Komoot conçu pour la saisie au fil de l'eau.
+  Proposition :
+  - un module du commun, côté serveur, qui relaie (User-Agent identifiable, pas de dépendance au
+    CORS) : la Géoplateforme en France, Photon ailleurs ;
+  - un composant de page commun (`/nico579-ville.js`, comme le bandeau de mise à jour), avec
+    délai de frappe, réponses périmées ignorées et petit cache ;
+  - la proximité comme priorité, pas comme filtre : la page envoie le centre de la carte, et les deux
+    services savent faire remonter les lieux proches (`lat`/`lon`). Depuis le Var, « Mad » propose
+    alors Madriat avant Madrid, mais « Madrid » reste trouvable. Restreindre aux pays voisins aurait
+    caché Madrid à quelqu'un qui prépare un voyage depuis chez lui ; lidar2map garde en plus son
+    sélecteur de pays, qui reste un vrai filtre ;
+  - Nominatim reste possible pour une recherche validée, une requête à la fois, jamais à la frappe.
+  Ordre : le commun d'abord, puis hike2gpx, puis lidar2map, lors de la passe finale sur les projets.
+
+- **Enfants qui meurent avec leur application : brancher `nico579_commons.enfants` dans tous les projets.**
+  Demandé par Nico le 2026-10-20, après trois moteurs BRouter de hike2gpx restés orphelins (console
+  fermée, processus tué), jusqu'à 768 Mo chacun. Le module du commun (0.6.0, PR nico579-commons #24)
+  fait mourir un enfant avec son application, de quelque façon qu'elle meure : job Windows, ligne de vie
+  et groupe de processus sous Linux et macOS, éprouvé en CI sur les quatre systèmes.
+  `enfants.demarrer()` remplace `subprocess.Popen`, `enfants.lancer()` remplace `subprocess.run`.
+  Les bornes du commun vont jusqu'à `<1` depuis le 2026-10-20 (décision 7 du 2026-09-29) : adopter
+  le module, c'est monter son verrou à 0.6.0 (`uv pip compile ... --upgrade-package nico579-commons`).
+  Seul gpx2elev 0.6.4, déjà sur PyPI, dit encore `<0.7` : sa borne `<1` y arrivera avec sa prochaine
+  release.
+  hike2gpx est le premier branché (BRouter, créateur de tuiles, import Geofabrik), fait le
+  2026-10-20 (hike2gpx #15 ; gpx2elev 0.6.4 a dû relever sa borne du commun, `<0.7`, pour que les
+  deux s'installent ensemble). Relevé du même jour pour les autres : blink2video, les ffmpeg de `merge_daily.py`
+  (`runtime.demarrer` et les `runtime.lancer` des fusions ; même vocabulaire, seul le module change), et
+  les verbes que lance le superviseur « start » (`blink_cli.py`), à décider ; gpxsolar, le calcul lancé
+  par `subprocess.Popen` (`self._proc`, déjà dans son propre groupe pour le bouton Arrêter) ; lidar2map
+  et gpx2elev ne lancent aucun processus ; watch2notif seulement des commandes brèves (pare-feu,
+  appairage). Ne jamais y passer ce qui doit survivre à l'application : Redémarrer (`relance`), le
+  démarrage automatique, la mise à jour, le navigateur.
+
+- **Issue #40 (MCas86) : trois réglages promis le 2026-10-19.** Le titre de l'en-tête, et pourquoi
+  pas l'icône, réglables : il les avait changés dans le code pour distinguer son instance, et une mise
+  à jour écraserait ces changements. La dernière vue ouverte retenue par navigateur, plutôt qu'une vue
+  par défaut unique : l'écran mural rouvre la ronde, le navigateur du bureau la vue Direct. Les
+  caméras hors ligne en fin de liste. Une page ne peut pas passer seule en plein écran à son
+  chargement, il faut un clic : pour un écran mural, le mode kiosque de Chromium ou d'Edge
+  (`--kiosk`), conseillé dans la même réponse.
+
 ## En attente d'un retour ou d'un cas réel
 
 - **Audit du 2026-10-02 (0.15.7) : 13 constats restants, aucun correctif prévu.**
@@ -53,6 +106,23 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
   fenêtre égale.** Markus pense que cela dépend de la largeur de la ligne d'informations du haut. À
   vérifier : si cela se confirme, c'est un défaut de mise en page, pas un choix. Tri, taille et
   masquage sont en 0.16.0.
+
+- **Issue #40 (MCas86) : lire de lui-même le clip qui vient d'être filmé.** Proposé le 2026-10-20
+  pour un écran mural (Raspberry Pi, Chromium en kiosque) : système armé, mouvement, enregistrement,
+  puis lecture une seule fois. Principe accepté dans la réponse du même jour, codage reporté par
+  Nico. Deux questions posées à MCas86 en fixeront le comportement : plusieurs clips arrivés ensemble
+  se lisent-ils l'un après l'autre, du plus ancien au plus récent, et la ronde reprend-elle ensuite
+  là où elle en était ?
+  Ce qui existe : « armé » va de soi, puisque seuls comptent les clips de détection (`kind` « clip »,
+  jamais les enregistrements du direct) ; la page voit déjà arriver les nouveaux clips
+  (`/api/passages` toutes les 60 s, comparé à `total_known.clip`). À faire, côté page seulement : une
+  case « Lire les nouveaux clips à leur arrivée », retenue par navigateur ; un lecteur posé par-dessus
+  la vue, et logé dans l'élément en plein écran s'il y en a un (`#ronde` pendant la ronde, la case
+  d'un direct agrandi), sans quoi il resterait invisible ; une lecture muette, car le son exige un
+  clic (sauf Chromium lancé avec `--autoplay-policy=no-user-gesture-required`) ; un sondage resserré,
+  vers 10 s, quand la case est cochée. Aucun appel de plus vers Blink, donc rien pour les batteries.
+  Délai réel : une à deux minutes après la fin du clip pour le cloud (relève à la minute), dix
+  minutes par défaut pour l'USB, qui attend en plus la fin de la ronde.
 
 - **Vignettes : une borne sur la file d'attente de serve.** Le reste de l'entrée, faite en 0.18.0 :
   `send_thumb()` laisse chaque requête en attente occuper un fil du serveur. Le test à froid de Joël

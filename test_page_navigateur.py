@@ -17,6 +17,7 @@ Playwright, le test est sauté ; la CI l'installe (job « navigateur »).
     python test_page_navigateur.py
 """
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -160,13 +161,15 @@ class PageBlink2video(unittest.TestCase):
         self.page.locator("#rondeSecondes").fill("10")
         self.page.locator("#rondeDemarrer").click()
         expect(self.page.locator("#ronde")).to_be_visible()
-        # Garage, hors ligne, est sauté.
-        expect(self.page.locator("#rondeTitre")).to_have_text("jardin · 1/2")
+        # Garage, hors ligne, est sauté. Le titre dit l'attente du réveil, puis,
+        # dès la première image, le décompte du temps d'antenne (PR #113).
+        expect(self.page.locator("#rondeTitre")).to_have_text(re.compile(r"^jardin · 1/2 "))
         expect(self.page.locator("#rondeScene #live-k-jardin video")).to_have_count(1)
         self.page.wait_for_function("() => ronde.image")
+        expect(self.page.locator("#rondeTitre")).to_have_text(re.compile(r"^jardin · 1/2 \(\d+\)$"))
 
         self.page.locator("#rondeSuivante").click()
-        expect(self.page.locator("#rondeTitre")).to_have_text("Terrasse · 2/2")
+        expect(self.page.locator("#rondeTitre")).to_have_text(re.compile(r"^Terrasse · 2/2 "))
         expect(self.page.locator("#list #live-k-jardin")).to_have_count(1)
 
         self.page.locator("#rondeArreter").click()
@@ -177,7 +180,7 @@ class PageBlink2video(unittest.TestCase):
         # Échap arrête aussi, plein écran accordé ou non.
         self.page.locator("#rondeButton").click()
         self.page.locator("#rondeDemarrer").click()
-        expect(self.page.locator("#rondeTitre")).to_have_text("jardin · 1/2")
+        expect(self.page.locator("#rondeTitre")).to_have_text(re.compile(r"^jardin · 1/2 "))
         self.page.keyboard.press("Escape")
         expect(self.page.locator("#ronde")).to_be_hidden()
         expect(self.page.locator("#list .live")).to_have_count(3)

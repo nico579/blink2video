@@ -34,6 +34,13 @@ class TestsApplicationReglagesJS(unittest.TestCase):
             if trouve is None:
                 raise AssertionError(f"fonction {nom}() introuvable")
             sonde.append(trouve.group(0))
+        # Champs de conservation (issue #120), déclarés avec le formulaire.
+        conservation = re.search(
+            r"^const CHAMPS_CONSERVATION = \[.*?^\];", source, re.DOTALL | re.MULTILINE,
+        )
+        if conservation is None:
+            raise AssertionError("CHAMPS_CONSERVATION introuvable")
+        sonde.append(conservation.group(0))
         cls.source = lire_json.group(0) + "\n" + "\n".join(sonde) + "\n" + source[debut:fin]
 
     def _executer(self, **params):
@@ -63,6 +70,12 @@ const elements = Object.fromEntries(Object.entries({
   fontSize: '', fontColor: 'white', boxOpacity: '0.55',
   trustedHost: '100.101.194.5', webhookNotifUrl: 'https://exemple.invalid/notif',
   liveAutoStopSeconds: '0',
+  conservationClips: '',
+  conservationJour: '',
+  conservationSemaine: '',
+  conservationMois: '',
+  conservationDirects: '',
+  conservationPhotos: '',
 }).map(([id, value]) => [id, {value}]));
 for (const [id, checked] of Object.entries({
   cameraAudioEnabled: true,
@@ -235,6 +248,12 @@ function instantane() {
             "trusted_host": "100.101.194.5",
             "webhook_notif_url": "https://exemple.invalid/notif",
             "live_auto_stop_seconds": 0,
+            "conservation_clips": 0,
+            "conservation_jour": 0,
+            "conservation_semaine": 0,
+            "conservation_mois": 0,
+            "conservation_directs": 0,
+            "conservation_photos": 0,
         })
         self._verifier_attente(resultat["apresPost"], 2000, 45000)
         self.assertEqual(resultat["alertes"], [])
@@ -253,6 +272,11 @@ function instantane() {
         )], [False, False, True, False, True])
 
     def test_arret_auto_direct_transmis_en_nombre(self):
+        conservation = self._executer(valeurs={"conservationClips": "30",
+                                               "conservationPhotos": "7"})
+        envoye = json.loads(conservation["requetes"][0]["options"]["body"])
+        self.assertEqual((envoye["conservation_clips"], envoye["conservation_photos"],
+                          envoye["conservation_jour"]), (30, 7, 0))
         resultat = self._executer(valeurs={"liveAutoStopSeconds": "300"})
         payload = json.loads(resultat["requetes"][0]["options"]["body"])
         self.assertEqual(payload["live_auto_stop_seconds"], 300)

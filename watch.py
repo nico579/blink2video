@@ -62,9 +62,9 @@ def _libelles_cameras(etats: list) -> dict:
         nom = etat["name"]
         if noms[nom.casefold()] > 1:
             suffixe = ", ".join(valeur for valeur in (
-                "réseau " + etat["network_id"] if etat.get("network_id") else "",
-                "appareil " + etat["device_id"] if etat.get("device_id") else "",
-            ) if valeur) or "sans identifiant"
+                _msg("suffixe_reseau", id=etat["network_id"]) if etat.get("network_id") else "",
+                _msg("suffixe_appareil", id=etat["device_id"]) if etat.get("device_id") else "",
+            ) if valeur) or _msg("sans_identifiant")
             nom += " [" + suffixe + "]"
             while nom.casefold() in reserves:
                 nom += " (2)"
@@ -193,9 +193,7 @@ async def read_state(timezone) -> dict:
     async with blink_auth.session_http_temporaire() as session:
         blink = await blink_auth.connect_saved(session)
         if blink is None:
-            raise RuntimeError(
-                "session Blink absente ou expirée ; relancer « python blink2video.py login »"
-            )
+            raise RuntimeError(_msg("session_absente"))
         await blink.refresh(force=True)
 
         home = blink.homescreen or {}
@@ -296,6 +294,12 @@ MESSAGES = {
         "aucune": "aucune",
         "titre_test_alerte": "Blink : test d'alerte",
         "corps_test_alerte": "Ceci est un test. La surveillance sait vous joindre.",
+        "suffixe_reseau": "réseau {id}",
+        "suffixe_appareil": "appareil {id}",
+        "sans_identifiant": "sans identifiant",
+        "session_absente": "session Blink absente ou expirée ; relancer « blink2video login »",
+        "interrogation_impossible": "Impossible d'interroger Blink : {erreur}",
+        "exemple_ignore": "  blink2video watch --ignore \"nom de la caméra\"",
     },
     "en": {
         "aide_desc": "Monitors the Blink installation and reports anomalies.",
@@ -335,6 +339,12 @@ MESSAGES = {
         "aucune": "none",
         "titre_test_alerte": "Blink: alert test",
         "corps_test_alerte": "This is a test. Monitoring can reach you.",
+        "suffixe_reseau": "network {id}",
+        "suffixe_appareil": "device {id}",
+        "sans_identifiant": "no identifier",
+        "session_absente": "no Blink session, or it has expired; run “blink2video login” again",
+        "interrogation_impossible": "Could not query Blink: {erreur}",
+        "exemple_ignore": "  blink2video watch --ignore \"camera name\"",
     },
 }
 
@@ -586,7 +596,7 @@ def _controler(args, timezone) -> None:
     try:
         current = asyncio.run(read_state(timezone))
     except Exception as error:
-        message = f"Impossible d'interroger Blink : {error}"
+        message = _msg("interrogation_impossible", erreur=error)
         journal(message)
         popup(_msg("titre_echec"), message)
         return
@@ -626,7 +636,7 @@ def _controler(args, timezone) -> None:
             and _msg("module_hors_ligne", nom=_libelle_module(m, modules)) in alerts]
         if len(a_signaler) < len(alerts):
             corps += ["", _msg("hint_sourdine"),
-                      '  blink2video watch --ignore "nom de la caméra"']
+                      _msg("exemple_ignore")]
         if a_signaler:
             corps += ["", _msg("hint_sourdine_module")]
             corps += [f'  blink2video watch --ignore-module "{cle_module(m)}"'

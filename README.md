@@ -47,6 +47,8 @@ and the main settings.
 - Incremental download of motion-detection clips from the module's local storage
   (Sync Module 2 USB stick or Sync Module XR microSD card)
   and from the subscription cloud, never fetching the same recording twice.
+  Download history is also kept beside `Blink_Clips`, so deleting that folder
+  does not download old recordings again or announce them as new.
 - Camera state at a glance: battery, temperature, signal, model and firmware
   for each camera.
 - Date and time burned into the picture, so any player keeps it. Size,
@@ -462,6 +464,27 @@ everything in one folder of your choice. Coming from 0.13 or earlier, the first
 launch copies the settings and the session over, and the videos stay where
 they are: the videos folder points to them.
 
+### Keeping files for a limited time
+
+Nothing is ever deleted by default. In Settings, "Retention" gives each
+category its own number of days: raw clips, daily, weekly and monthly videos,
+live recordings and snapshots. 0 means keep forever. For example, raw clips
+30, daily videos 90, monthly videos 0 keeps a month of raw footage, three
+months of days, and every month for good.
+
+The assembled videos are made from one another, which sets an order. A daily
+video is rebuilt as long as its raw clips exist, and a weekly or monthly one
+as long as its daily videos do, so each one can only be deleted after what it
+is made of. Raw clips go a whole day at a time, and only once that day's
+video is made; a daily video goes once its raw clips are gone and the weekly
+and monthly videos that contain it exist; a weekly or monthly video goes once
+none of its daily videos remain. Settings refuse an order that could not hold.
+Live recordings and snapshots simply follow the date of each file.
+
+The cleanup runs with the assembly, every five minutes, and also on its own
+when daily assembly is turned off. Deleted clips stay in the download
+history, so they are not downloaded again.
+
 <details>
 <summary>How it works</summary>
 
@@ -583,7 +606,7 @@ assembles, while `serve`, or any verb given `--loop`, holds its own process unti
 | `--camera NAME` | keep only this camera |
 | `--since DAYS` | keep only clips from the last N days |
 | `--output FOLDER` | destination of raw clips (default `Blink_Clips`) |
-| `--overwrite` | replace existing files of a different size |
+| `--overwrite` | redownload previously processed clips, including after a purge |
 | `--from usb\|cloud\|all` | where to look for clips: local storage (USB or microSD), the subscription cloud, or both (default); `usb` is retained as the historical CLI name |
 | `--loop [MINUTES]` | repeat instead of acting once (default 10) |
 
@@ -598,6 +621,8 @@ assembles, while `serve`, or any verb given `--loop`, holds its own process unti
 | `--force` | rebuild everything even if nothing changed |
 | `--no-weekly` | do not rebuild the weekly aggregates |
 | `--no-monthly` | do not rebuild the monthly aggregates |
+| `--keep-clips-days N`, `--keep-daily-days N`, `--keep-weekly-days N`, `--keep-monthly-days N`, `--keep-live-days N`, `--keep-snapshots-days N` | retention per category in days, 0 keeps forever (default); see "Keeping files for a limited time" |
+| `--purge-only` | apply retention only, assemble nothing |
 | `--no-timestamp` | do not burn the date and time into the image |
 | `--preset NAME` | libx264 preset, from `ultrafast` to `veryslow` (default `veryfast`) |
 | `--crf N` | quality, 0 to 51, lower is better (default 21) |

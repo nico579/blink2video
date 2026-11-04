@@ -430,6 +430,20 @@ class TestsRegistreRobuste(BacASable):
         )
         self.assertIs(fusion["clips"]["commun"]["excluded"], True)
 
+    def test_registre_survit_a_la_suppression_du_dossier_de_clips(self):
+        clip = Clip()
+        etat = {"version": 2, "clips": {
+            blink_registre.state_key(Sync(), clip): self._entry(clip, "ancien.mp4"),
+        }}
+        blink_registre.save_download_state(self.sortie, etat)
+        (self.sortie / blink_registre.STATE_FILENAME).unlink()
+        self.sortie.rmdir()
+
+        restaure = blink_registre.load_download_state(self.sortie)
+        self.assertEqual(set(restaure["clips"]), set(etat["clips"]))
+        blink_registre.save_download_state(self.sortie, restaure)
+        self.assertTrue((self.sortie / blink_registre.STATE_FILENAME).is_file())
+
 
 class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -459,7 +473,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
             "excluded": excluded,
         }
 
-    async def _executer(self, clip, entree):
+    async def _executer(self, clip, entree, *, overwrite=False):
         (self.sortie / blink_registre.STATE_FILENAME).write_text(
             json.dumps({"version": 1, "clips": {"ancienne-cle": entree}}),
             encoding="utf-8",
@@ -479,18 +493,26 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
             blink_engine.md, "valid_mp4_complet", side_effect=blink_engine.md.valid_mp4
         ), contextlib.redirect_stdout(io.StringIO()):
             resultat = await blink_engine.traiter_cloud(
-                object(), arguments(self.sortie), []
+                object(), arguments(self.sortie, overwrite=overwrite), []
             )
         return resultat, appels
 
-    async def test_T_B03_MISSING_fichier_absent_normal_est_repare(self):
+    async def test_T_B03_MISSING_fichier_purge_reste_deja_traite(self):
         clip = Clip()
 
         resultat, appels = await self._executer(clip, self._entry(clip))
 
+        self.assertEqual(resultat.downloaded, 0)
+        self.assertEqual(resultat.skipped, 1)
+        self.assertEqual(appels, [])
+
+    async def test_T_B03_MISSING_overwrite_retélécharge(self):
+        clip = Clip()
+        resultat, appels = await self._executer(
+            clip, self._entry(clip), overwrite=True,
+        )
         self.assertEqual(resultat.downloaded, 1)
         self.assertEqual(len(appels), 1)
-        self.assertTrue(blink_models.target_path(self.sortie, clip).is_file())
 
     async def test_T_B03_EXCLUDED_fichier_absent_exclu_est_ignore(self):
         clip = Clip()
@@ -534,7 +556,7 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resultat.skipped, 1)
         self.assertFalse(blink_models.target_path(self.sortie, clip).exists())
 
-    async def test_T_I05_taille_divergente_n_est_pas_readoptee(self):
+    async def test_T_I05_taille_divergente_reste_deja_traitee(self):
         clip = Clip()
         sync_cloud = Sync(clip.network_id, clip.network_id)
         cible = blink_models.target_path(
@@ -568,10 +590,11 @@ class TestsReparationCloud(unittest.IsolatedAsyncioTestCase):
                 object(), arguments(self.sortie), []
             )
 
-        self.assertEqual(resultat.downloaded, 1)
+        self.assertEqual(resultat.downloaded, 0)
+        self.assertEqual(resultat.skipped, 1)
         self.assertEqual(resultat.adopted, 0)
-        self.assertEqual(len(appels), 1)
-        self.assertEqual(cible.read_bytes(), MP4_STRUCTUREL)
+        self.assertEqual(appels, [])
+        self.assertEqual(cible.read_bytes(), b"tronque")
 
     async def test_T_I16_filtre_cloud_A_slash_B_exclut_A_underscore_B(self):
         slash = Clip(1, nom="A/B", device_id="camera-slash")

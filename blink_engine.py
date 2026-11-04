@@ -194,6 +194,9 @@ LIBELLES = {
         "nouveaux_clips": "\nNouveaux clips : {n}",
         "notif_corps_singulier": "{n} nouveau clip récupéré. Cliquez pour ouvrir.",
         "notif_corps_pluriel": "{n} nouveaux clips récupérés. Cliquez pour ouvrir.",
+        "travail_telechargement_clips": "Téléchargement des clips",
+        "travail_inventaire_clips": "Inventaire des clips",
+        "journal_clips_annonces": "{n} clip(s) annoncé(s)",
     },
     "en": {
         "direct_premier_octet": "[direct] {horodatage} {camera}: first video byte from the relay",
@@ -235,6 +238,9 @@ LIBELLES = {
         "nouveaux_clips": "\nNew clips: {n}",
         "notif_corps_singulier": "{n} new clip downloaded. Click to open.",
         "notif_corps_pluriel": "{n} new clips downloaded. Click to open.",
+        "travail_telechargement_clips": "Downloading clips",
+        "travail_inventaire_clips": "Listing clips",
+        "journal_clips_annonces": "{n} clip(s) announced",
     },
 }
 
@@ -300,7 +306,7 @@ class _ProgressionTelechargement:
 
     def _publier(self) -> None:
         runtime.travail(
-            "Téléchargement des clips", self.fait, self.total,
+            msg("travail_telechargement_clips"), self.fait, self.total,
             cle="phase.download_clips",
         )
 
@@ -465,7 +471,7 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
     # alors que le registre garde la trace de tout ce qui a été rapatrié.
     acquises = [
         (cle, entree) for cle, entree in state["clips"].items()
-        if blink_registre._entree_acquise(output, entree)
+        if blink_registre._entree_deja_traitee(entree)
     ]
     connus = [blink_registre._ClipConnu(entree) for _, entree in acquises]
     tombstones = [
@@ -662,7 +668,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
             )
             if (
                 isinstance(entree_connue, dict)
-                and blink_registre._entree_acquise(output, entree_connue)
+                and blink_registre._entree_deja_traitee(entree_connue)
                 and not args.overwrite
             ):
                 consommees.add(cle_connue)
@@ -753,7 +759,7 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
     state = blink_registre.load_download_state(output)
     if args.command == "download":
         runtime.travail(
-            "Inventaire des clips", 0, 0, cle="phase.inventory_clips",
+            msg("travail_inventaire_clips"), 0, 0, cle="phase.inventory_clips",
         )
     plan = await _inventorier_cloud(blink, args, output, state, modules)
     if args.command != "download":
@@ -928,7 +934,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
 
     output = args.output.resolve()
     state = blink_registre.load_download_state(output)
-    runtime.travail("Inventaire des clips", 0, 0,
+    runtime.travail(msg("travail_inventaire_clips"), 0, 0,
                     cle="phase.inventory_clips")
 
     # Phase 1 : tous les manifestes et tous les filtres avant le premier octet
@@ -936,7 +942,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
     plans_usb = []
     for name, sync in ([] if args.source == "cloud" else modules):
         print(msg("stockage_local_inventaire_titre", nom=name))
-        runtime.travail("Inventaire des clips", 0, 0,
+        runtime.travail(msg("travail_inventaire_clips"), 0, 0,
                         cle="phase.inventory_clips")
         try:
             with hub_lock(name):
@@ -968,7 +974,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                 continue
             if (
                 isinstance(entree_connue, dict)
-                and blink_registre._entree_acquise(output, entree_connue)
+                and blink_registre._entree_deja_traitee(entree_connue)
                 and not args.overwrite
             ):
                 continue
@@ -993,7 +999,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
 
     plan_cloud = _PlanCloud()
     if args.source != "usb":
-        runtime.travail("Inventaire des clips", 0, 0,
+        runtime.travail(msg("travail_inventaire_clips"), 0, 0,
                         cle="phase.inventory_clips")
         try:
             plan_cloud = await _inventorier_cloud(blink, args, output, state, modules)
@@ -1159,7 +1165,7 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
             runtime.ajouter_ligne(
                 JOURNAL_TELECHARGEMENTS,
                 f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  notification  "
-                f"{neufs_total} clip(s) annoncé(s)",
+                + msg("journal_clips_annonces", n=neufs_total),
             )
             # Le port configuré, pas 8765 en dur : sans ça, la notification
             # pointait vers la mauvaise page dès que l'utilisateur changeait

@@ -1,5 +1,5 @@
 """Registre incrémental des clips acquis : chargement, fusion, identité,
-corrélation USB/cloud, réparation d'un média absent ou tronqué.
+corrélation USB/cloud et historique durable des téléchargements.
 
 Extrait de blink2video.py à l'étape 8 (AUDIT-2026-08-13.md, section 20, 8.3).
 Ne connaît ni la session Blink, ni comment un clip se télécharge : uniquement
@@ -32,6 +32,11 @@ OUTPUT = runtime.dossier_sorties() / "Blink_Clips"
 STATE_FILENAME = ".blink_download_state.json"
 STATE_V1_BACKUP_FILENAME = ".blink_download_state.v1.backup.json"
 
+
+def _copie_registre(output: Path) -> Path:
+    """Copie hors du dossier de bruts, qui peut être purgé entièrement."""
+    return output.parent / f".{output.name}{STATE_FILENAME}"
+
 # Registre absent : distinct de tout contenu JSON possible, « null » compris.
 _ABSENT = object()
 
@@ -50,16 +55,22 @@ def load_download_state(output: Path) -> dict:
     suivante réessaie) vaut mieux qu'un registre vide, qui fait tout
     retélécharger et, relu avant une écriture, effacerait l'historique.
 
+    Si le dossier de bruts a été supprimé, la copie placée à côté fournit
+    l'historique ; le prochain enregistrement recrée le registre principal.
     Seul un contenu invalide suit encore la stratégie du registre vide (I-10)."""
     state_file = output / STATE_FILENAME
     try:
         state = atomique.lire_json(state_file, _ABSENT, tolerer_corrompu=False)
         if state is _ABSENT:
-            return {"version": 1, "clips": {}}
+            state = atomique.lire_json(
+                _copie_registre(output), _ABSENT, tolerer_corrompu=False,
+            )
+            if state is _ABSENT:
+                return {"version": 1, "clips": {}}
         if not isinstance(state, dict):
-            raise ValueError("la racine JSON doit être un objet")
+            raise ValueError(msg("registre_racine_objet"))
         if state.get("version") not in (1, 2) or not isinstance(state.get("clips"), dict):
-            raise ValueError("format inconnu")
+            raise ValueError(msg("registre_format_inconnu"))
         valides = {}
         ignores = 0
         for cle, entree in state["clips"].items():
@@ -107,13 +118,10 @@ def load_download_state(output: Path) -> dict:
         state["version"] = 2
         return state
     except json.JSONDecodeError:
-        categorie = "données JSON"
+        categorie = msg("registre_categorie_donnees")
     except ValueError:
-        categorie = "schéma JSON"
-    print(
-        f"  ! État incrémental illisible [{categorie}] ; "
-        "les fichiers existants seront vérifiés."
-    )
+        categorie = msg("registre_categorie_schema")
+    print(msg("registre_illisible", categorie=categorie))
     return {"version": 1, "clips": {}}
 
 
@@ -134,6 +142,9 @@ def save_download_state(output: Path, state: dict) -> None:
     with runtime.verrou("registre", "ecriture", stale_after=60, attente=10):
         _sauvegarder_registre_v1(state_file)
         _ecrire_registre(state_file, state)
+        # La copie survit à la suppression du dossier Blink_Clips. L'écriture
+        # atomique et le même verrou empêchent une copie partielle ou ancienne.
+        atomique.ecrire_json(_copie_registre(output), state)
 
 
 def _sauvegarder_registre_v1(state_file: Path) -> None:
@@ -144,9 +155,7 @@ def _sauvegarder_registre_v1(state_file: Path) -> None:
     try:
         ancien = atomique.lire_json(state_file, None, tolerer_corrompu=False)
     except json.JSONDecodeError as erreur:
-        raise OSError(
-            "migration v2 annulée : sauvegarde du registre v1 impossible"
-        ) from erreur
+        raise OSError(msg("registre_migration_annulee")) from erreur
     if not isinstance(ancien, dict) or ancien.get("version") != 1:
         return
     try:
@@ -155,17 +164,15 @@ def _sauvegarder_registre_v1(state_file: Path) -> None:
             sauvegarde = backup.read_bytes()
             chargee = json.loads(sauvegarde)
             if not isinstance(chargee, dict) or chargee.get("version") != 1:
-                raise OSError("sauvegarde v1 invalide")
+                raise OSError(msg("registre_sauvegarde_invalide"))
             return
         temporaire = backup.with_suffix(backup.suffix + ".tmp")
         temporaire.write_bytes(brut)
         temporaire.replace(backup)
         if backup.read_bytes() != brut:
-            raise OSError("sauvegarde v1 non vérifiable")
+            raise OSError(msg("registre_sauvegarde_non_verifiable"))
     except (OSError, json.JSONDecodeError) as erreur:
-        raise OSError(
-            "migration v2 annulée : sauvegarde du registre v1 impossible"
-        ) from erreur
+        raise OSError(msg("registre_migration_annulee")) from erreur
 
 
 def _exclusion_a_retenir(precedente: dict, entree: dict) -> tuple:
@@ -219,6 +226,17 @@ def _ecrire_registre(state_file: Path, state: dict) -> None:
                 entree["excluded"] = excluded
                 if excluded_at is not None:
                     entree["excluded_at"] = excluded_at
+            # Purge par la conservation (issue #120, merge_daily.purger_anciens) :
+            # le brut n'existe plus, le marqueur ne doit jamais reculer devant
+            # une copie de téléchargeur antérieure à la purge.
+            # Une purge manuelle (merge_daily.suivre_purges_manuelles) garde sa
+            # marque avec elle : c'est ce qui la rend réversible.
+            purge = precedente.get("purged_at")
+            if purge and not entree.get("purged_at"):
+                entree = dict(entree)
+                entree["purged_at"] = purge
+                if precedente.get("purge_manuelle"):
+                    entree["purge_manuelle"] = True
         clips[cle] = entree
     fusionne["clips"] = clips
     fusionne["version"] = max(
@@ -666,4 +684,11 @@ def _entree_acquise(output: Path, entree: dict) -> bool:
     annoncee = entree.get("bytes")
     return taille > 0 and (
         not isinstance(annoncee, int) or annoncee <= 0 or taille == annoncee
+    )
+
+
+def _entree_deja_traitee(entree: dict) -> bool:
+    """Un clip déjà téléchargé reste connu même après une purge des bruts."""
+    return isinstance(entree, dict) and (
+        bool(entree.get("excluded")) or bool(entree.get("path"))
     )

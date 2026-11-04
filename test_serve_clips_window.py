@@ -248,6 +248,27 @@ class NombreClipsConnusTests(BacASable):
         self.assertEqual(serve.nombre_clips_connus(serve.read_entries(self.paths)), 2)
         self.assertEqual(galerie["total_known"]["clip"], 2)
 
+    def test_un_clip_purge_ni_montre_ni_compte(self) -> None:
+        # Issue #120, MarkusKress (2026-11-03) : après la conservation, plus
+        # de 4 600 entrées sans vidéo, des clips d'août purgés depuis. Le
+        # registre garde un clip purgé (pour ne pas le retélécharger), la
+        # galerie ne doit plus le montrer ni le compter, des deux côtés.
+        purge = self.entree("p.mp4", "2026-09-20T12:00:00+00:00")
+        purge["purged_at"] = "2026-11-03T02:00:00+00:00"
+        manuel = self.entree("m.mp4", "2026-09-20T13:00:00+00:00")
+        manuel.update(purged_at="2026-11-03T02:00:00+00:00", purge_manuelle=True)
+        self.ecrire_registre({
+            "a.mp4": self.entree("a.mp4", "2026-09-20T12:00:00+00:00"),
+            "p.mp4": purge,
+            "m.mp4": manuel,
+        })
+
+        galerie = serve.collect(self.paths, self.timezone, depuis=None)
+
+        self.assertEqual([c["identity"] for c in galerie["clips"] if c["kind"] == "clip"], ["a.mp4"])
+        self.assertEqual(galerie["total_known"]["clip"], 1)
+        self.assertEqual(serve.nombre_clips_connus(serve.read_entries(self.paths)), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

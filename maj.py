@@ -96,6 +96,8 @@ LIBELLES = {
             "Échec de la mise à jour : le nouvel exécutable n'a pas démarré correctement.",
         "echec_maj_exception": "Échec de la mise à jour : {type}: {erreur}",
         "version_disponible": "Version {version} disponible (vous avez {actuelle}) : {page}",
+        "travail_maj_telechargement": "Téléchargement de la mise à jour ({mo} Mo)",
+        "travail_maj_installation": "Installation de la mise à jour",
     },
     "en": {
         "aide_desc": "Install the latest published release.",
@@ -148,6 +150,8 @@ LIBELLES = {
             "Update failed: the new executable did not start correctly.",
         "echec_maj_exception": "Update failed: {type}: {erreur}",
         "version_disponible": "Version {version} available (you have {actuelle}): {page}",
+        "travail_maj_telechargement": "Downloading the update ({mo} MB)",
+        "travail_maj_installation": "Installing the update",
     },
 }
 
@@ -395,7 +399,7 @@ def _telecharger(url: str, destination: Path, taille: int, sha256: str) -> None:
     montre déjà cette barre, il n'y avait rien à inventer."""
     def progression(recu: int, total: int) -> None:
         runtime.travail(
-            f"Téléchargement de la mise à jour ({recu // (1024 * 1024)} Mo)",
+            msg("travail_maj_telechargement", mo=recu // (1024 * 1024)),
             recu / (1024 * 1024), total / (1024 * 1024), cle="phase.update_download")
 
     with _en_langue_courante():
@@ -814,7 +818,7 @@ def installer(force: bool = False) -> int:
         travail = _creer_dossier_travail(installe, neuve["version"])
         fichier = travail / nom_archive
         _telecharger(str(archive["url"]), fichier, taille, empreinte)
-        runtime.travail("Installation de la mise à jour", 0, 0, cle="phase.update_install")
+        runtime.travail(msg("travail_maj_installation"), 0, 0, cle="phase.update_install")
         dossier = _extraire(fichier, travail / "contenu")
         _rendre_executable(dossier)
         if not _verifier(dossier, neuve["version"]):
@@ -968,7 +972,7 @@ def _installer_commun() -> int:
         etat = installateur.etat()
         if etat["etat"] == "telechargement" and etat["total"]:
             runtime.travail(
-                f"Téléchargement de la mise à jour ({etat['recu'] // (1024 * 1024)} Mo)",
+                msg("travail_maj_telechargement", mo=etat["recu"] // (1024 * 1024)),
                 etat["recu"] / (1024 * 1024), etat["total"] / (1024 * 1024),
                 cle="phase.update_download")
         time.sleep(0.5)

@@ -40,7 +40,7 @@ import _amorcage
 # workflow de release refuse une étiquette qui ne lui correspond pas. Un binaire
 # doit pouvoir dire ce qu'il est, ne serait-ce que pour qu'un rapport de bogue
 # soit exploitable.
-VERSION = "0.24.2"
+VERSION = "0.26.2"
 WINDOWS7_BUILD_MARKER = "windows7-build.txt"
 
 
@@ -77,6 +77,40 @@ REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timesta
                    "live_auto_stop_seconds": 0,
                    # Vide : dossier par défaut, voir dossier_sorties().
                    "dossier_sorties": ""}
+# Conservation par catégorie, en jours (issue #120) : 0 garde pour toujours,
+# le comportement de toujours, donc la valeur par défaut. La purge elle-même
+# est dans merge_daily.purger_anciens().
+CONSERVATION = ("conservation_clips", "conservation_jour", "conservation_semaine",
+                "conservation_mois", "conservation_directs", "conservation_photos")
+CONSERVATION_MAX_JOURS = 3650
+# Plafond d'une session de direct (serve.LIVE_MAX_SECONDS le reprend). Blink
+# la ferme lui-même au bout d'environ six minutes de vidéo : son relais coupe
+# la connexion, mesuré le 2026-09-28 sur une Mini et une Outdoor (356 à 375 s
+# de flux, 6:01 selon ffmpeg), sans qu'il faille jamais « Continuer ». Sept
+# minutes le laissent aller au bout, et restent un filet si ce relais ne
+# fermait jamais. Au-delà, la case « Direct continu » de la page ouvre une
+# nouvelle session.
+DIRECT_MAX_SECONDES = 420
+REGLAGES_DEFAUT.update({champ: 0 for champ in CONSERVATION})
+# Chaque vidéo assemblée est refaite à partir de ce dont elle est faite tant
+# que cette matière existe : une journalière effacée alors que ses clips
+# bruts sont encore là revient au passage suivant, une mensuelle effacée
+# alors que ses journalières restent aussi. Un niveau ne peut donc pas être
+# gardé moins longtemps que sa source, et suppose qu'elle soit purgée.
+SOURCE_CONSERVATION = {"conservation_jour": "conservation_clips",
+                       "conservation_semaine": "conservation_jour",
+                       "conservation_mois": "conservation_jour"}
+
+
+def ordre_conservation_invalide(reglages: dict):
+    """(niveau, source) du premier niveau gardé moins longtemps que sa
+    source, ou dont la source est gardée pour toujours ; None si l'ordre
+    tient."""
+    for champ, source in SOURCE_CONSERVATION.items():
+        jours = int(reglages.get(champ) or 0)
+        if jours and not 0 < int(reglages.get(source) or 0) <= jours:
+            return champ, source
+    return None
 # Remplace la variable d'environnement BLINK_DIRECT_WEBRTC (experimentale,
 # BACKLOG.md 2026-09-03) une fois WebRTC valide en usage reel : un vrai
 # reglage, pas juste une variable a poser avant de lancer le serveur. "mse"
@@ -205,12 +239,15 @@ def lire_reglages() -> dict:
             "trusted_host", REGLAGES_DEFAUT["trusted_host"])).strip(),
         "webhook_notif_url": str(valeurs.get(
             "webhook_notif_url", REGLAGES_DEFAUT["webhook_notif_url"])).strip(),
-        # 300 = LIVE_MAX_SECONDS (serve.py), le plafond dur qui coupe de
-        # toute façon chaque direct : au-delà, le réglage serait inopérant.
+        # Le plafond dur qui coupe de toute façon chaque direct : au-delà, le
+        # réglage serait inopérant. Une copie à 300 en dur ici, restée quand
+        # le plafond est passé à 420, relisait 301 à 420 s comme 0.
         "live_auto_stop_seconds": _entier_borne(
             valeurs, "live_auto_stop_seconds",
-            REGLAGES_DEFAUT["live_auto_stop_seconds"], 0, 300),
+            REGLAGES_DEFAUT["live_auto_stop_seconds"], 0, DIRECT_MAX_SECONDES),
         "dossier_sorties": str(valeurs.get("dossier_sorties") or "").strip(),
+        **{champ: _entier_borne(valeurs, champ, 0, 0, CONSERVATION_MAX_JOURS)
+           for champ in CONSERVATION},
     }
 
 
@@ -245,7 +282,11 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
                     webhook_notif_url: str = "",
                     live_auto_stop_seconds: int = 0,
                     dossier_sorties: str | None = None,
-                    dossier: Path | None = None) -> None:
+                    dossier: Path | None = None,
+                    **conservation) -> None:
+    inconnus = set(conservation) - set(CONSERVATION)
+    if inconnus:
+        raise TypeError(f"ecrire_reglages: {sorted(inconnus)}")
     cible = (app_dir() if dossier is None else dossier) / REGLAGES
     try:
         actuel = json.loads(cible.read_text(encoding="utf-8"))
@@ -278,6 +319,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
         "webhook_notif_url": str(webhook_notif_url).strip(),
         "live_auto_stop_seconds": int(live_auto_stop_seconds),
         "dossier_sorties": str(dossier_sorties).strip(),
+        **{champ: int(conservation.get(champ, 0) or 0) for champ in CONSERVATION},
     }))
 
 
@@ -330,12 +372,48 @@ _LIBELLES_RUNTIME = {
         "tour_interrompu": "Tour interrompu par une erreur, nouvel essai au prochain : {erreur}",
         "arret": "\nArrêt.",
         "aide_loop": "répéter toutes les N minutes au lieu d'agir une fois (défaut 10)",
+        "reprise_reportee": "Reprise de l'état reportée : {erreur}",
+        "echec_marqueur_restauration": "Échec du marqueur initial et de la restauration des réglages : {detail}",
+        "arret_en_cours": "arrêt en cours",
+        "purge_verrou_en_cours": "purge du verrou déjà en cours pour « {owner} »",
+        "verrou_reserve": "déjà réservé par « {owner} » (pid {pid}) depuis {age} s",
+        "pas_un_verbe": "« {element} » n'est pas un verbe",
+        "cadence_entiere": "la cadence doit être un nombre entier de minutes",
+        "cadence_positive": "la cadence doit être strictement supérieure à zéro",
+        "jours_entier": "le nombre de jours doit être un entier",
+        "jours_positifs": "le nombre de jours doit être positif ou nul",
+        "port_entier": "le port doit être un nombre entier",
+        "port_plage": "le port doit être compris entre 1 et 65535",
+        "journal_repetition": "répétition toutes les {minutes} min",
+        "journal_tour_interrompu": "tour interrompu par une erreur, nouvel essai au prochain : {erreur}",
+        "journal_arret_repetition": "arrêt de la répétition",
+        "verrou_inaccessible": "verrou en cours de suppression ou inaccessible : {fichier}",
+        "publication_en_cours": "publication de progression en cours",
+        "verbe_inconnu": "verbe inconnu : {verbe}",
     },
     "en": {
         "repetition": "Repeating every {minutes} min. Ctrl+C to stop.",
         "tour_interrompu": "Run interrupted by an error, retrying next time: {erreur}",
         "arret": "\nStopped.",
         "aide_loop": "repeat every N minutes instead of running once (default 10)",
+        "reprise_reportee": "State recovery postponed: {erreur}",
+        "echec_marqueur_restauration": "Initial marker failed and settings could not be restored: {detail}",
+        "arret_en_cours": "shutting down",
+        "purge_verrou_en_cours": "lock cleanup already in progress for “{owner}”",
+        "verrou_reserve": "already reserved by “{owner}” (pid {pid}) for {age} s",
+        "pas_un_verbe": "“{element}” is not a verb",
+        "cadence_entiere": "the interval must be a whole number of minutes",
+        "cadence_positive": "the interval must be greater than zero",
+        "jours_entier": "the number of days must be a whole number",
+        "jours_positifs": "the number of days must be zero or more",
+        "port_entier": "the port must be a whole number",
+        "port_plage": "the port must be between 1 and 65535",
+        "journal_repetition": "repeating every {minutes} min",
+        "journal_tour_interrompu": "run interrupted by an error, retrying next time: {erreur}",
+        "journal_arret_repetition": "repetition stopped",
+        "verrou_inaccessible": "lock being removed or not accessible: {fichier}",
+        "publication_en_cours": "progress publication in progress",
+        "verbe_inconnu": "unknown verb: {verbe}",
     },
 }
 
@@ -429,7 +507,22 @@ def options_fusion(reglages: dict) -> list:
         options.append("--no-weekly")
     if not reglages["merge_mois"]:
         options.append("--no-monthly")
+    # Seulement les durées choisies : sans conservation, la ligne de
+    # commande reste exactement celle d'avant ce réglage.
+    for champ, option in OPTIONS_CONSERVATION.items():
+        if reglages.get(champ):
+            options += [option, str(reglages[champ])]
     return options
+
+
+OPTIONS_CONSERVATION = {
+    "conservation_clips": "--keep-clips-days",
+    "conservation_jour": "--keep-daily-days",
+    "conservation_semaine": "--keep-weekly-days",
+    "conservation_mois": "--keep-monthly-days",
+    "conservation_directs": "--keep-live-days",
+    "conservation_photos": "--keep-snapshots-days",
+}
 
 
 def standard() -> tuple:
@@ -449,6 +542,10 @@ def standard() -> tuple:
     merge = []
     if c["merge_jour"]:
         merge = ["merge", "--loop", "5", *options_fusion(c)]
+    elif any(c[champ] for champ in CONSERVATION):
+        # Assemblage désactivé mais une durée de conservation choisie : la
+        # même boucle, réduite à la purge (issue #120).
+        merge = ["merge", "--loop", "5", "--purge-only", *options_fusion(c)]
     download = []
     if c["download_auto"]:
         # Un seul worker inventorie d'abord les deux sources : la barre connaît
@@ -720,7 +817,7 @@ def preparer_etat() -> None:
             if not (etat / MARQUEUR_MIGRATION).is_file():
                 _migrer_etat_historique(etat)
     except (OSError, BusyError) as erreur:
-        ajouter_ligne("migration.log", f"Reprise de l'état reportée : {erreur}")
+        ajouter_ligne("migration.log", _msg("reprise_reportee", erreur=erreur))
 
 
 def _copier_si_absent(source: Path, cible: Path) -> bool:
@@ -907,9 +1004,8 @@ def ecrire_dossier_stockage(chemin: str, *, reglages: dict | None = None,
             try:
                 _publier_octets(fichier, precedents)
             except OSError as restauration:
-                raise OSError(
-                    "Échec du marqueur initial et de la restauration des réglages : "
-                    f"{restauration}") from erreur
+                raise OSError(_msg("echec_marqueur_restauration",
+                                   detail=restauration)) from erreur
             raise
 
 
@@ -1336,7 +1432,7 @@ def inscrire_instance(entrees: list, enfants=None) -> Path:
     # encore reconnue, appartient forcément à une session précédente.
     if arret_demande():
         if instances_vivantes:
-            raise BusyError("arrêt en cours")
+            raise BusyError(_msg("arret_en_cours"))
         effacer_arret_demande()
 
     dossier = _dossier_controle() / INSTANCES
@@ -1900,8 +1996,7 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
             if os.name != "nt":
                 raise
             if time.monotonic() >= limite:
-                raise BusyError(f"verrou en cours de suppression ou "
-                                f"inaccessible : {fichier}") from erreur
+                raise BusyError(_msg("verrou_inaccessible", fichier=fichier)) from erreur
             time.sleep(0.05)
             continue
         else:
@@ -1991,8 +2086,8 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
                 # rarement, y est mort avant son finally) : `limite` reste le
                 # seul garde-fou contre une attente indéfinie, même ici.
                 if time.monotonic() >= limite:
-                    raise BusyError(f"purge du verrou déjà en cours pour "
-                                    f"« {presente.get('owner')} »")
+                    raise BusyError(_msg("purge_verrou_en_cours",
+                                         owner=presente.get("owner")))
                 time.sleep(0.05)
                 continue
             try:
@@ -2005,8 +2100,8 @@ def verrou(nom: str, owner: str, stale_after: int = 600, attente: int = 0,
 
         if time.monotonic() >= limite:
             age = time.time() - float(presente.get("at") or 0)
-            raise BusyError(f"déjà réservé par « {presente.get('owner')} » "
-                            f"(pid {presente.get('pid')}) depuis {int(age)} s")
+            raise BusyError(_msg("verrou_reserve", owner=presente.get("owner"),
+                                 pid=presente.get("pid"), age=int(age)))
         time.sleep(1)
 
     try:
@@ -2124,7 +2219,7 @@ def _verrou_travail(cible: Path, attente: float = 0.25):
         pile.enter_context(atomique.verrou_inter_processus(
             cible.parent / TRAVAIL.stem, delai_s=max(0, attente)))
     except TimeoutError as exc:
-        raise BusyError("publication de progression en cours") from exc
+        raise BusyError(_msg("publication_en_cours")) from exc
     with pile:
         yield
 
@@ -2179,8 +2274,9 @@ def travail(quoi: str, fait: float = 0, total: int = 0, cle: str | None = None) 
     le seul point où elle peut apprendre qu'un calcul occupe la machine, et où
     il en est. Écrit à chaque clip, effacé à la fin.
 
-    `quoi` reste le texte français en dur, pour les appelants qui n'affichent
-    rien (journaux, terminal) : ne pas leur imposer de traduction. `cle` est
+    `quoi` arrive déjà traduit par l'appelant (msg(), langue de la page au
+    moment de l'écriture), pour qui le lit sans dictionnaire : serveur,
+    journaux, terminal (issue #121, il restait en français). `cle` est
     une étiquette stable, optionnelle, que la page web utilise pour retrouver
     l'équivalent anglais dans son propre dictionnaire (I18N) sans que ce
     fichier n'ait besoin d'en connaître la traduction lui-même - un texte
@@ -2378,7 +2474,7 @@ def decouper_verbes(arguments) -> list:
             indice += 1
             continue
         if not groupes:
-            raise ValueError(f"« {element} » n'est pas un verbe")
+            raise ValueError(_msg("pas_un_verbe", element=element))
         groupes[-1].append(element)
         indice += 1
         if (element == "--trusted-host" and indice < total
@@ -2406,11 +2502,11 @@ def cadence_positive(valeur: str) -> int:
         minutes = int(valeur)
     except (TypeError, ValueError) as exc:
         raise argparse.ArgumentTypeError(
-            "la cadence doit être un nombre entier de minutes"
+            _msg("cadence_entiere")
         ) from exc
     if minutes <= 0:
         raise argparse.ArgumentTypeError(
-            "la cadence doit être strictement supérieure à zéro"
+            _msg("cadence_positive")
         )
     return minutes
 
@@ -2421,11 +2517,11 @@ def jours_non_negatifs(valeur: str) -> int:
         jours = int(valeur)
     except (TypeError, ValueError) as exc:
         raise argparse.ArgumentTypeError(
-            "le nombre de jours doit être un entier"
+            _msg("jours_entier")
         ) from exc
     if jours < 0:
         raise argparse.ArgumentTypeError(
-            "le nombre de jours doit être positif ou nul"
+            _msg("jours_positifs")
         )
     return jours
 
@@ -2436,11 +2532,11 @@ def port_valide(valeur: str) -> int:
         port = int(valeur)
     except (TypeError, ValueError) as exc:
         raise argparse.ArgumentTypeError(
-            "le port doit être un nombre entier"
+            _msg("port_entier")
         ) from exc
     if not 1 <= port <= 65535:
         raise argparse.ArgumentTypeError(
-            "le port doit être compris entre 1 et 65535"
+            _msg("port_plage")
         )
     return port
 
@@ -2476,7 +2572,7 @@ def repeter(travail, minutes, journal=None) -> int:
         return int(travail() or 0)
     print(_msg("repetition", minutes=minutes))
     if journal:
-        journal(f"repetition toutes les {minutes} min")
+        journal(_msg("journal_repetition", minutes=minutes))
     periode = minutes * 60
     try:
         while not arret_demande():
@@ -2488,7 +2584,7 @@ def repeter(travail, minutes, journal=None) -> int:
                 # sa forme technique habituelle comme ses autres entrées ici.
                 print(_msg("tour_interrompu", erreur=erreur))
                 if journal:
-                    journal(f"tour interrompu par une erreur, on reessaie au prochain : {erreur}")
+                    journal(_msg("journal_tour_interrompu", erreur=erreur))
             # Sommeil scindé en tranches courtes : sans ça, un arrêt demandé
             # pendant l'attente entre deux tours ne serait vu qu'à l'échéance
             # complète (jusqu'à `minutes` d'attente), pas dans la seconde
@@ -2500,7 +2596,7 @@ def repeter(travail, minutes, journal=None) -> int:
                 time.sleep(min(1.0, reste))
     except KeyboardInterrupt:
         if journal:
-            journal("arret de la repetition")
+            journal(_msg("journal_arret_repetition"))
         print(_msg("arret"))
     else:
         if journal:
@@ -2529,7 +2625,7 @@ def self_command(verb: str, *arguments: str) -> list:
     if frozen():
         return [sys.executable, verb, *arguments]
     if verb not in VERBES:
-        raise ValueError(f"verbe inconnu : {verb}")
+        raise ValueError(_msg("verbe_inconnu", verbe=verb))
     module = VERBES[verb].module
     base = [sys.executable, "-u",
             str(Path(__file__).resolve().parent / f"{module}.py")]

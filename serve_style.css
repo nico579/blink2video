@@ -125,6 +125,9 @@
                 display:flex; align-items:center; gap:10px; padding:10px 14px;
                 background:linear-gradient(rgba(0,0,0,.7), transparent); }
   #rondeTitre { margin-right:auto; font-weight:600; }
+  .ronde-countdown { color:var(--in); font-variant-numeric:tabular-nums;
+                     font-weight:700; margin-left:4px; }
+  .ronde-countdown.waiting { color:var(--out); }
   #rondeMessage { margin:auto; color:var(--dim); text-align:center; padding:0 20px;
                   font-size:18px; }
   #rondeScene { flex:1; min-height:0; display:flex; }

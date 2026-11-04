@@ -383,6 +383,12 @@ def test_arret() -> None:
     # a fait échouer ce test 30 jours pile après son écriture (constaté en
     # réel, 2026-09-12).
     recente = datetime.now(timezone.utc) - timedelta(days=1)
+    # Le fichier du clip doit exister : sans lui, la boucle merge le tient pour
+    # effacé à la main (suivre_purges_manuelles, 0.26.1) et la galerie ne le
+    # montre plus (#120). Un clip absent du disque n'est plus un clip.
+    clip_test = maison / "Blink_Clips" / marque / f"{recente:%Y-%m}" / f"{marque}.mp4"
+    clip_test.parent.mkdir(parents=True, exist_ok=True)
+    clip_test.touch()
     md.save_json(maison / "Blink_Clips" / md.DOWNLOAD_STATE, {
         "version": 1,
         "clips": {

@@ -29,6 +29,7 @@ def extraire(motif: str) -> str:
 FONCTIONS = [
     "normaliserReglagesRonde", "lireReglagesRonde", "enregistrerReglagesRonde",
     "dansPlageRonde", "camerasGrille", "camerasRonde", "afficherMessageRonde",
+    "arreterDecompteRonde", "peindreTitreRonde", "demarrerDecompteRonde",
     "armerTourRonde", "imageEnCoursRonde", "rendreCaseRonde", "tourDeRonde",
     "surImageRonde", "demarrerRonde", "arreterRonde", "surPleinEcranRonde",
 ]
@@ -215,7 +216,8 @@ sortie.retour = journal.splice(0);
 """, masquees=("D",))
         self.assertTrue(sortie["plein"])
         self.assertEqual(sortie["a"], {"journal": ["watch:cam-a"], "dansLaScene": True,
-                                       "ancre": "ancre", "attente": 60000, "titre": "A · 1/2"})
+                                       "ancre": "ancre", "attente": 60000,
+                                       "titre": "A · 1/2 ronde.waiting"})
         self.assertEqual(sortie["antenne"], 30000)
         self.assertTrue(sortie["uneSeuleFois"])
         self.assertEqual(sortie["b"], {"journal": ["stop:cam-a", "watch:cam-b"],

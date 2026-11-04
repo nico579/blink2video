@@ -145,6 +145,23 @@ LIBELLES = {
             "@opacité (ex. white@0.8).",
         "taille_police_invalide": "Taille de police invalide : {valeur!r} (8 à 500).",
         "opacite_invalide": "Opacité invalide : {valeur!r} (0.0 à 1.0).",
+        "motif_structure_mp4": "structure=boite MP4 absente, tronquee ou pas une video",
+        "motif_outil_absent": "outil=aucun ffprobe ni ffmpeg disponible",
+        "motif_aucun": "aucune (le fichier est valide)",
+        "motif_diagnostic_impossible": "diagnostic impossible ({erreur})",
+        "travail_preparation_clips": "Préparation des clips",
+        "travail_assemblage_videos": "Assemblage des vidéos",
+        "aide_keep_clips": "effacer les clips bruts après N jours, par journée entière une fois sa journalière faite (0 : garder toujours)",
+        "aide_keep_daily": "effacer les journalières après N jours, une fois leurs bruts effacés (0 : garder toujours)",
+        "aide_keep_weekly": "effacer les hebdomadaires après N jours, une fois leurs journalières effacées (0 : garder toujours)",
+        "aide_keep_monthly": "effacer les mensuelles après N jours, une fois leurs journalières effacées (0 : garder toujours)",
+        "aide_keep_live": "effacer les directs enregistrés après N jours (0 : garder toujours)",
+        "aide_keep_snapshots": "effacer les photos après N jours (0 : garder toujours)",
+        "aide_purge_only": "appliquer seulement la conservation, sans rien assembler",
+        "purge_echec": "Conservation non appliquée à ce passage : {erreur}",
+        "jour_purge_fige": "Figée (clips déjà effacés par la conservation) : {nom}",
+        "purge_resume": "Conservation : {n} fichier(s) effacé(s)",
+        "purges_manuelles": "Clips bruts effacés ou revenus à la main : {n} (journalières gardées telles quelles)",
     },
     "en": {
         "aide_desc":
@@ -248,6 +265,23 @@ LIBELLES = {
             "@opacity (e.g. white@0.8).",
         "taille_police_invalide": "Invalid font size: {valeur!r} (8 to 500).",
         "opacite_invalide": "Invalid opacity: {valeur!r} (0.0 to 1.0).",
+        "motif_structure_mp4": "structure=MP4 box missing, truncated or not a video",
+        "motif_outil_absent": "tool=neither ffprobe nor ffmpeg available",
+        "motif_aucun": "none (the file is valid)",
+        "motif_diagnostic_impossible": "diagnosis impossible ({erreur})",
+        "travail_preparation_clips": "Preparing clips",
+        "travail_assemblage_videos": "Assembling videos",
+        "aide_keep_clips": "delete raw clips after N days, a whole day at a time once its daily video is made (0: keep forever)",
+        "aide_keep_daily": "delete daily videos after N days, once their raw clips are gone (0: keep forever)",
+        "aide_keep_weekly": "delete weekly videos after N days, once their daily videos are gone (0: keep forever)",
+        "aide_keep_monthly": "delete monthly videos after N days, once their daily videos are gone (0: keep forever)",
+        "aide_keep_live": "delete recorded live views after N days (0: keep forever)",
+        "aide_keep_snapshots": "delete snapshots after N days (0: keep forever)",
+        "aide_purge_only": "only apply retention, assemble nothing",
+        "purge_echec": "Retention not applied on this pass: {erreur}",
+        "jour_purge_fige": "Kept as is (clips already deleted by retention): {nom}",
+        "purge_resume": "Retention: {n} file(s) deleted",
+        "purges_manuelles": "Raw clips deleted or brought back by hand: {n} (daily videos kept as they are)",
     },
 }
 
@@ -264,6 +298,15 @@ DEFAULT_WEEKLY = BASE_DIR / "Blink_Weekly"
 DEFAULT_MONTHLY = BASE_DIR / "Blink_Monthly"
 DEFAULT_NORMALIZED = BASE_DIR / "Blink_Normalized"
 DEFAULT_EXCLUDED = BASE_DIR / "Blink_Excluded"
+# Mêmes dossiers que serve.py (DOSSIER_DIRECT, DOSSIER_SNAPSHOTS), lus ici
+# seulement par la conservation (issue #120).
+DEFAULT_LIVE = BASE_DIR / "Blink_Direct"
+DEFAULT_SNAPSHOTS = BASE_DIR / "Blink_Snapshots"
+DEFAUTS_CONSERVATION = {
+    "keep_clips_days": 0, "keep_daily_days": 0, "keep_weekly_days": 0,
+    "keep_monthly_days": 0, "keep_live_days": 0, "keep_snapshots_days": 0,
+    "purge_only": False, "live_output": DEFAULT_LIVE, "snapshots_output": DEFAULT_SNAPSHOTS,
+}
 DOWNLOAD_STATE = ".blink_download_state.json"
 MERGE_STATE = ".blink_merge_state.json"
 NORMALIZED_STATE = ".blink_normalized.json"
@@ -462,10 +505,10 @@ def _motif_refus_mp4_complet(path: Path) -> str:
     booléen, ``raison_refus_mp4`` rend le texte. Les motifs sont des mots-clés
     stables plus, quand la sonde s'est exprimée, sa première ligne utile."""
     if not valid_mp4(path):
-        return "structure=boite MP4 absente, tronquee ou pas une video"
+        return msg("motif_structure_mp4")
     outil = _outil_validation_media()
     if outil is None:
-        return "outil=aucun ffprobe ni ffmpeg disponible"
+        return msg("motif_outil_absent")
     genre, executable = outil
     if genre == "ffprobe":
         commande = [
@@ -527,9 +570,9 @@ def raison_refus_mp4(path: Path) -> str:
     doit pas transformer un échec en plantage. Relance le contrôle, donc à ne
     demander qu'après un refus."""
     try:
-        return _motif_refus_mp4_complet(path) or "aucune (le fichier est valide)"
+        return _motif_refus_mp4_complet(path) or msg("motif_aucun")
     except Exception as erreur:
-        return f"diagnostic impossible ({type(erreur).__name__})"
+        return msg("motif_diagnostic_impossible", erreur=type(erreur).__name__)
 
 
 def load_json(path: Path, default: dict) -> dict:
@@ -869,6 +912,10 @@ def load_groups(input_dir: Path, timezone: ZoneInfo) -> dict:
         except (KeyError, TypeError, ValueError):
             continue
         camera = _camera_key(cles_collision, entry, camera)
+        if entry.get("purged_at"):
+            # Purgé par la conservation : ni clip à assembler, ni journée à
+            # vider (sa journalière reste telle quelle, voir journees_purgees).
+            continue
 
         local_day = created.astimezone(timezone).date().isoformat()
         clips = groups[(camera, local_day)]
@@ -918,7 +965,7 @@ def journees_a_source_indisponible(input_dir: Path, timezone: ZoneInfo) -> tuple
         except (KeyError, TypeError, ValueError):
             continue
         camera = _camera_key(cles_collision, entry, camera)
-        if entry.get("excluded"):
+        if entry.get("excluded") or entry.get("purged_at"):
             continue
         local_day = created.astimezone(timezone).date().isoformat()
         try:
@@ -1826,6 +1873,258 @@ def build_periods(
     return built, skipped, failed
 
 
+def journees_purgees(input_dir: Path, timezone: ZoneInfo) -> set:
+    """(caméra, jour local) ayant au moins un clip purgé par la conservation.
+
+    À distinguer d'une source indisponible (clé USB débranchée, dossier
+    déplacé) : la journée n'est pas en échec, sa journalière est simplement
+    figée, et ses agrégats aussi tant qu'elle manque (periodes_a_proteger)."""
+    entries = read_registry(input_dir / DOWNLOAD_STATE)
+    cles_collision = _cles_camera_par_collision(entries)
+    jours = set()
+    for entry in entries.values():
+        if not isinstance(entry, dict) or not entry.get("purged_at"):
+            continue
+        try:
+            created = parse_created_at(entry["created_at"])
+            camera = str(entry.get("camera") or "camera").strip() or "camera"
+        except (KeyError, TypeError, ValueError):
+            continue
+        camera = _camera_key(cles_collision, entry, camera)
+        jours.add((camera, created.astimezone(timezone).date().isoformat()))
+    return jours
+
+
+def suivre_purges_manuelles(input_dir: Path) -> int:
+    """Note comme purgés les bruts effacés à la main, et lève la note de ceux
+    qui sont revenus ; rend le nombre de changements.
+
+    Vider Blink_Clips à la main est permis depuis #118 : le téléchargement ne
+    les reprend pas. Mais l'assemblage prenait chaque brut absent pour une
+    source débranchée : un échec à chaque passage, et plus jamais
+    d'hebdomadaire ni de mensuelle. Un brut absent alors que son dossier est
+    là est traité comme une purge de la conservation (journalière figée,
+    agrégats protégés), avec la marque purge_manuelle qui la rend
+    réversible : un dossier déplacé puis remis en place retrouve ses clips au
+    passage suivant. Un fichier présent mais illisible reste une source
+    indisponible."""
+    if not input_dir.is_dir():
+        return 0
+    state_path = input_dir / DOWNLOAD_STATE
+    root = input_dir.resolve()
+    changes = 0
+    # Même verrou et même lecture-écriture d'un tenant que set_excluded().
+    with runtime.verrou("registre", "purge manuelle", stale_after=60, attente=10):
+        clips = read_registry(state_path)
+        maintenant = dt.datetime.now(dt.timezone.utc).isoformat()
+        for entry in clips.values():
+            if not isinstance(entry, dict) or entry.get("excluded") or not entry.get("path"):
+                continue
+            try:
+                source = (root / entry["path"]).resolve()
+            except (TypeError, OSError):
+                continue
+            if not runtime.est_relatif_a(source, root):
+                continue
+            present = source.exists()
+            if entry.get("purge_manuelle"):
+                if present:
+                    entry.pop("purged_at", None)
+                    entry.pop("purge_manuelle", None)
+                    changes += 1
+            elif not entry.get("purged_at") and not present:
+                entry["purged_at"] = maintenant
+                entry["purge_manuelle"] = True
+                changes += 1
+        if changes:
+            state = load_json(state_path, {})
+            state["clips"] = clips
+            save_json(state_path, state)
+    if changes:
+        print(msg("purges_manuelles", n=changes))
+    return changes
+
+
+def fin_de_periode(label: str, period: str):
+    """Dernier jour d'une période (« 2026-W07 », « 2026-02 »), None si
+    l'étiquette n'en est pas une."""
+    try:
+        if period == "weekly":
+            annee, semaine = label.split("-W")
+            return dt.date.fromisocalendar(int(annee), int(semaine), 7)
+        annee, mois = label.split("-")
+        suivant = dt.date(int(annee) + int(mois) // 12, int(mois) % 12 + 1, 1)
+        return suivant - dt.timedelta(days=1)
+    except ValueError:
+        return None
+
+
+def _retirer_dossiers_vides(racine: Path) -> None:
+    """Retire les sous-dossiers vidés par la purge, jamais la racine."""
+    if not racine.is_dir():
+        return
+    for dossier in sorted((p for p in racine.rglob("*") if p.is_dir()),
+                          key=lambda p: len(p.parts), reverse=True):
+        try:
+            dossier.rmdir()
+        except OSError:
+            pass  # pas vide, ou tenu ouvert : rien à faire
+
+
+def purger_anciens(args, timezone: ZoneInfo, aujourdhui: dt.date | None = None) -> int:
+    """Conservation par catégorie (issue #120) : efface ce qui a dépassé sa
+    durée, sans jamais laisser l'assemblage refaire ou raccourcir le reste.
+
+    Chaque vidéo assemblée est refaite à partir de ce dont elle est faite
+    tant que cette matière existe. D'où l'ordre et les gardes ci-dessous :
+    - bruts : par journée entière (une journée à moitié purgée serait
+      réassemblée plus courte), seulement quand sa journalière existe et est
+      plus récente que chacun de ses clips (sinon elle ne les contient pas
+      tous) ; sans assemblage (--purge-only), les bruts sont la seule copie
+      et la durée choisie s'applique telle quelle. Le registre garde le clip
+      marqué purgé : il n'est ni retéléchargé (#118), ni pris pour une
+      source débranchée ;
+    - journalières : seulement quand plus aucun brut de la journée ne reste,
+      et que chaque agrégat activé qui la contient existe et est plus récent
+      qu'elle ;
+    - hebdomadaires et mensuelles : seulement quand plus aucune journalière
+      de la période ne reste ;
+    - directs et photos : d'après la date du fichier, rien n'en dépend.
+    Une durée de 0 garde pour toujours."""
+    if not any(getattr(args, nom) for nom in DEFAUTS_CONSERVATION if nom.startswith("keep_")):
+        return 0
+    aujourdhui = aujourdhui or dt.datetime.now(timezone).date()
+    input_dir = args.input.resolve()
+    output_dir = args.output.resolve()
+    periodes = (("weekly", args.weekly_output.resolve(), args.no_weekly,
+                 args.keep_weekly_days),
+                ("monthly", args.monthly_output.resolve(), args.no_monthly,
+                 args.keep_monthly_days))
+
+    def perime(jour: dt.date, jours: int) -> bool:
+        return bool(jours) and (aujourdhui - jour).days > jours
+
+    def mtime(chemin: Path) -> float:
+        try:
+            return chemin.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    def chemin_journaliere(camera_dir: str, jour: dt.date) -> Path:
+        return output_dir / camera_dir / f"{jour.isoformat()}_{camera_dir}.mp4"
+
+    supprimes = 0
+    state_path = input_dir / DOWNLOAD_STATE
+    if args.keep_clips_days:
+        root = input_dir
+        with runtime.verrou("registre", "conservation", stale_after=60, attente=10):
+            clips = read_registry(state_path)
+            cles_collision = _cles_camera_par_collision(clips)
+            par_jour = defaultdict(list)
+            for cle, entry in clips.items():
+                if (not isinstance(entry, dict) or entry.get("purged_at")
+                        or entry.get("excluded") or not entry.get("path")):
+                    continue
+                try:
+                    created = parse_created_at(entry["created_at"])
+                    camera = str(entry.get("camera") or "camera").strip() or "camera"
+                except (KeyError, TypeError, ValueError):
+                    continue
+                camera = _camera_key(cles_collision, entry, camera)
+                par_jour[(camera, created.astimezone(timezone).date())].append(cle)
+            maintenant = dt.datetime.now(dt.timezone.utc).isoformat()
+            purges = 0
+            for (camera, jour), cles in sorted(par_jour.items()):
+                if not perime(jour, args.keep_clips_days):
+                    continue
+                sources = [(root / clips[cle]["path"]).resolve() for cle in cles]
+                if any(not runtime.est_relatif_a(source, root) for source in sources):
+                    continue
+                if not args.purge_only:
+                    journaliere = chemin_journaliere(safe_name(camera), jour)
+                    if (not valid_mp4(journaliere)
+                            or mtime(journaliere) < max(map(mtime, sources))):
+                        continue
+                for cle, source in zip(cles, sources):
+                    source.unlink(missing_ok=True)
+                    clips[cle]["purged_at"] = maintenant
+                    purges += 1
+            if purges:
+                # Comme set_excluded() : état complet relu sous le verrou
+                # tenu sans interruption, seule la table des clips change.
+                state = load_json(state_path, {})
+                state["clips"] = clips
+                save_json(state_path, state)
+                _retirer_dossiers_vides(input_dir)
+            supprimes += purges
+
+    if args.keep_daily_days and output_dir.is_dir():
+        clips = read_registry(state_path)
+        cles_collision = _cles_camera_par_collision(clips)
+        # Une journée dont un brut reste (même momentanément illisible) garde
+        # sa journalière : elle serait refaite, ou c'est peut-être sa seule copie.
+        avec_bruts = set()
+        for entry in clips.values():
+            if (not isinstance(entry, dict) or entry.get("purged_at")
+                    or entry.get("excluded")):
+                continue
+            try:
+                created = parse_created_at(entry["created_at"])
+                camera = str(entry.get("camera") or "camera").strip() or "camera"
+            except (KeyError, TypeError, ValueError):
+                continue
+            camera = _camera_key(cles_collision, entry, camera)
+            avec_bruts.add((safe_name(camera), created.astimezone(timezone).date()))
+        for camera_dir, entrees in collect_dailies(output_dir).items():
+            for jour, video in entrees:
+                if not perime(jour, args.keep_daily_days) or (camera_dir, jour) in avec_bruts:
+                    continue
+                agregats = [period_dir / camera_dir / f"{period_label(jour, period)}_{camera_dir}.mp4"
+                            for period, period_dir, desactive, _ in periodes if not desactive]
+                if any(not valid_mp4(agregat) or mtime(agregat) < mtime(video)
+                       for agregat in agregats):
+                    continue
+                video.unlink(missing_ok=True)
+                supprimes += 1
+        _retirer_dossiers_vides(output_dir)
+
+    for period, period_dir, _, jours_garde in periodes:
+        if not jours_garde or not period_dir.is_dir():
+            continue
+        restantes = {(camera_dir, period_label(jour, period))
+                     for camera_dir, entrees in collect_dailies(output_dir).items()
+                     for jour, _ in entrees}
+        for video in sorted(period_dir.glob("*/*.mp4")):
+            camera_dir = video.parent.name
+            suffixe = f"_{camera_dir}.mp4"
+            if not video.name.endswith(suffixe):
+                continue
+            label = video.name[:-len(suffixe)]
+            fin = fin_de_periode(label, period)
+            if fin is None or not perime(fin, jours_garde) or (camera_dir, label) in restantes:
+                continue
+            video.unlink(missing_ok=True)
+            supprimes += 1
+        _retirer_dossiers_vides(period_dir)
+
+    for racine, motif, jours_garde in ((args.live_output.resolve(), "*.mp4", args.keep_live_days),
+                                       (args.snapshots_output.resolve(), "*.jpg",
+                                        args.keep_snapshots_days)):
+        if not jours_garde or not racine.is_dir():
+            continue
+        limite = time.time() - (jours_garde + 1) * 86400
+        for fichier in racine.rglob(motif):
+            if fichier.is_file() and mtime(fichier) < limite:
+                fichier.unlink(missing_ok=True)
+                supprimes += 1
+        _retirer_dossiers_vides(racine)
+
+    if supprimes:
+        print(msg("purge_resume", n=supprimes))
+        journal(msg("purge_resume", n=supprimes))
+    return supprimes
+
+
 def periodes_a_proteger(indisponibles: set, output_dir: Path, period: str) -> set:
     """Clés « caméra|période » que build_periods() ne doit ni reconstruire ni
     supprimer : celles d'une journée dont un clip brut est indisponible ET
@@ -1903,6 +2202,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-weekly", action="store_true", help=msg("aide_no_weekly"))
     parser.add_argument("--no-monthly", action="store_true", help=msg("aide_no_monthly"))
     parser.add_argument("--no-timestamp", action="store_true", help=msg("aide_no_timestamp"))
+    # Conservation par catégorie (issue #120) : 0, le défaut, garde toujours.
+    for option, cle_aide in (("--keep-clips-days", "aide_keep_clips"),
+                             ("--keep-daily-days", "aide_keep_daily"),
+                             ("--keep-weekly-days", "aide_keep_weekly"),
+                             ("--keep-monthly-days", "aide_keep_monthly"),
+                             ("--keep-live-days", "aide_keep_live"),
+                             ("--keep-snapshots-days", "aide_keep_snapshots")):
+        parser.add_argument(option, type=runtime.jours_non_negatifs, default=0,
+                            metavar="N", help=msg(cle_aide))
+    parser.add_argument("--purge-only", action="store_true", help=msg("aide_purge_only"))
+    parser.add_argument("--live-output", type=Path, default=DEFAULT_LIVE)
+    parser.add_argument("--snapshots-output", type=Path, default=DEFAULT_SNAPSHOTS)
     parser.add_argument(
         "--excluded-output", type=Path, default=DEFAULT_EXCLUDED,
         help=msg("aide_excluded_output"),
@@ -2037,7 +2348,7 @@ def _normaliser_plan(args, plan: dict, pending: set, registry: dict,
                 position += 1
                 print(f"  [{position}/{total}] {identity}", flush=True)
                 report = progress_printer(f"[{position}/{total}]")
-                runtime.travail("Préparation des clips", position - 1, total,
+                runtime.travail(msg("travail_preparation_clips"), position - 1, total,
                                 cle="phase.prepare_clips")
             ok, error, did_encode = normalize_clip(
                 ffmpeg, timezone, registry, normalized_dir, identity, info,
@@ -2097,6 +2408,22 @@ def _executer(args) -> int:
             print(msg("erreur_generique", erreur=error))
             return 1
 
+    # Conservation (issue #120) : avant l'assemblage, sous le même verrou
+    # « merge ». Jamais sur un passage filtré, qui ne voit qu'une partie.
+    # Un Namespace construit sans ces options (appelant direct, tests) vaut
+    # « aucune conservation ».
+    for nom, defaut in DEFAUTS_CONSERVATION.items():
+        if not hasattr(args, nom):
+            setattr(args, nom, defaut)
+    if not (args.date or args.camera):
+        try:
+            suivre_purges_manuelles(args.input.resolve())
+            purger_anciens(args, ZoneInfo(args.timezone))
+        except (OSError, runtime.BusyError, ZoneInfoNotFoundError) as erreur:
+            print(msg("purge_echec", erreur=erreur))
+    if args.purge_only:
+        return 0
+
     style = TimestampStyle(args.font_size, args.font_color, args.box_opacity)
     try:
         timezone = ZoneInfo(args.timezone)
@@ -2110,6 +2437,7 @@ def _executer(args) -> int:
         indisponibles, identites_indisponibles = journees_a_source_indisponible(
             input_dir, timezone
         )
+        purgees = journees_purgees(input_dir, timezone)
     except (RuntimeError, ZoneInfoNotFoundError) as error:
         print(msg("erreur_generique", erreur=error))
         return 1
@@ -2174,6 +2502,13 @@ def _executer(args) -> int:
         camera_path = safe_name(camera)
         destination = output_dir / camera_path / f"{day}_{camera_path}.mp4"
         state_key = f"{camera}|{day}"
+        if (camera, day) in purgees:
+            # Un clip arrivé après la purge de sa journée : la journalière
+            # existante contient déjà le reste, la refaire avec ce seul clip
+            # l'amputerait. Pas un échec, elle est simplement figée.
+            print(msg("jour_purge_fige", nom=destination.name))
+            skipped += 1
+            continue
         if (camera, day) in indisponibles:
             # load_groups() omet les bruts absents/invalides. La liste peut
             # donc être non vide ET incomplète : ne jamais remplacer une
@@ -2223,7 +2558,7 @@ def _executer(args) -> int:
 
         print(msg("jour_assemblage", index=index, total=len(todo), jour=day,
                   camera=camera, clips=len(segments)))
-        runtime.travail("Assemblage des vidéos", index - 1, len(todo),
+        runtime.travail(msg("travail_assemblage_videos"), index - 1, len(todo),
                         cle="phase.assemble_videos")
         ok, error = merge_group(ffmpeg, segments, destination)
         if not ok:
@@ -2274,7 +2609,7 @@ def _executer(args) -> int:
         p_built, p_skipped, p_failed = build_periods(
             ffmpeg, timezone, output_dir, period_dir, period,
             args.force, args.preset, args.crf,
-            proteges=periodes_a_proteger(indisponibles, output_dir, period),
+            proteges=periodes_a_proteger(indisponibles | purgees, output_dir, period),
         )
         failed += p_failed
         print(msg("periode_resume", label=label, built=p_built, skipped=p_skipped,
