@@ -238,3 +238,7 @@
   .pagination form { display:flex; align-items:center; gap:7px; }
   .pagination input { width:5em; font:inherit; color:var(--text); background:var(--card);
                       border:1px solid var(--line); border-radius:7px; padding:7px; }
+  /* « Cette page : Tout écarter / Tout supprimer » (issue #40), en tête des clips de la page. */
+  .selectionPage { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:12px 0 4px; }
+  .selectionPage .act { margin-left:0; display:inline-flex; align-items:center; gap:5px; cursor:pointer; }
+  .selectionPage input { margin:0; cursor:pointer; }
