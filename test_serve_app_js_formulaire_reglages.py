@@ -14,6 +14,7 @@ REGLAGES = {
     "usb_minutes": 17, "cloud_minutes": 3, "port": 8127,
     "storage_dir": "C:/Vidéos & archives/Blink", "timestamp": True,
     "timezone": "Europe/Paris", "live_protocol": "webrtc",
+    "camera_audio_enabled": True, "camera_audio_track": 1,
     "merge_jour": True, "merge_semaine": True, "merge_mois": False,
     "download_auto": True, "initial_setup": False,
     "webhook_token": "jeton-test-abc123",
@@ -41,7 +42,7 @@ class TestsFormulaireReglages(unittest.TestCase):
         fin = source.index('$("filtreButton").onclick', debut)
         fragments = [source[debut:fin]]
         for nom in ("lireJSON", "appliquerDependanceMergeJour", "appliquerDependanceDownloadAuto",
-                   "appliquerDependanceTimestamp"):
+                   "appliquerDependanceTimestamp", "appliquerDependanceAudio"):
             correspondance = re.search(
                 rf"^(?:async )?function {nom}\(.*?^\}}", source, re.DOTALL | re.MULTILINE,
             )
@@ -50,7 +51,7 @@ class TestsFormulaireReglages(unittest.TestCase):
             fragments.append(correspondance.group(0))
         # Conserve aussi les branchements réels des cases, pas des appels de test
         # aux fonctions internes dont le découpage peut évoluer.
-        for identifiant in ("mergeJour", "downloadAuto", "timestamp"):
+        for identifiant in ("mergeJour", "downloadAuto", "timestamp", "cameraAudioEnabled"):
             correspondance = re.search(
                 rf'^\$\("{identifiant}"\)\.onchange = .*?;$', source, re.MULTILINE,
             )
@@ -67,6 +68,7 @@ let rechargements = 0, reponseCourante, libererGet;
 const attenteListes = new Promise(() => {});
 const ids = [
   'usbMinutes', 'cloudMinutes', 'port', 'storageDir', 'timestamp', 'timezone',
+  'cameraAudioEnabled', 'cameraAudioTrack',
   'liveProtocol', 'mergeJour', 'mergeSemaine', 'mergeMois', 'downloadAuto',
   'initialSetupHint', 'reglagesClose', 'stopButton', 'reglages', 'reglagesButton',
   'webhookUrl', 'webhookRegenerer', 'fontSize', 'fontColor', 'boxOpacity',

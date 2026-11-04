@@ -139,6 +139,8 @@ function h(s) {{ return s; }}
 function cssId(name) {{ return name.replace(/[^\\w-]/g, "_"); }}
 function t(cle) {{ return cle; }}
 function recordBtn() {{ return ""; }}
+function audioBtn() {{ return ""; }}
+function preparerAudioVideo() {{}}
 function expandBtn() {{ return ""; }}
 function failWatch() {{}}
 function stopWatch() {{}}

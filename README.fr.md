@@ -37,6 +37,8 @@ lancement et les principaux réglages.
 
 - Visionnage du direct de n'importe quelle caméra dans le navigateur, armement
   du système ou d'une seule caméra.
+- Son de la caméra dans le direct et les enregistrements (Réglages → Vidéo),
+  en sourdine au démarrage avec contrôle d'écoute partagé par page.
 - Enregistrement du direct à la demande, un clic pendant le visionnage :
   conservé dans sa propre archive, consultable et filtrable exactement comme
   les clips de détection (écarter, supprimer, filtre caméra et période).
@@ -85,6 +87,21 @@ en rouge) : un clic pour commencer à sauvegarder le direct dans `Blink_Direct`,
 un clic pour arrêter. Les enregistrements apparaissent dans Directs
 Enregistrements, consultables et filtrables exactement comme les clips de
 détection.
+
+Pour inclure le son de la caméra dans le direct et les enregistrements,
+activez **Réglages → Vidéo → Inclure le son de la caméra dans le direct et
+les enregistrements**. Cette option est désactivée par défaut et concerne les
+nouvelles sessions. Avec le son, le direct utilise le mode compatible MSE,
+qui peut démarrer plus lentement. Utilisez **Écouter/Couper le son** dans le
+direct ou le volume du lecteur des vidéos sauvegardées. Si le canal principal
+reste silencieux, essayez **Alternatif** dans les réglages. Sans piste audio,
+la vidéo reste lisible.
+
+La lecture commence en sourdine. Activer le son d'une vidéo conserve ce choix
+et le volume pour les autres vidéos de la même page, y compris les lecteurs
+recréés pendant le défilement. Changer de vue, de page de galerie ou de filtre,
+ou recharger la page, remet la lecture en sourdine. La sourdine de lecture ne
+change pas le son enregistré. Les anciennes vidéos sans son restent sans son.
 
 ![L'onglet Clips](Screenshots/serve0.fr.PNG)
 

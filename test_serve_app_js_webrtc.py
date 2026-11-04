@@ -6,6 +6,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from test_serve_app_js_audio import audio_source
+
 
 class TestsNavigateurWebRTC(unittest.TestCase):
     @classmethod
@@ -40,6 +42,8 @@ class TestsNavigateurWebRTC(unittest.TestCase):
                 raise AssertionError(avant)
             cls.source = cls.source.replace(avant, apres)
 
+        cls.source = audio_source(source) + "\n" + cls.source
+
     def scenario(self, scenario):
         script = r'''
 const scenario = process.argv[2];
@@ -61,6 +65,7 @@ const signalerDirect = () => {};
 const failWatch = (name, message) => failures.push({name, message});
 const repos = () => 'repos';
 const lireJSON = r => r.json();
+const document = {querySelectorAll: () => []};
 let system = {webrtc: true, systems: []};
 class Video extends EventTarget {
   constructor() { super(); this.srcObject = null; this.readyState = 0; this.videoWidth = 0; }
