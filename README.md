@@ -52,7 +52,7 @@ and the main settings.
 - Camera state at a glance: battery, temperature, signal, model and firmware
   for each camera.
 - Date and time burned into the picture, so any player keeps it. Size,
-  color and background opacity all configurable.
+  color, background opacity and 24h or 12h (AM/PM) clock all configurable.
 - One video per day, per ISO week and per month, for each camera.
 - Uninteresting clips discarded in one click, moved aside rather than deleted,
   and never downloaded again.
@@ -112,7 +112,7 @@ remembered between visits.
 Settings, behind the gear icon: automatic startup with the session, automatic
 page refresh, server port, videos folder with a native folder picker, and local
 storage and cloud polling cadence. Also timestamp burned into the picture
-with its size, color and background opacity, time zone, the live view
+with its size, color, background opacity and 24h/12h clock, time zone, the live view
 protocol (WebRTC or MSE), daily/weekly/monthly archiving toggled
 independently per period, per-camera alert muting,
 automatic deletion after download per camera, and a button to stop the
@@ -630,6 +630,7 @@ assembles, while `serve`, or any verb given `--loop`, holds its own process unti
 | `--font-size N` | timestamp size in pixels, 8 to 500 (default: scales with the video's height) |
 | `--font-color COLOR` | timestamp color: a name (`white`, `yellow`...) or hex (`#RRGGBB`, `0xRRGGBB`), optionally with `@opacity` (e.g. `white@0.8`), default `white` |
 | `--box-opacity N` | opacity of the band behind the timestamp, `0.0` (invisible) to `1.0` (opaque), default `0.55` |
+| `--clock 24h\|12h` | time format of the timestamp: `24h` (`14:05:09`, default) or `12h` (`02:05:09 PM`) |
 | `--timezone ZONE` | time zone of the timestamp (default `Europe/Paris`) |
 | `--input`, `--output`, `--normalized-output`, `--excluded-output`, `--weekly-output`, `--monthly-output` | location of each folder |
 

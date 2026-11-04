@@ -74,6 +74,7 @@ class TestsExecuterRespecteLesDrapeaux(unittest.TestCase):
             font_size=None,
             font_color="white",
             box_opacity=0.55,
+            clock="24h",
             preset="veryfast",
             crf=21,
         )

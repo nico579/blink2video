@@ -173,6 +173,8 @@ const I18N = {
     "reglages.timestamp.style.hint": "Vide = taille automatique selon la hauteur de la vidéo. Couleur : nom (white, yellow…) ou hexadécimal, éventuellement avec une transparence (ex. white@0.8).",
     "reglages.fontSize": "Taille de police", "reglages.fontColor": "Couleur",
     "reglages.boxOpacity": "Opacité du bandeau",
+    "reglages.clock": "Format de l'heure",
+    "reglages.clock.24h": "24 h (14:05:09)", "reglages.clock.12h": "12 h (02:05:09 PM)",
     "reglages.timezone": "Fuseau horaire",
     "reglages.cameraAudio.title": "Audio de la caméra",
     "reglages.cameraAudio": "Inclure le son de la caméra dans le direct et les enregistrements",
@@ -390,6 +392,8 @@ const I18N = {
     "reglages.timestamp.style.hint": "Empty = size automatically scaled to the video's height. Color: a name (white, yellow…) or hex code, optionally with transparency (e.g. white@0.8).",
     "reglages.fontSize": "Font size", "reglages.fontColor": "Color",
     "reglages.boxOpacity": "Box opacity",
+    "reglages.clock": "Time format",
+    "reglages.clock.24h": "24h (14:05:09)", "reglages.clock.12h": "12h (02:05:09 PM)",
     "reglages.timezone": "Time zone",
     "reglages.cameraAudio.title": "Camera audio",
     "reglages.cameraAudio": "Include camera audio in Live View and recordings",
@@ -3631,6 +3635,7 @@ function afficherFormulaireReglages(reglages) {
   $("fontSize").value = reglages.font_size ?? "";
   $("fontColor").value = reglages.font_color;
   $("boxOpacity").value = reglages.box_opacity;
+  $("clock").value = reglages.clock || "24h";
   appliquerDependanceTimestamp();
   $("timezone").value = reglages.timezone;
   $("liveProtocol").value = reglages.live_protocol;
@@ -3781,6 +3786,7 @@ function appliquerDependanceTimestamp() {
   $("fontSize").disabled = !actif;
   $("fontColor").disabled = !actif;
   $("boxOpacity").disabled = !actif;
+  $("clock").disabled = !actif;
 }
 $("timestamp").onchange = appliquerDependanceTimestamp;
 
@@ -3925,6 +3931,7 @@ async function envoyerFormulaireReglages({ usb, cloud, port, timezone }) {
       font_size: $("fontSize").value.trim() ? parseInt($("fontSize").value, 10) : null,
       font_color: $("fontColor").value.trim(),
       box_opacity: parseFloat($("boxOpacity").value),
+      clock: $("clock").value,
     }) });
   return lireJSON(reponse);
 }

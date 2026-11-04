@@ -75,6 +75,8 @@ REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timesta
                    "font_size": None, "font_color": "white", "box_opacity": 0.55,
                    "trusted_host": "", "webhook_notif_url": "",
                    "live_auto_stop_seconds": 0,
+                   # Heure incrustée : "24h" ou "12h" (AM/PM).
+                   "clock": "24h",
                    # Vide : dossier par défaut, voir dossier_sorties().
                    "dossier_sorties": ""}
 # Conservation par catégorie, en jours (issue #120) : 0 garde pour toujours,
@@ -120,6 +122,8 @@ def ordre_conservation_invalide(reglages: dict):
 # code mort retire depuis (commit 7339f85) : pas reintroduit comme
 # troisieme option sans raison nouvelle.
 PROTOCOLES_LIVE_VALIDES = ("webrtc", "mse")
+# Formats de l'heure incrustée, repris par merge_daily --clock.
+HORLOGES = ("24h", "12h")
 # Hebdo et mensuel réencodaient par défaut la même matière que le quotidien
 # (chaque assemblage ré-encode ses clips, jamais un simple regroupement de
 # fichiers) : sur une installation neuve, ce triplement silencieux de
@@ -245,6 +249,8 @@ def lire_reglages() -> dict:
         "live_auto_stop_seconds": _entier_borne(
             valeurs, "live_auto_stop_seconds",
             REGLAGES_DEFAUT["live_auto_stop_seconds"], 0, DIRECT_MAX_SECONDES),
+        "clock": valeurs.get("clock") if valeurs.get("clock") in HORLOGES
+        else REGLAGES_DEFAUT["clock"],
         "dossier_sorties": str(valeurs.get("dossier_sorties") or "").strip(),
         **{champ: _entier_borne(valeurs, champ, 0, 0, CONSERVATION_MAX_JOURS)
            for champ in CONSERVATION},
@@ -281,6 +287,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
                     box_opacity: float = 0.55, trusted_host: str = "",
                     webhook_notif_url: str = "",
                     live_auto_stop_seconds: int = 0,
+                    clock: str = "24h",
                     dossier_sorties: str | None = None,
                     dossier: Path | None = None,
                     **conservation) -> None:
@@ -318,6 +325,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
         "trusted_host": str(trusted_host).strip(),
         "webhook_notif_url": str(webhook_notif_url).strip(),
         "live_auto_stop_seconds": int(live_auto_stop_seconds),
+        "clock": clock if clock in HORLOGES else "24h",
         "dossier_sorties": str(dossier_sorties).strip(),
         **{champ: int(conservation.get(champ, 0) or 0) for champ in CONSERVATION},
     }))
@@ -503,6 +511,8 @@ def options_fusion(reglages: dict) -> list:
             options += ["--font-color", reglages["font_color"]]
         if reglages["box_opacity"] != 0.55:
             options += ["--box-opacity", str(reglages["box_opacity"])]
+        if reglages["clock"] != "24h":
+            options += ["--clock", reglages["clock"]]
     if not reglages["merge_semaine"]:
         options.append("--no-weekly")
     if not reglages["merge_mois"]:
