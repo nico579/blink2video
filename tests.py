@@ -247,6 +247,19 @@ def test_horodatage(racine: Path, ffmpeg: str) -> None:
         verifier(pixels_allumes(ffmpeg, journaliere, 1.0) > 200,
                  "l'heure survit à l'assemblage de la journalière")
 
+    # Horloge 12 h : les ':' du format sont échappés trois fois dans le
+    # filtergraph, et un format que le strftime ignore (%r sous Windows) rend
+    # une image vide sans erreur. 12:00 UTC s'écrit « 12:00:00 PM » : le
+    # segment doit être réencodé et porter nettement plus de texte qu'en 24 h.
+    if normalise.is_file():
+        sortie = lancer(racine, ["--timezone", "UTC", "--clock", "12h"])
+        verifier(sortie.returncode == 0, "assemblage en horloge 12 h",
+                 sortie.stdout[-300:])
+        douze = pixels_allumes(ffmpeg, normalise, 1.0)
+        verifier(douze > apres * 1.15,
+                 "l'heure 12 h ajoute AM/PM dans l'image",
+                 f"{douze} pixels en 12 h contre {apres} en 24 h")
+
 
 def test_verbes() -> None:
     """Chaque verbe de la table répond à --help.

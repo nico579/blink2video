@@ -45,7 +45,7 @@ class TestsSauvegardeIncrementale(unittest.TestCase):
             no_weekly=True, no_monthly=True, no_timestamp=True,
             exclude=[], include=[], timezone="UTC", date=None, camera=None,
             force=False, font=None, font_size=None, font_color="white",
-            box_opacity=0.55, preset="veryfast", crf=21,
+            box_opacity=0.55, clock="24h", preset="veryfast", crf=21,
         )
 
     def test_un_clip_reussi_reste_acquis_si_le_suivant_plante(self):

@@ -54,7 +54,7 @@ class Base(unittest.TestCase):
             no_weekly=True, no_monthly=False, no_timestamp=True,
             exclude=[], include=[], timezone="UTC", date=None, camera=None,
             force=False, font=None, font_size=None, font_color="white",
-            box_opacity=0.55, preset="veryfast", crf=21, **valeurs)
+            box_opacity=0.55, clock="24h", preset="veryfast", crf=21, **valeurs)
 
     def clip(self, nom, jour, camera="Salon"):
         chemin = self.racine / "clips" / camera / f"{nom}.mp4"

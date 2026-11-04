@@ -75,6 +75,9 @@ LIBELLES = {
         "aide_box_opacity":
             "opacité du bandeau derrière l'horodatage, 0.0 (invisible) à "
             "1.0 (opaque), défaut 0.55",
+        "aide_clock":
+            "format de l'heure incrustée : 24h (14:05:09, défaut) ou "
+            "12h (02:05:09 PM)",
         "aide_preset": "preset libx264 (ultrafast..veryslow), défaut veryfast",
         "aide_crf": "qualité libx264 (0-51, plus bas = meilleure qualité), défaut 21",
         "registre_inconnu": "  Inconnu du registre, ignoré : {identity}",
@@ -195,6 +198,9 @@ LIBELLES = {
         "aide_box_opacity":
             "opacity of the box behind the timestamp, 0.0 (invisible) to "
             "1.0 (opaque), default 0.55",
+        "aide_clock":
+            "burned-in time format: 24h (14:05:09, default) or "
+            "12h (02:05:09 PM)",
         "aide_preset": "libx264 preset (ultrafast..veryslow), default veryfast",
         "aide_crf": "libx264 quality (0-51, lower = better quality), default 21",
         "registre_inconnu": "  Unknown to the registry, ignored: {identity}",
@@ -338,7 +344,12 @@ ClipInfo = namedtuple(
 # couleur ou transparence du bandeau). size=None conserve l'ancien calcul
 # automatique (proportionnel à la hauteur vidéo) plutôt que d'imposer une
 # valeur fixe qui rendrait mal sur une autre résolution.
-TimestampStyle = namedtuple("TimestampStyle", ["size", "color", "box_opacity"])
+# clock : "24h" (défaut historique) ou "12h" avec AM/PM, demandé sur Reddit
+# par un utilisateur nord-américain. Valeur par défaut dans le namedtuple pour
+# que les appels à trois champs restent valides.
+HORLOGES = runtime.HORLOGES
+TimestampStyle = namedtuple("TimestampStyle", ["size", "color", "box_opacity", "clock"],
+                            defaults=["24h"])
 STYLE_PAR_DEFAUT = TimestampStyle(size=None, color="white", box_opacity=0.55)
 
 
@@ -710,7 +721,8 @@ def check_timestamp_rendering(ffmpeg: str, font_path: Path,
     police illisible)."""
     graph = (
         "color=c=black:s=640x120:d=0.1,"
-        + drawtext_chain(quote_filter_path(font_path), 40, 0, style.color)
+        + drawtext_chain(quote_filter_path(font_path), 40, 0, style.color,
+                         clock=style.clock)
         + ",format=gray"
     )
     result = runtime.lancer(
@@ -1218,20 +1230,36 @@ def wall_clock_epoch(moment_utc: dt.datetime, timezone: ZoneInfo) -> int:
     return int(naive_as_utc.timestamp())
 
 
+# Format strftime de l'heure, tel qu'il doit figurer DANS le filtergraph.
+# 24h : %X plutôt que %T ou %H:%M:%S, voir drawtext_chain. 12h : les ':' sont
+# échappés par trois antislashs, seule forme qui survive aux trois passes de
+# dé-échappement (graphe, option, arguments de %{pts}) ; vérifié sur une image
+# rendue par le ffmpeg 7.1 embarqué : « 01/11/2026 02:59:59 PM ». %r, qui
+# éviterait l'échappement, rend une chaîne vide avec le strftime de Windows.
+FORMAT_HEURE = {
+    "24h": "%X",
+    "12h": "%I\\\\\\:%M\\\\\\:%S %p",
+}
+
+
 def drawtext_chain(font_value: str, fontsize: int, epoch: int,
-                   color: str = "white", box_opacity: float = 0.55) -> str:
+                   color: str = "white", box_opacity: float = 0.55,
+                   clock: str = "24h") -> str:
     """Filtre drawtext affichant une horloge murale partant de `epoch`.
 
     %X (heure complète) plutôt que %T ou %H:%M:%S : d'une part le strftime de
     MSVC ne connaît pas %T et rend alors une chaîne vide sans la moindre
     erreur, d'autre part un ':' littéral ne survit pas aux dé-échappements
     successifs du filtergraph. ffmpeg n'appelant pas setlocale, %X reste en
-    locale « C », soit HH:MM:SS partout.
+    locale « C », soit HH:MM:SS partout. Le format 12h (`clock`) passe par
+    %I, %M, %S et %p, connus de tous les strftime, avec des ':' échappés
+    (FORMAT_HEURE) ; %p vaut AM ou PM en locale « C ».
 
     `color` a déjà été validé (_couleur_ffmpeg_valide, appelé par argparse) :
     seuls alphanumériques, « # » et un éventuel « @opacité » peuvent
     l'atteindre, aucun caractère qui romprait ce filtergraph."""
-    text_expr = f"'%{{pts\\:localtime\\:{epoch}\\:%d/%m/%Y %X}}'"
+    heure = FORMAT_HEURE.get(clock, FORMAT_HEURE["24h"])
+    text_expr = f"'%{{pts\\:localtime\\:{epoch}\\:%d/%m/%Y {heure}}}'"
     return (
         f"drawtext=fontfile={font_value}:fontsize={fontsize}:fontcolor={color}:"
         f"box=1:boxcolor=black@{box_opacity}:boxborderw=8:x=20:y=h-th-20:text={text_expr}"
@@ -1266,7 +1294,8 @@ def build_batch_filter(
         if font_value is not None:
             epoch = wall_clock_epoch(clip.created, timezone)
             overlay = "," + drawtext_chain(font_value, fontsize, epoch,
-                                           style.color, style.box_opacity)
+                                           style.color, style.box_opacity,
+                                           style.clock)
         chains.append(
             f"[{i}:v]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
             f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
@@ -1552,10 +1581,15 @@ def render_key(
     Le style (taille/couleur/opacité, issue GitHub #7) ne compte que si un
     horodatage est effectivement dessiné : sans ça, changer de couleur alors
     que --no-timestamp est actif réencoderait tout pour rien, la valeur
-    n'ayant jamais atteint l'image."""
+    n'ayant jamais atteint l'image.
+
+    L'horloge 12h n'est ajoutée que lorsqu'elle est choisie : en 24h,
+    l'empreinte reste celle d'avant ce réglage, sans quoi la mise à jour
+    réencoderait tous les segments existants pour une image identique."""
     target_w, target_h, target_fps = target
     style_tag = (
         f"{style.size}/{style.color}/{style.box_opacity}"
+        + ("/12h" if style.clock == "12h" else "")
         if font_path is not None else "sans-horodatage"
     )
     payload = "|".join(
@@ -2242,6 +2276,7 @@ def parse_args() -> argparse.Namespace:
         "--box-opacity", type=_opacite_valide, default=0.55,
         help=msg("aide_box_opacity"),
     )
+    parser.add_argument("--clock", choices=HORLOGES, default="24h", help=msg("aide_clock"))
     parser.add_argument("--preset", default="veryfast", help=msg("aide_preset"))
     parser.add_argument("--crf", type=int, default=21, help=msg("aide_crf"))
     return parser.parse_args()
@@ -2424,7 +2459,7 @@ def _executer(args) -> int:
     if args.purge_only:
         return 0
 
-    style = TimestampStyle(args.font_size, args.font_color, args.box_opacity)
+    style = TimestampStyle(args.font_size, args.font_color, args.box_opacity, args.clock)
     try:
         timezone = ZoneInfo(args.timezone)
         ffmpeg = find_ffmpeg()

@@ -180,6 +180,7 @@ LIBELLES = {
         "dossier_stockage_inaccessible": "Dossier de stockage inaccessible : {erreur}",
         "fuseau_inconnu": "Fuseau horaire inconnu : « {fuseau} ».",
         "protocole_inconnu": "Protocole de direct inconnu : « {protocole} ».",
+        "horloge_inconnue": "Format d'heure inconnu : « {horloge} » (24h ou 12h).",
         "couleur_invalide": "Couleur d'horodatage invalide : « {couleur} ».",
         "module_type": "module « {type} »",
         "journal_armement": "{horodatage} {portee} « {nom} » armed={armed} depuis {client}",
@@ -325,6 +326,7 @@ LIBELLES = {
         "dossier_stockage_inaccessible": "Storage folder not accessible: {erreur}",
         "fuseau_inconnu": "Unknown time zone: “{fuseau}”.",
         "protocole_inconnu": "Unknown live view protocol: “{protocole}”.",
+        "horloge_inconnue": "Unknown time format: “{horloge}” (24h or 12h).",
         "couleur_invalide": "Invalid timestamp colour: “{couleur}”.",
         "module_type": "module “{type}”",
         "journal_armement": "{horodatage} {portee} “{nom}” armed={armed} from {client}",
@@ -2212,6 +2214,13 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
     except (TypeError, ValueError) as erreur:
         raise _ReglagesInvalides(msg("reglage_opacite_invalide")) from erreur
     reglages["box_opacity"] = box_opacity
+
+    # Absent (page restée ouverte depuis une version sans ce réglage) : garder
+    # le format enregistré plutôt que de revenir en silence au 24 h.
+    clock = payload.get("clock", runtime.lire_reglages()["clock"])
+    if clock not in runtime.HORLOGES:
+        raise _ReglagesInvalides(msg("horloge_inconnue", horloge=clock))
+    reglages["clock"] = clock
 
     try:
         reglages["trusted_host"] = normaliser_hotes_confiance(
@@ -5173,6 +5182,13 @@ __CSS__
       <div class="champCadence">
         <label for="fontColor" data-i18n="reglages.fontColor">Couleur</label>
         <input type="text" id="fontColor" list="couleursCourantes" placeholder="white">
+      </div>
+      <div class="champCadence">
+        <label for="clock" data-i18n="reglages.clock">Format de l'heure</label>
+        <select id="clock">
+          <option value="24h" data-i18n="reglages.clock.24h">24 h (14:05:09)</option>
+          <option value="12h" data-i18n="reglages.clock.12h">12 h (02:05:09 PM)</option>
+        </select>
       </div>
       <datalist id="couleursCourantes">
         <option value="white">

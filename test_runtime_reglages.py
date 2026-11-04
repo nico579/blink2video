@@ -126,7 +126,7 @@ class TestsReglages(unittest.TestCase):
              "font_size": 40, "font_color": "yellow", "box_opacity": 0.3,
              "trusted_host": "100.101.194.5",
              "webhook_notif_url": "https://exemple.invalid/notif",
-             "live_auto_stop_seconds": 0, "dossier_sorties": "",
+             "live_auto_stop_seconds": 0, "clock": "24h", "dossier_sorties": "",
              **{champ: 0 for champ in runtime.CONSERVATION}})
 
     def test_valeurs_partielles_completees_par_les_defauts(self):
@@ -152,6 +152,7 @@ class TestsReglages(unittest.TestCase):
              "trusted_host": runtime.REGLAGES_DEFAUT["trusted_host"],
              "webhook_notif_url": runtime.REGLAGES_DEFAUT["webhook_notif_url"],
              "live_auto_stop_seconds": runtime.REGLAGES_DEFAUT["live_auto_stop_seconds"],
+             "clock": runtime.REGLAGES_DEFAUT["clock"],
              "dossier_sorties": runtime.REGLAGES_DEFAUT["dossier_sorties"],
              **{champ: 0 for champ in runtime.CONSERVATION}})
 

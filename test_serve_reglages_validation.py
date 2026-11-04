@@ -26,6 +26,7 @@ DEFAUTS = {
     "font_size": None, "font_color": "white", "box_opacity": 0.55,
     "trusted_host": "", "webhook_notif_url": "",
     "live_auto_stop_seconds": 0,
+    "clock": "24h",
     "conservation_clips": 0,
     "conservation_jour": 0,
     "conservation_semaine": 0,
@@ -128,6 +129,18 @@ class TestsValidationReglagesHttp(unittest.TestCase):
                 self.assert_refuse(self.requete(self.payload(camera_audio_track=invalid)),
                                    "camera_audio_track : canal 0 ou 1 attendu")
 
+    def test_horloge_validee_et_conservee_pour_une_page_ancienne(self):
+        self.assert_enregistre(self.requete(self.payload(clock="12h")),
+                               dict(DEFAUTS, clock="12h"))
+        actuel = dict(serve.runtime.REGLAGES_DEFAUT, clock="12h")
+        with mock.patch.object(serve.runtime, "lire_reglages", return_value=actuel):
+            self.assert_enregistre(self.requete(self.payload()),
+                                   dict(DEFAUTS, clock="12h"))
+        for invalide in ("12", "am/pm", "", None, 12):
+            with self.subTest(clock=invalide):
+                self.assert_refuse(self.requete(self.payload(clock=invalide)),
+                                   f"Format d'heure inconnu : « {invalide} » (24h ou 12h).")
+
     def test_valeurs_par_defaut_et_absence_de_sonde_sans_dossier(self):
         handler = self.requete(self.payload())
         self.assert_enregistre(handler, DEFAUTS)
@@ -148,6 +161,7 @@ class TestsValidationReglagesHttp(unittest.TestCase):
             "font_size": None, "font_color": "white", "box_opacity": 0.55,
             "trusted_host": "", "webhook_notif_url": "",
             "live_auto_stop_seconds": 0,
+            "clock": "24h",
             "conservation_clips": 0,
             "conservation_jour": 0,
             "conservation_semaine": 0,
