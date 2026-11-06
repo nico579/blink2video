@@ -141,7 +141,7 @@ class TestsAbsencePassagere(_Registre):
     def setUp(self):
         super().setUp()
         for correctif in (mock.patch.object(blink_registre.time, "sleep"),
-                          mock.patch.object(blink_registre.os, "name", "nt")):
+                          mock.patch.object(blink_registre, "REMPLACEMENT_NON_ATOMIQUE", True)):
             correctif.start()
             self.addCleanup(correctif.stop)
 

@@ -44,6 +44,7 @@ _ABSENT = object()
 # Trou observé jusqu'à 125 ms (2026-11-06) : voir _lire_registre().
 TENTATIVES_ABSENCE = 10
 PAUSE_ABSENCE_S = 0.05
+REMPLACEMENT_NON_ATOMIQUE = os.name == "nt"
 
 
 def _lire_registre(output: Path):
@@ -61,7 +62,7 @@ def _lire_registre(output: Path):
             state = atomique.lire_json(chemin, _ABSENT, tolerer_corrompu=False)
             if state is not _ABSENT:
                 return state
-        if os.name != "nt" or not output.is_dir():
+        if not REMPLACEMENT_NON_ATOMIQUE or not output.is_dir():
             break
         time.sleep(PAUSE_ABSENCE_S)
     return _ABSENT
