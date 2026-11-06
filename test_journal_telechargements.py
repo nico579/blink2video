@@ -105,6 +105,13 @@ class JournalTelechargementsUnPassage(unittest.IsolatedAsyncioTestCase):
     async def test_clips_cloud_journalises(self):
         await self._verifier("cloud")
 
+    async def test_inventaire_dit_ce_que_le_registre_contenait(self):
+        lignes = await self._passage("usb", nombre=2)
+        inventaires = [ligne for ligne in lignes
+                       if "nouveaux 2" in ligne or "new 2" in ligne]
+        self.assertEqual(len(inventaires), 1, lignes)
+        self.assertRegex(inventaires[0], r"regist(re|ry) 0")
+
     async def test_rien_a_telecharger_n_ecrit_rien(self):
         lignes = await self._passage("usb", nombre=0)
         self.assertEqual(lignes, [])
