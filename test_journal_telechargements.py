@@ -117,6 +117,109 @@ class JournalTelechargementsUnPassage(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(lignes, [])
 
 
+class EchecsCloudRecurrents(unittest.IsolatedAsyncioTestCase):
+    """Issue #139 : 21 clips à la barre, puis 19, puis 19 encore, et rien de
+    neuf dans la galerie. Un média refusé n'entre pas au registre et revient à
+    chaque tour ; le journal doit dire combien, et pourquoi."""
+
+    def _clip(self, numero, contenu):
+        clip = blink_models.CloudClip({
+            "id": numero, "device_name": "Jardin", "device_id": 22, "network_id": 7,
+            "created_at": f"2026-11-05T20:{numero:02d}:00+00:00",
+            "media": f"https://example.invalid/{numero}",
+        })
+
+        async def telecharger(_blink, cible):
+            cible.parent.mkdir(parents=True, exist_ok=True)
+            cible.write_bytes(contenu)
+            return True
+
+        clip.download_to = telecharger
+        return clip
+
+    async def _tour(self, racine, clips):
+        arguments = SimpleNamespace(
+            since=None, camera=None, command="download", output=racine / "clips",
+            hub=None, overwrite=False, source="cloud", loop=None,
+        )
+        with contextlib.ExitStack() as patches:
+            patches.enter_context(mock.patch.object(
+                runtime, "app_dir", return_value=racine))
+            runtime.ecrire_suppression_auto(set())
+            patches.enter_context(mock.patch.object(
+                blink_models, "read_cloud_manifest",
+                new=mock.AsyncMock(return_value=clips)))
+            patches.enter_context(mock.patch.object(
+                blink_engine.md, "valid_mp4_complet",
+                side_effect=lambda chemin: Path(chemin).read_bytes() == VIDEO))
+            patches.enter_context(mock.patch.object(
+                blink_engine.md, "raison_refus_mp4",
+                return_value="outil=ffprobe ligne=Invalid data"))
+            patches.enter_context(mock.patch.object(runtime, "travail"))
+            patches.enter_context(mock.patch.object(runtime, "notifier_nouveau_media"))
+            patches.enter_context(mock.patch.object(
+                runtime, "lire_langue", return_value="fr"))
+            sortie = io.StringIO()
+            patches.enter_context(contextlib.redirect_stdout(sortie))
+            resultat = await blink_engine.traiter_cloud(object(), arguments, [])
+        return resultat, sortie.getvalue()
+
+    async def test_media_refuse_revient_et_le_journal_dit_pourquoi(self):
+        with tempfile.TemporaryDirectory(prefix="blink-journal-dl-") as dossier:
+            racine = Path(dossier)
+            bon = self._clip(1, VIDEO)
+            refuses = [self._clip(n, b"refuse") for n in (2, 3, 4)]
+
+            premier, sortie = await self._tour(racine, [bon, *refuses])
+            self.assertEqual((premier.downloaded, premier.failed), (1, 3))
+            self.assertIn("outil=ffprobe ligne=Invalid data", sortie)
+
+            second, _ = await self._tour(racine, [bon, *refuses])
+            self.assertEqual((second.downloaded, second.failed), (0, 3))
+
+            lignes = (racine / blink_engine.JOURNAL_TELECHARGEMENTS).read_text(
+                encoding="utf-8").splitlines()
+        inventaires = [l for l in lignes if "  cloud : registre" in l
+                       or "  cloud: registry" in l]
+        self.assertEqual(len(inventaires), 2, lignes)
+        self.assertRegex(inventaires[0], r"regist(re|ry) 0, ")
+        self.assertRegex(inventaires[1], r"regist(re|ry) 1, ")
+        # Une ligne par tour et par motif, pas une par clip : le fichier n'est
+        # pas borné et la boucle cloud tourne chaque minute.
+        echecs = [l for l in lignes if "3 clip(s)" in l]
+        self.assertEqual(len(echecs), 2, lignes)
+        for ligne in echecs:
+            self.assertIn("outil=ffprobe ligne=Invalid data", ligne)
+            self.assertRegex(ligne, r"2026-11-05_.+\.mp4$")
+        self.assertFalse(any("http" in l for l in lignes), lignes)
+
+    async def test_motifs_differents_restent_separes(self):
+        with tempfile.TemporaryDirectory(prefix="blink-journal-dl-") as dossier:
+            racine = Path(dossier)
+            refuse = self._clip(1, b"refuse")
+            coupe = self._clip(2, VIDEO)
+
+            async def planter(_blink, _cible):
+                raise OSError("adresse privée https://example.invalid/2")
+
+            coupe.download_to = planter
+            await self._tour(racine, [refuse, coupe])
+            lignes = (racine / blink_engine.JOURNAL_TELECHARGEMENTS).read_text(
+                encoding="utf-8").splitlines()
+        echecs = [l for l in lignes if "1 clip(s)" in l]
+        self.assertEqual(len(echecs), 2, lignes)
+        self.assertTrue(any("OSError" in l for l in echecs), echecs)
+        self.assertFalse(any("http" in l for l in lignes), lignes)
+
+    async def test_tour_sans_echec_n_ecrit_pas_de_ligne_d_echec(self):
+        with tempfile.TemporaryDirectory(prefix="blink-journal-dl-") as dossier:
+            racine = Path(dossier)
+            await self._tour(racine, [self._clip(1, VIDEO)])
+            journal = (racine / blink_engine.JOURNAL_TELECHARGEMENTS).read_text(
+                encoding="utf-8")
+        self.assertNotIn("clip(s) [", journal)
+
+
 class AideJournal(unittest.TestCase):
     def test_chemin_hors_du_dossier_se_replie_sur_le_nom(self):
         with tempfile.TemporaryDirectory(prefix="blink-journal-dl-") as dossier:

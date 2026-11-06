@@ -199,6 +199,7 @@ LIBELLES = {
         "travail_inventaire_clips": "Inventaire des clips",
         "journal_clips_annonces": "{n} clip(s) annoncé(s)",
         "journal_inventaire": "inventaire  {source} : registre {connus}, nouveaux {nouveaux}, déjà acquis {deja}",
+        "journal_echecs": "échecs  {source} : {n} clip(s) [{categorie}] {detail}, dont {exemple}",
     },
     "en": {
         "direct_premier_octet": "[direct] {horodatage} {camera}: first video byte from the relay",
@@ -245,6 +246,7 @@ LIBELLES = {
         "travail_inventaire_clips": "Listing clips",
         "journal_clips_annonces": "{n} clip(s) announced",
         "journal_inventaire": "inventory  {source}: registry {connus}, new {nouveaux}, already acquired {deja}",
+        "journal_echecs": "failures  {source}: {n} clip(s) [{categorie}] {detail}, including {exemple}",
     },
 }
 
@@ -512,6 +514,7 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
             clips=clips,
             skipped=len(doublons) + ignores_exclus,
         )
+    _journaliser_inventaire("cloud", len(state["clips"]), len(inedits), len(doublons))
 
     pending = []
     adopted = 0
@@ -595,6 +598,23 @@ def _journaliser_inventaire(source: str, connus: int, nouveaux: int, deja: int) 
                             nouveaux=nouveaux, deja=deja))
 
 
+def _journaliser_echecs(source: str, echecs: dict) -> None:
+    """Ce qui a empêché des clips d'arriver, une ligne par motif et par tour.
+
+    Un clip refusé n'est pas inscrit au registre : il revient à chaque tour,
+    fait défiler la barre comme un succès et ne produit rien (issue #139).
+    Sans cette ligne, seule la sortie du passage en gardait la raison. Groupée
+    par motif, car ce fichier n'est pas borné et la boucle cloud tourne chaque
+    minute. ``echecs`` associe (catégorie, détail) à [nombre, nom d'un clip] :
+    ni URL ni identifiant de compte, comme le reste du journal."""
+    moment = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for (categorie, detail), (nombre, exemple) in echecs.items():
+        runtime.ajouter_ligne(
+            JOURNAL_TELECHARGEMENTS,
+            f"{moment}  " + msg("journal_echecs", source=source, n=nombre,
+                                categorie=categorie, detail=detail, exemple=exemple))
+
+
 def _preparer_vignettes() -> None:
     """Fabrique la vignette des clips qui viennent d'arriver, au même endroit et
     sous le même nom que serve.py : la page les trouve déjà prêtes au lieu de
@@ -645,6 +665,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
         return CloudResult()
 
     downloaded = failed = adopted_execution = skipped_execution = 0
+    echecs = {}
     # Un job déjà terminé a réussi par l'USB : son équivalent cloud est bien
     # un doublon, jamais un second clip à faire avancer dans la barre.
     skipped_usb = sum(1 for job in jobs if job.cloud is not None and job.done)
@@ -675,6 +696,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
         target = blink_models.target_path(output, clip, sync=sync, source="cloud")
         progression.commencer(target.name)
         resultat = "failed"
+        echec = (blink_models.msg("cat_media"), blink_models.msg("contenu_indisponible"))
         partiel = target.with_suffix(target.suffix + ".part")
         partiel.unlink(missing_ok=True)
         try:
@@ -731,29 +753,32 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                             print(msg("cloud_suppression_echec"))
                 else:
                     if telecharge:
+                        # Même raison nettoyée que l'USB (issue #49) : le .part
+                        # existe encore, le finally ne l'efface qu'ensuite.
                         clip.download_issue = (
-                            blink_models.msg("cat_donnees"), msg("mp4_tronque"),
+                            blink_models.msg("cat_donnees"),
+                            f"{msg('mp4_tronque')} ({md.raison_refus_mp4(partiel)})",
                         )
-                    categorie, detail = getattr(
-                        clip, "download_issue", None
-                    ) or (blink_models.msg("cat_media"), blink_models.msg("contenu_indisponible"))
-                    print(msg("echec_categorie", categorie=categorie, detail=detail))
+                    echec = getattr(clip, "download_issue", None) or echec
+                    print(msg("echec_categorie", categorie=echec[0], detail=echec[1]))
         except (ClientError, OSError, asyncio.TimeoutError) as erreur:
-            print(msg("echec_categorie", categorie=blink_models.msg("cat_reseau"),
-                      detail=type(erreur).__name__))
+            echec = (blink_models.msg("cat_reseau"), type(erreur).__name__)
+            print(msg("echec_categorie", categorie=echec[0], detail=echec[1]))
         except Exception as erreur:  # Isoler un clip invalide des suivants.
-            print(msg("echec_categorie", categorie=blink_models.msg("cat_donnees"),
-                      detail=type(erreur).__name__))
+            echec = (blink_models.msg("cat_donnees"), type(erreur).__name__)
+            print(msg("echec_categorie", categorie=echec[0], detail=echec[1]))
         finally:
             partiel.unlink(missing_ok=True)
 
         if resultat == "failed":
             failed += 1
+            echecs.setdefault(echec, [0, target.name])[0] += 1
         elif resultat == "skipped":
             skipped_execution += 1
         job.done = True
         progression.terminer()
 
+    _journaliser_echecs("cloud", echecs)
     resultat = CloudResult(
         downloaded=downloaded,
         adopted=plan.adopted + adopted_execution,
