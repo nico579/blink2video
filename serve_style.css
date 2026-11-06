@@ -84,6 +84,8 @@
   .window a { color:inherit; }
   #work { display:none; width:100%; align-items:center; gap:12px; padding-top:4px; }
   #work.on { display:flex; }
+  #dossierAbsent { width:100%; margin:0; padding:8px 12px; border-radius:7px;
+                   background:var(--out); color:#fff; overflow-wrap:anywhere; }
   progress { flex:1; height:8px; border:0; border-radius:4px;
              background:var(--card); appearance:none; }
   progress::-webkit-progress-bar { background:var(--card); border-radius:4px; }

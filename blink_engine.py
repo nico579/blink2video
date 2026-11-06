@@ -164,6 +164,7 @@ LIBELLES = {
         "cloud_supprime_auto": "    Supprimé du cloud (caméra en suppression automatique).",
         "cloud_suppression_echec": "    ! Échec de la suppression sur le cloud (clip conservé là-bas).",
         "echec_categorie": "    Échec [{categorie}] : {detail}.",
+        "dossier_sorties_retrouve": "Dossier des vidéos de retour : reprise.",
         "cloud_termine":
             "  Terminé : {downloaded} téléchargé(s), {adopted} adopté(s), "
             "{skipped} ignoré(s), {failed} échec(s).",
@@ -209,6 +210,7 @@ LIBELLES = {
         "cloud_supprime_auto": "    Deleted from the cloud (camera set to auto-delete).",
         "cloud_suppression_echec": "    ! Failed to delete from the cloud (clip kept there).",
         "echec_categorie": "    Failed [{categorie}]: {detail}.",
+        "dossier_sorties_retrouve": "Videos folder is back: resuming.",
         "cloud_termine":
             "  Done: {downloaded} downloaded, {adopted} adopted, "
             "{skipped} skipped, {failed} failed.",
@@ -404,7 +406,7 @@ async def download_clip(blink: Blink, clip, target: Path, overwrite: bool) -> st
             if md.valid_mp4_complet(target) and not overwrite:
                 return "skipped"
         etape = "local"
-        target.parent.mkdir(parents=True, exist_ok=True)
+        runtime.creer_sous_sorties(target.parent)
         partial = target.with_suffix(target.suffix + ".part")
         partial.unlink(missing_ok=True)
     except Exception as error:
@@ -598,7 +600,7 @@ def _preparer_vignettes() -> None:
         try:
             identite = md.clip_identity(output, target)
             vignette = (output.parent / ".blink_thumbs" / "clip" / identite).with_suffix(".jpg")
-            vignette.parent.mkdir(parents=True, exist_ok=True)
+            runtime.creer_sous_sorties(vignette.parent)
             provisoire = vignette.with_name(f"{vignette.stem}.{os.getpid()}.tmp.jpg")
             try:
                 if md.extraire_vignette(ffmpeg, target, provisoire, timeout=60):
@@ -689,7 +691,7 @@ async def _telecharger_cloud(blink: Blink, args, output: Path, state: dict,
                 adopted_execution += 1
                 resultat = "adopted"
             else:
-                target.parent.mkdir(parents=True, exist_ok=True)
+                runtime.creer_sous_sorties(target.parent)
                 telecharge = await clip.download_to(blink, partiel)
                 if telecharge and md.valid_mp4_complet(partiel):
                     partiel.replace(target)
@@ -773,11 +775,43 @@ async def traiter_cloud(blink: Blink, args, modules: list) -> CloudResult:
     return resultat
 
 
+ATTENTE_DOSSIER_SORTIES = 5  # secondes entre deux regards sur le dossier
+
+
+async def _attendre_dossier_sorties(output: Path) -> bool:
+    """Patiente tant que le dossier choisi est absent (issue #134).
+
+    Un disque monté en retard : le passage part dès qu'il arrive, sans attendre
+    la prochaine échéance. Signalé une seule fois, le journal ne se remplit
+    pas pendant une nuit de panne. False si l'arrêt est demandé entre-temps."""
+    signale = False
+    while not runtime.arret_demande():
+        try:
+            runtime.exiger_dossier_sorties(output)
+        except runtime.DossierSortiesAbsent as erreur:
+            if not signale:
+                print(erreur, flush=True)
+                signale = True
+            await asyncio.sleep(ATTENTE_DOSSIER_SORTIES)
+            continue
+        if signale:
+            print(msg("dossier_sorties_retrouve"), flush=True)
+        return True
+    return False
+
+
 async def _faire_passage(blink: Blink, args, modules: list,
                          repetition: bool) -> _ResultatPassage:
     """Exécute un passage sous son verrou et nettoie toujours sa publication."""
     execute = False
     try:
+        # « list » n'écrit rien : seul le rapatriement a besoin du dossier. Une
+        # boucle l'attend ; un passage unique échoue, pour le dire à qui l'a
+        # demandé.
+        if args.command == "download":
+            if repetition and not await _attendre_dossier_sorties(args.output):
+                return _ResultatPassage(0, False)
+            runtime.exiger_dossier_sorties(args.output)
         # Un seul rapatriement à la fois, quelle que soit la source : deux
         # processus qui prennent le même clip écriraient le même fichier
         # partiel, et le premier renommage laisserait l'autre dans le vide.

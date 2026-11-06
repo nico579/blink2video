@@ -504,6 +504,20 @@ version 0.13 ou antérieure, le premier lancement y recopie les réglages et la
 session, et les vidéos restent où elles sont : le dossier des vidéos pointe
 vers elles.
 
+### Les vidéos sur un disque à part
+
+Un dossier choisi dans les réglages n'est créé qu'à ce moment-là. S'il manque
+plus tard, parce que le disque n'est pas encore monté au démarrage par exemple,
+blink2video ne le recrée pas sur le disque système : les téléchargements
+l'attendent et partent dès son retour, l'assemblage saute son tour, et un
+bandeau rouge nomme le dossier dans la page. Les réglages restent utilisables
+pendant ce temps, et vous pouvez y choisir un autre dossier.
+
+Choisissez un sous-dossier du disque, comme `/export/cam/blink2video`, plutôt
+que le point de montage lui-même : un point de montage démonté reste un dossier
+vide, que rien ne distingue du vrai. Le dossier par défaut et `BLINK_HOME` se
+créent toujours à la demande.
+
 ### Ne garder les fichiers qu'un temps
 
 Par défaut, rien n'est jamais effacé. Dans les Réglages, « Conservation »

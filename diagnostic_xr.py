@@ -302,7 +302,7 @@ def report_path() -> Path:
 
 def write_report(path: Path, content: str) -> None:
     """Écriture atomique : jamais de rapport tronqué à transmettre."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    runtime.creer_sous_sorties(path.parent)
     temporary = path.with_name(f".{path.stem}.{os.getpid()}.tmp")
     try:
         temporary.write_text(content, encoding="utf-8")

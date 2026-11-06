@@ -464,6 +464,19 @@ everything in one folder of your choice. Coming from 0.13 or earlier, the first
 launch copies the settings and the session over, and the videos stay where
 they are: the videos folder points to them.
 
+### Videos on a separate disk
+
+A folder chosen in Settings is only ever created at that moment. If it is
+missing later, say the disk is not mounted yet at boot, blink2video does not
+recreate it on the system disk: downloads wait for it and start as soon as it
+is back, assembling skips its turn, and a red banner names the folder in the
+page. Settings stay usable meanwhile, and you can point them elsewhere.
+
+Choose a subfolder of the disk, such as `/export/cam/blink2video`, rather than
+the mount point itself: an unmounted mount point is still an empty folder, and
+nothing can tell it from the real one. The default folder and `BLINK_HOME` are
+still created on demand.
+
 ### Keeping files for a limited time
 
 Nothing is ever deleted by default. In Settings, "Retention" gives each

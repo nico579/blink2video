@@ -158,6 +158,7 @@ const I18N = {
     "reglages.auto.title": "Recharger la liste dès que des clips arrivent",
     "reglages.showOut": "Voir les clips écartés",
     "reglages.serveur": "Port du serveur",
+    "dossier.absent": "Dossier des vidéos introuvable : {dossier}. Rien n'est écrit ailleurs en attendant son retour. Montez son disque, ou choisissez un autre dossier dans les réglages.",
     "reglages.storageDir": "Dossier des vidéos",
     "reglages.storageDir.placeholder": "C:/chemin/vers/le/dossier",
     "reglages.storageDir.hint": "Clips, vidéos assemblées, directs et captures. Ne déplace pas ceux déjà enregistrés à l'ancien emplacement : à faire vous-même si vous changez ce chemin. Vide = emplacement par défaut, Documents/blink2video.",
@@ -382,6 +383,7 @@ const I18N = {
     "reglages.auto.title": "Reload the list as soon as clips arrive",
     "reglages.showOut": "Show discarded clips",
     "reglages.serveur": "Server port",
+    "dossier.absent": "Videos folder not found: {dossier}. Nothing is written elsewhere while waiting for it. Mount its disk, or choose another folder in Settings.",
     "reglages.storageDir": "Videos folder",
     "reglages.storageDir.placeholder": "C:/path/to/the/folder",
     "reglages.storageDir.hint": "Clips, assembled videos, lives and snapshots. Does not move those already saved at the old location: do it yourself if you change this path. Empty = default location, Documents/blink2video.",
@@ -1160,6 +1162,12 @@ async function etatDuTravail() {
   try {
     const etat = await lireJSON(await fetch("/api/travail", { cache: "no-store" }));
     if (generation === generationMaj) montrerTravail(etat.travail);
+    // Issue #134 : sans ce bandeau, un disque démonté ressemble à une galerie
+    // vide, et rien ne dit que les clips attendent ailleurs.
+    const bandeau = $("dossierAbsent");
+    bandeau.hidden = !etat.dossier_absent;
+    bandeau.textContent = etat.dossier_absent
+      ? tf("dossier.absent", { dossier: etat.dossier_absent }) : "";
   } catch (erreur) { /* le prochain passage réessaiera */ }
 }
 

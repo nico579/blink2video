@@ -1072,7 +1072,7 @@ def move_aside(source: Path, destination: Path) -> None:
     """Déplace un fichier en créant l'arborescence, sans jamais écraser."""
     if not source.exists():
         return
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    runtime.creer_sous_sorties(destination.parent)
     if destination.exists():
         source.unlink()
         return
@@ -1635,7 +1635,7 @@ def normalize_clip(
     if not force and entry.get("key") == key and valid_mp4(destination):
         return True, "", False
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    runtime.creer_sous_sorties(destination.parent)
     # Extension .mp4 conservée : ffmpeg choisit son format de sortie d'après
     # elle, un simple suffixe .tmp le laisserait sans muxer.
     pending = destination.with_name(destination.stem + ".tmp.mp4")
@@ -1667,7 +1667,7 @@ def merge_group(
     Il n'y a plus rien à encoder ici : les segments partagent codec, résolution
     et cadence, donc une simple copie de flux suffit. La journalière est une
     vue du stock normalisé, au même titre que l'hebdomadaire et la mensuelle."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    runtime.creer_sous_sorties(destination.parent)
     temporary_video = destination.with_name(destination.stem + ".tmp.mp4")
     temporary_video.unlink(missing_ok=True)
     try:
@@ -1772,7 +1772,7 @@ def concat_videos(
     Chemin rapide : si toutes partagent résolution et cadence, une simple copie
     de flux suffit (pas de perte, quelques secondes). Sinon on ré-encode via le
     filtre concat, seule façon fiable d'assembler des sources hétérogènes."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    runtime.creer_sous_sorties(destination.parent)
     temporary = destination.with_name(destination.stem + ".tmp.mp4")
     temporary.unlink(missing_ok=True)
 
@@ -2296,6 +2296,14 @@ def journal(ligne: str) -> None:
 def main() -> int:
     args = parse_args()
     def travail():
+        # Sans ce contrôle, un disque démonté se lirait comme des clips
+        # disparus : le tour échouerait sur chacun, purge comprise (issue #134).
+        try:
+            runtime.exiger_dossier_sorties(args.input)
+        except runtime.DossierSortiesAbsent as erreur:
+            print(erreur)
+            journal(str(erreur))
+            return 1
         try:
             with runtime.verrou("merge", "assemblage", stale_after=7200,
                                 attente=30):

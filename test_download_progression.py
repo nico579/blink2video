@@ -616,7 +616,7 @@ class ProgressionInterfaceTests(unittest.TestCase):
              ):
             serve.Handler.do_GET(faux)
 
-        self.assertEqual(reponses, [{"travail": travail}])
+        self.assertEqual(reponses, [{"travail": travail, "dossier_absent": ""}])
 
     def test_actualiser_conserve_le_fuseau_configure(self):
         reglages = dict(runtime.REGLAGES_DEFAUT, timezone="America/New_York")
