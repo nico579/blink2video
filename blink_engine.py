@@ -198,6 +198,7 @@ LIBELLES = {
         "travail_telechargement_clips": "Téléchargement des clips",
         "travail_inventaire_clips": "Inventaire des clips",
         "journal_clips_annonces": "{n} clip(s) annoncé(s)",
+        "journal_inventaire": "inventaire  {source} : registre {connus}, nouveaux {nouveaux}, déjà acquis {deja}",
     },
     "en": {
         "direct_premier_octet": "[direct] {horodatage} {camera}: first video byte from the relay",
@@ -243,6 +244,7 @@ LIBELLES = {
         "travail_telechargement_clips": "Downloading clips",
         "travail_inventaire_clips": "Listing clips",
         "journal_clips_annonces": "{n} clip(s) announced",
+        "journal_inventaire": "inventory  {source}: registry {connus}, new {nouveaux}, already acquired {deja}",
     },
 }
 
@@ -578,6 +580,19 @@ def _journaliser_telechargement(source: str, target: Path, output: Path) -> None
     moment = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     runtime.ajouter_ligne(JOURNAL_TELECHARGEMENTS, f"{moment}  {source}  {nom}  {taille} o")
     _VIGNETTES_EN_ATTENTE.append((target, output))
+
+
+def _journaliser_inventaire(source: str, connus: int, nouveaux: int, deja: int) -> None:
+    """Ce que la passe a lu avant de décider, s'il y a du neuf à rapatrier.
+
+    Sans cette ligne, une rafale de clips déjà acquis ne dit pas après coup si
+    le registre a été lu vide : un « registre 0 » devant vingt clips le prouve.
+    Lignes de clips inchangées, elles restent lisibles par le même motif."""
+    moment = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    runtime.ajouter_ligne(
+        JOURNAL_TELECHARGEMENTS,
+        f"{moment}  " + msg("journal_inventaire", source=source, connus=connus,
+                            nouveaux=nouveaux, deja=deja))
 
 
 def _preparer_vignettes() -> None:
@@ -1029,6 +1044,8 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
         blink_registre.save_download_state(output, state)
         deja = len(clips) - len(pending)
         print(msg("incremental", nouveaux=len(pending), deja=deja))
+        if pending:
+            _journaliser_inventaire("usb", len(state["clips"]), len(pending), deja)
         plans_usb.append(_PlanUSB(name, sync, clips, pending, adopted))
 
     plan_cloud = _PlanCloud()

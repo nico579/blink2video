@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import stat as stat_module
+import time
 from pathlib import Path
 
 from nico579_commons import atomique
@@ -40,6 +41,32 @@ def _copie_registre(output: Path) -> Path:
 # Registre absent : distinct de tout contenu JSON possible, « null » compris.
 _ABSENT = object()
 
+# Trou observé jusqu'à 125 ms (2026-11-06) : voir _lire_registre().
+TENTATIVES_ABSENCE = 10
+PAUSE_ABSENCE_S = 0.05
+REMPLACEMENT_NON_ATOMIQUE = os.name == "nt"
+
+
+def _lire_registre(output: Path):
+    """Contenu du registre ou de sa copie, _ABSENT seulement si absence avérée.
+
+    Sous Windows, os.replace n'est pas atomique pour un lecteur : pendant le
+    remplacement, la cible n'existe plus du tout. Sonde du 2026-11-06, à
+    l'instant d'une lecture vide : le dossier ne contenait que le temporaire,
+    jusqu'à 125 ms durant. Cette absence n'est pas un refus, lire_json n'a
+    aucune raison de la réessayer, et le registre passait pour vide en silence.
+    On insiste donc avant d'y croire, sauf sans dossier de bruts : une
+    installation neuve n'attend jamais, et ailleurs le remplacement est atomique."""
+    for _ in range(TENTATIVES_ABSENCE):
+        for chemin in (output / STATE_FILENAME, _copie_registre(output)):
+            state = atomique.lire_json(chemin, _ABSENT, tolerer_corrompu=False)
+            if state is not _ABSENT:
+                return state
+        if not REMPLACEMENT_NON_ATOMIQUE or not output.is_dir():
+            break
+        time.sleep(PAUSE_ABSENCE_S)
+    return _ABSENT
+
 
 def load_download_state(output: Path) -> dict:
     """Charge le registre incrémental placé dans le dossier de destination.
@@ -58,15 +85,10 @@ def load_download_state(output: Path) -> dict:
     Si le dossier de bruts a été supprimé, la copie placée à côté fournit
     l'historique ; le prochain enregistrement recrée le registre principal.
     Seul un contenu invalide suit encore la stratégie du registre vide (I-10)."""
-    state_file = output / STATE_FILENAME
     try:
-        state = atomique.lire_json(state_file, _ABSENT, tolerer_corrompu=False)
+        state = _lire_registre(output)
         if state is _ABSENT:
-            state = atomique.lire_json(
-                _copie_registre(output), _ABSENT, tolerer_corrompu=False,
-            )
-            if state is _ABSENT:
-                return {"version": 1, "clips": {}}
+            return {"version": 1, "clips": {}}
         if not isinstance(state, dict):
             raise ValueError(msg("registre_racine_objet"))
         if state.get("version") not in (1, 2) or not isinstance(state.get("clips"), dict):

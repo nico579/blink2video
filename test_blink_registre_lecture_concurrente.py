@@ -134,6 +134,49 @@ class TestsConcurrenceReelle(_Registre):
             len(blink_registre.load_download_state(self.sortie)["clips"]), self.nombre)
 
 
+class TestsAbsencePassagere(_Registre):
+    """Sous Windows, os.replace laisse un instant la cible absente : la sonde
+    du 2026-11-06 n'a trouvé que le temporaire dans le dossier, jusqu'à 125 ms."""
+
+    def setUp(self):
+        super().setUp()
+        for correctif in (mock.patch.object(blink_registre.time, "sleep"),
+                          mock.patch.object(blink_registre, "REMPLACEMENT_NON_ATOMIQUE", True)):
+            correctif.start()
+            self.addCleanup(correctif.stop)
+
+    def _absent(self, combien: int):
+        """Fait passer le registre pour absent ``combien`` lectures durant."""
+        lire = atomique.lire_json
+        restants = [combien]
+
+        def lecture(chemin, defaut, **options):
+            if restants[0] != 0:
+                restants[0] -= 1
+                return defaut
+            return lire(chemin, defaut, **options)
+
+        return mock.patch.object(atomique, "lire_json", side_effect=lecture)
+
+    def test_absence_passagere_ne_rend_pas_un_registre_vide(self):
+        # Quatre lectures : registre et copie absents, deux tours de suite.
+        with self._absent(4):
+            etat = blink_registre.load_download_state(self.sortie)
+        self.assertEqual(len(etat["clips"]), self.nombre)
+
+    def test_absence_avere_reste_vide_et_bornee(self):
+        self.registre.unlink()
+        etat = blink_registre.load_download_state(self.sortie)
+        self.assertEqual(etat["clips"], {})
+        self.assertEqual(blink_registre.time.sleep.call_count,
+                         blink_registre.TENTATIVES_ABSENCE)
+
+    def test_installation_neuve_n_attend_pas(self):
+        etat = blink_registre.load_download_state(self.sortie / "Blink_Clips")
+        self.assertEqual(etat["clips"], {})
+        blink_registre.time.sleep.assert_not_called()
+
+
 class TestsRefusSimule(_Registre):
     def setUp(self):
         super().setUp()
