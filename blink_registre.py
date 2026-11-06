@@ -137,7 +137,7 @@ def save_download_state(output: Path, state: dict) -> None:
 
     Le remplacement reste atomique : un plantage en cours d'écriture laisse
     l'ancien registre intact plutôt qu'un fichier tronqué."""
-    output.mkdir(parents=True, exist_ok=True)
+    runtime.creer_sous_sorties(output)
     state_file = output / STATE_FILENAME
     with runtime.verrou("registre", "ecriture", stale_after=60, attente=10):
         _sauvegarder_registre_v1(state_file)

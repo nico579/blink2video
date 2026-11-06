@@ -441,7 +441,7 @@ if DISPONIBLE:
             """
             try:
                 chemin = self._chemin_enregistrement()
-                chemin.parent.mkdir(parents=True, exist_ok=True)
+                runtime.creer_sous_sorties(chemin.parent)
                 processus = await asyncio.create_subprocess_exec(
                     self._ffmpeg, "-hide_banner", "-loglevel", "error",
                     "-f", "h264", "-i", "pipe:0",

@@ -530,7 +530,7 @@ class CloudClip:
                     await reponse.read()
                 return False
 
-            target.parent.mkdir(parents=True, exist_ok=True)
+            runtime.creer_sous_sorties(target.parent)
             recus = 0
             flux = getattr(reponse, "content", None)
             iter_chunked = getattr(flux, "iter_chunked", None)

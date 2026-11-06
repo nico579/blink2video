@@ -22,6 +22,7 @@ from __future__ import annotations  # Python 3.8 (build Windows 7) : les annotat
 import argparse
 import asyncio
 import concurrent.futures
+import contextlib
 import datetime as dt
 import email.utils
 import hashlib
@@ -2133,11 +2134,16 @@ def normaliser_hotes_confiance(valeur: str) -> str:
 
 
 def _verifier_dossier_reglages(dossier: str) -> None:
-    """Éprouve l'écriture sans changer le dossier de stockage actif."""
+    """Éprouve l'écriture sans changer le dossier de stockage actif.
+
+    Le dossier déjà choisi mais absent n'est pas éprouvé : la page renvoie ce
+    chemin à chaque enregistrement, et l'éprouver le recréerait (issue #134)."""
     if not dossier:
         return
     try:
         candidat = Path(dossier).expanduser()
+        if candidat.resolve() == runtime.dossier_sorties_manquant():
+            return
         candidat.mkdir(parents=True, exist_ok=True)
         # Création exclusive : ni fichier existant écrasé, ni collision entre
         # deux requêtes. Le contexte ferme et supprime uniquement sa sonde,
@@ -2520,7 +2526,7 @@ class Handler(serveweb.Handler):
             # écraserait le fichier temporaire du premier en plein envoi.
             with _verrou_miniature(str(thumb)):
                 if not fraiche():
-                    thumb.parent.mkdir(parents=True, exist_ok=True)
+                    runtime.creer_sous_sorties(thumb.parent)
                     pending = thumb.with_suffix(".tmp.jpg")
                     # Deux extractions à la fois au plus : le navigateur réclame
                     # toutes les vignettes de la page d'un coup, et autant de
@@ -2885,7 +2891,7 @@ class Handler(serveweb.Handler):
                 MODULE_SLOT.release()
 
         dossier = self.paths["snapshots"] / safe_file(resultat["nom"])
-        dossier.mkdir(parents=True, exist_ok=True)
+        runtime.creer_sous_sorties(dossier)
         horodatage = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d_%H-%M-%SZ")
         # Empreinte du contenu, pas un compteur : deux déclenchements dans la
         # même seconde (double clic, webhook rapproché) écrasaient sinon
@@ -2911,7 +2917,7 @@ class Handler(serveweb.Handler):
         """Même remplacement atomique que send_camera_thumb, réutilisable
         pour republier une image déjà en main sans repasser par Blink."""
         cache = self.paths["thumbs"] / "cameras" / f"{safe_file(identity)}.jpg"
-        cache.parent.mkdir(parents=True, exist_ok=True)
+        runtime.creer_sous_sorties(cache.parent)
         attente = cache.with_suffix(".tmp.jpg")
         attente.write_bytes(corps)
         attente.replace(cache)
@@ -3138,6 +3144,7 @@ class Handler(serveweb.Handler):
         Une demande explicite de rafraîchissement relit l'image conservée par
         Blink. En cas d'échec, la dernière image locale reste disponible."""
         cached = (self.paths["thumbs"] / "cameras" / f"{safe_file(identity)}.jpg")
+        body = b""
         if refresh or not (cached.is_file() and cached.stat().st_size > 0):
             def fetch(blink):
                 async def run(_blink=blink):
@@ -3158,9 +3165,12 @@ class Handler(serveweb.Handler):
                 self.send_error(404)
                 return
             if body:
-                self._ecrire_vignette_camera(identity, body)
+                # Dossier des vidéos absent : l'image reçue s'affiche quand
+                # même, seul son cache attendra le retour du disque.
+                with contextlib.suppress(runtime.DossierSortiesAbsent):
+                    self._ecrire_vignette_camera(identity, body)
 
-        body = cached.read_bytes()
+        body = body or cached.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", "image/jpeg")
         self.send_header("Cache-Control", "no-store")
@@ -3665,7 +3675,7 @@ class Handler(serveweb.Handler):
                         holder.get("camera_name", name)
                     )
                     try:
-                        chemin.parent.mkdir(parents=True, exist_ok=True)
+                        runtime.creer_sous_sorties(chemin.parent)
                         fichier_direct = chemin.open("wb")
                         init_seg = _extraire_init_segment(first)
                         fichier_direct.write(init_seg)
@@ -4162,7 +4172,9 @@ class Handler(serveweb.Handler):
             # tout le registre des clips comme /api/passages. Sur un vieux PC
             # Windows 7, parser ce JSON croissant toutes les trois secondes
             # coûterait bien plus que la lecture du seul état de progression.
-            self.send_json({"travail": runtime.travail_affichable()})
+            manquant = runtime.dossier_sorties_manquant()
+            self.send_json({"travail": runtime.travail_affichable(),
+                            "dossier_absent": str(manquant) if manquant else ""})
             return
 
         if route == "/api/refresh":
@@ -5053,6 +5065,7 @@ __CSS__
     <button class="btn-lang" data-lang-btn="en">EN</button>
   </span>
   <div id="work"><span id="phase"></span><progress id="bar"></progress></div>
+  <p id="dossierAbsent" role="alert" hidden></p>
 </header>
 <main><div id="list"></div><pre id="log"></pre></main>
 

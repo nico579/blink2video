@@ -398,6 +398,7 @@ _LIBELLES_RUNTIME = {
         "verrou_inaccessible": "verrou en cours de suppression ou inaccessible : {fichier}",
         "publication_en_cours": "publication de progression en cours",
         "verbe_inconnu": "verbe inconnu : {verbe}",
+        "dossier_sorties_absent": "Dossier des vidéos introuvable : {dossier}. Rien n'y sera écrit tant qu'il n'est pas revenu. Son disque est-il monté ?",
     },
     "en": {
         "repetition": "Repeating every {minutes} min. Ctrl+C to stop.",
@@ -422,6 +423,7 @@ _LIBELLES_RUNTIME = {
         "verrou_inaccessible": "lock being removed or not accessible: {fichier}",
         "publication_en_cours": "progress publication in progress",
         "verbe_inconnu": "unknown verb: {verbe}",
+        "dossier_sorties_absent": "Videos folder not found: {dossier}. Nothing will be written there until it is back. Is its disk mounted?",
     },
 }
 
@@ -943,6 +945,51 @@ def dossier_sorties() -> Path:
     return _sorties_par_defaut()
 
 
+class DossierSortiesAbsent(OSError):
+    """Le dossier choisi dans les réglages n'est pas là. C'est un OSError : les
+    écritures qui survivent déjà à un disque plein survivent aussi à celui-ci."""
+
+
+def dossier_sorties_manquant() -> Path | None:
+    """Dossier choisi dans les réglages s'il a disparu, None sinon.
+
+    Issue #134 : un dossier choisi sur un disque à part, encore démonté au
+    démarrage, ne doit pas renaître sur le disque système. Les clips y seraient
+    masqués au montage, et absents de la sauvegarde. Seul un dossier choisi est
+    concerné : celui par défaut et BLINK_HOME (un volume Docker neuf, par
+    exemple) se créent à la demande. Un point de montage vide existe, lui, et
+    passe : d'où le conseil du README de choisir un sous-dossier du disque."""
+    choisi = lire_reglages().get("dossier_sorties")
+    if not choisi:
+        return None
+    dossier = Path(choisi).expanduser().resolve()
+    # os.path, pas Path.is_dir() : un refus d'accès y vaut absence, sans lever.
+    return None if os.path.isdir(dossier) else dossier
+
+
+def exiger_dossier_sorties(chemin: Path) -> None:
+    """Lève DossierSortiesAbsent si `chemin` est sous un dossier choisi absent.
+
+    Un chemin ailleurs (--output explicite) reste libre."""
+    manquant = dossier_sorties_manquant()
+    if manquant is None:
+        return
+    cible = Path(chemin).resolve()
+    if cible == manquant or manquant in cible.parents:
+        raise DossierSortiesAbsent(_msg("dossier_sorties_absent", dossier=manquant))
+
+
+def creer_sous_sorties(dossier: Path) -> None:
+    """mkdir de tout ce qui s'écrit sous dossier_sorties().
+
+    Passer par ici est la règle : un seul mkdir(parents=True) direct, pour une
+    simple vignette, recréerait le dossier absent, et toutes les écritures
+    repartiraient sur le disque système. Seul le choix du dossier dans les
+    réglages le crée, voir ecrire_dossier_stockage()."""
+    exiger_dossier_sorties(dossier)
+    dossier.mkdir(parents=True, exist_ok=True)
+
+
 def ajouter_ligne(nom_fichier: str, ligne: str) -> None:
     """Ajoute une ligne à un fichier de app_dir(), append-only, jamais fatal.
 
@@ -988,11 +1035,15 @@ def ecrire_dossier_stockage(chemin: str, *, reglages: dict | None = None,
     suivants iront dans le nouveau dossier. L'état (session, réglages) ne le
     suit plus, il reste dans app_dir(). Le dossier est créé d'abord : un
     emplacement inutilisable (lecteur absent, droits) est refusé avant
-    d'être enregistré.
+    d'être enregistré. Sauf le dossier déjà choisi s'il est absent : la page
+    renvoie ce chemin à chaque enregistrement, et changer un autre réglage
+    disque démonté ne doit pas le recréer (issue #134).
     """
     chemin = chemin.strip()
     valeur = str(Path(chemin).expanduser().resolve()) if chemin else ""
-    (Path(valeur) if valeur else _sorties_par_defaut()).mkdir(parents=True, exist_ok=True)
+    cible = Path(valeur) if valeur else _sorties_par_defaut()
+    if cible != dossier_sorties_manquant():
+        cible.mkdir(parents=True, exist_ok=True)
 
     # Le parent start surveille le marqueur initial pour lancer les workers.
     # Garder les réglages exacts permet de les rétablir si cette dernière
