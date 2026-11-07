@@ -83,10 +83,17 @@ class FauxReponse:
 
 
 class FauxBlinkHTTP:
+    """La surface que ``demander_media_cloud`` emprunte à blinkpy."""
+
     def __init__(self, reponse):
         self.reponse = reponse
+        self.requetes = []
+        self.urls = SimpleNamespace(base_url="https://rest-test.invalid")
+        self.auth = SimpleNamespace(header={"Authorization": "Bearer t"},
+                                    query=self._query)
 
-    async def do_http_get(self, _adresse):
+    async def _query(self, **requete):
+        self.requetes.append(requete)
         return self.reponse
 
 

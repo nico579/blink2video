@@ -285,13 +285,15 @@ obtenue = version("blinkpy")
 assert obtenue == attendue, (obtenue, attendue)
 assert inspect.iscoroutinefunction(Blink.start)
 for classe, noms in (
-    (Blink, ("send_2fa_code", "get_videos_metadata", "do_http_get")),
+    (Blink, ("send_2fa_code", "get_videos_metadata")),
     (BlinkCamera, ("init_livestream",)),
     (BlinkLiveStream, ("start", "feed", "recv", "stop")),
 ):
     for nom in noms:
         assert hasattr(classe, nom), "%%s.%%s absent" %% (classe.__name__, nom)
 assert "callback" in inspect.signature(Auth.__init__).parameters
+# Les médias cloud passent par Auth.query avec leur propre délai (#139).
+assert "timeout" in inspect.signature(Auth.query).parameters
 racine = distribution("blinkpy").locate_file("blinkpy")
 assert compileall.compile_dir(str(racine), quiet=1)
 print("blinkpy %%s : API moderne compilée sous Python 3.8" %% obtenue)

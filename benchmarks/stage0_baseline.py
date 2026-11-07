@@ -637,9 +637,16 @@ def benchmark_p07(config, racine):
 
             async def telecharger():
                 async with aiohttp.ClientSession() as session:
+                    class Auth:
+                        header = {}
+
+                        async def query(self, url, timeout, **_):
+                            return await session.get(url, timeout=timeout)
+
                     class Blink:
-                        async def do_http_get(self, adresse):
-                            return await session.get(adresse)
+                        # Adresse complète dans "media" : préfixe vide.
+                        urls = SimpleNamespace(base_url="")
+                        auth = Auth()
                     clip = blink_models.CloudClip({
                         "id": taille, "device_name": "bench",
                         "created_at": "2026-08-13T12:00:00+00:00",

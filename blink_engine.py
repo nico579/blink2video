@@ -199,6 +199,8 @@ LIBELLES = {
         "travail_inventaire_clips": "Inventaire des clips",
         "journal_clips_annonces": "{n} clip(s) annoncé(s)",
         "journal_inventaire": "inventaire  {source} : registre {connus}, nouveaux {nouveaux}, déjà acquis {deja}",
+        "journal_liste_vide": "inventaire  {source} : liste vide (registre {connus})",
+        "journal_liste_revenue": "inventaire  {source} : liste revenue, {lus} clip(s)",
         "journal_echecs": "échecs  {source} : {n} clip(s) [{categorie}] {detail}, dont {exemple}",
     },
     "en": {
@@ -246,6 +248,8 @@ LIBELLES = {
         "travail_inventaire_clips": "Listing clips",
         "journal_clips_annonces": "{n} clip(s) announced",
         "journal_inventaire": "inventory  {source}: registry {connus}, new {nouveaux}, already acquired {deja}",
+        "journal_liste_vide": "inventory  {source}: empty listing (registry {connus})",
+        "journal_liste_revenue": "inventory  {source}: listing back, {lus} clip(s)",
         "journal_echecs": "failures  {source}: {n} clip(s) [{categorie}] {detail}, including {exemple}",
     },
 }
@@ -453,6 +457,7 @@ async def _inventorier_cloud(blink: Blink, args, output: Path,
                              state: dict, modules: list) -> _PlanCloud:
     """Construit le plan cloud sans commencer le moindre transfert."""
     clips = await blink_models.read_cloud_manifest(blink, args.since)
+    _noter_liste_cloud(len(clips), len(state["clips"]))
     if args.camera:
         clips = [c for c in clips if c.name.casefold() == args.camera.casefold()]
     if args.hub:
@@ -596,6 +601,31 @@ def _journaliser_inventaire(source: str, connus: int, nouveaux: int, deja: int) 
         JOURNAL_TELECHARGEMENTS,
         f"{moment}  " + msg("journal_inventaire", source=source, connus=connus,
                             nouveaux=nouveaux, deja=deja))
+
+
+# Vide ou non au tour précédent de ce processus ; None avant le premier tour.
+_liste_cloud_vide = None
+
+
+def _noter_liste_cloud(lus: int, connus: int) -> None:
+    """Trace le passage de la liste cloud à vide, puis son retour (#139).
+
+    blinkpy rend une liste vide, sans erreur, quand la requête de la première
+    page échoue. Un tel tour ressemble alors à un tour sans nouveauté : aucune
+    ligne. Une nuit de listes ratées ne se distinguait pas d'une nuit calme.
+    Seuls les changements d'état sont écrits, pour qu'une boucle de cinq
+    minutes ne remplisse pas le journal."""
+    global _liste_cloud_vide
+    vide = lus == 0
+    if vide == _liste_cloud_vide or (_liste_cloud_vide is None and not vide):
+        _liste_cloud_vide = vide
+        return
+    _liste_cloud_vide = vide
+    moment = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cle = "journal_liste_vide" if vide else "journal_liste_revenue"
+    runtime.ajouter_ligne(
+        JOURNAL_TELECHARGEMENTS,
+        f"{moment}  " + msg(cle, source="cloud", connus=connus, lus=lus))
 
 
 def _journaliser_echecs(source: str, echecs: dict) -> None:
