@@ -489,6 +489,33 @@ async def read_local_manifest(sync) -> list:
     raise RuntimeError(msg("manifeste_local_absent", tentatives=len(delays) + 1))
 
 
+# Silence toléré pendant un transfert de média cloud, en secondes. On borne le
+# silence et non la durée totale : un clip lourd sur une ligne lente doit aller
+# au bout tant que les octets arrivent, une connexion figée doit tomber.
+SILENCE_MEDIA_CLOUD = 60
+
+
+async def demander_media_cloud(blink: Blink, adresse: str):
+    """GET d'un média cloud avec un délai adapté au transfert (issue #139).
+
+    ``Blink.do_http_get`` de blinkpy 0.25.9 demande ``TIMEOUT_MEDIA`` (90 s),
+    mais ``api.http_get`` ne transmet pas ce paramètre : la requête part avec
+    le délai total des appels JSON, 10 s. aiohttp applique ce délai total à la
+    lecture du corps : tout clip dont le transfert dépasse 10 s était coupé en
+    ``TimeoutError``, puis retenté à chaque tour. On passe donc par
+    ``Auth.query``, le même chemin que blinkpy (rafraîchissement du jeton
+    compris), en lui donnant enfin un délai."""
+    from aiohttp import ClientTimeout
+
+    delai = ClientTimeout(
+        total=None, sock_connect=SILENCE_MEDIA_CLOUD, sock_read=SILENCE_MEDIA_CLOUD,
+    )
+    return await blink.auth.query(
+        url=f"{blink.urls.base_url}{adresse}", headers=blink.auth.header,
+        reqtype="get", stream=True, json_resp=False, timeout=delai,
+    )
+
+
 class CloudClip:
     """Un clip du cloud, présenté comme ceux du stockage local.
 
@@ -517,7 +544,7 @@ class CloudClip:
             self.download_issue = (msg("cat_donnees"), msg("media_absent"))
             return False
         try:
-            reponse = await blink.do_http_get(self.address)
+            reponse = await demander_media_cloud(blink, self.address)
             if reponse is None:
                 self.download_issue = (msg("cat_reseau"), msg("aucune_reponse"))
                 return False
@@ -576,7 +603,14 @@ class CloudClip:
                 return False
             return True
         except Exception as erreur:
-            categorie = msg("cat_ecriture") if isinstance(erreur, OSError) else msg("cat_reseau")
+            from aiohttp import ClientError
+
+            # Depuis Python 3.10, TimeoutError hérite d'OSError, comme les
+            # erreurs de connexion d'aiohttp : un délai dépassé s'affichait
+            # « écriture » alors que le disque n'y était pour rien (#139).
+            disque = isinstance(erreur, OSError) and not isinstance(
+                erreur, (TimeoutError, ConnectionError, ClientError))
+            categorie = msg("cat_ecriture") if disque else msg("cat_reseau")
             self.download_issue = (categorie, type(erreur).__name__)
             return False
         finally:
