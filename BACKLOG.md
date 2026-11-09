@@ -65,14 +65,6 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
   appairage). Ne jamais y passer ce qui doit survivre à l'application : Redémarrer (`relance`), le
   démarrage automatique, la mise à jour, le navigateur.
 
-- **Issue #40 (MCas86) : trois réglages promis le 2026-10-19.** Le titre de l'en-tête, et pourquoi
-  pas l'icône, réglables : il les avait changés dans le code pour distinguer son instance, et une mise
-  à jour écraserait ces changements. La dernière vue ouverte retenue par navigateur, plutôt qu'une vue
-  par défaut unique : l'écran mural rouvre la ronde, le navigateur du bureau la vue Direct. Les
-  caméras hors ligne en fin de liste. Une page ne peut pas passer seule en plein écran à son
-  chargement, il faut un clic : pour un écran mural, le mode kiosque de Chromium ou d'Edge
-  (`--kiosk`), conseillé dans la même réponse.
-
 - **Issue #40 (MCas86) : lire de lui-même le clip qui vient d'être filmé.** Proposé le 2026-10-20
   pour un écran mural (Raspberry Pi, Chromium en kiosque) : système armé, mouvement, enregistrement,
   puis lecture une seule fois. Principe accepté le même jour, codage reporté par Nico. Comportement

@@ -26,7 +26,7 @@ FONCTIONS = [
     "restaurerCamerasMasquees", "memoriserCamerasMasquees", "estMasquee",
     "restaurerTailleCartes", "appliquerTailleCartes", "comparerNoms",
     "majCaseMasquees", "toutesLesCameras", "camerasConnues", "camerasPourMasquage",
-    "visible", "renderLive",
+    "visible", "renderLive", "comparerCamerasDirect",
 ]
 
 # Constantes et état du bloc « préférences d'affichage » : recopiés du source,
@@ -166,6 +166,22 @@ class VuesDirect(unittest.TestCase):
         r = executer('renderLive(); sortie.html = $("list").innerHTML;', None, self.SYSTEME)
         self.assertEqual(r["html"].count("<card Grenier>"), 2)
         self.assertNotIn("live.toutesMasquees", r["html"])
+
+    def test_les_cameras_hors_ligne_en_fin_de_liste(self):
+        # Issue #40 (MCas86) : rien à regarder sur une caméra hors ligne. Chaque
+        # groupe garde l'ordre naturel des noms, et le tri reste par système.
+        systeme = {"error": None, "systems": [
+            {"name": "Maison", "key": "m", "armed": True, "module": None,
+             "module_firmware": None, "module_serial": None, "cameras": [
+                 {"name": "1-Allée", "offline": True}, {"name": "10-Cave"},
+                 {"name": "3-Garage", "offline": True}, {"name": "2-Salon"}]},
+            {"name": "Loft", "key": "l", "armed": False, "module": None,
+             "module_firmware": None, "module_serial": None,
+             "cameras": [{"name": "0-Loft"}]},
+        ]}
+        r = executer('renderLive(); sortie.html = $("list").innerHTML;', None, systeme)
+        ordre = re.findall(r"<card ([^>]+)>", r["html"])
+        self.assertEqual(ordre, ["2-Salon", "10-Cave", "1-Allée", "3-Garage", "0-Loft"])
 
 
 class TailleDesVignettes(unittest.TestCase):

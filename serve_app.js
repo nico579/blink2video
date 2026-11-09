@@ -213,6 +213,10 @@ const I18N = {
     "reglages.webhookNotif.hint": "Appelle cette URL en POST à chaque nouveau clip ou photo, une fois le fichier bien écrit sur disque.",
     "reglages.webhookNotif.hint.text": "Envoie un POST JSON (caméra, chemin, type) à l'URL ci-dessous chaque fois qu'un clip ou une photo est prêt. Au mieux, sans nouvelle tentative : une notification manquée n'interrompt jamais le téléchargement.",
     "reglages.webhookNotifUrl": "URL de notification",
+    "reglages.entete": "En-tête de la page",
+    "reglages.entete.hint": "Pour reconnaître cette installation d'une autre : le titre et l'icône s'affichent en haut de la page et dans l'onglet, sur tous les navigateurs. Vides : blink2video.",
+    "reglages.entete.titre": "Titre",
+    "reglages.entete.icone": "Icône (un émoji)",
     "reglages.hint": "Les réglages ne prennent effet qu'au redémarrage : « Appliquer » enregistre et redémarre. Changer le port redirige cette page vers la nouvelle adresse.",
     "reglages.apply": "Appliquer", "reglages.restarting": "Redémarrage…",
     "reglages.restart": "Redémarrer",
@@ -438,6 +442,10 @@ const I18N = {
     "reglages.webhookNotif.hint": "Calls this URL with POST on every new clip or picture, once the file is actually done writing to disk.",
     "reglages.webhookNotif.hint.text": "Sends a JSON POST (camera, path, type) to the URL below every time a clip or picture is ready. Best-effort, no retry: a missed notification never holds up downloading.",
     "reglages.webhookNotifUrl": "Notification URL",
+    "reglages.entete": "Page header",
+    "reglages.entete.hint": "To tell this installation from another one: the title and icon show at the top of the page and in the browser tab, in every browser. Empty: blink2video.",
+    "reglages.entete.titre": "Title",
+    "reglages.entete.icone": "Icon (an emoji)",
     "reglages.hint": "Settings only take effect on restart: \u201cApply\u201d saves and restarts. Changing the port redirects this page to the new address.",
     "reglages.apply": "Apply", "reglages.restarting": "Restarting…",
     "reglages.restart": "Restart",
@@ -704,6 +712,13 @@ function comparerNoms(a, b) {
   return _collateurs[_lang].compare(a, b);
 }
 
+// Ordre des caméras dans la vue Direct (issue #40) : celles en ligne d'abord,
+// puis les hors ligne, qui n'ont rien à montrer ; chaque groupe dans l'ordre
+// naturel des noms. La grille et la ronde le partagent.
+function comparerCamerasDirect(a, b) {
+  return (a.offline ? 1 : 0) - (b.offline ? 1 : 0) || comparerNoms(a.name, b.name);
+}
+
 function majCaseMasquees() {
   $("hiddenLabel").hidden = camerasMasquees.size === 0;
   if (!camerasMasquees.size) {
@@ -881,6 +896,13 @@ async function loadSystem(force) {
     system = { error: String(error) };
   }
   if ($("view").value === "live") renderLive();
+  // Ronde en cours à la fermeture de la page : elle reprend une fois les
+  // caméras connues, pas avant (sans elles, elle attendrait 30 s sur
+  // « aucune caméra »).
+  if (rondeAReprendre && $("view").value === "live" && !system.error) {
+    rondeAReprendre = false;
+    demarrerRonde();
+  }
 }
 
 // Un calcul lancé par les boucles de fond, hors de cette page : le
@@ -1194,10 +1216,10 @@ function renderLive() {
     $("list").innerHTML = `<p class="empty">${h(system.error)}</p>`;
     return;
   }
-  // Caméras masquées exclues, les autres dans l'ordre naturel de leur nom.
+  // Caméras masquées exclues, les hors ligne en fin de liste.
   const camerasVisibles = (s) => s.cameras
     .filter((c) => !estMasquee(c.name))
-    .sort((a, b) => comparerNoms(a.name, b.name));
+    .sort(comparerCamerasDirect);
   const cameras = system.systems.reduce((n, s) => n + camerasVisibles(s).length, 0);
   const armed = system.systems.reduce(
     (n, s) => n + camerasVisibles(s).filter((c) => c.armed).length, 0);
@@ -2337,6 +2359,28 @@ const ronde = {
 };
 let reglagesRonde = lireReglagesRonde();
 
+// Une ronde que seule la fermeture de la page a interrompue reprend à la
+// réouverture (issue #40) : l'écran mural qui redémarre, ou la page rechargée
+// après une mise à jour, retrouve sa ronde sans personne pour cliquer. Arrêtée
+// à la main (Arrêter, Échap, autre vue), elle ne reprend pas.
+const CLE_RONDE_EN_COURS = "blink2video.ronde.enCours";
+let rondeAReprendre = false;
+
+function memoriserRondeEnCours(enCours) {
+  try {
+    if (enCours) localStorage.setItem(CLE_RONDE_EN_COURS, "1");
+    else localStorage.removeItem(CLE_RONDE_EN_COURS);
+  } catch (erreur) { /* stockage indisponible : pas de reprise */ }
+}
+
+function rondeEtaitEnCours() {
+  try {
+    return localStorage.getItem(CLE_RONDE_EN_COURS) === "1";
+  } catch (erreur) {
+    return false;
+  }
+}
+
 function normaliserReglagesRonde(brut) {
   const r = brut && typeof brut === "object" ? brut : {};
   const secondes = Number.parseInt(r.secondes, 10);
@@ -2385,7 +2429,7 @@ function camerasGrille() {
   if (!system || system.error || !system.systems) return [];
   return system.systems.flatMap((s) => s.cameras
     .filter((c) => !estMasquee(c.name))
-    .sort((a, b) => comparerNoms(a.name, b.name)));
+    .sort(comparerCamerasDirect));
 }
 
 // Celles de la ronde : en ligne (réveiller une caméra hors ligne ne mène qu'à
@@ -2531,6 +2575,7 @@ function surImageRonde(event) {
 function demarrerRonde() {
   if (ronde.active) return;
   Object.assign(ronde, { active: true, pleinEcran: false, position: -1 });
+  memoriserRondeEnCours(true);
   const conteneur = $("ronde");
   conteneur.hidden = false;
   // Sans API plein écran (iPhone), #ronde couvre déjà toute la fenêtre.
@@ -2547,6 +2592,7 @@ function demarrerRonde() {
 function arreterRonde() {
   if (!ronde.active) return;
   ronde.active = false;
+  memoriserRondeEnCours(false);
   ronde.tour++;
   clearTimeout(ronde.minuterie);
   arreterDecompteRonde();
@@ -3634,8 +3680,24 @@ majCaseMasquees();
 // 2026-09-04 : direct enregistré, invisible dans Clips Directs jusqu'à un
 // rechargement complet de la page). "live" n'en a pas besoin, il lit
 // `system` (loadSystem), jamais `data`/`videos`.
+// La dernière vue choisie, retenue par navigateur plutôt qu'une vue par
+// défaut unique (issue #40) : l'écran mural rouvre le direct, le navigateur du
+// bureau les clips. Inconnue ou absente : les clips, comme avant.
+const CLE_VUE = "blink2video.vue";
+
+function restaurerVue() {
+  let vue = null;
+  try { vue = localStorage.getItem(CLE_VUE); } catch (erreur) { /* stockage indisponible */ }
+  return [...$("view").options].some((o) => o.value === vue) ? vue : "clips";
+}
+
+function memoriserVue(vue) {
+  try { localStorage.setItem(CLE_VUE, vue); } catch (erreur) { /* stockage indisponible */ }
+}
+
 $("view").onchange = () => {
   pageClips = 0;
+  memoriserVue($("view").value);
   if ($("view").value === "live") {
     rafraichirVignettes = true;
     render();
@@ -3712,6 +3774,8 @@ function afficherFormulaireReglages(reglages) {
   $("storageDir").value = reglages.storage_dir;
   $("trustedHost").value = reglages.trusted_host || "";
   $("webhookNotifUrl").value = reglages.webhook_notif_url || "";
+  $("headerTitle").value = reglages.header_title || "";
+  $("headerIcon").value = reglages.header_icon || "";
   $("liveAutoStopSeconds").value = reglages.live_auto_stop_seconds || "";
   for (const [id, champ] of CHAMPS_CONSERVATION) $(id).value = reglages[champ] || "";
   $("timestamp").checked = reglages.timestamp;
@@ -4000,6 +4064,8 @@ async function envoyerFormulaireReglages({ usb, cloud, port, timezone }) {
       storage_dir: $("storageDir").value.trim(),
       trusted_host: $("trustedHost").value.trim(),
       webhook_notif_url: $("webhookNotifUrl").value.trim(),
+      header_title: $("headerTitle").value.trim(),
+      header_icon: $("headerIcon").value.trim(),
       live_auto_stop_seconds: Number($("liveAutoStopSeconds").value) || 0,
       ...Object.fromEntries(CHAMPS_CONSERVATION.map(
         ([id, champ]) => [champ, Number($(id).value) || 0])),
@@ -4266,7 +4332,13 @@ document.querySelectorAll("[data-lang-btn]").forEach((button) => {
 // appel réseau vers /api/system dont la réponse, arrivée en retard, écrase
 // la liste de clips déjà affichée sans que le menu déroulant ne bouge (bug
 // vécu en conditions réelles : la page « repassait en Direct toute seule »).
-$("view").value = "clips";
+// Depuis l'issue #40, c'est la dernière vue de ce navigateur, posée de la même
+// façon avant tout rendu : menu et contenu restent d'accord.
+$("view").value = restaurerVue();
+// La ronde ne reprend pas derrière la connexion ou la première configuration,
+// qui attendent quelqu'un devant l'écran.
+rondeAReprendre = $("view").value === "live" && rondeEtaitEnCours()
+  && !/[?&](login|setup)=1\b/.test(location.search);
 // Override manuel mémorisé prioritaire ; sinon la langue du navigateur, comme
 // au premier lancement de lidar2map. Placé ici, en fin de script : setLang()
 // appelle render()/renderLive(), qui référencent des `let` déclarés plus haut

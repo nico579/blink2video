@@ -885,3 +885,14 @@ l'utilisateur - et le lot d'optimisations, non urgentes.
 
   échoué (corrigé en v0.11.6, voir BACKLOG-FAIT.md) ; il reste un brouillon `v0.11.5` avec 6 fichiers
   sur GitHub, sans tag. À supprimer si Nico est d'accord (décision laissée à lui, rien n'a été effacé).
+
+- **Issue #40 (MCas86) : trois réglages promis le 2026-10-19.** Le titre de l'en-tête, et pourquoi
+
+> **Statut : FAIT le 2026-11-09 : titre et icône de l'en-tête dans Réglages, Général (réglage de l'installation, valable pour tous les navigateurs) ; dernière vue retenue par navigateur, et ronde qui reprend à la réouverture si seule la fermeture de la page l'avait coupée ; caméras hors ligne en fin de liste dans chaque système.**
+
+  pas l'icône, réglables : il les avait changés dans le code pour distinguer son instance, et une mise
+  à jour écraserait ces changements. La dernière vue ouverte retenue par navigateur, plutôt qu'une vue
+  par défaut unique : l'écran mural rouvre la ronde, le navigateur du bureau la vue Direct. Les
+  caméras hors ligne en fin de liste. Une page ne peut pas passer seule en plein écran à son
+  chargement, il faut un clic : pour un écran mural, le mode kiosque de Chromium ou d'Edge
+  (`--kiosk`), conseillé dans la même réponse.

@@ -27,6 +27,7 @@ import datetime as dt
 import email.utils
 import hashlib
 import hmac
+import html
 import http.server
 import ipaddress
 import json
@@ -44,7 +45,7 @@ import uuid
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 try:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 except ImportError:  # Python 3.8 (build Windows 7, voir build-win7.yml) : pas de zoneinfo en stdlib.
@@ -138,6 +139,7 @@ LIBELLES = {
         "reglage_police_invalide": "La taille de police doit être un nombre entre 8 et 500, ou vide pour la taille automatique.",
         "reglage_opacite_invalide": "L'opacité du bandeau doit être un nombre entre 0.0 et 1.0.",
         "reglage_url_notif_invalide": "URL de notification invalide : « {url} ». Une adresse http:// ou https:// complète, ou vide pour désactiver.",
+        "reglage_entete_trop_long": "Le titre de l'en-tête tient en {titre} caractères au plus, l'icône en {icone}.",
         "reglage_arret_direct_invalide": "L'arrêt automatique du direct doit être un nombre de secondes entre 0 (désactivé) et {maximum} (le plafond de tout direct).",
         "journal_acces_refuse": "\n--- {date} accès refusé ---\nraison: {raison}\nHost reçu: {host}\nOrigin reçu: {origin}\nIP cliente: {ip}\ntrusted_host configuré: {trusted}\n",
         "arret_impossible": "Impossible de lancer l'arrêt : {erreur}",
@@ -284,6 +286,7 @@ LIBELLES = {
         "reglage_police_invalide": "The font size must be a number between 8 and 500, or empty for automatic size.",
         "reglage_opacite_invalide": "The banner opacity must be a number between 0.0 and 1.0.",
         "reglage_url_notif_invalide": "Invalid notification URL: “{url}”. A full http:// or https:// address, or empty to turn it off.",
+        "reglage_entete_trop_long": "The header title holds at most {titre} characters, the icon {icone}.",
         "reglage_arret_direct_invalide": "Live view auto-stop must be a number of seconds between 0 (off) and {maximum} (the ceiling of any live view).",
         "journal_acces_refuse": "\n--- {date} access refused ---\nreason: {raison}\nHost received: {host}\nOrigin received: {origin}\nClient IP: {ip}\ntrusted_host set to: {trusted}\n",
         "arret_impossible": "Could not start the shutdown: {erreur}",
@@ -2251,6 +2254,17 @@ def _preparer_reglages_web(payload: dict) -> tuple[str, dict]:
                                          url=webhook_notif_url))
     reglages["webhook_notif_url"] = webhook_notif_url
 
+    # En-tête (issue #40). Absent (page restée ouverte depuis une version sans
+    # ce réglage) : garder celui enregistré, comme l'horloge.
+    enregistres = runtime.lire_reglages()
+    for champ, maximum in runtime.ENTETE_MAX.items():
+        texte = runtime.texte_entete(payload.get(champ, enregistres[champ]))
+        if len(texte) > maximum:
+            raise _ReglagesInvalides(msg("reglage_entete_trop_long",
+                                         titre=runtime.ENTETE_MAX["header_title"],
+                                         icone=runtime.ENTETE_MAX["header_icon"]))
+        reglages[champ] = texte
+
     # Plafonné à LIVE_MAX_SECONDS : le serveur coupe de toute façon chaque
     # direct à ce délai, une valeur au-delà serait inopérante (bornée à 24 h
     # en 0.13.0, corrigé en constatant ce plafond pour l'issue #15).
@@ -3938,7 +3952,7 @@ class Handler(serveweb.Handler):
             self.send_error(403)
             return
         if route == "/":
-            body = PAGE.encode("utf-8")
+            body = page_avec_entete(runtime.lire_reglages()).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             # La page est intégrée au script : elle change dès qu'on modifie
@@ -5026,15 +5040,15 @@ PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>blink2video</title>
-<link rel="icon" href="/favicon.ico">
+<title>__TITRE_PAGE__</title>
+<link rel="icon" href="__FAVICON__">
 <style>
 __CSS__
 </style>
 </head>
 <body>
 <header>
-  <h1>blink2video<span class="v">__VERSION__ (<span id="pidServeur"></span>)</span></h1>
+  <h1>__ENTETE__<span class="v">__VERSION__ (<span id="pidServeur"></span>)</span></h1>
   <select id="view">
     <option value="live" data-i18n="view.live">Directs Vues</option>
     <option value="direct" data-i18n="view.direct">Directs Enregistrements</option>
@@ -5147,6 +5161,18 @@ __CSS__
       <legend data-i18n="reglages.masquees">Caméras masquées</legend>
       <p class="sub tiny" data-i18n="reglages.masquees.hint">Une caméra masquée disparaît des listes de cette page mais continue d'enregistrer et de télécharger. Réglage propre à ce navigateur.</p>
       <div id="camerasMasqueesListe" class="ligneCoches sub tiny"></div>
+    </fieldset>
+    <fieldset>
+      <legend data-i18n="reglages.entete">En-tête de la page</legend>
+      <p class="sub tiny" data-i18n="reglages.entete.hint">Pour reconnaître cette installation d'une autre : le titre et l'icône s'affichent en haut de la page et dans l'onglet, sur tous les navigateurs. Vides : blink2video.</p>
+      <div class="champCadence">
+        <label for="headerTitle" data-i18n="reglages.entete.titre">Titre</label>
+        <input type="text" id="headerTitle" maxlength="60" placeholder="blink2video">
+      </div>
+      <div class="champCadence">
+        <label for="headerIcon" data-i18n="reglages.entete.icone">Icône (un émoji)</label>
+        <input type="text" id="headerIcon" maxlength="16" placeholder="🏠">
+      </div>
     </fieldset>
     <div class="champCadence">
       <label for="port" data-i18n="reglages.serveur">Port du serveur</label>
@@ -5507,6 +5533,33 @@ TOKEN = uuid.uuid4().hex
 PAGE = PAGE.replace("__TOKEN__", TOKEN)
 SCRIPT_NONCE = uuid.uuid4().hex
 PAGE = PAGE.replace("__SCRIPT_NONCE__", SCRIPT_NONCE)
+
+# Titre et icône de l'en-tête (issue #40) : lus à chaque envoi de la page, pas
+# au chargement comme la version, pour qu'un fichier de réglages retouché à la
+# main se voie au rechargement. En une seule passe : un titre qui contiendrait
+# « __FAVICON__ » reste du texte.
+_ENTETE_RE = re.compile(r"__(TITRE_PAGE|FAVICON|ENTETE)__")
+
+
+def page_avec_entete(reglages: dict) -> str:
+    """La page, avec le titre et l'icône choisis dans les réglages.
+
+    L'icône, un émoji en général, sert aussi d'icône d'onglet : l'image SVG
+    d'un seul caractère, l'usage courant pour un favicon en émoji, passe par
+    `img-src data:` que la CSP autorise déjà. Sans icône, celle de
+    l'application."""
+    titre = reglages.get("header_title") or "blink2video"
+    icone = reglages.get("header_icon") or ""
+    favicon = "/favicon.ico"
+    entete = html.escape(titre)
+    if icone:
+        svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+               f'<text y=".9em" font-size="90">{html.escape(icone)}</text></svg>')
+        favicon = "data:image/svg+xml," + quote(svg)
+        entete = f'<span class="icone">{html.escape(icone)}</span> {entete}'
+    valeurs = {"TITRE_PAGE": html.escape(titre), "FAVICON": html.escape(favicon),
+               "ENTETE": entete}
+    return _ENTETE_RE.sub(lambda m: valeurs[m.group(1)], PAGE)
 
 
 def parse_args() -> argparse.Namespace:

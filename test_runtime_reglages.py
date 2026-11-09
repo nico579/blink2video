@@ -127,7 +127,8 @@ class TestsReglages(unittest.TestCase):
              "trusted_host": "100.101.194.5",
              "webhook_notif_url": "https://exemple.invalid/notif",
              "live_auto_stop_seconds": 0, "clock": "24h", "dossier_sorties": "",
-             **{champ: 0 for champ in runtime.CONSERVATION}})
+             **{champ: 0 for champ in runtime.CONSERVATION},
+             "header_title": "", "header_icon": ""})
 
     def test_valeurs_partielles_completees_par_les_defauts(self):
         (self.dossier / runtime.REGLAGES).write_text(
@@ -154,7 +155,8 @@ class TestsReglages(unittest.TestCase):
              "live_auto_stop_seconds": runtime.REGLAGES_DEFAUT["live_auto_stop_seconds"],
              "clock": runtime.REGLAGES_DEFAUT["clock"],
              "dossier_sorties": runtime.REGLAGES_DEFAUT["dossier_sorties"],
-             **{champ: 0 for champ in runtime.CONSERVATION}})
+             **{champ: 0 for champ in runtime.CONSERVATION},
+             "header_title": "", "header_icon": ""})
 
     def test_fuseau_vide_dans_le_fichier_retombe_sur_le_defaut(self):
         (self.dossier / runtime.REGLAGES).write_text(
