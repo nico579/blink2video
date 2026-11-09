@@ -341,7 +341,11 @@ couvre : ajoutez aussi le nom.
 
 ## L'interface
 
-La page, sur `127.0.0.1:8765`, a six vues :
+La page, sur `127.0.0.1:8765`, a six vues. Chaque navigateur rouvre la
+dernière qu'il a affichée : un écran mural revient au Direct, le navigateur du
+bureau aux Clips. Pour distinguer une installation d'une autre, Réglages,
+Général, « En-tête de la page » donne un titre et une icône (un émoji),
+affichés en haut de la page et dans l'onglet.
 
 - **Direct** : une tuile par caméra, son état, l'armement de la détection, un
   bouton plein écran, un bouton « Réveiller » qui force la caméra à se
@@ -354,6 +358,8 @@ La page, sur `127.0.0.1:8765`, a six vues :
   est fermé ou rechargé, au bout de 5 minutes au plus dans tous les cas (un
   plafond côté serveur, quoi que fasse le navigateur), ou plus tôt si
   « Arrêt auto du direct » est réglé dans les Réglages.
+  Les caméras hors ligne viennent en fin de liste dans chaque système, faute
+  d'images à y voir.
   Le bouton « Ronde… » montre les caméras l'une après l'autre en plein
   écran, pour un écran mural par exemple : chacune reste le nombre de
   secondes choisi (30 par défaut), compté à partir de sa première image,
@@ -364,7 +370,13 @@ La page, sur `127.0.0.1:8765`, a six vues :
   réveille la caméra, ce qui use vite une batterie, et tant que la ronde
   tourne, la relève du stockage local (clé USB) attend sa pause ou son
   arrêt, le Sync Module ne relayant qu'une chose à la fois. Ces réglages
-  restent dans le navigateur, comme la taille des vignettes.
+  restent dans le navigateur, comme la taille des vignettes. Une ronde qui
+  tournait encore à la fermeture de la page repart à sa réouverture, quand
+  un écran mural redémarre ou qu'une mise à jour recharge la page ; arrêtée
+  à la main, elle ne repart pas. Un navigateur n'accorde le plein écran
+  qu'après un clic : une ronde qui repart seule remplit donc la fenêtre.
+  Pour un écran mural, lancez Chromium ou Edge en mode kiosque (`--kiosk`),
+  la fenêtre est alors l'écran entier.
 - **Clips** : du plus récent au plus ancien, avec un aperçu et un bouton
   « Écarter » qui retire un clip de toutes les vidéos assemblées.
 - **Journalières, Hebdomadaires, Mensuelles** : les vidéos assemblées. Les

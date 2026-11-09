@@ -29,6 +29,7 @@ import signal
 import subprocess
 import sys
 import time
+import unicodedata
 import urllib.request
 from pathlib import Path
 from typing import NamedTuple
@@ -78,7 +79,13 @@ REGLAGES_DEFAUT = {"usb_minutes": 10, "cloud_minutes": 1, "port": 8765, "timesta
                    # Heure incrustée : "24h" ou "12h" (AM/PM).
                    "clock": "24h",
                    # Vide : dossier par défaut, voir dossier_sorties().
-                   "dossier_sorties": ""}
+                   "dossier_sorties": "",
+                   # En-tête de la page (issue #40) : vide = « blink2video »
+                   # sans icône. Sert à distinguer une instance d'une autre.
+                   "header_title": "", "header_icon": ""}
+# Bornes de l'en-tête, en caractères : un titre qui tient sur la ligne, une
+# icône d'un émoji, fût-il composé (famille, drapeau : plusieurs points de code).
+ENTETE_MAX = {"header_title": 60, "header_icon": 16}
 # Conservation par catégorie, en jours (issue #120) : 0 garde pour toujours,
 # le comportement de toujours, donc la valeur par défaut. La purge elle-même
 # est dans merge_daily.purger_anciens().
@@ -199,6 +206,17 @@ def _flottant_borne(valeurs: dict, champ: str, defaut: float,
     return nombre
 
 
+def texte_entete(valeur) -> str:
+    """Titre ou icône de l'en-tête, sans caractère de contrôle ni espace en bord.
+
+    Seuls les contrôles (catégorie Cc : retour à la ligne, tabulation...)
+    partent : le liant invisible des émojis composés (U+200D, catégorie Cf)
+    doit rester, sans quoi une famille deviendrait quatre visages."""
+    if not isinstance(valeur, str):
+        return ""
+    return "".join(c for c in valeur if unicodedata.category(c) != "Cc").strip()
+
+
 def lire_reglages() -> dict:
     """Cadences USB/cloud, port, horodatage et fuseau actuels, modifiables
     depuis la page web.
@@ -252,6 +270,9 @@ def lire_reglages() -> dict:
         "clock": valeurs.get("clock") if valeurs.get("clock") in HORLOGES
         else REGLAGES_DEFAUT["clock"],
         "dossier_sorties": str(valeurs.get("dossier_sorties") or "").strip(),
+        # Fichier retouché à la main au-delà de la borne : tronqué, pas perdu.
+        **{champ: texte_entete(valeurs.get(champ))[:maximum]
+           for champ, maximum in ENTETE_MAX.items()},
         **{champ: _entier_borne(valeurs, champ, 0, 0, CONSERVATION_MAX_JOURS)
            for champ in CONSERVATION},
     }
@@ -289,6 +310,7 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
                     live_auto_stop_seconds: int = 0,
                     clock: str = "24h",
                     dossier_sorties: str | None = None,
+                    header_title: str = "", header_icon: str = "",
                     dossier: Path | None = None,
                     **conservation) -> None:
     inconnus = set(conservation) - set(CONSERVATION)
@@ -327,6 +349,8 @@ def ecrire_reglages(usb_minutes: int, cloud_minutes: int, port: int, timestamp: 
         "live_auto_stop_seconds": int(live_auto_stop_seconds),
         "clock": clock if clock in HORLOGES else "24h",
         "dossier_sorties": str(dossier_sorties).strip(),
+        "header_title": texte_entete(header_title)[:ENTETE_MAX["header_title"]],
+        "header_icon": texte_entete(header_icon)[:ENTETE_MAX["header_icon"]],
         **{champ: int(conservation.get(champ, 0) or 0) for champ in CONSERVATION},
     }))
 

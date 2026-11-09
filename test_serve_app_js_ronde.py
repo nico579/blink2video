@@ -32,12 +32,14 @@ FONCTIONS = [
     "arreterDecompteRonde", "peindreTitreRonde", "demarrerDecompteRonde",
     "armerTourRonde", "imageEnCoursRonde", "rendreCaseRonde", "tourDeRonde",
     "surImageRonde", "demarrerRonde", "arreterRonde", "surPleinEcranRonde",
+    "comparerCamerasDirect", "memoriserRondeEnCours", "rondeEtaitEnCours",
 ]
 
 CODE = "\n".join(
     [extraire(r"^const cssId = .*?;$"), extraire(r"^const CLE_RONDE = .*?;$")]
     + re.findall(r"^const RONDE_[A-Z_]+ = .*?;$", SOURCE, re.MULTILINE)
     + [extraire(r"^const ronde = \{.*?^\};"), extraire(r"^let reglagesRonde = .*?;$")]
+    + [extraire(r"^const CLE_RONDE_EN_COURS = .*?;$"), extraire(r"^let rondeAReprendre = .*?;$")]
     + [extraire(rf"^function {nom}\(.*?^\}}") for nom in FONCTIONS]
 )
 
@@ -90,6 +92,7 @@ const magasin = STOCKAGE;
 globalThis.localStorage = {
   getItem: (c) => (c in magasin ? magasin[c] : null),
   setItem: (c, v) => { magasin[c] = String(v); },
+  removeItem: (c) => { delete magasin[c]; },
 };
 let minuteries = [];
 let numero = 0;
@@ -192,6 +195,46 @@ sortie.choisies = camerasRonde(normaliserReglagesRonde({exclues: ["cam-a"]})).ma
         # C hors ligne, D masquée : ni l'une ni l'autre n'a sa place.
         self.assertEqual(sortie["toutes"], ["cam-a", "cam-b"])
         self.assertEqual(sortie["choisies"], ["cam-b"])
+
+
+class Reprise(unittest.TestCase):
+    """Issue #40 : une ronde que seule la fermeture de la page a coupée
+    reprend à la réouverture ; arrêtée à la main, elle ne reprend pas."""
+
+    def test_demarree_elle_se_marque_arretee_elle_s_efface(self):
+        sortie = executer("""
+sortie.avant = rondeEtaitEnCours();
+demarrerRonde();
+sortie.pendant = magasin["blink2video.ronde.enCours"];
+sortie.relue = rondeEtaitEnCours();
+arreterRonde();
+sortie.apres = "blink2video.ronde.enCours" in magasin;
+""")
+        self.assertEqual((sortie["avant"], sortie["pendant"], sortie["relue"], sortie["apres"]),
+                         (False, "1", True, False))
+
+    def test_quitter_le_plein_ecran_compte_comme_un_arret(self):
+        sortie = executer("""
+demarrerRonde();
+surPleinEcranRonde();
+document.fullscreenElement = null;
+surPleinEcranRonde();
+sortie.active = ronde.active;
+sortie.marque = "blink2video.ronde.enCours" in magasin;
+""")
+        self.assertEqual((sortie["active"], sortie["marque"]), (False, False))
+
+    def test_stockage_indisponible_ni_reprise_ni_plantage(self):
+        sortie = executer("""
+globalThis.localStorage = { getItem() { throw new Error("bloqué"); },
+                            setItem() { throw new Error("bloqué"); },
+                            removeItem() { throw new Error("bloqué"); } };
+demarrerRonde();
+sortie.active = ronde.active;
+sortie.relue = rondeEtaitEnCours();
+arreterRonde();
+""")
+        self.assertEqual((sortie["active"], sortie["relue"]), (True, False))
 
 
 class Enchainement(unittest.TestCase):

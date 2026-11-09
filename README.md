@@ -312,7 +312,11 @@ IP it resolves to, so no subnet entry covers it: list the name too.
 
 ## The interface
 
-The page, at `127.0.0.1:8765`, has six views:
+The page, at `127.0.0.1:8765`, has six views. Each browser reopens on the last
+one it used, so a wall screen can come back to Live while the browser on your
+desk opens on Clips. To tell one installation from another, Settings, General,
+"Page header" sets a title and an icon (an emoji), shown at the top of the
+page and in the browser tab.
 
 - **Live**: one tile per camera, its state, detection arming, a fullscreen
   button, a "Wake" button that forces the camera to check in right now for
@@ -324,6 +328,8 @@ The page, at `127.0.0.1:8765`, has six views:
   view stops on its own: as soon as you close or reload the tab, after
   5 minutes at most in any case (a server-side cap, whatever the browser
   does), or earlier if you set "Auto-stop live view" in Settings.
+  Offline cameras come last in each system, since there is nothing to watch
+  on them.
   The "Rotation…" button shows the cameras one after another in
   fullscreen, for a wall screen for instance: each one stays for the
   number of seconds you choose (30 by default), counted from its first
@@ -334,7 +340,12 @@ The page, at `127.0.0.1:8765`, has six views:
   battery cameras drain fast, and while it runs the local storage (USB)
   downloads wait for a pause or the end, since the Sync Module relays one
   thing at a time. These settings are kept in the browser, like the
-  thumbnail size.
+  thumbnail size. A rotation still running when the page closes starts
+  again when it reopens, after a wall screen restarts or an update reloads
+  the page; one you stopped yourself does not. A browser only allows
+  fullscreen after a click, so a rotation that resumes on its own fills the
+  window instead: for a wall screen, start Chromium or Edge in kiosk mode
+  (`--kiosk`), and the window is the whole screen.
 - **Clips**: newest first, with a preview and an "Écarter" button that removes a
   clip from every assembled video.
 - **Daily, Weekly, Monthly**: the assembled videos. Daily can also be grouped

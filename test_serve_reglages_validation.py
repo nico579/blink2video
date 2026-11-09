@@ -33,6 +33,7 @@ DEFAUTS = {
     "conservation_mois": 0,
     "conservation_directs": 0,
     "conservation_photos": 0,
+    "header_title": "", "header_icon": "",
 }
 CHAMPS_BOOLEENS = (
     "timestamp", "merge_jour", "merge_semaine", "merge_mois", "download_auto")
@@ -113,6 +114,25 @@ class TestsValidationReglagesHttp(unittest.TestCase):
         self.stockage.assert_not_called()
         handler.repondre_puis_redemarrer.assert_not_called()
 
+    def test_en_tete_nettoye_borne_et_garde_pour_une_page_ancienne(self):
+        # Issue #40 : titre et icône de l'en-tête. Contrôles retirés, bords
+        # nettoyés, liant des émojis composés (U+200D) gardé.
+        famille = chr(0x200D).join(["\U0001F468", "\U0001F469", "\U0001F467"])
+        self.assert_enregistre(
+            self.requete(self.payload(header_title="  Maison\nde Marc ", header_icon=famille)),
+            dict(DEFAUTS, header_title="Maisonde Marc", header_icon=famille))
+        # Une page restée ouverte depuis une version sans ce réglage ne
+        # l'envoie pas : celui enregistré reste.
+        actuel = dict(serve.runtime.REGLAGES_DEFAUT, header_title="Garage", header_icon="🚗")
+        with mock.patch.object(serve.runtime, "lire_reglages", return_value=actuel):
+            self.assert_enregistre(self.requete(self.payload()),
+                                   dict(DEFAUTS, header_title="Garage", header_icon="🚗"))
+        message = "Le titre de l'en-tête tient en 60 caractères au plus, l'icône en 16."
+        self.assert_refuse(self.requete(self.payload(header_title="x" * 61)), message)
+        self.assert_refuse(self.requete(self.payload(header_icon="x" * 17)), message)
+        # Autre chose qu'un texte : vide, comme un réglage absent du fichier.
+        self.assert_enregistre(self.requete(self.payload(header_title=42)), DEFAUTS)
+
     def test_audio_settings_are_validated_and_preserved_for_older_clients(self):
         current = dict(serve.runtime.REGLAGES_DEFAUT, camera_audio_enabled=True, camera_audio_track=1)
         with mock.patch.object(serve.runtime, "lire_reglages", return_value=current):
@@ -168,6 +188,7 @@ class TestsValidationReglagesHttp(unittest.TestCase):
             "conservation_mois": 0,
             "conservation_directs": 0,
             "conservation_photos": 0,
+            "header_title": "", "header_icon": "",
         }, "archives locales")
         self.chemin.assert_called_once_with("archives locales")
 

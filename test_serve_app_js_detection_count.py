@@ -14,7 +14,8 @@ class TestsDetectionCount(unittest.TestCase):
             self.skipTest("node introuvable")
         source = Path(__file__).with_name("serve_app.js").read_text(encoding="utf-8")
         patterns = [r"^const I18N = \{.*?^\};", r"^function t\(k\) \{[^\n]*\}$",
-                    r"^function tf\(k, v\) \{.*?^\}", r"^function renderLive\(\) \{.*?^\}"]
+                    r"^function tf\(k, v\) \{.*?^\}", r"^function renderLive\(\) \{.*?^\}",
+                    r"^function comparerCamerasDirect\(a, b\) \{.*?^\}"]
         code = "\n".join(re.search(p, source, re.M | re.S).group(0) for p in patterns)
         for lang, expected in (("en", "3 camera(s) · 2 with detection on"),
                                ("fr", "3 caméra(s) · 2 avec détection active")):
