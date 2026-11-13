@@ -24,7 +24,8 @@ def camera(nom, armed=True, offline=False, **champs):
     base = {
         "name": nom, "key": f"cle-{nom}", "armed": armed, "offline": offline,
         "status": "offline" if offline else "done", "battery": "ok", "battery_signal": 3,
-        "voltage": 1.6, "temperature": 18.3, "wifi": 4, "firmware": "12.34", "model": "Blink Outdoor",
+        "voltage": 1.6, "temperature": 18.3, "temperature_f": 65.0, "wifi": 4, "firmware": "12.34",
+        "model": "Blink Outdoor",
         "age_seconds": 120, "serial": "SECRET-SERIE", "lfr": 1, "measured_today": True,
     }
     base.update(champs)
@@ -61,8 +62,8 @@ class ParametresEtFormes(unittest.TestCase):
         salon = r["systems"][0]["cameras"][0]
         self.assertEqual(salon, {
             "name": "Salon", "system": "Maison", "armed": True, "online": True, "status": "done",
-            "battery": "ok", "battery_signal": 3, "voltage": 1.6, "temperature_c": 18.3, "wifi": 4,
-            "firmware": "12.34", "model": "Blink Outdoor", "age_seconds": 120})
+            "battery": "ok", "battery_signal": 3, "voltage": 1.6, "temperature_c": 18.3,
+            "temperature_f": 65.0, "wifi": 4, "firmware": "12.34", "model": "Blink Outdoor", "age_seconds": 120})
         self.assertNotIn("SECRET-SERIE", str(r))
         self.assertNotIn("SERIE-MODULE", str(r))
         self.assertEqual(r["systems"][0]["module"], "Sync Module 2")
@@ -77,8 +78,8 @@ class ParametresEtFormes(unittest.TestCase):
         # Une Mini sur secteur : ni batterie, ni tension, ni wifi, ni modele.
         mini = {"name": "Mini", "key": "k", "armed": True, "offline": False}
         r = serve.etat_webhook(etat(systeme("Maison", [mini])))["systems"][0]["cameras"][0]
-        for champ in ("battery", "battery_signal", "voltage", "temperature_c", "wifi", "firmware",
-                      "model", "age_seconds", "status"):
+        for champ in ("battery", "battery_signal", "voltage", "temperature_c", "temperature_f", "wifi",
+                      "firmware", "model", "age_seconds", "status"):
             self.assertIsNone(r[champ], champ)
         self.assertIs(r["online"], True)
 

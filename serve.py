@@ -672,6 +672,7 @@ def _camera_pour_webhook(camera: dict, systeme) -> dict:
         "battery_signal": camera.get("battery_signal"),
         "voltage": camera.get("voltage"),
         "temperature_c": camera.get("temperature"),
+        "temperature_f": camera.get("temperature_f"),
         "wifi": camera.get("wifi"),
         "firmware": camera.get("firmware"),
         "model": camera.get("model"),
@@ -2659,8 +2660,12 @@ class Handler(serveweb.Handler):
         temp_brute = signals.get("temp")
         try:
             temperature = round((temp_brute - 32) / 9.0 * 5.0, 1)
-        except TypeError:
-            temperature = None
+            # La mesure de Blink telle quelle, pour une page réglée en
+            # Fahrenheit (issue #146) : reconvertir le Celsius arrondi ferait
+            # dériver la valeur (71 °F, 21,7 °C, 71,1 °F).
+            temperature_f = round(float(temp_brute), 1)
+        except (TypeError, ValueError):
+            temperature = temperature_f = None
 
         return {
             "name": camera_name.strip(),
@@ -2681,6 +2686,7 @@ class Handler(serveweb.Handler):
             "battery_signal": signals.get("battery"),
             "voltage": attributes.get("battery_voltage"),
             "temperature": temperature,
+            "temperature_f": temperature_f,
             "wifi": signals.get("wifi"),
             "lfr": signals.get("lfr"),
             "firmware": info.get("fw_version"),
@@ -5150,6 +5156,13 @@ __CSS__
         <option value="moyennes" data-i18n="reglages.tailleCartes.moyennes">Moyennes</option>
         <option value="grandes" data-i18n="reglages.tailleCartes.grandes">Grandes</option>
         <option value="tres_grandes" data-i18n="reglages.tailleCartes.tres_grandes">Très grandes</option>
+      </select>
+    </div>
+    <div class="champCadence">
+      <label for="uniteTemperature" data-i18n="reglages.uniteTemperature">Unité de température</label>
+      <select id="uniteTemperature">
+        <option value="C" data-i18n="reglages.uniteTemperature.C">Celsius (°C)</option>
+        <option value="F" data-i18n="reglages.uniteTemperature.F">Fahrenheit (°F)</option>
       </select>
     </div>
     <label id="barrePaginationLabel" data-i18n-title="reglages.barrePagination.title"

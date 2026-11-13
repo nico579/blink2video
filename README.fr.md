@@ -56,7 +56,10 @@ lancement et les principaux réglages.
   L'historique des clips traités est conservé à côté de `Blink_Clips` : purger
   ce dossier ne déclenche pas leur téléchargement ni une nouvelle notification.
 - Affichage de l'état des caméras : batterie, température, signal, modèle et
-  micrologiciel de chaque caméra.
+  micrologiciel de chaque caméra. La température s'affiche en Celsius ou en
+  Fahrenheit : par défaut l'unité du pays du navigateur (Fahrenheit aux
+  États-Unis et dans les quelques territoires qui l'emploient), et Réglages >
+  Unité de température la change pour ce navigateur.
 - Incrustation de la date et heure dans l'image, donc conservée par n'importe
   quel lecteur. Taille, couleur, opacité du bandeau et heure sur 24 h ou
   12 h (AM/PM) configurables.
@@ -424,7 +427,8 @@ le même secret que la photo : un seul à garder en lieu sûr.
   chaque caméra en JSON ; ajoutez `&camera=<nom>` pour une seule caméra. Chaque
   caméra a `name`, `system`, `armed` (sa détection), `online`, `status`, `battery`
   (un statut comme `ok`, pas un pourcentage), `battery_signal`, `voltage`,
-  `temperature_c`, `wifi`, `firmware`, `model` et `age_seconds` (l'âge du relevé).
+  `temperature_c`, `temperature_f` (telle que Blink la rapporte), `wifi`, `firmware`, `model` et
+  `age_seconds` (l'âge du relevé).
   Les champs sont ceux que Blink donne : une caméra qui n'en rapporte pas un
   (une Mini sur secteur n'a pas de batterie) affiche `null`, et Blink a déjà
   changé de tels champs, donc un script doit tolérer une valeur absente.
