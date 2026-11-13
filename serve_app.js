@@ -310,6 +310,8 @@ const I18N = {
     "reglages.tailleCartes": "Taille des vignettes",
     "reglages.tailleCartes.petites": "Petites", "reglages.tailleCartes.moyennes": "Moyennes",
     "reglages.tailleCartes.grandes": "Grandes", "reglages.tailleCartes.tres_grandes": "Très grandes",
+    "reglages.uniteTemperature": "Unité de température",
+    "reglages.uniteTemperature.C": "Celsius (°C)", "reglages.uniteTemperature.F": "Fahrenheit (°F)",
     "reglages.barrePagination": "Afficher la barre de pagination en haut de la liste",
     "reglages.barrePagination.title": "Masquée, la barre du bas de la liste reste disponible pour changer de page. Propre à ce navigateur.",
     "reglages.masquees": "Caméras masquées",
@@ -539,6 +541,8 @@ const I18N = {
     "reglages.tailleCartes": "Thumbnail size",
     "reglages.tailleCartes.petites": "Small", "reglages.tailleCartes.moyennes": "Medium",
     "reglages.tailleCartes.grandes": "Large", "reglages.tailleCartes.tres_grandes": "Extra large",
+    "reglages.uniteTemperature": "Temperature unit",
+    "reglages.uniteTemperature.C": "Celsius (°C)", "reglages.uniteTemperature.F": "Fahrenheit (°F)",
     "reglages.barrePagination": "Show the pagination bar at the top of the list",
     "reglages.barrePagination.title": "When hidden, the bar at the bottom of the list stays available to change page. Specific to this browser.",
     "reglages.masquees": "Hidden cameras",
@@ -700,6 +704,38 @@ function appliquerTailleCartes() {
   document.documentElement.style.setProperty("--carte-min", `${TAILLES_CARTES[tailleCartes]}px`);
 }
 appliquerTailleCartes();
+
+// Unité de température (issue #146) : propre à ce navigateur, comme la taille
+// des vignettes. Sans choix mémorisé, la règle de blink2temp, sa page web comme
+// son application Android : Fahrenheit dans les territoires qui l'emploient,
+// d'après le pays de la langue du navigateur, Celsius ailleurs et pour une
+// langue sans pays. blink2video y ajoute le choix des réglages, qui l'emporte.
+const CLE_UNITE_TEMPERATURE = "blink2video.uniteTemperature";
+const TERRITOIRES_FAHRENHEIT = new Set([
+  "AS", "BQ", "BS", "FM", "GU", "IO", "JM", "KY", "LR", "MH", "MM",
+  "MP", "PW", "PR", "PS", "SX", "TC", "TL", "UM", "US", "VG", "VI",
+]);
+let uniteTemperature = restaurerUniteTemperature();
+
+function uniteTemperatureDuPays(langue) {
+  let region = "";
+  try {
+    region = new Intl.Locale(langue).region || "";
+  } catch (erreur) {
+    region = String(langue).split("-")[1] || "";
+  }
+  return TERRITOIRES_FAHRENHEIT.has(region.toUpperCase()) ? "F" : "C";
+}
+
+function restaurerUniteTemperature() {
+  try {
+    const unite = localStorage.getItem(CLE_UNITE_TEMPERATURE);
+    if (unite === "C" || unite === "F") return unite;
+  } catch (erreur) {}
+  const langue = typeof navigator !== "undefined" ? navigator.language || (navigator.languages || [])[0] : "";
+  return uniteTemperatureDuPays(langue || "fr");
+}
+// Fin des préférences d'unité.
 
 // Ordre naturel des noms de caméras (« 2-Escalier » avant « 10-Cave »), dans
 // la langue de la page. Un collateur par langue : en construire un par
@@ -1277,6 +1313,17 @@ function degres(valeur, locale) {
   return valeur.toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
+// La température d'une caméra dans l'unité de ce navigateur. En Fahrenheit, la
+// mesure de Blink telle quelle (temperature_f) : reconvertir le Celsius
+// arrondi la ferait dériver. Un relevé d'avant ce champ se reconvertit.
+function texteTemperature(c, locale) {
+  if (uniteTemperature === "F") {
+    const f = typeof c.temperature_f === "number" ? c.temperature_f : c.temperature * 9 / 5 + 32;
+    return `${degres(f, locale)} °F`;
+  }
+  return `${degres(c.temperature, locale)} °C`;
+}
+
 function cameraCard(c, systemArmed) {
   // Une mesure vieille de plus d'une heure est datée, et une caméra hors
   // ligne est signalée comme telle : sa dernière température connue peut
@@ -1285,7 +1332,7 @@ function cameraCard(c, systemArmed) {
   const num = (v) => v !== null && v !== undefined;
   const releve = [
     c.battery ? tf("camera.battery", { v: c.battery }) + (num(c.battery_signal) ? ` (${c.battery_signal})` : "") : null,
-    num(c.temperature) ? `${degres(c.temperature)} °C` : null,
+    num(c.temperature) ? texteTemperature(c) : null,
     num(c.wifi) ? tf("camera.wifi", { v: c.wifi }) : null,
     num(c.lfr) ? tf("camera.lfr", { v: c.lfr }) : null,
   ].filter(Boolean).join(" · ");
@@ -3666,6 +3713,11 @@ $("barrePagination").onchange = () => {
   try { localStorage.setItem(CLE_BARRE_PAGINATION, barrePaginationHaute ? "1" : "0"); } catch (erreur) {}
   render();
 };
+$("uniteTemperature").onchange = () => {
+  uniteTemperature = $("uniteTemperature").value === "F" ? "F" : "C";
+  try { localStorage.setItem(CLE_UNITE_TEMPERATURE, uniteTemperature); } catch (erreur) {}
+  render();
+};
 $("tailleCartes").onchange = () => {
   tailleCartes = $("tailleCartes").value;
   try { localStorage.setItem(CLE_TAILLE_CARTES, tailleCartes); } catch (erreur) {}
@@ -3850,6 +3902,7 @@ async function ouvrirReglages(configurationInitiale = false) {
   configurerDialogueReglages(configurationInitiale);
   chargerCamerasMasquees();
   $("tailleCartes").value = tailleCartes;
+  $("uniteTemperature").value = uniteTemperature;
   $("barrePagination").checked = barrePaginationHaute;
   chargerSourdine();
   chargerSuppressionAuto();

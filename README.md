@@ -50,7 +50,10 @@ and the main settings.
   Download history is also kept beside `Blink_Clips`, so deleting that folder
   does not download old recordings again or announce them as new.
 - Camera state at a glance: battery, temperature, signal, model and firmware
-  for each camera.
+  for each camera. The temperature shows in Celsius or Fahrenheit: by default
+  the unit of the browser's country (Fahrenheit in the United States and the
+  few territories that use it), and Settings > Temperature unit changes it for
+  this browser.
 - Date and time burned into the picture, so any player keeps it. Size,
   color, background opacity and 24h or 12h (AM/PM) clock all configurable.
 - One video per day, per ISO week and per month, for each camera.
@@ -388,7 +391,7 @@ the same secret as the picture webhook, so there is only one to keep safe.
   and camera as JSON; add `&camera=<name>` for one camera. Each camera has
   `name`, `system`, `armed` (its detection), `online`, `status`, `battery` (a
   status such as `ok`, not a percentage), `battery_signal`, `voltage`,
-  `temperature_c`, `wifi`, `firmware`, `model` and `age_seconds` (how old the
+  `temperature_c`, `temperature_f` (as Blink reports it), `wifi`, `firmware`, `model` and `age_seconds` (how old the
   reading is). The fields are those Blink gives: a camera that does not report
   one (a plugged-in Mini has no battery) shows `null`, and Blink has changed
   such fields before, so a script should tolerate a missing value.

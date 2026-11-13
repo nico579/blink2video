@@ -76,7 +76,7 @@ const ids = [
   'webhookUrl', 'webhookRegenerer', 'fontSize', 'fontColor', 'boxOpacity', 'clock',
   'trustedHost', 'webhookNotifUrl', 'headerTitle', 'headerIcon', 'liveAutoStopSeconds', 'redemarrerButton',
   'conservationClips', 'conservationJour', 'conservationSemaine', 'conservationMois', 'conservationDirects', 'conservationPhotos',
-  'tabGeneral', 'tabVideo', 'tabAcces', 'tabAlertes', 'tailleCartes', 'barrePagination',
+  'tabGeneral', 'tabVideo', 'tabAcces', 'tabAlertes', 'tailleCartes', 'uniteTemperature', 'barrePagination',
   'panelGeneral', 'panelVideo', 'panelAcces', 'panelAlertes',
 ];
 class Element {
@@ -125,6 +125,7 @@ globalThis.chargerSuppressionAuto = () => {
 };
 globalThis.chargerCamerasMasquees = () => {};
 globalThis.tailleCartes = 'moyennes';
+globalThis.uniteTemperature = 'C';
 globalThis.barrePaginationHaute = true;
 globalThis.fetch = async (url, options) => {
   if (url !== '/api/reglages' || options !== undefined) {
