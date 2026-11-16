@@ -131,7 +131,7 @@ unpack it. ffmpeg travels inside the bundle; nothing is installed system-wide.
 |---|---|---|
 | Windows 10/11, x86-64 | `blink2video-windows-x86_64.zip` | `blink2video.exe` from a terminal |
 | Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, then `./blink2video` |
-| macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, then `./blink2video` |
+| macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video` on the unzipped folder, then `cd blink2video` and `./blink2video` |
 
 The archives embed WebRTC, the default live view protocol. On macOS the WebRTC
 libraries need macOS 14 or later: on macOS 12 and 13 blink2video starts
@@ -178,10 +178,13 @@ machine.
 
 The published binary is neither signed nor notarized: on macOS, Gatekeeper
 refuses the first run of an archive downloaded through a browser, hence the
-`xattr` in the table. Right-click then "Open" does the same. If you see
-"Apple could not verify [...] is free of malware", that's this check, not an
-actual malware detection: it just means no $99/year Apple developer account
-signed the binary.
+`xattr` in the table. It must target the whole unzipped folder, not just the
+program: the quarantine flag sits on every file, including those in `_internal`.
+If you see "Apple could not verify [...] is free of malware", or
+"Python.framework is damaged", that's this check, not an actual malware
+detection or a broken download: it just means no $99/year Apple developer
+account signed the binary. Right-click then "Open" no longer gets around it
+since macOS 15 Sequoia, so use the `xattr` command.
 
 </details>
 
