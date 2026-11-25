@@ -178,6 +178,9 @@ LIBELLES = {
         "stockage_local_inventaire_titre": "\n--- Inventaire du stockage local : {nom} ---",
         "destination": "  Destination : {output}",
         "incremental": "  Incrémental : {nouveaux} nouveau(x), {deja} déjà acquis.",
+        "manifeste_doublons":
+            "  Manifeste local : {doublons} copie(s) du même clip sous des ID "
+            "différents, écartée(s) (module en cours de réindexation).",
         "cloud_indisponible": "  Cloud indisponible : {type}: {erreur}",
         "usb_echec": "    Échec de l’acquisition (exception : {type}).",
         "usb_echec_etape": "    Échec de l’acquisition : étape={etape}, statut HTTP={statut}.",
@@ -227,6 +230,9 @@ LIBELLES = {
         "stockage_local_inventaire_titre": "\n--- Local storage inventory: {nom} ---",
         "destination": "  Destination: {output}",
         "incremental": "  Incremental: {nouveaux} new, {deja} already acquired.",
+        "manifeste_doublons":
+            "  Local manifest: {doublons} duplicate copy(ies) of the same clip "
+            "under different IDs, dropped (module reindexing).",
         "cloud_indisponible": "  Cloud unavailable: {type}: {erreur}",
         "usb_echec": "    Acquisition failed (exception: {type}).",
         "usb_echec_etape": "    Acquisition failed: stage={etape}, HTTP status={statut}.",
@@ -1030,6 +1036,9 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
                 had_error = True
                 continue
             clips = blink_models.filter_clips(clips, args.camera, args.since)
+            clips, doublons = blink_registre.dedupliquer_manifeste_usb(sync, clips)
+            if doublons:
+                print(msg("manifeste_doublons", doublons=doublons))
             blink_models.print_clip_summary(clips)
         if args.source != "usb":
             resultat_cloud = await traiter_cloud(blink, args, modules)
@@ -1061,6 +1070,9 @@ async def un_passage(blink: Blink, args, modules: list) -> int:
             continue
 
         clips = blink_models.filter_clips(clips, args.camera, args.since)
+        clips, doublons = blink_registre.dedupliquer_manifeste_usb(sync, clips)
+        if doublons:
+            print(msg("manifeste_doublons", doublons=doublons))
         blink_models.print_clip_summary(clips)
         print(msg("destination", output=output))
         pending = []
