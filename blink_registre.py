@@ -307,6 +307,31 @@ def state_key(sync, clip, source: str = "usb") -> str:
     return "v2:" + hashlib.sha256(identite.encode("utf-8")).hexdigest()
 
 
+def dedupliquer_manifeste_usb(sync, clips: list) -> tuple[list, int]:
+    """Ne garde qu'un clip par identité de source USB (issue #151).
+
+    Après une réindexation, un Sync Module 2 peut répéter le même
+    enregistrement sous plusieurs IDs de manifeste. ``state_key()`` ignore
+    volontairement cet ID, que le module renumérote : les copies ont donc la
+    même identité métier, mais ``target_path()`` les distingue par leur ID.
+    Sans ce repli, chaque copie non appariée par ``_apparier_registre()``
+    (une entrée du registre ne va qu'à un clip) passe pour un nouveau clip et
+    produit un fichier byte-identique.
+
+    Le premier clip rencontré est conservé : le manifeste est déjà trié du plus
+    ancien au plus récent, et l'ordre entre copies identiques n'a pas de sens
+    métier. Retourne ``(clips uniques, nombre de copies écartées)``."""
+    vus = set()
+    uniques = []
+    for clip in clips:
+        cle = state_key(sync, clip)
+        if cle in vus:
+            continue
+        vus.add(cle)
+        uniques.append(clip)
+    return uniques, len(clips) - len(uniques)
+
+
 def camera_setting_key(sync, clip) -> str:
     """Clé stable d'un réglage destructif propre à une caméra."""
     network_id = _identifiant_reseau(clip, sync)
