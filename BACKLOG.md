@@ -84,6 +84,15 @@ savoir ce qui reste. Dernier nettoyage : 2026-10-07 (décisions du jour : Electr
   batteries. Délai réel : une à deux minutes après la fin du clip pour le cloud (relève à la minute),
   dix minutes par défaut pour l'USB, qui attend en plus la fin de la ronde.
 
+- **Vitesse de lecture par défaut (demande de konvajw sur Reddit, 2026-11-16).** Après un premier
+  passage de plus de 4 000 clips, il aimerait fixer une vitesse de lecture par défaut. Elle n'existe
+  pas : `serve_app.js` ne garde la vitesse (`video.playbackRate`) que d'un lecteur à l'autre pendant
+  la vie de la page (`liberer` puis `creer`), puis retombe à 1. À faire : un réglage global, stocké
+  dans les réglages comme les autres, appliqué à la création de chaque lecteur quand aucune vitesse
+  n'est mémorisée. Question posée à konvajw : une vitesse pour tout, ou une par caméra ? Attendre sa
+  réponse avant de coder. Son autre question (les vidéos hebdomadaires après coup) n'appelle aucun
+  code : cocher « hebdomadaire » puis relancer `merge` les assemble pour tout l'historique.
+
 ## En attente d'un retour ou d'un cas réel
 
 - **Audit du 2026-10-02 (0.15.7) : 13 constats restants, aucun correctif prévu.**
