@@ -1643,7 +1643,10 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_I07_depuis_zero_signifie_aujourd_hui(self):
-        """I-07 : `--since 0` ne doit pas se transformer en trente jours."""
+        """I-07 : `--since 0` ne doit pas se transformer en trente jours.
+
+        L'inventaire v4 est la source depuis l'issue #155 ; ces tests couvrent
+        le repli v1, seul chemin où cette fenêtre est encore transmise."""
         appels = []
 
         class Blink:
@@ -1651,7 +1654,8 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 appels.append(options)
                 return []
 
-        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee):
+        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee), \
+             contextlib.redirect_stdout(io.StringIO()):
             await blink_models.read_cloud_manifest(Blink(), 0)
         self.assertEqual(appels[0]["since"], "2026/08/13 12:34:56")
 
@@ -1664,7 +1668,8 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 appels.append(options)
                 return []
 
-        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee):
+        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee), \
+             contextlib.redirect_stdout(io.StringIO()):
             await blink_models.read_cloud_manifest(Blink(), None)
         self.assertEqual(appels[0]["since"], "2026/07/14 12:34:56")
 
@@ -1677,7 +1682,8 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 appels.append(options)
                 return []
 
-        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee):
+        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee), \
+             contextlib.redirect_stdout(io.StringIO()):
             await blink_models.read_cloud_manifest(Blink(), 7)
         self.assertEqual(appels[0]["since"], "2026/08/06 12:34:56")
 
@@ -1692,7 +1698,8 @@ class TestsDefautsAsynchrones(unittest.IsolatedAsyncioTestCase):
                 appels.append(options)
                 return []
 
-        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee):
+        with mock.patch.object(blink_models.dt, "datetime", DateHeureFigee), \
+             contextlib.redirect_stdout(io.StringIO()):
             await blink_models.read_cloud_manifest(Blink(), None)
         self.assertEqual(appels[0]["stop"], blink_models.PLAFOND_PAGES_CLOUD)
         self.assertGreater(blink_models.PLAFOND_PAGES_CLOUD, 20)
