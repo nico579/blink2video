@@ -58,6 +58,14 @@ LIBELLES = {
             "  ! [données] Manifeste cloud ignoré : racine JSON inattendue.",
         "cloud_entrees_invalides":
             "  ! [données] {invalides} entrée(s) cloud invalide(s) ignorée(s).",
+        "cloud_v4_indisponible":
+            "  ! [réseau] Inventaire cloud v4 sans réponse : repli sur l'ancien "
+            "manifeste, qui ne liste plus les enregistrements récents "
+            "(issue #155).",
+        "cloud_v4_plafond":
+            "  ! [données] Inventaire cloud v4 arrêté au plafond de sécurité "
+            "({pages} pages) : des clips plus anciens de la fenêtre demandée "
+            "ont peut-être été omis.",
         "registre_entrees_invalides":
             "  ! [données] {ignores} entrée(s) de registre invalide(s) ignorée(s).",
         "resume_volume": "  {n} clip(s), volume annoncé : environ {volume}",
@@ -116,6 +124,14 @@ LIBELLES = {
             "  ! [data] Cloud manifest ignored: unexpected JSON root.",
         "cloud_entrees_invalides":
             "  ! [data] {invalides} invalid cloud entrie(s) ignored.",
+        "cloud_v4_indisponible":
+            "  ! [network] Cloud v4 inventory gave no answer: falling back to "
+            "the old manifest, which no longer lists recent recordings "
+            "(issue #155).",
+        "cloud_v4_plafond":
+            "  ! [data] Cloud v4 inventory stopped at the safety ceiling "
+            "({pages} pages): older clips in the requested window may have "
+            "been omitted.",
         "registre_entrees_invalides":
             "  ! [data] {ignores} invalid registry entrie(s) ignored.",
         "resume_volume": "  {n} clip(s), reported size: about {volume}",
@@ -504,14 +520,24 @@ async def demander_media_cloud(blink: Blink, adresse: str):
     lecture du corps : tout clip dont le transfert dépasse 10 s était coupé en
     ``TimeoutError``, puis retenté à chaque tour. On passe donc par
     ``Auth.query``, le même chemin que blinkpy (rafraîchissement du jeton
-    compris), en lui donnant enfin un délai."""
+    compris), en lui donnant enfin un délai.
+
+    L'inventaire v4 donne déjà une URL absolue, orientée vers le centre de
+    données du compte (``https://rest-<tier>.immedia-semi.com/api/v4/...``) :
+    la préfixer par l'hôte de l'API produirait une adresse invalide. Seul
+    l'ancien manifeste, lui, fournit un chemin relatif (issue #155)."""
     from aiohttp import ClientTimeout
 
     delai = ClientTimeout(
         total=None, sock_connect=SILENCE_MEDIA_CLOUD, sock_read=SILENCE_MEDIA_CLOUD,
     )
+    adresse = str(adresse)
+    url = (
+        adresse if adresse.startswith(("http://", "https://"))
+        else f"{blink.urls.base_url}{adresse}"
+    )
     return await blink.auth.query(
-        url=f"{blink.urls.base_url}{adresse}", headers=blink.auth.header,
+        url=url, headers=blink.auth.header,
         reqtype="get", stream=True, json_resp=False, timeout=delai,
     )
 
@@ -648,6 +674,10 @@ class CloudClip:
 # marge considérable (~10 000 clips) pour un usage réel quelconque, tout en
 # restant une valeur finie plutôt que de retirer toute protection.
 PLAFOND_PAGES_CLOUD = 400
+# Même garde-fou pour la pagination v4, dont une page porte 200 entrées
+# (60 pages ≈ 12 000 clips). La fenêtre demandée borne déjà la lecture ; ce
+# plafond n'existe que pour le cas où Blink renverrait sans fin la même page.
+PLAFOND_PAGES_CLOUD_V4 = 60
 
 
 async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
@@ -656,10 +686,116 @@ async def read_cloud_manifest(blink: Blink, since_days: int | None) -> list:
     Distinct du manifeste local, et indépendant du Sync Module : c'est le compte
     qui répond, pas le module. Un abonnement ne couvrant qu'une partie des
     caméras, les deux inventaires ne se recouvrent que partiellement, d'où le
-    rapprochement fait plus loin plutôt qu'un choix de source."""
+    rapprochement fait plus loin plutôt qu'un choix de source.
+
+    Depuis le 23/11/2026, ``/api/v1/accounts/<compte>/media/changed`` répond
+    toujours HTTP 200 mais ne liste plus les enregistrements récents (issues
+    GitHub blinkpy #1354 et blink2video #155) : l'inventaire v4 est la source.
+    L'ancien manifeste reste le repli quand v4 n'a pas répondu du tout - un
+    compte plus ancien, ou un blinkpy plus ancien, peut ne pas le servir."""
     jours = 30 if since_days is None else since_days
     if jours < 0:
         raise ValueError(msg("jours_negatifs"))
+    depuis = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=jours)
+    brutes = await read_cloud_manifest_v4(blink, depuis)
+    if brutes is None:
+        print(msg("cloud_v4_indisponible"))
+        return await read_cloud_manifest_v1(blink, jours)
+    clips = []
+    invalides = 0
+    for entree in brutes:
+        if not isinstance(entree, dict):
+            invalides += 1
+            continue
+        instant = _instant_entree(entree)
+        if instant is None:
+            invalides += 1
+            continue
+        # Une page v4 est gardée tant qu'un de ses clips est dans la fenêtre
+        # (la pagination n'est pas strictement triée à ses frontières) ; ses
+        # clips trop anciens, eux, sont écartés ici.
+        if instant < depuis:
+            continue
+        # Un média supprimé reste listé, marqué comme tel ; un média partiel est
+        # un enregistrement encore en cours d'écriture côté Blink.
+        if entree.get("deleted") or entree.get("partial"):
+            continue
+        if str(entree.get("type") or "video") != "video":
+            continue
+        try:
+            clips.append(CloudClip(entree))
+        except (KeyError, TypeError, ValueError):
+            invalides += 1
+    if invalides:
+        print(msg("cloud_entrees_invalides", invalides=invalides))
+    return clips
+
+
+async def read_cloud_manifest_v4(blink: Blink, depuis: dt.datetime) -> list | None:
+    """Inventaire v4, seul à renvoyer encore les enregistrements récents.
+
+    ``/api/v4/accounts/<compte>/media`` liste du plus récent au plus ancien,
+    paginé par ``pagination_key`` (200 entrées par page). Les entrées gardent
+    les champs connus (``created_at``, ``device_name``, ``deleted``, ``type``,
+    ``media``), avec un ``id`` désormais 64 bits et une URL de média absolue
+    (voir ``demander_media_cloud``).
+
+    Retourne ``None`` quand aucune page exploitable n'a été lue : l'appelant
+    sait alors qu'il n'a rien vu, et non qu'il a tout vu. Une page perdue en
+    cours de route laisse la liste partielle - la passe suivante reprendra ce
+    qui manque, comme pour tout inventaire interrompu."""
+    requete = getattr(getattr(blink, "auth", None), "query", None)
+    base = getattr(getattr(blink, "urls", None), "base_url", None)
+    compte = getattr(blink, "account_id", None)
+    if not callable(requete) or not base or compte in (None, ""):
+        # Un objet Blink qui ne peut pas encore parler v4 (double de test,
+        # blinkpy plus ancien) : le demandant saura qu'il n'a rien vu.
+        return None
+    url = f"{base}/api/v4/accounts/{compte}/media"
+    brutes = []
+    cle = None
+    cles_vues = set()
+    for _ in range(PLAFOND_PAGES_CLOUD_V4):
+        page = await requete(
+            url=url if cle is None else f"{url}?pagination_key={cle}",
+            headers=blink.auth.header, reqtype="get",
+        )
+        if not isinstance(page, dict):
+            return brutes or None
+        medias = page.get("media")
+        if not isinstance(medias, list):
+            # Réponse sans liste (corps d'erreur rendu en JSON, schéma
+            # inattendu) : sur la première page, c'est une absence de réponse
+            # et le repli v1 s'applique ; plus loin, on garde ce qui est lu.
+            return brutes or None
+        if not medias:
+            return brutes
+        brutes += [m for m in medias if isinstance(m, dict)]
+        instants = [_instant_entree(m) for m in medias]
+        if all(instant is not None and instant < depuis for instant in instants):
+            # Page entière hors fenêtre : les suivantes sont plus anciennes.
+            return brutes
+        suivante = page.get("pagination_key")
+        if not suivante or suivante in cles_vues:
+            # Garde-fou : une clé absente ou qui se répéterait bouclerait.
+            return brutes
+        cles_vues.add(suivante)
+        cle = suivante
+    print(msg("cloud_v4_plafond", pages=PLAFOND_PAGES_CLOUD_V4))
+    return brutes
+
+
+def _instant_entree(entree: dict) -> dt.datetime | None:
+    """Horodatage UTC d'une entrée de manifeste, ``None`` si illisible."""
+    try:
+        instant = dt.datetime.fromisoformat(str(entree["created_at"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return instant if instant.tzinfo else instant.replace(tzinfo=dt.timezone.utc)
+
+
+async def read_cloud_manifest_v1(blink: Blink, jours: int) -> list:
+    """Ancien inventaire ``media/changed``, conservé comme repli (issue #155)."""
     depuis = dt.datetime.now() - dt.timedelta(days=jours)
     entrees = await blink.get_videos_metadata(
         since=depuis.strftime("%Y/%m/%d %H:%M:%S"), stop=PLAFOND_PAGES_CLOUD
