@@ -146,7 +146,7 @@ système.
 |---|---|---|
 | Windows 10/11, x86-64 | `blink2video-windows-x86_64.zip` | `blink2video.exe` depuis un terminal |
 | Linux x86-64, glibc 2.35+ (Ubuntu 22.04+, Debian 12+) | `blink2video-linux-x86_64.tar.gz` | `chmod +x blink2video`, puis `./blink2video` |
-| macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video`, puis `./blink2video` |
+| macOS 12+, Apple Silicon | `blink2video-macos-arm64.zip` | `xattr -dr com.apple.quarantine blink2video` sur le dossier décompressé, puis `cd blink2video` et `./blink2video` |
 
 Les archives embarquent WebRTC, le protocole par défaut du direct. Sous macOS,
 ses bibliothèques exigent macOS 14 ou plus : sous macOS 12 et 13, blink2video
@@ -198,10 +198,14 @@ votre machine.
 
 Le binaire publié n'est ni signé ni notarisé : sous macOS, Gatekeeper refuse le
 premier lancement d'une archive téléchargée par un navigateur, d'où le `xattr`
-du tableau. Un clic droit puis « Ouvrir » fait la même chose. Si le message
-est « Apple n'a pas pu vérifier [...] logiciel malveillant », c'est ce contrôle,
-pas une détection réelle de malware : ça signifie juste qu'aucun compte
-développeur Apple (99 $/an) n'a signé le binaire.
+du tableau. Il doit viser tout le dossier décompressé, pas seulement le
+programme : la quarantaine est posée sur chaque fichier, y compris ceux de
+`_internal`. Si le message est « Apple n'a pas pu vérifier [...] logiciel
+malveillant » ou « Python.framework est endommagé », c'est ce contrôle, pas une
+détection réelle de malware ni un téléchargement abîmé : ça signifie juste
+qu'aucun compte développeur Apple (99 $/an) n'a signé le binaire. Depuis
+macOS 15 Sequoia, le clic droit puis « Ouvrir » ne suffit plus à passer
+outre : utiliser la commande `xattr`.
 
 </details>
 
